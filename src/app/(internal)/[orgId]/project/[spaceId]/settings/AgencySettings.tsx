@@ -3,8 +3,10 @@
 import { useCallback, useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAgencyMode, type VendorSettings } from '@/lib/hooks/useAgencyMode'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 
 interface AgencySettingsProps {
+  orgId: string
   spaceId: string
 }
 
@@ -13,21 +15,26 @@ function ToggleItem({
   description,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string
   description: string
   checked: boolean
   onChange: (checked: boolean) => void
+  /** 閲覧者（viewer）など編集できない人には操作させない */
+  disabled?: boolean
 }) {
   return (
-    <label className="flex items-start gap-3 py-3 px-1 cursor-pointer group">
+    <label className={`flex items-start gap-3 py-3 px-1 group ${disabled ? '' : 'cursor-pointer'}`}>
       <div className="pt-0.5">
         <button
           type="button"
           role="switch"
           aria-checked={checked}
+          aria-label={label}
+          disabled={disabled}
           onClick={() => onChange(!checked)}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             checked ? 'bg-indigo-600' : 'bg-gray-200'
           }`}
         >
@@ -46,8 +53,13 @@ function ToggleItem({
   )
 }
 
-export function AgencySettings({ spaceId }: AgencySettingsProps) {
+export function AgencySettings({ orgId, spaceId }: AgencySettingsProps) {
   const { data, loading, update } = useAgencyMode(spaceId)
+  // agency_mode 等は spaces の列だが、DB のガード（guard_agency_settings,
+  // 20260308_002_agency_settings_write_guard.sql）は app_can_write_space より狭く、
+  // space_memberships の行がはっきり admin/editor の人だけ（行が無い社内メンバーは対象外）。
+  // 判定は canEditMoney（canEditSpaceMoney）を使う
+  const { canEditMoney: canEdit } = useCanEditSpace(spaceId, orgId)
   const [marginInput, setMarginInput] = useState('')
 
   useEffect(() => {
@@ -121,6 +133,7 @@ export function AgencySettings({ spaceId }: AgencySettingsProps) {
           description="有効にすると、ベンダー招待・マージン管理・ベンダーポータルが利用可能になります"
           checked={data.agency_mode}
           onChange={handleToggleAgencyMode}
+          disabled={!canEdit}
         />
       </div>
 
@@ -145,7 +158,8 @@ export function AgencySettings({ spaceId }: AgencySettingsProps) {
                   onBlur={handleMarginBlur}
                   onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                   placeholder="35"
-                  className="w-full pr-7 pl-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300"
+                  disabled={!canEdit}
+                  className="w-full pr-7 pl-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
               </div>
@@ -164,12 +178,14 @@ export function AgencySettings({ spaceId }: AgencySettingsProps) {
                 description="有効にすると、制作会社のベンダーポータルにエンドクライアントの名前が表示されます"
                 checked={data.vendor_settings.show_client_name}
                 onChange={(checked) => handleVendorSetting('show_client_name', checked)}
+                disabled={!canEdit}
               />
               <ToggleItem
                 label="ベンダーからクライアントへのコメントを許可"
                 description="有効にすると、制作会社がクライアントに見えるコメントを投稿できます"
                 checked={data.vendor_settings.allow_client_comments}
                 onChange={(checked) => handleVendorSetting('allow_client_comments', checked)}
+                disabled={!canEdit}
               />
             </div>
           </div>

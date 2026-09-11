@@ -74,6 +74,15 @@ vi.mock('@/components/task/TaskCreateSheet', () => ({
   TaskCreateSheet: () => null,
 }))
 
+// 既定は「どのタスク/spaceでも編集できる」。閲覧者(viewer)側の挙動は別ファイル
+// (MyTasksClient.viewerReadonly.test.tsx) で明示して検証する。
+// useUserSpaces 経由の実問い合わせ（supabase.from）を避けるため直接差し替える
+// （fromCalls を検証するテストが汚染されるのを防ぐ）。
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: true, canEditMoney: true, loading: false }),
+  useCanEditSpaces: () => ({ canEditSpace: () => true, loading: false }),
+}))
+
 vi.mock('@/components/task/TaskInspector', () => ({
   TaskInspector: () => null,
 }))

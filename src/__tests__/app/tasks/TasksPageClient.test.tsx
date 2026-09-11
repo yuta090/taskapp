@@ -39,6 +39,12 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({ getMemberName: () => null, members: [], loading: false, error: null }),
 }))
 
+// 既定は「編集できる」(admin/editor)。閲覧者(viewer)側の挙動は別ファイル
+// (TasksPageClient.viewerReadonly.test.tsx) で canEdit:false を明示して検証する。
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: true, loading: false }),
+}))
+
 vi.mock('@/lib/hooks/useRiskForecast', () => ({
   useRiskForecast: () => ({ forecasts: new Map() }),
 }))

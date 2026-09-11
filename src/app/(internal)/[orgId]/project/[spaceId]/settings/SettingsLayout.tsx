@@ -125,7 +125,7 @@ function SettingsSection({
     case 'portal':
       return <PortalSettings spaceId={spaceId} />
     case 'agency':
-      return <AgencySettings spaceId={spaceId} />
+      return <AgencySettings orgId={orgId} spaceId={spaceId} />
     case 'github':
       return <GitHubRepoSettings orgId={orgId} spaceId={spaceId} />
     case 'slack':

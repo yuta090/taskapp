@@ -89,3 +89,56 @@ export const INTERNAL_SPACE_ROLES = ['admin', 'editor', 'viewer'] as const
 export function isInternalSpaceRole(role: string | undefined | null): boolean {
   return (INTERNAL_SPACE_ROLES as readonly string[]).includes(role ?? '')
 }
+
+/**
+ * 組織（org_memberships.role）の役割が「社内」か。owner / admin / member のみ。
+ * client（相手先・vendor も org 側は 'client'）や、まだ取れていない役割は false（社外側に倒す）。
+ * DB 側の判定（app_is_org_internal, 20260703_*_rls_helpers.sql）と同じ規則。
+ */
+const ORG_INTERNAL_ROLES = ['owner', 'admin', 'member'] as const
+
+export function isOrgInternalRole(role: string | undefined | null): boolean {
+  return (ORG_INTERNAL_ROLES as readonly string[]).includes(role ?? '')
+}
+
+const EDITABLE_SPACE_ROLES = ['admin', 'editor'] as const
+
+/**
+ * この space の内容（タスク・ガント・Wiki・見積など）を編集できるか。
+ * DB 側の判定（app_can_write_space, 20260911143112_space_role_boundary.sql）と同じ規則:
+ * 組織の役割が社内（owner/admin/member）で、かつ space の役割が admin/editor か、
+ * space_memberships に行が無い（社内メンバーは editor 扱い）人だけ編集できる。
+ * 閲覧者（viewer）・相手先（client）・vendor、および組織側が社外の人はできない。
+ *
+ * 画面はこの判定だけを唯一の正本にし、直接 role 文字列を比較しないこと（DB の規則が
+ * 変わったらここだけ直せばよい状態を保つ）。
+ */
+export function canEditSpaceContent(
+  spaceRole: string | undefined | null,
+  orgRole: string | undefined | null
+): boolean {
+  if (!isOrgInternalRole(orgRole)) return false
+  return spaceRole == null || (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole)
+}
+
+/**
+ * 価格の枠（TaskPricingPanel）・代理店設定（AgencySettings）を操作できるか。
+ * DB 側は2段構え: トリガー（guard_agency_settings, 20260308_002_agency_settings_write_guard.sql /
+ * guard_task_pricing_write・guard_task_pricing_delete, 20260308_003_task_pricing_write_guard.sql）が
+ * 「space_memberships の行がはっきり admin/editor の人だけ」を課す。加えて、
+ * agency 設定の実体は spaces の列なので、その書き込みは RLS（app_can_write_space 経由）の
+ * 「組織の役割が社内（owner/admin/member）」も同時に満たす必要があり、
+ * 価格の枠（task_pricing）も自身の RLS（task_pricing_*_member, 20260703_011_rls_task_pricing_internal_only.sql
+ * の app_is_org_internal）で同じく組織の役割が社内であることを求める。
+ *
+ * canEditSpaceContent と違い、space_memberships に行が無い社内メンバーへの
+ * 「editor 扱い」フォールバックは無い（トリガーは space_memberships を直接引き、
+ * 行が無ければ caller_role が NULL のまま弾く）。
+ */
+export function canEditSpaceMoney(
+  spaceRole: string | undefined | null,
+  orgRole: string | undefined | null
+): boolean {
+  if (!isOrgInternalRole(orgRole)) return false
+  return (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole ?? '')
+}

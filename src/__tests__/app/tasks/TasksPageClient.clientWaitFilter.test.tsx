@@ -44,6 +44,10 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({ getMemberName: () => null, members: [], loading: false, error: null }),
 }))
 
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: true, loading: false }),
+}))
+
 vi.mock('@/lib/hooks/useRiskForecast', () => ({
   useRiskForecast: () => ({ forecasts: new Map() }),
 }))

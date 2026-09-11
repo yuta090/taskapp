@@ -14,6 +14,7 @@ import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import type { BallSide } from '@/types/database'
@@ -43,11 +44,14 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
 
   const { user } = useCurrentUser()
   const { members } = useSpaceMembers(spaceId)
+  // 閲覧者（viewer）・相手先には編集操作（ドラッグでの日付変更・親子付け替え・タスク編集）を出さない。
+  // 組織の役割は URL の orgId（このページが属する組織）で判定する
+  const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
   const canEditMilestones = useMemo(() => {
-    if (!user) return false
+    if (!canEdit || !user) return false
     const me = members.find((m) => m.id === user.id)
     return me?.role === 'admin'
-  }, [user, members])
+  }, [canEdit, user, members])
 
   const { forecasts: riskForecasts } = useRiskForecast({ tasks, milestones })
 
@@ -173,15 +177,17 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         onClose={() => {
           syncUrlWithState(null)
         }}
-        onPassBall={(ball) => handlePassBall(selectedTask.id, ball)}
-        onUpdate={(updates) => handleUpdateTask(selectedTask.id, updates)}
-        onDelete={() => handleDeleteTask(selectedTask.id)}
-        onUpdateOwners={(clientOwnerIds, internalOwnerIds) =>
+        // 閲覧者（viewer）・相手先には編集操作を渡さない（onUpdate 等が無ければ表示だけになる設計）
+        onPassBall={canEdit ? (ball) => handlePassBall(selectedTask.id, ball) : undefined}
+        onUpdate={canEdit ? (updates) => handleUpdateTask(selectedTask.id, updates) : undefined}
+        onDelete={canEdit ? () => handleDeleteTask(selectedTask.id) : undefined}
+        onUpdateOwners={canEdit ? (clientOwnerIds, internalOwnerIds) =>
           handleUpdateOwners(selectedTask.id, clientOwnerIds, internalOwnerIds)
-        }
+        : undefined}
+        canEditPricing={canEditMoney}
       />
     )
-  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId, parentTaskOptions, childTasksOfSelected])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId, parentTaskOptions, childTasksOfSelected])
 
   // Stable refs for handleTaskClick to avoid recreating on every selection change
   const selectedTaskIdRef = useRef(selectedTaskId)
@@ -383,9 +389,9 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
             riskForecasts={riskForecasts}
             selectedTaskId={selectedTaskId}
             onTaskClick={handleTaskClick}
-            onDateChange={handleDateChange}
-            onBarMove={handleBarMove}
-            onParentChange={handleParentChange}
+            onDateChange={canEdit ? handleDateChange : undefined}
+            onBarMove={canEdit ? handleBarMove : undefined}
+            onParentChange={canEdit ? handleParentChange : undefined}
             onMilestoneDateChange={canEditMilestones ? handleMilestoneDateChange : undefined}
           />
         )}
