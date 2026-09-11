@@ -5,11 +5,26 @@ import { Buildings, Check, CircleNotch, Crown, Users, PlugsConnected, CreditCard
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
+import { useHydrated } from '@/lib/hooks/useHydrated'
 import { SettingsBackButton } from '@/components/shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default function OrganizationSettingsPage() {
-  const { orgId, orgName, role, loading: orgLoading } = useCurrentOrg()
+  const {
+    orgId: rawOrgId,
+    orgName: rawOrgName,
+    role: rawRole,
+    loading: rawOrgLoading,
+  } = useCurrentOrg()
+  // activeOrgId等はブラウザのcookieから同期的に読むため、サーバーでは必ずloading:trueの
+  // 「読み込み中」表示になるが、cookieが既にあるブラウザではハイドレーション時の最初の
+  // 描画から組織ID・名前・役割が確定してしまう。hydrationが済むまではサーバーと同じ
+  // 「読み込み中」表示に固定する（React #418対策。詳細はuseHydrated参照）
+  const hydrated = useHydrated()
+  const orgId = hydrated ? rawOrgId : null
+  const orgName = hydrated ? rawOrgName : null
+  const role = hydrated ? rawRole : null
+  const orgLoading = hydrated ? rawOrgLoading : true
   const [editName, setEditName] = useState('')
   const [originalName, setOriginalName] = useState('')
   const [saving, setSaving] = useState(false)
