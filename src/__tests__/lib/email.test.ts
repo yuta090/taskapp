@@ -83,14 +83,15 @@ describe('Email Service', () => {
       expect(result.messageId).toBe('test-message-id')
     })
 
-    it('should use correct portal URL for client invites', async () => {
+    it('should use the invite accept URL for client invites (not /portal, which is not a public path)', async () => {
       await sendInviteEmail({
         ...baseParams,
         role: 'client',
       })
 
       const callArgs = mockSend.mock.calls[0][0]
-      expect(callArgs.html).toContain('/portal/abc123token')
+      expect(callArgs.html).toContain('/invite/abc123token')
+      expect(callArgs.html).not.toContain('/portal/')
     })
 
     it('should use correct invite URL for member invites', async () => {
@@ -159,12 +160,12 @@ describe('sendInviteEmail — アカウント要否の明記 (初回UX改善)', 
     expiresAt: '2025-03-01T00:00:00Z',
   }
 
-  it('クライアント向けはアカウント登録が不要である旨をHTML/textの両方に含める', async () => {
+  it('クライアント向けはリンク先でパスワードを決めるだけで参加できる旨をHTML/textの両方に含める', async () => {
     await sendInviteEmail({ ...baseParams, role: 'client' })
 
     const callArgs = mockSend.mock.calls[0][0]
-    expect(callArgs.html).toContain('アカウント登録は不要です')
-    expect(callArgs.text).toContain('アカウント登録は不要です')
+    expect(callArgs.html).toContain('リンク先でパスワードを決めるだけで参加できます')
+    expect(callArgs.text).toContain('リンク先でパスワードを決めるだけで参加できます')
   })
 
   it('内部メンバー向けは無料のアカウント作成を案内する旨をHTML/textの両方に含める', async () => {
@@ -298,8 +299,9 @@ describe('sendInviteEmail — 管理画面で保存した文面が実際に使�
     expect(callArgs.html).toContain('独自見出し')
     expect(callArgs.html).toContain('John Doe さんからの独自本文')
     expect(callArgs.html).toContain('>独自ボタン<')
-    expect(callArgs.text).toContain('独自ボタン:\nhttp://localhost:3000/portal/abc123token')
-    expect(callArgs.html).not.toContain('アカウント登録は不要です')
+    expect(callArgs.text).toContain('独自ボタン:\nhttp://localhost:3000/invite/abc123token')
+    expect(callArgs.text).not.toContain('/portal/')
+    expect(callArgs.html).not.toContain('リンク先でパスワードを決めるだけで参加できます')
   })
 
   it('member 向けは invite_member が未保存なので既定文面のまま（取り違えない）', async () => {

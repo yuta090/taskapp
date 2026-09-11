@@ -181,13 +181,11 @@ export default function VendorInvitePage({
           </div>
           <AuthButton
             type="button"
-            // 既知の未解決課題: /vendor-portal/[token] も proxy に保護されており（未ログインでは
-            // 開けない）、同じURLへ戻ると本来は /login?redirect=... に弾かれてしまう
-            // （portal/[token] で同種の不具合を修正したのと同じ理屈）。ただし /invite/[token] は
-            // 受諾後の着地を role==='client' としか分岐しておらず vendor 招待を正しく
-            // /vendor-portal へ導けないため、ここでは /invite への切替はまだ適用しない
-            // （別途 invite ページの vendor 対応が必要）
-            onClick={() => signOutAndLeave({ to: window.location.href })}
+            // /vendor-portal/[token] は proxy に保護されており（未ログインでは開けない）、
+            // 同じURLへ戻ると /login?redirect=... に弾かれてしまう。/invite/[token] は
+            // 公開ページで、受諾後の着地も role==='vendor' なら /vendor-portal へ分岐するため、
+            // ログアウト後の戻り先はこちらにする
+            onClick={() => signOutAndLeave({ to: `/invite/${token}` })}
           >
             別のアカウントでログインし直す
           </AuthButton>

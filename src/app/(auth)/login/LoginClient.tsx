@@ -12,6 +12,20 @@ import { formatAuthErrorMessage } from '@/lib/auth/authErrorMessage'
 import { getActiveOrgId } from '@/lib/org/activeOrg'
 import { needsMfaChallenge, MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
 import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
+import { UUID_REGEX } from '@/lib/uuid'
+
+/**
+ * 旧: 招待メールが /portal/<token> や /vendor-portal/<token> を案内していた時期の名残。
+ * それらは公開ページではないため未ログインの受信者はここ(ログイン画面)に飛ばされる。
+ * 「新規登録」を押すと別組織が新しく作られてしまうため、正しい入口 /invite/<token> へ誘導する。
+ */
+function legacyInviteTokenFromRedirect(redirect: string | null): string | null {
+  if (!redirect) return null
+  const match = /^\/(?:portal|vendor-portal)\/([^/]+)$/.exec(redirect)
+  if (!match) return null
+  const token = match[1]
+  return UUID_REGEX.test(token) ? token : null
+}
 
 function shouldShowDemoAccounts(): boolean {
   return process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true'
@@ -60,6 +74,7 @@ export default function LoginClient() {
   const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null)
   const [loggedInEmail, setLoggedInEmail] = useState<string | null>(null)
   const [returningToApp, setReturningToApp] = useState(false)
+  const legacyInviteToken = legacyInviteTokenFromRedirect(redirect)
 
   useEffect(() => {
     const supabase = createClient()
@@ -198,6 +213,16 @@ export default function LoginClient() {
         </>
       }
     >
+      {legacyInviteToken && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+          招待メールのリンクから来た方で、まだアカウントをお持ちでない方は、
+          <Link href={`/invite/${legacyInviteToken}`} className="font-medium underline">
+            こちら
+          </Link>
+          から招待を受けてください。
+        </div>
+      )}
+
       {loggedInEmail && (
         <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-center justify-between gap-3">
           <span>{loggedInEmail} としてログイン中です</span>
