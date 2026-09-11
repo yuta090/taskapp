@@ -18,35 +18,69 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
     redirect('/login')
   }
 
-  // Get task details
-   
-  const { data: task, error } = await (supabase as SupabaseClient)
-    .from('tasks')
-    .select(`
-      id,
-      title,
-      description,
-      status,
-      ball,
-      type,
-      due_date,
-      spec_path,
-      decision_state,
-      created_at,
-      updated_at,
-      space_id,
-      spaces!inner (
+  // Task details, comments, and the client's other projects don't depend on
+  // each other's results, so read them together instead of one-by-one.
+  const [
+    { data: task, error },
+    { data: comments },
+    projects,
+  ] = await Promise.all([
+    // Get task details
+
+    (supabase as SupabaseClient)
+      .from('tasks')
+      .select(`
         id,
-        name,
-        org_id,
-        organizations!inner (
+        title,
+        description,
+        status,
+        ball,
+        type,
+        due_date,
+        spec_path,
+        decision_state,
+        created_at,
+        updated_at,
+        space_id,
+        spaces!inner (
           id,
-          name
+          name,
+          org_id,
+          organizations!inner (
+            id,
+            name
+          )
         )
-      )
-    `)
-    .eq('id', taskId)
-    .single()
+      `)
+      .eq('id', taskId)
+      .single(),
+
+    // Get task comments (client-visible only)
+
+    (supabase as SupabaseClient)
+      .from('task_comments')
+      .select(`
+        id,
+        body,
+        created_at,
+        actor_id,
+        profiles!task_comments_actor_id_fkey (
+          id,
+          display_name
+        )
+      `)
+      .eq('task_id', taskId)
+      .eq('visibility', 'client')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true }),
+
+    // Get client's other projects for the header. currentProject always
+    // follows the task's own space (not ?space=) — this page shows one
+    // specific task, so switching "current project" here means navigating
+    // to that project's portal home, not re-rendering this task under a
+    // different project.
+    getClientProjects(supabase as SupabaseClient, user.id),
+  ])
 
   if (error || !task) {
     notFound()
@@ -54,7 +88,7 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
 
   // Verify user has client access to this task's space
   // Note: Return notFound() instead of redirect to prevent task ID probing
-   
+
   const { data: membership } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select('id, role')
@@ -66,31 +100,6 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
   if (!membership) {
     notFound()
   }
-
-  // Get task comments (client-visible only)
-   
-  const { data: comments } = await (supabase as SupabaseClient)
-    .from('task_comments')
-    .select(`
-      id,
-      body,
-      created_at,
-      actor_id,
-      profiles!task_comments_actor_id_fkey (
-        id,
-        display_name
-      )
-    `)
-    .eq('task_id', taskId)
-    .eq('visibility', 'client')
-    .is('deleted_at', null)
-    .order('created_at', { ascending: true })
-
-  // Get client's other projects for the header. currentProject always follows
-  // the task's own space (not ?space=) — this page shows one specific task,
-  // so switching "current project" here means navigating to that project's
-  // portal home, not re-rendering this task under a different project.
-  const projects = await getClientProjects(supabase as SupabaseClient, user.id)
 
   const currentProject = projects.find((p) => p.id === task.space_id) || projects[0]
 

@@ -105,11 +105,15 @@ export function PortalTaskDetailClient({
       if (response.ok) {
         toast.success('承認しました')
         router.push('/portal')
-        router.refresh()
       } else if (response.status === 409) {
         const errorData = await response.json().catch(() => ({}))
         toast.error(resolvePortalConflictMessage(errorData, STALE_CONFLICT_MESSAGE))
-        router.refresh()
+        // この画面は見積もり・社内レビュー・決定事項の状態を表示しないので、
+        // 業務の409（reason: 'blocked'）で取り直しても表示は変わらない。
+        // 将来この画面に見積もりの承認ボタン等を足すときは取り直しを戻すこと。
+        if (errorData.reason !== 'blocked') {
+          router.refresh()
+        }
       } else if (response.status === 401) {
         toast.error('セッションが切れました。再度アクセスしてください。')
         router.push('/login')
@@ -142,11 +146,15 @@ export function PortalTaskDetailClient({
       if (response.ok) {
         toast.success('修正依頼を送信しました')
         router.push('/portal')
-        router.refresh()
       } else if (response.status === 409) {
         const errorData = await response.json().catch(() => ({}))
         toast.error(resolvePortalConflictMessage(errorData, STALE_CONFLICT_MESSAGE))
-        router.refresh()
+        // この画面は見積もり・社内レビュー・決定事項の状態を表示しないので、
+        // 業務の409（reason: 'blocked'）で取り直しても表示は変わらない。
+        // 将来この画面に見積もりの承認ボタン等を足すときは取り直しを戻すこと。
+        if (errorData.reason !== 'blocked') {
+          router.refresh()
+        }
       } else if (response.status === 400) {
         const errorData = await response.json().catch(() => ({}))
         toast.error(errorData.error || 'コメントを入力してください。')
