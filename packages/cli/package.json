@@ -1,6 +1,6 @@
 {
   "name": "@uzukko/agentpm",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "AgentPM CLI - operate AgentPM tasks, wiki and files from your terminal or an AI agent (Claude Code etc.)",
   "type": "module",
   "main": "dist/index.js",
