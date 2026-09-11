@@ -5,26 +5,9 @@ import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import { rpc } from '@/lib/supabase/rpc'
 import { resolveReturnAssignee } from '../resolveReturnAssignee'
+import { reviewGateErrorMessage } from '@/lib/tasks/reviewGateErrorMessage'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
-
-/**
- * S5: translate the enforce_review_gate DB trigger's raw Postgres exception
- * into a clear, client-facing 409 message instead of the generic
- * "state changed, please reload" fallback. Returns null if the error is not
- * one of the trigger's known messages (caller falls back to the generic
- * message).
- */
-function reviewGateErrorMessage(updateError: { message: string } | null): string | null {
-  const message = updateError?.message ?? ''
-  if (message.includes('review is not approved')) {
-    return '社内レビューが完了していないため承認できません'
-  }
-  if (message.includes('spec decision is not made')) {
-    return '決定事項が未決のため承認できません'
-  }
-  return null
-}
 
 /**
  * Server-side notification. Uses X-Internal-Secret header for authentication
