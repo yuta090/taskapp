@@ -7,17 +7,22 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { patchSpaceRow } from '@/lib/hooks/useSpaceRow'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 
 interface GeneralSettingsProps {
+  orgId: string
   spaceId: string
 }
 
-export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
+export function GeneralSettings({ orgId, spaceId }: GeneralSettingsProps) {
   // 名前の正本は ['space', spaceId]（プロジェクト1行）。パンくず・危険設定の確認入力も
   // 同じキャッシュを見ている。ここで独自に取り直すと、改名した直後に「古い名前」を
   // 要求する画面が出てしまう。
   const spaceName = useSpaceName(spaceId)
   const queryClient = useQueryClient()
+  // プロジェクト名の更新は spaces の更新（RLS: app_can_write_space）と同じ規則。
+  // 役割が未確定の間も canEdit は false（読み取り専用側に倒す）
+  const { canEdit } = useCanEditSpace(spaceId, orgId)
 
   const [draft, setDraft] = useState('')
   const [isEditing, setIsEditing] = useState(false)
@@ -112,7 +117,7 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
               </span>
               <button
                 onClick={handleEdit}
-                disabled={!spaceName}
+                disabled={!spaceName || !canEdit}
                 className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors disabled:opacity-40"
                 title="編集"
               >

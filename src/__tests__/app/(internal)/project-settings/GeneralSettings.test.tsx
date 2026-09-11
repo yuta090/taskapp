@@ -6,6 +6,13 @@ import { GeneralSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/sett
 
 const update = vi.fn()
 
+// 既定は「編集できる」(admin/editor)。閲覧者(viewer)・未確定の挙動は下の describe で
+// canEdit:false を明示して検証する。
+let mockCanEdit = true
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: mockCanEdit, canEditMoney: false, resolved: true, loading: false }),
+}))
+
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     from: vi.fn(() => ({
@@ -33,7 +40,7 @@ function renderWithClient() {
   queryClient.setQueryData(['space', 's1'], { id: 's1', name: '旧プロジェクト名' })
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <GeneralSettings spaceId="s1" />
+      <GeneralSettings orgId="o1" spaceId="s1" />
     </QueryClientProvider>
   )
   return { ...utils, queryClient }
@@ -41,6 +48,7 @@ function renderWithClient() {
 
 beforeEach(() => {
   update.mockReset()
+  mockCanEdit = true
 })
 
 describe('GeneralSettings — プロジェクト名', () => {
@@ -79,5 +87,23 @@ describe('GeneralSettings — プロジェクト名', () => {
       expect(screen.getByText('プロジェクト名を入力してください')).toBeInTheDocument()
     )
     expect(update).not.toHaveBeenCalled()
+  })
+})
+
+// プロジェクト名の更新は spaces の更新（RLS: app_can_write_space）と同じ規則。
+// 閲覧者・役割が未確定の間は編集の入口（鉛筆アイコン）を押せなくする。
+describe('GeneralSettings — 編集できない人（閲覧者・役割未確定）には編集させない', () => {
+  it('閲覧者では「編集」ボタンが disabled になる', () => {
+    mockCanEdit = false
+    renderWithClient()
+    expect(screen.getByTitle('編集')).toBeDisabled()
+  })
+
+  it('「編集」ボタンを押しても入力欄は開かない（値は見える）', () => {
+    mockCanEdit = false
+    renderWithClient()
+    fireEvent.click(screen.getByTitle('編集'))
+    expect(screen.queryByPlaceholderText('プロジェクト名')).not.toBeInTheDocument()
+    expect(screen.getByText('旧プロジェクト名')).toBeInTheDocument()
   })
 })

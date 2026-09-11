@@ -35,10 +35,18 @@ vi.mock('@/lib/hooks/useDefaultReviewers', () => ({
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
+// 既定は「編集できる」(admin/editor)。閲覧者(viewer)・未確定の挙動は下の describe で
+// canEdit:false を明示して検証する。
+let mockCanEdit = true
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: mockCanEdit, canEditMoney: false, resolved: true, loading: false }),
+}))
+
 beforeEach(() => {
   setDefaultReviewer.mockReset().mockResolvedValue(undefined)
   defaultReviewerIds = []
   membersPending = false
+  mockCanEdit = true
   members = [
     { id: 'u1', displayName: '自分', avatarUrl: null, role: 'admin' },
     { id: 'i1', displayName: '田中', avatarUrl: null, role: 'editor' },
@@ -48,7 +56,7 @@ beforeEach(() => {
 
 describe('ApprovalSettings — 既定の承認者', () => {
   it('社内メンバーだけが並ぶ（相手先は承認者にできない）', () => {
-    render(<ApprovalSettings spaceId="s1" />)
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
 
     expect(screen.getByText('自分')).toBeInTheDocument()
     expect(screen.getByText('田中')).toBeInTheDocument()
@@ -57,14 +65,14 @@ describe('ApprovalSettings — 既定の承認者', () => {
 
   it('既定になっている人はオンで表示される', () => {
     defaultReviewerIds = ['i1']
-    render(<ApprovalSettings spaceId="s1" />)
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
 
     expect(screen.getByRole('switch', { name: '田中' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByRole('switch', { name: '自分' })).toHaveAttribute('aria-checked', 'false')
   })
 
   it('オンにすると既定の承認者に加わる', async () => {
-    render(<ApprovalSettings spaceId="s1" />)
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
 
     fireEvent.click(screen.getByRole('switch', { name: '田中' }))
 
@@ -73,7 +81,7 @@ describe('ApprovalSettings — 既定の承認者', () => {
 
   it('オフにすると既定から外れる', async () => {
     defaultReviewerIds = ['i1']
-    render(<ApprovalSettings spaceId="s1" />)
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
 
     fireEvent.click(screen.getByRole('switch', { name: '田中' }))
 
@@ -83,15 +91,36 @@ describe('ApprovalSettings — 既定の承認者', () => {
   it('メンバーを読み込んでいる間は「いません」を出さない（先に既定が返っても点滅させない）', () => {
     membersPending = true
     members = []
-    render(<ApprovalSettings spaceId="s1" />)
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
 
     expect(screen.queryByText('社内メンバーがいません')).not.toBeInTheDocument()
   })
 
   it('社内メンバーがいなければその旨を出す', () => {
     members = [{ id: 'c1', displayName: '相手先の人', avatarUrl: null, role: 'client' }]
-    render(<ApprovalSettings spaceId="s1" />)
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
 
     expect(screen.getByText('社内メンバーがいません')).toBeInTheDocument()
+  })
+})
+
+// 既定の承認者(spaces.default_reviewer_ids)の更新は spaces の更新（RLS: app_can_write_space）
+// と同じ規則。閲覧者・役割が未確定の間は切り替えられないようにする。
+describe('ApprovalSettings — 閲覧者・役割未確定には操作させない', () => {
+  it('トグルが disabled になる', () => {
+    mockCanEdit = false
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
+
+    expect(screen.getByRole('switch', { name: '自分' })).toBeDisabled()
+    expect(screen.getByRole('switch', { name: '田中' })).toBeDisabled()
+  })
+
+  it('押しても保存しない', () => {
+    mockCanEdit = false
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
+
+    fireEvent.click(screen.getByRole('switch', { name: '田中' }))
+
+    expect(setDefaultReviewer).not.toHaveBeenCalled()
   })
 })

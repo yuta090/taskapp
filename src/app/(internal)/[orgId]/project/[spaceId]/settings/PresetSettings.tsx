@@ -8,18 +8,21 @@ import { useSpaceContentCounts } from '@/lib/hooks/useSpaceContentCounts'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { getPreset, isValidPresetGenre } from '@/lib/presets'
 import type { PresetGenre } from '@/lib/presets'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 
 interface PresetSettingsProps {
   orgId: string
   spaceId: string
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
   // 初期構成(preset_genre)はプロジェクト1行の共有キャッシュから読む
   const { space, isPending: spacePending } = useSpaceRow(spaceId)
   const presetGenre = (space?.preset_genre as string | null) ?? null
   const queryClient = useQueryClient()
+  // テンプレート適用(rpc_apply_preset_to_space)は app_can_write_space と同じ規則。
+  // 役割が未確定の間も canEdit は false（読み取り専用側に倒す）
+  const { canEdit } = useCanEditSpace(spaceId, orgId)
 
   const [showPicker, setShowPicker] = useState(false)
 
@@ -67,7 +70,7 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
           <span className="ml-2 text-gray-400">適用済み</span>
         </div>
       ) : isEmpty ? (
-        showPicker ? (
+        showPicker && canEdit ? (
           <PresetApplicator spaceId={spaceId} onApplied={handleApplied} />
         ) : (
           <div className="space-y-2">
@@ -77,7 +80,8 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
             <button
               type="button"
               onClick={() => setShowPicker(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-indigo-ink border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
+              disabled={!canEdit}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-indigo-ink border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
             >
               テンプレートを適用
             </button>

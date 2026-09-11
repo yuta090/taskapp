@@ -4,8 +4,10 @@ import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useDefaultReviewers } from '@/lib/hooks/useDefaultReviewers'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 
 interface ApprovalSettingsProps {
+  orgId: string
   spaceId: string
 }
 
@@ -14,9 +16,10 @@ interface ReviewerToggleProps {
   name: string
   checked: boolean
   onChange: (userId: string, checked: boolean) => void
+  disabled?: boolean
 }
 
-function ReviewerToggle({ userId, name, checked, onChange }: ReviewerToggleProps) {
+function ReviewerToggle({ userId, name, checked, onChange, disabled = false }: ReviewerToggleProps) {
   return (
     <div className="flex items-center gap-3 py-2.5 px-1">
       <button
@@ -24,8 +27,9 @@ function ReviewerToggle({ userId, name, checked, onChange }: ReviewerToggleProps
         role="switch"
         aria-checked={checked}
         aria-label={name}
+        disabled={disabled}
         onClick={() => onChange(userId, !checked)}
-        className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+        className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           checked ? 'bg-indigo-600' : 'bg-gray-200'
         }`}
       >
@@ -40,9 +44,12 @@ function ReviewerToggle({ userId, name, checked, onChange }: ReviewerToggleProps
   )
 }
 
-export function ApprovalSettings({ spaceId }: ApprovalSettingsProps) {
+export function ApprovalSettings({ orgId, spaceId }: ApprovalSettingsProps) {
   const { internalMembers, isPending: membersPending } = useSpaceMembers(spaceId)
   const { defaultReviewerIds, loading, setDefaultReviewer } = useDefaultReviewers(spaceId)
+  // 既定の承認者(spaces.default_reviewer_ids)の更新は spaces の更新（RLS: app_can_write_space）
+  // と同じ規則。役割が未確定の間も canEdit は false（読み取り専用側に倒す）
+  const { canEdit } = useCanEditSpace(spaceId, orgId)
 
   const handleChange = useCallback(
     async (userId: string, checked: boolean) => {
@@ -81,6 +88,7 @@ export function ApprovalSettings({ spaceId }: ApprovalSettingsProps) {
             name={member.displayName}
             checked={defaultReviewerIds.includes(member.id)}
             onChange={handleChange}
+            disabled={!canEdit}
           />
         ))}
       </div>

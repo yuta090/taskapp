@@ -6,6 +6,7 @@ import { Flag, Plus, Trash, PencilSimple, Check, X, DotsSixVertical } from '@pho
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 
 interface Milestone {
   id: string
@@ -17,11 +18,15 @@ interface Milestone {
 }
 
 interface MilestonesSettingsProps {
+  orgId: string
   spaceId: string
 }
 
-export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
+export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
+  // マイルストーンの作成・編集・削除は milestones の RLS（app_can_write_space と同じ規則）。
+  // 役割が未確定の間も canEdit は false（読み取り専用側に倒す）
+  const { canEdit } = useCanEditSpace(spaceId, orgId)
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -281,13 +286,15 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
                   </div>
                   <button
                     onClick={() => startEdit(ms)}
-                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                    disabled={!canEdit}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
                     <PencilSimple className="text-sm" />
                   </button>
                   <button
                     onClick={() => handleDelete(ms.id)}
-                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                    disabled={!canEdit}
+                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
                     <Trash className="text-sm" />
                   </button>
@@ -334,7 +341,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
           </div>
           <button
             onClick={handleCreate}
-            disabled={!newName.trim() || creating}
+            disabled={!newName.trim() || creating || !canEdit}
             className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
           >
             <Plus className="text-sm" />
