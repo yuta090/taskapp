@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
+import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
 
 /** Google ログイン後の戻り先。(panel) layout が旗を確認し、無ければこの画面へ戻す */
 const ADMIN_HOME = '/admin/dashboard'
@@ -54,6 +55,11 @@ export default function AdminLoginPage() {
       cancelled = true
     }
   }, [router])
+
+  // 成功後は window.location.assign() がページを破棄するまでローディングを維持し続ける設計
+  // （二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま復元すると
+  // ページは破棄されておらず、ボタンが永久に押せなくなる。bfcache復元を検知したら解除する
+  useResetOnBfcacheRestore(() => setLoading(false))
 
   async function handleLogout() {
     const supabase = createClient()

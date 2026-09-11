@@ -21,6 +21,11 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
+const mockClearQueryCache = vi.fn(() => Promise.resolve())
+vi.mock('@/lib/query/persistedCache', () => ({
+  clearQueryCache: () => mockClearQueryCache(),
+}))
+
 const { signOutAndLeave } = await import('@/lib/auth/signOutClient')
 
 function stubLocation(overrides: Partial<Location> = {}) {
@@ -57,6 +62,7 @@ describe('signOutAndLeave', () => {
     clearAllCookies()
     ;({ replaceSpy, reloadSpy } = stubLocation())
     mockSignOut.mockResolvedValue({ error: null })
+    mockClearQueryCache.mockImplementation(() => Promise.resolve())
   })
 
   afterEach(() => {
@@ -197,6 +203,78 @@ describe('signOutAndLeave', () => {
 
       expect(replaceSpy).toHaveBeenCalledWith('/login')
       expect(reloadSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  // --- IDB のクエリキャッシュは signOut() の成否に関わらず必ず消す ------------------------------
+  // auth-js の signOut() はネットワーク断・5xx で throw せず { error } を返すだけで、この場合
+  // SIGNED_OUT イベントが発火しないため QueryProvider 側の削除に頼れない。ここで必ず消す。
+  describe('clearQueryCache() を離脱前に必ず待つ', () => {
+    it('signOut() 成功時も、location.replace の前に clearQueryCache を待つ', async () => {
+      const callOrder: string[] = []
+      mockClearQueryCache.mockImplementation(() => {
+        callOrder.push('clearQueryCache')
+        return Promise.resolve()
+      })
+      replaceSpy.mockImplementation(() => { callOrder.push('replace') })
+
+      await signOutAndLeave({ to: '/login' })
+
+      expect(mockClearQueryCache).toHaveBeenCalled()
+      expect(replaceSpy).toHaveBeenCalledWith('/login')
+      expect(callOrder).toEqual(['clearQueryCache', 'replace'])
+    })
+
+    it('signOut() が { error } を返しても、離脱前に clearQueryCache を待つ', async () => {
+      mockSignOut.mockResolvedValue({ error: new Error('network down') })
+      const callOrder: string[] = []
+      mockClearQueryCache.mockImplementation(() => {
+        callOrder.push('clearQueryCache')
+        return Promise.resolve()
+      })
+      replaceSpy.mockImplementation(() => { callOrder.push('replace') })
+
+      await signOutAndLeave({ to: '/login' })
+
+      expect(mockClearQueryCache).toHaveBeenCalled()
+      expect(callOrder).toEqual(['clearQueryCache', 'replace'])
+    })
+
+    it('signOut() が例外を投げても、離脱前に clearQueryCache を待つ', async () => {
+      mockSignOut.mockRejectedValue(new Error('offline'))
+      const callOrder: string[] = []
+      mockClearQueryCache.mockImplementation(() => {
+        callOrder.push('clearQueryCache')
+        return Promise.resolve()
+      })
+      replaceSpy.mockImplementation(() => { callOrder.push('replace') })
+
+      await signOutAndLeave({ to: '/login' })
+
+      expect(mockClearQueryCache).toHaveBeenCalled()
+      expect(callOrder).toEqual(['clearQueryCache', 'replace'])
+    })
+
+    it('clearQueryCache が解決しなくても、タイムアウトで打ち切って離脱する', async () => {
+      vi.useFakeTimers()
+      try {
+        // 二度と解決しない Promise（IDB が詰まって固まったケースを模す）
+        mockClearQueryCache.mockImplementation(() => new Promise(() => {}))
+
+        const promise = signOutAndLeave({ to: '/login' })
+
+        // まだタイムアウト前は離脱していない
+        await vi.advanceTimersByTimeAsync(500)
+        expect(replaceSpy).not.toHaveBeenCalled()
+
+        // タイムアウト経過後は打ち切って離脱する
+        await vi.advanceTimersByTimeAsync(600)
+        await promise
+
+        expect(replaceSpy).toHaveBeenCalledWith('/login')
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 

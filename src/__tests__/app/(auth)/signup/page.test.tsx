@@ -122,6 +122,32 @@ describe('SignupPage', () => {
     expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
   })
 
+  // iPhone Safari 等が bfcache（swipe back）からこのページをそのまま復元すると、ページは
+  // 実際には破棄されておらず、成功直後に維持しているローディングを戻す機会が無いまま
+  // ボタンが永久に押せなくなる。pageshow(persisted:true) を検知したら解除する。
+  it('should clear the loading state when the page is restored from bfcache after success', async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: { id: 'user-1' }, session: { access_token: 'tok' } },
+      error: null,
+    })
+    mockRpc.mockResolvedValue({ error: null })
+
+    render(<SignupPage />)
+    fillForm()
+    fireEvent.click(screen.getByRole('button', { name: 'アカウント作成' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
+    })
+    expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
+
+    const event = new Event('pageshow') as PageTransitionEvent
+    Object.defineProperty(event, 'persisted', { value: true })
+    fireEvent(window, event)
+
+    expect(screen.getByRole('button', { name: 'アカウント作成' })).not.toBeDisabled()
+  })
+
   it('should reset the submit button loading state when signUp fails', async () => {
     mockSignUp.mockResolvedValue({
       data: { user: null, session: null },

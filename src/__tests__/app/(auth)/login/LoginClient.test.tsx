@@ -350,6 +350,29 @@ describe('LoginClient — 成功後はページ破棄までローディングを
     expect(screen.getByText('ログイン中...')).toBeInTheDocument()
   })
 
+  // iPhone Safari 等が bfcache（swipe back）からこのページをそのまま復元すると、ページは
+  // 実際には破棄されておらず、成功直後に維持しているローディングを戻す機会が無いまま
+  // ボタンが永久に押せなくなる。pageshow(persisted:true) を検知したら解除する。
+  it('メールログイン成功後にbfcacheから復元されたら、ローディングを解除する', async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+
+    render(<LoginClient />)
+    fireEvent.change(screen.getByLabelText(/^メールアドレス\*?$/), { target: { value: 'user@example.com' } })
+    fireEvent.change(screen.getByLabelText(/^パスワード\*?$/), { target: { value: 'password123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
+    })
+    expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
+
+    const event = new Event('pageshow') as PageTransitionEvent
+    Object.defineProperty(event, 'persisted', { value: true })
+    fireEvent(window, event)
+
+    expect(screen.getByRole('button', { name: 'ログイン' })).not.toBeDisabled()
+  })
+
   it('「アプリへ戻る」の成功後も、ボタンはローディング（無効化）のまま', async () => {
     mockGetSession.mockResolvedValue({
       data: { session: { user: { id: 'user-1', email: 'already@example.com' } } },

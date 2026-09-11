@@ -73,6 +73,23 @@ describe('MfaChallengeClient（コード入力画面）', () => {
     await waitFor(() => expect(locationReplaceSpy).toHaveBeenCalledWith('/org-1/project/space-1'))
   })
 
+  // iPhone Safari 等が bfcache（swipe back）からこのページをそのまま復元すると、ページは
+  // 実際には破棄されておらず、verify成功直後に維持している submitting を戻す機会が無いまま
+  // ボタンが永久に押せなくなる。pageshow(persisted:true) を検知したら解除する。
+  it('verify成功後にbfcacheから復元されたら、確認ボタンのローディングを解除する', async () => {
+    render(<MfaChallengeClient />)
+    fireEvent.change(await screen.findByLabelText('6桁のコード'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: '確認する' }))
+    await waitFor(() => expect(locationReplaceSpy).toHaveBeenCalledWith('/inbox'))
+    expect(screen.getByText('確認中…').closest('button')).toBeDisabled()
+
+    const event = new Event('pageshow') as PageTransitionEvent
+    Object.defineProperty(event, 'persisted', { value: true })
+    fireEvent(window, event)
+
+    expect(screen.getByRole('button', { name: '確認する' })).not.toBeDisabled()
+  })
+
   it('コードが違えばエラー表示、遷移しない', async () => {
     challengeAndVerifyMock.mockResolvedValue({ data: null, error: { message: 'invalid' } })
     render(<MfaChallengeClient />)

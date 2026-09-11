@@ -11,6 +11,7 @@ import {
   ATTRIBUTION_STORAGE_KEY,
 } from '@/lib/task6/attribution'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
 
 const RESEND_COOLDOWN_SECONDS = 60
 
@@ -50,6 +51,11 @@ function SignupForm() {
       // localStorage不可(プライベートモード等)でも登録は妨げない
     }
   }, [searchParams])
+
+  // 成功後は window.location.assign() がページを破棄するまでローディングを維持し続ける設計
+  // （二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま復元すると
+  // ページは破棄されておらず、ボタンが永久に押せなくなる。bfcache復元を検知したら解除する
+  useResetOnBfcacheRestore(() => setLoading(false))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

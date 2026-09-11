@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
 import { DRAFT_PREFIX } from '@/lib/hooks/useFormDraft'
+import { clearQueryCache } from '@/lib/query/persistedCache'
 
 /**
  * サインアウト→別ユーザーでサインインをフルリロード無しで行うと、ルート常駐のクライアント状態
@@ -47,6 +48,12 @@ function clearFormDrafts(): void {
  * なった場合は、Supabase の auth cookie（`sb-<project-ref>-auth-token` とその分割チャンク
  * `.0` `.1` …）をここで明示的に失効させる。`signOut({ scope: 'local' })` は依然として
  * サーバーへ `/logout` を呼び、失敗時はセッションが残るため代替にならない。
+ *
+ * ⚠️ ここで消す Cookie の名前・path・domain は、Supabase クライアントの cookie 設定
+ * （`@supabase/ssr` の既定）と一致させ続ける必要がある。既定は path: '/'・domain 指定なし・
+ * httpOnly: false（ブラウザJSから読めるCookieが既定）。もし誰かが `cookieOptions.domain` を
+ * 設定するように変えたら、ここの削除もその domain 付きで行うよう合わせて直すこと
+ * （domain がずれると Cookie が消えず「ログアウトしたのにまだログイン中」が再発する）。
  */
 function clearSupabaseAuthCookies(): void {
   try {
@@ -74,6 +81,28 @@ function resolvesToCurrentPageIgnoringHash(to: string): boolean {
     return target.href === current.href
   } catch {
     return false
+  }
+}
+
+const CLEAR_QUERY_CACHE_TIMEOUT_MS = 1000
+
+/**
+ * clearQueryCache()（IDB に永続化した react-query キャッシュの削除）を最大
+ * CLEAR_QUERY_CACHE_TIMEOUT_MS だけ待つ。QueryProvider の SIGNED_OUT ハンドラでも同じ削除が
+ * 走るが、auth-js の signOut() がネットワーク断・5xx などで throw せず `{ error }` を返す
+ * ケースでは SIGNED_OUT イベント自体が発火しないため、それだけに頼ると共有PCで前のユーザーの
+ * キャッシュが端末に残り続ける。signOut() の成否に関わらずここで必ず呼ぶ。
+ * IDB が詰まって永久に解決しないことがあっても離脱そのものをブロックしないよう、
+ * 短いタイムアウトで打ち切る（失敗・タイムアウトのどちらもベストエフォートで無視する）。
+ */
+async function clearQueryCacheBounded(): Promise<void> {
+  try {
+    await Promise.race([
+      clearQueryCache(),
+      new Promise<void>((resolve) => setTimeout(resolve, CLEAR_QUERY_CACHE_TIMEOUT_MS)),
+    ])
+  } catch {
+    // ベストエフォート。IDB 削除に失敗してもログアウト自体は続行する
   }
 }
 
@@ -124,6 +153,10 @@ export async function signOutAndLeave({
       clearSupabaseAuthCookies()
     }
   } finally {
+    // signOut() の成否に関わらず、遷移する前に必ず IDB のクエリキャッシュを消す
+    // （タイムアウトで打ち切られるので、ここが離脱を止めることはない）
+    await clearQueryCacheBounded()
+
     if (resolvesToCurrentPageIgnoringHash(to)) {
       window.location.reload()
     } else {

@@ -202,6 +202,33 @@ describe('InviteAcceptPage — 受諾動線', () => {
     })
   })
 
+  // iPhone Safari 等が bfcache（swipe back）からこのページをそのまま復元すると、ページは
+  // 実際には破棄されておらず、受諾成功直後に維持している loading を戻す機会が無いまま
+  // ボタンが永久に押せなくなる。pageshow(persisted:true) を検知したら解除する。
+  it('受諾成功後にbfcacheから復元されたら、ボタンのローディングを解除する', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^パスワードを設定\*?$/)).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントを作成して参加' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+    expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
+
+    const event = new Event('pageshow') as PageTransitionEvent
+    Object.defineProperty(event, 'persisted', { value: true })
+    fireEvent(window, event)
+
+    expect(screen.getByRole('button', { name: 'アカウントを作成して参加' })).not.toBeDisabled()
+  })
+
   it('無効なトークンはエラーカードを表示（回帰）', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: 'invalid' } })
 

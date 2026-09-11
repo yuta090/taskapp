@@ -7,6 +7,7 @@ import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
+import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
@@ -38,6 +39,11 @@ export default function InviteAcceptPage({
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [sessionEmail, setSessionEmail] = useState<string | null>(null)
   const [emailMismatch, setEmailMismatch] = useState(false)
+
+  // 受諾成功後は window.location.assign() がページを破棄するまで loading を維持し続ける設計
+  // （二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま復元すると
+  // ページは破棄されておらず、ボタンが永久に押せなくなる。bfcache復元を検知したら解除する
+  useResetOnBfcacheRestore(() => setLoading(false))
 
   const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
     setLoading(true)
