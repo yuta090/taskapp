@@ -17,10 +17,10 @@ interface UseWikiPagesOptions {
   orgId: string
   spaceId: string
   /**
-   * 編集できる人か（既定 true）。false（閲覧者・相手先）のときは、Wiki が空でも
-   * ホームページ・仕様書テンプレートの自動作成を行わない（読んだだけで書き込みが
-   * 走ってしまうのを防ぐ）。呼び出し元（WikiPageClient）は canEditSpaceContent の
-   * 結果を渡す。TaskInspector・TaskCreateSheet からの呼び出しは既定のまま。
+   * 編集できる人か（既定 false・安全側）。true のときだけ、Wiki が空なら
+   * ホームページ・仕様書テンプレートの自動作成を行う。書ける場面だけ明示で渡す:
+   * WikiPageClient は canEditSpaceContent の結果、TaskInspector は `!!onUpdate`。
+   * TaskCreateSheet はページ一覧を読むだけ（仕様書リンクの選択肢）なので渡さない。
    */
   canEdit?: boolean
 }
@@ -59,7 +59,7 @@ interface UseWikiPagesReturn {
 // 読み込み中に毎レンダー新しい [] を返すと呼び出し側の useMemo が毎回無効化されるため共有定数にする
 const EMPTY_PAGES: WikiPage[] = []
 
-export function useWikiPages({ orgId, spaceId, canEdit = true }: UseWikiPagesOptions): UseWikiPagesReturn {
+export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOptions): UseWikiPagesReturn {
   const queryClient = useQueryClient()
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)

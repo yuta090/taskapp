@@ -612,7 +612,7 @@ export default function MyTasksClient() {
   // 「押せるのに選ぶと失敗する」を防ぐ（ヘッダーの「作成」ボタン自体は出したままにする —
   // 全spaceが閲覧者ということは稀で、その場合はシート側の選択肢が空になるだけで実害は無い）
   const spaceOptions = useMemo(
-    () => spaces.filter((s) => canEditSpace(s.id)).map((s) => ({ id: s.id, name: s.name, orgId: s.org_id || '' })),
+    () => spaces.filter((s) => canEditSpace(s.id, s.org_id)).map((s) => ({ id: s.id, name: s.name, orgId: s.org_id || '' })),
     [spaces, canEditSpace]
   )
 
@@ -1160,7 +1160,7 @@ export default function MyTasksClient() {
                                   task={task}
                                   isSelected={task.id === selectedTaskId}
                                   onClick={handleTaskClick}
-                                  onStatusChange={canEditSpace(task.space_id) ? updateTaskStatus : undefined}
+                                  onStatusChange={canEditSpace(task.space_id, task.org_id) ? updateTaskStatus : undefined}
                                   reviewStatus={reviewStatuses[task.id]}
                                   awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
                                 />
@@ -1189,7 +1189,7 @@ export default function MyTasksClient() {
                         task={task}
                         isSelected={task.id === selectedTaskId}
                         onClick={handleTaskClick}
-                        onStatusChange={canEditSpace(task.space_id) ? updateTaskStatus : undefined}
+                        onStatusChange={canEditSpace(task.space_id, task.org_id) ? updateTaskStatus : undefined}
                         reviewStatus={reviewStatuses[task.id]}
                         awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
                       />

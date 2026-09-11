@@ -57,28 +57,38 @@ describe('canEditSpaceContent', () => {
 })
 
 // 価格の枠・代理店設定は canEditSpaceContent より狭い規則。
-// DB側の判定（guard_agency_settings, 20260308_002／guard_task_pricing_write・delete, 20260308_003）
-// と同じ: space_memberships の行がはっきり admin/editor の人だけ。
+// DB側は2段構え: トリガー（guard_agency_settings, 20260308_002／
+// guard_task_pricing_write・delete, 20260308_003）が「space_memberships の行が
+// はっきり admin/editor」を課し、agency 設定の実体は spaces の列なので、
+// RLS（app_can_write_space 経由）の「組織の役割が社内」も同時に満たす必要がある。
 // canEditSpaceContent と違い、行が無い社内メンバーへの「editor扱い」フォールバックは無い
 // （トリガーは space_memberships を直接引き、行が無ければ caller_role が NULL のまま弾かれる）。
-// 組織の役割は見ない（トリガー自体が見ていない）。
 describe('canEditSpaceMoney', () => {
-  it('space の役割が admin なら操作できる', () => {
-    expect(canEditSpaceMoney('admin')).toBe(true)
+  it('社内メンバーで space の役割が admin なら操作できる', () => {
+    expect(canEditSpaceMoney('admin', 'member')).toBe(true)
   })
 
-  it('space の役割が editor なら操作できる', () => {
-    expect(canEditSpaceMoney('editor')).toBe(true)
+  it('社内メンバーで space の役割が editor なら操作できる', () => {
+    expect(canEditSpaceMoney('editor', 'owner')).toBe(true)
   })
 
-  it('space の役割が viewer / client / vendor なら操作できない', () => {
-    expect(canEditSpaceMoney('viewer')).toBe(false)
-    expect(canEditSpaceMoney('client')).toBe(false)
-    expect(canEditSpaceMoney('vendor')).toBe(false)
+  it('社内メンバーでも space の役割が viewer / client / vendor なら操作できない', () => {
+    expect(canEditSpaceMoney('viewer', 'member')).toBe(false)
+    expect(canEditSpaceMoney('client', 'member')).toBe(false)
+    expect(canEditSpaceMoney('vendor', 'member')).toBe(false)
   })
 
   it('space_memberships に行が無ければ操作できない（canEditSpaceContentと違いeditor扱いにしない）', () => {
-    expect(canEditSpaceMoney(null)).toBe(false)
-    expect(canEditSpaceMoney(undefined)).toBe(false)
+    expect(canEditSpaceMoney(null, 'member')).toBe(false)
+    expect(canEditSpaceMoney(undefined, 'owner')).toBe(false)
+  })
+
+  it('組織の役割が client（社外）なら、space の役割が admin/editor でも操作できない', () => {
+    expect(canEditSpaceMoney('admin', 'client')).toBe(false)
+  })
+
+  it('組織の役割が未取得なら操作できない側に倒す', () => {
+    expect(canEditSpaceMoney('admin', null)).toBe(false)
+    expect(canEditSpaceMoney('admin', undefined)).toBe(false)
   })
 })

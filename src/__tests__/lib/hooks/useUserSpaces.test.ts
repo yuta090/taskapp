@@ -89,7 +89,7 @@ describe('useUserSpaces', () => {
     await waitFor(() => expect(result.current.isPending).toBe(false))
   })
 
-  it('取得に失敗すると isError が true になる', async () => {
+  it('一度も取れないまま失敗すると isLoadingError が true になる', async () => {
     mockEqUser.mockReturnValue({
       then: (
         resolve: (v: { data: null; error: null }) => unknown,
@@ -99,7 +99,33 @@ describe('useUserSpaces', () => {
     const { Wrapper } = createWrapper()
     const { result } = renderHook(() => useUserSpaces(), { wrapper: Wrapper })
 
-    await waitFor(() => expect(result.current.isError).toBe(true))
+    await waitFor(() => expect(result.current.isLoadingError).toBe(true))
     expect(result.current.isPending).toBe(false)
+  })
+
+  // 呼び出し側(useCanEditSpace(s))が「前回取れた役割を使い続けてよいか」を isLoadingError
+  // だけで判定できるようにするための回帰: 一度取れたあとの裏の取り直し失敗は isLoadingError=false
+  it('データが取れたあとの裏の取り直しが失敗しても isLoadingError は false のまま（前回のデータは残る）', async () => {
+    mockEqUser.mockReturnValueOnce(builder([{ role: 'editor', space_id: 's1', spaces: null }]))
+    const { Wrapper, queryClient } = createWrapper()
+    const { result } = renderHook(() => useUserSpaces(), { wrapper: Wrapper })
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.spaces).toHaveLength(1)
+
+    mockEqUser.mockReturnValue({
+      then: (
+        _resolve: (v: { data: null; error: null }) => unknown,
+        reject: (e: Error) => unknown
+      ) => reject(new Error('boom')),
+    })
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['userSpaces'] })
+    })
+
+    expect(result.current.isLoadingError).toBe(false)
+    // 前回取れたデータはそのまま残る（DBに問い合わせ直すまでの最後の砦）
+    expect(result.current.spaces).toHaveLength(1)
   })
 })

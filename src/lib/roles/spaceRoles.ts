@@ -123,15 +123,20 @@ export function canEditSpaceContent(
 
 /**
  * 価格の枠（TaskPricingPanel）・代理店設定（AgencySettings）を操作できるか。
- * DB 側の判定（guard_agency_settings, 20260308_002_agency_settings_write_guard.sql /
- * guard_task_pricing_write・guard_task_pricing_delete, 20260308_003_task_pricing_write_guard.sql）
- * と同じ規則: space_memberships の行がはっきり admin/editor の人だけ。
+ * DB 側は2段構え: トリガー（guard_agency_settings, 20260308_002_agency_settings_write_guard.sql /
+ * guard_task_pricing_write・guard_task_pricing_delete, 20260308_003_task_pricing_write_guard.sql）が
+ * 「space_memberships の行がはっきり admin/editor の人だけ」を課し、agency 設定の実体は
+ * spaces の列なので、そこへの書き込み自体は RLS（app_can_write_space 経由）の
+ * 「組織の役割が社内（owner/admin/member）」も同時に満たす必要がある。
  *
- * canEditSpaceContent と違い、
- * - space_memberships に行が無い社内メンバーへの「editor 扱い」フォールバックは無い
- *   （トリガーは space_memberships を直接引き、行が無ければ caller_role が NULL のまま弾く）
- * - 組織の役割（org_memberships）は見ない（トリガー自体が見ていない）
+ * canEditSpaceContent と違い、space_memberships に行が無い社内メンバーへの
+ * 「editor 扱い」フォールバックは無い（トリガーは space_memberships を直接引き、
+ * 行が無ければ caller_role が NULL のまま弾く）。
  */
-export function canEditSpaceMoney(spaceRole: string | undefined | null): boolean {
+export function canEditSpaceMoney(
+  spaceRole: string | undefined | null,
+  orgRole: string | undefined | null
+): boolean {
+  if (!isOrgInternalRole(orgRole)) return false
   return (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole ?? '')
 }

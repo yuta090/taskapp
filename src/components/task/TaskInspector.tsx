@@ -151,12 +151,13 @@ export function TaskInspector({
   const [milestones, setMilestones] = useState<Milestone[]>([])
 
   // Wiki pages for spec link（候補はタグの有無に関係なく全ページ。資料が増えても名前で探せるように）
+  // 空のWikiの自動作成は編集できる人（onUpdate が渡されている）のときだけ行う
   const {
     pages: wikiPages,
     createPage,
     loading: wikiPagesLoading,
     error: wikiPagesError,
-  } = useWikiPages({ orgId: task.org_id, spaceId })
+  } = useWikiPages({ orgId: task.org_id, spaceId, canEdit: !!onUpdate })
   // PR3: タスク詳細から同じマイルストーンの Wiki を引ける導線（補助情報。詳細設定の件数バッジには含めない）
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照（同じ queryKey で一覧側とキャッシュ共有）
   // マイルストーン未設定のタスクではこの情報を一切使わないので取りに行かない

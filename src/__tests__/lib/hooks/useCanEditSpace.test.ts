@@ -5,23 +5,25 @@ import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOrgProvider'
 import type { UserSpace } from '@/lib/hooks/useUserSpaces'
 
-// 正本は自分の space_memberships の行（useUserSpaces）。rpc_get_space_members のように
-// 「行が無い人には例外」ではなく「行が無ければ一覧に載らないだけ」なので、通信断・失敗と
-// 「行が無い（社内メンバーは編集者扱い）」を区別できる。分からない間は編集できない側に倒す。
+// 正本は自分の space_memberships の行（useUserSpaces）。行が無い人には例外を返す仕組みとは
+// 違い、行が無ければ一覧に載らないだけなので、通信の失敗と「行が無い（社内メンバーは
+// 編集者扱い）」を区別できる。分からない間は編集できない側に倒す。
 
 let mockSpaces: UserSpace[] = []
 let mockIsPending = false
-let mockIsError = false
+let mockIsLoadingError = false
+
+const useUserSpacesMock = vi.fn<(options?: { includeArchived?: boolean }) => Record<string, unknown>>(() => ({
+  spaces: mockSpaces,
+  loading: mockIsPending,
+  isPending: mockIsPending,
+  isLoadingError: mockIsLoadingError,
+  error: null,
+  refetch: async () => {},
+}))
 
 vi.mock('@/lib/hooks/useUserSpaces', () => ({
-  useUserSpaces: () => ({
-    spaces: mockSpaces,
-    loading: mockIsPending,
-    isPending: mockIsPending,
-    isError: mockIsError,
-    error: null,
-    refetch: async () => {},
-  }),
+  useUserSpaces: (options?: { includeArchived?: boolean }) => useUserSpacesMock(options),
 }))
 
 function makeSpace(overrides: Partial<UserSpace> = {}): UserSpace {
@@ -61,7 +63,8 @@ function createWrapper(
 beforeEach(() => {
   mockSpaces = []
   mockIsPending = false
-  mockIsError = false
+  mockIsLoadingError = false
+  useUserSpacesMock.mockClear()
 })
 
 describe('useCanEditSpace', () => {
@@ -106,13 +109,32 @@ describe('useCanEditSpace', () => {
     expect(result.current.canEdit).toBe(false)
   })
 
-  it('閲覧者で取得に失敗したら編集できない（例外で「行が無い＝編集者」に倒れない）', () => {
-    mockIsError = true
+  it('一度も取れないまま失敗したら編集できない', () => {
+    mockIsLoadingError = true
     mockSpaces = []
     const { result } = renderHook(() => useCanEditSpace('space-1', 'org-1'), {
       wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }]),
     })
     expect(result.current.canEdit).toBe(false)
+  })
+
+  // 前回取れたデータ(spaces)がある状態での裏の取り直し失敗は isLoadingError=false のまま
+  // （useUserSpaces 側の仕様）。react-query の isError（裏の取り直し失敗でも true になる）を
+  // 使うと、編集者の役割が一時的に読み取り専用へ後退してしまうため、isLoadingError だけを見る。
+  it('前回取れた役割がある状態での裏の取り直し失敗では、編集できるまま（読み取り専用に後退しない）', () => {
+    mockIsLoadingError = false
+    mockSpaces = [makeSpace({ role: 'editor' })]
+    const { result } = renderHook(() => useCanEditSpace('space-1', 'org-1'), {
+      wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }]),
+    })
+    expect(result.current.canEdit).toBe(true)
+  })
+
+  it('useUserSpaces には includeArchived: true を渡す（左メニューと同じキャッシュを共有する）', () => {
+    renderHook(() => useCanEditSpace('space-1', 'org-1'), {
+      wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }]),
+    })
+    expect(useUserSpacesMock).toHaveBeenCalledWith({ includeArchived: true })
   })
 
   it('まだ取れていない間は canEdit=false・loading=true', () => {

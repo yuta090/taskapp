@@ -9,22 +9,26 @@ import type { UserSpace } from '@/lib/hooks/useUserSpaces'
 // space の役割が違うケースに対応するための、まとめて判定するhook。
 // 単発の useCanEditSpace(spaceId, orgId) と違い、N個のhookを呼ぶことなく
 // 事前に取得済みのユーザーの所属space一覧(useUserSpaces)から判定する。
-// 組織の役割は「今選んでいる組織」ではなく、useUserSpaces が持つ各spaceのorgIdから引く
-// （呼び出し側からorgIdを渡す手段が無いため、行が無いspaceは判定できず false に倒す）。
+// 組織の役割は、その space 自身の orgId（useUserSpaces が持つ）を優先し、
+// 一覧に無い space（行が無い）では canEditSpace の第2引数（呼び出し側が渡す orgId、
+// 例: task.org_id）で補う。単発の useCanEditSpace と同じ考え方（詳細と一覧の判定が
+// ずれないようにする）。
 
 let mockSpaces: UserSpace[] = []
 let mockIsPending = false
-let mockIsError = false
+let mockIsLoadingError = false
+
+const useUserSpacesMock = vi.fn<(options?: { includeArchived?: boolean }) => Record<string, unknown>>(() => ({
+  spaces: mockSpaces,
+  loading: mockIsPending,
+  isPending: mockIsPending,
+  isLoadingError: mockIsLoadingError,
+  error: null,
+  refetch: async () => {},
+}))
 
 vi.mock('@/lib/hooks/useUserSpaces', () => ({
-  useUserSpaces: () => ({
-    spaces: mockSpaces,
-    loading: mockIsPending,
-    isPending: mockIsPending,
-    isError: mockIsError,
-    error: null,
-    refetch: async () => {},
-  }),
+  useUserSpaces: (options?: { includeArchived?: boolean }) => useUserSpacesMock(options),
 }))
 
 function makeSpace(overrides: Partial<UserSpace> = {}): UserSpace {
@@ -60,7 +64,8 @@ function createWrapper(orgs: ActiveOrgContextValue['orgs']) {
 beforeEach(() => {
   mockSpaces = []
   mockIsPending = false
-  mockIsError = false
+  mockIsLoadingError = false
+  useUserSpacesMock.mockClear()
 })
 
 describe('useCanEditSpaces', () => {
@@ -80,12 +85,20 @@ describe('useCanEditSpaces', () => {
     expect(result.current.canEditSpace('space-a')).toBe(false)
   })
 
-  it('一覧に無い space（行が無い）は、組織が分からないため編集できない側に倒す', () => {
+  it('一覧に無い space（行が無い）で orgId を渡さなければ、組織が分からず編集できない側に倒す', () => {
     mockSpaces = []
     const { result } = renderHook(() => useCanEditSpaces(), {
       wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'owner' }]),
     })
     expect(result.current.canEditSpace('space-unknown')).toBe(false)
+  })
+
+  it('一覧に無い space（行が無い社内メンバー）でも、呼び出し側が orgId を渡せば編集できる（useCanEditSpace と同じ挙動）', () => {
+    mockSpaces = []
+    const { result } = renderHook(() => useCanEditSpaces(), {
+      wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'owner' }]),
+    })
+    expect(result.current.canEditSpace('space-unknown', 'org-1')).toBe(true)
   })
 
   it('タスクごとに space が違えば、判定もそれぞれ別になる', () => {
@@ -115,6 +128,18 @@ describe('useCanEditSpaces', () => {
     expect(result.current.canEditSpace('space-b')).toBe(false)
   })
 
+  it('space の行が見つかれば、渡された orgId より一覧側の orgId を優先する', () => {
+    mockSpaces = [makeSpace({ id: 'space-a', role: 'admin', orgId: 'org-1' })]
+    const { result } = renderHook(() => useCanEditSpaces(), {
+      wrapper: createWrapper([
+        { orgId: 'org-1', orgName: 'Org1', role: 'member' },
+        { orgId: 'org-2', orgName: 'Org2', role: 'client' },
+      ]),
+    })
+    // 呼び出し側が誤って別の org-2 を渡しても、一覧に載っている本当の所属(org-1)で判定する
+    expect(result.current.canEditSpace('space-a', 'org-2')).toBe(true)
+  })
+
   it('spaceId が null/undefined なら編集できない', () => {
     const { result } = renderHook(() => useCanEditSpaces(), {
       wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }]),
@@ -133,12 +158,28 @@ describe('useCanEditSpaces', () => {
     expect(result.current.canEditSpace('space-a')).toBe(false)
   })
 
-  it('取得に失敗したときも編集できない側に倒す', () => {
-    mockIsError = true
+  it('一度も取れないまま失敗したときは編集できない側に倒す', () => {
+    mockIsLoadingError = true
     mockSpaces = [makeSpace({ id: 'space-a', role: 'editor', orgId: 'org-1' })]
     const { result } = renderHook(() => useCanEditSpaces(), {
       wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }]),
     })
     expect(result.current.canEditSpace('space-a')).toBe(false)
+  })
+
+  it('前回取れた役割がある状態での裏の取り直し失敗では、編集できるまま', () => {
+    mockIsLoadingError = false
+    mockSpaces = [makeSpace({ id: 'space-a', role: 'editor', orgId: 'org-1' })]
+    const { result } = renderHook(() => useCanEditSpaces(), {
+      wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }]),
+    })
+    expect(result.current.canEditSpace('space-a')).toBe(true)
+  })
+
+  it('useUserSpaces には includeArchived: true を渡す（左メニューと同じキャッシュを共有する）', () => {
+    renderHook(() => useCanEditSpaces(), {
+      wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }]),
+    })
+    expect(useUserSpacesMock).toHaveBeenCalledWith({ includeArchived: true })
   })
 })

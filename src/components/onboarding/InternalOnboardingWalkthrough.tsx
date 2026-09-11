@@ -32,6 +32,8 @@ interface WalkthroughStep {
    * if none match.
    */
   targetSelectors?: readonly string[]
+  /** 編集できる人にだけ見せる手順か（既定 false）。無い「タスクを追加」ボタン等、閲覧者には案内できない内容につける */
+  requiresEdit?: boolean
 }
 
 const steps: WalkthroughStep[] = [
@@ -45,6 +47,7 @@ const steps: WalkthroughStep[] = [
     // （空状態のCTA・一覧最下段のインライン行にも同じ目印がある）。
     // サイドバー内の要素は別スタッキングコンテキストで隠れるため使わない。
     targetSelectors: ['[data-walkthrough="task-create"]'],
+    requiresEdit: true,
   },
   {
     icon: ArrowsLeftRight,
@@ -122,7 +125,7 @@ export function InternalOnboardingWalkthrough({
   const [fadeIn, setFadeIn] = useState(false)
 
   const visibleSteps = useMemo(
-    () => (canEdit ? steps : steps.filter((s) => s.title !== 'タスク作成の流れ')),
+    () => (canEdit ? steps : steps.filter((s) => !s.requiresEdit)),
     [canEdit]
   )
 

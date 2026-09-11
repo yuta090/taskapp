@@ -38,7 +38,7 @@ export function useUserSpaces(options?: UseUserSpacesOptions) {
     [user?.id, includeArchived],
   )
 
-  const { data, isLoading, isPending, isError, error: queryError } = useQuery<UserSpace[]>({
+  const { data, isLoading, isPending, isLoadingError, error: queryError } = useQuery<UserSpace[]>({
     queryKey,
     queryFn: async (): Promise<UserSpace[]> => {
       if (!user) return []
@@ -109,7 +109,10 @@ export function useUserSpaces(options?: UseUserSpacesOptions) {
     // 「まだ取れていない」「失敗した」を区別したい呼び出し側(useCanEditSpace(s))向け。
     // 既存の loading の意味（画面のスケルトン表示用）はそのまま変えない。
     isPending: userLoading || isPending,
-    isError,
+    // react-query の isLoadingError は「一度も取れないまま失敗した」ときだけ true。
+    // 前回取れたデータがある状態で裏の取り直しだけ失敗した場合は false のまま
+    // （その場合は data に前回分が残るので、呼び出し側は前回の役割を使い続けられる）。
+    isLoadingError,
     error: queryError ? (queryError instanceof Error ? queryError.message : 'スペースの取得に失敗しました') : null,
     refetch,
   }
