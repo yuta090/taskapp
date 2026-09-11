@@ -42,6 +42,8 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
         created_at,
         updated_at,
         space_id,
+        estimated_cost,
+        estimate_status,
         spaces!inner (
           id,
           name,
@@ -122,6 +124,8 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
     updatedAt: task.updated_at,
     waitingDays,
     isOverdue,
+    estimatedCost: task.estimated_cost as number | null,
+    estimateStatus: (task.estimate_status || 'none') as 'none' | 'pending' | 'approved' | 'rejected',
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

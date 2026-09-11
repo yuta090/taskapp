@@ -44,7 +44,7 @@ export default async function PortalRequestsPage({ searchParams }: PageProps) {
   const [requestsResult, actionCountResult] = await Promise.all([
     (supabase as SupabaseClient)
       .from('tasks')
-      .select('id, title, status, ball, due_date, type, created_at, description')
+      .select('id, title, status, ball, due_date, type, created_at, description, estimated_cost, estimate_status')
       .eq('space_id', spaceId)
       .eq('origin', 'client')
       .order('created_at', { ascending: false })
@@ -71,6 +71,8 @@ export default async function PortalRequestsPage({ searchParams }: PageProps) {
     type: task.type as 'task' | 'spec',
     createdAt: task.created_at as string,
     description: task.description as string | null,
+    estimatedCost: task.estimated_cost as number | null,
+    estimateStatus: (task.estimate_status || 'none') as 'none' | 'pending' | 'approved' | 'rejected',
   }))
 
   return (
