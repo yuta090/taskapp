@@ -16,6 +16,7 @@ import {
 } from '@phosphor-icons/react'
 import { TruncatedText, Tooltip } from '@/components/shared'
 import type { TaskStatus, BallSide, TaskType, DecisionState, Milestone } from '@/types/database'
+import { taskAssigneeKey, type AssigneeOption } from '@/lib/tasks/taskAssignees'
 
 // Filter value types
 export interface TaskFilters {
@@ -40,17 +41,12 @@ export const defaultFilters: TaskFilters = {
   decisionState: [],
 }
 
-interface Owner {
-  user_id: string
-  display_name: string | null
-  side: BallSide
-}
-
 interface TaskFilterMenuProps {
   filters: TaskFilters
   onFiltersChange: (filters: TaskFilters) => void
   milestones: Milestone[]
-  owners: Owner[]
+  /** 担当者の選択肢（プロジェクトの参加者全員＋招待中の担当者）。buildAssigneeOptions で作る */
+  assignees: AssigneeOption[]
 }
 
 // Filter options
@@ -113,7 +109,7 @@ const FILTER_CATEGORIES: { key: FilterCategory; label: string; icon: React.React
   { key: 'decisionState', label: '仕様状態', icon: <FileText className="text-base" /> },
 ]
 
-export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }: TaskFilterMenuProps) {
+export function TaskFilterMenu({ filters, onFiltersChange, milestones, assignees }: TaskFilterMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [activeCategory, setActiveCategory] = useState<FilterCategory | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -242,7 +238,7 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
 
       case 'assignee':
         return (
-          <div className="py-1 max-h-[300px] overflow-y-auto">
+          <div data-testid="task-filter-assignee-options" className="py-1 max-h-[300px] overflow-y-auto">
             <button
               type="button"
               onClick={() => toggleArrayFilter('assigneeId', null)}
@@ -255,22 +251,23 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
               </span>
               <span className="text-gray-500">未割り当て</span>
             </button>
-            {owners.map((owner) => (
+            {assignees.map((assignee) => (
               <button
-                key={owner.user_id}
+                key={assignee.id}
                 type="button"
-                onClick={() => toggleArrayFilter('assigneeId', owner.user_id)}
+                onClick={() => toggleArrayFilter('assigneeId', assignee.id)}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors"
+                title={assignee.label}
               >
-                <span className={`w-4 h-4 rounded border flex items-center justify-center ${
-                  filters.assigneeId.includes(owner.user_id) ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-300'
+                <span className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
+                  filters.assigneeId.includes(assignee.id) ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-300'
                 }`}>
-                  {filters.assigneeId.includes(owner.user_id) && <Check weight="bold" className="text-xs" />}
+                  {filters.assigneeId.includes(assignee.id) && <Check weight="bold" className="text-xs" />}
                 </span>
-                <span>{owner.display_name || owner.user_id.slice(0, 8)}</span>
-                {owner.side !== 'internal' && (
-                  <span className="text-[10px] px-1 py-0.5 bg-amber-100 text-amber-600 rounded">
-                    {owner.side === 'client' ? '外部' : owner.side === 'vendor' ? 'ベンダー' : owner.side === 'agency' ? '代理店' : '外部'}
+                <span className="min-w-0 truncate">{assignee.label}</span>
+                {assignee.side !== 'internal' && (
+                  <span className="flex-shrink-0 text-[10px] px-1 py-0.5 bg-amber-100 text-amber-600 rounded">
+                    {assignee.side === 'client' ? '外部' : assignee.side === 'vendor' ? 'ベンダー' : assignee.side === 'agency' ? '代理店' : '外部'}
                   </span>
                 )}
               </button>
@@ -484,14 +481,14 @@ interface ActiveFilterChipsProps {
   filters: TaskFilters
   onFiltersChange: (filters: TaskFilters) => void
   milestones?: { id: string; name: string }[]
-  owners?: { user_id: string; display_name: string | null }[]
+  assignees?: AssigneeOption[]
 }
 
 export function ActiveFilterChips({
   filters,
   onFiltersChange,
   milestones = [],
-  owners = [],
+  assignees = [],
 }: ActiveFilterChipsProps) {
   const chips: { label: string; onRemove: () => void }[] = []
 
@@ -519,7 +516,7 @@ export function ActiveFilterChips({
   if (filters.assigneeId.length > 0) {
     const labels = filters.assigneeId.map((v) => {
       if (v === null) return '未割り当て'
-      return owners.find((o) => o.user_id === v)?.display_name ?? v.slice(0, 8)
+      return assignees.find((o) => o.id === v)?.label ?? v.slice(0, 8)
     })
     chips.push({
       label: `担当者: ${labels.join(', ')}`,
@@ -588,6 +585,7 @@ export function applyTaskFilters<T extends {
   ball: BallSide
   type: TaskType
   assignee_id: string | null
+  assignee_invite_id?: string | null
   milestone_id: string | null
   priority: number | null
   due_date: string | null
@@ -612,8 +610,8 @@ export function applyTaskFilters<T extends {
       return false
     }
 
-    // Assignee filter
-    if (filters.assigneeId.length > 0 && !filters.assigneeId.includes(task.assignee_id)) {
+    // Assignee filter。招待中の人が担当のタスクは、その招待の id で絞る（「未割り当て」には入れない）
+    if (filters.assigneeId.length > 0 && !filters.assigneeId.includes(taskAssigneeKey(task))) {
       return false
     }
 

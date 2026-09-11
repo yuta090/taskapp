@@ -15,9 +15,18 @@ export interface UnreadNotificationCountState {
   refresh: () => void
 }
 
-interface CountQueryData {
+export interface UnreadCountData {
   count: number
   pendingCount: number
+}
+type CountQueryData = UnreadCountData
+
+/**
+ * 左メニューのバッジ件数の queryKey。既読にする側（useNotifications）が、サーバーの返事を待たずに
+ * 件数を減らすときも同じキーを使う。
+ */
+export function unreadCountQueryKey(orgId: string | null) {
+  return ['unreadCount', orgId] as const
 }
 
 export function useUnreadNotificationCount(): UnreadNotificationCountState {
@@ -29,7 +38,7 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
   if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  const queryKey = useMemo(() => ['unreadCount', activeOrgId] as const, [activeOrgId])
+  const queryKey = useMemo(() => unreadCountQueryKey(activeOrgId), [activeOrgId])
 
   const { data, isPending, error: queryError } = useQuery<CountQueryData>({
     queryKey,
