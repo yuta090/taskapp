@@ -3,6 +3,7 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { needsMfaChallenge, isMfaExemptPath, MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
+import { isNavigationAbort } from '@/lib/net/isNavigationAbort'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getActiveOrgId, setActiveOrgId } from './activeOrg'
@@ -127,7 +128,12 @@ async function fetchOrgMemberships(supabase: SupabaseClient, userId: string): Pr
       }
     })
   } catch (err) {
-    console.error('Failed to fetch organizations:', err)
+    // ページ移動によってブラウザに打ち切られただけの失敗（AbortError / "Failed to fetch"）は
+    // 通信障害ではなく利用者への実害も無いため、エラーとして記録しない。react-query 側の
+    // リトライ・状態管理はそのまま（throw は変えない）
+    if (!isNavigationAbort(err)) {
+      console.error('Failed to fetch organizations:', err)
+    }
     throw err
   }
 }

@@ -1,10 +1,11 @@
 import React, { useContext } from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, dehydrate } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Persister } from '@tanstack/react-query-persist-client'
 import { ActiveOrgProvider, ActiveOrgContext, PAGE_LOADED_AT } from '@/lib/org/ActiveOrgProvider'
+import { __resetNavigationLeavingStateForTest } from '@/lib/net/isNavigationAbort'
 import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
 import OrgScopedLayout from '@/app/(internal)/[orgId]/layout'
 
@@ -541,5 +542,70 @@ describe('ActiveOrgProvider — retry（再試行）', () => {
     renderPlain(qc)
     await waitFor(() => expect(assignSpy).toHaveBeenCalledTimes(1))
     expect(assignSpy).toHaveBeenCalledWith(expect.stringContaining('/login/mfa'))
+  })
+})
+
+describe('ActiveOrgProvider — ページ移動による打ち切りはエラー記録しない', () => {
+  // ログイン直後など、移り先の画面がまだ読み込み中のうちに別の画面へフル移動すると、
+  // 進行中だった所属一覧の取得がブラウザに打ち切られる（AbortError / "TypeError: Failed to fetch"）。
+  // これは通信障害ではなく利用者への実害も無いため console.error を呼ばない。
+  // それ以外の、ページ移動と無関係なふつうの失敗は今までどおり console.error で記録する。
+  let errorSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    __resetNavigationLeavingStateForTest()
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    errorSpy.mockRestore()
+  })
+
+  it('pagehide 後に "Failed to fetch" で失敗しても console.error を呼ばない', async () => {
+    membershipsResult = {
+      data: null,
+      error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' },
+    }
+    window.dispatchEvent(new Event('pagehide'))
+    const qc = appClient()
+    renderPlain(qc)
+
+    await waitFor(() => expect(fromMock).toHaveBeenCalled())
+    await sleep(50)
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('AbortError で失敗した場合は、ページ移動前でも console.error を呼ばない', async () => {
+    membershipsResult = {
+      data: null,
+      error: {
+        message: 'AbortError: The operation was aborted',
+        details: '',
+        hint: 'Request was aborted (timeout or manual cancellation)',
+        code: '',
+      },
+    }
+    const qc = appClient()
+    renderPlain(qc)
+
+    await waitFor(() => expect(fromMock).toHaveBeenCalled())
+    await sleep(50)
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  // 境目のテスト: pagehide/beforeunload を一切出していない状態なら、本番と同じ
+  // "TypeError: Failed to fetch" 形（メッセージの内容だけ見れば打ち切りと同じ形）が届いても、
+  // ページ移動と無関係な、ふつうの失敗として今までどおり console.error を呼ぶ
+  // （メッセージの内容だけで判定していないことの確認）
+  it('ページ移動と無関係な、ふつうの失敗（本番と同じ "TypeError: Failed to fetch" 形）は今までどおり console.error を呼ぶ', async () => {
+    membershipsResult = {
+      data: null,
+      error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' },
+    }
+    const qc = appClient()
+    renderPlain(qc)
+
+    await waitFor(() => expect(errorSpy).toHaveBeenCalled())
+    expect(errorSpy).toHaveBeenCalledWith('Failed to fetch organizations:', expect.anything())
   })
 })
