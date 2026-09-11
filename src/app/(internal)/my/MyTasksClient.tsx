@@ -18,7 +18,7 @@ import type { Task, Space, Milestone, TaskStatus, ReviewStatus } from '@/types/d
 import { splitEmbeddedReviews, type EmbeddedReviews } from '@/lib/tasks/reviewStatus'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
-import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
+import { ActiveOrgContext, PAGE_LOADED_AT } from '@/lib/org/ActiveOrgProvider'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
@@ -199,16 +199,24 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
   // まだ無い」場合に限り、listFetchedAt ごとに1回だけ更新を要求する（不要な待たせをしない）。
   // 取得済みエラーがある間は自動で再要求しない — 復帰は ErrorRetry の再試行ボタンに任せる
   // （さもないと ErrorRetry→スピナー→ErrorRetry のちらつきになる）
+  // 「一覧より古ければ1回だけ取り直す」の基準は、詳細を開いた時点の listFetchedAt に固定
+  // する。listFetchedAt そのものは一覧のバックグラウンド再取得のたびに進む値のため、
+  // 固定しないとフォーカスの度に「一覧より古い」と再判定され、fetchTasks（プロジェクトの
+  // 全タスクの再取得）が無駄に走り続けてしまう。MyTaskInspector は task.id で key が
+  // 付いているので、開くたびに作り直される＝この useState の初期値だけが効く。
+  // 一覧への同期条件（下の onSynced 呼び出し）は逆に「今の値」を使う必要があるため、
+  // あちらは listFetchedAt をそのまま使う（分けて持つ）。
+  const [listFetchedAtAtOpen] = useState(listFetchedAt)
   const [doneForListFetchedAt, setDoneForListFetchedAt] = useState<number | null>(null)
   const requestedForRef = useRef<number | null>(null)
   useEffect(() => {
     if (loading || isFetching || deleting || error) return
-    if (spaceTask && dataUpdatedAt >= listFetchedAt) return
-    if (requestedForRef.current === listFetchedAt) return
-    requestedForRef.current = listFetchedAt
-    fetchTasks().finally(() => setDoneForListFetchedAt(listFetchedAt))
-  }, [loading, isFetching, deleting, error, spaceTask, dataUpdatedAt, listFetchedAt, fetchTasks])
-  const notFound = doneForListFetchedAt === listFetchedAt && !spaceTask && !isFetching && !error && !deleting
+    if (spaceTask && dataUpdatedAt >= listFetchedAtAtOpen) return
+    if (requestedForRef.current === listFetchedAtAtOpen) return
+    requestedForRef.current = listFetchedAtAtOpen
+    fetchTasks().finally(() => setDoneForListFetchedAt(listFetchedAtAtOpen))
+  }, [loading, isFetching, deleting, error, spaceTask, dataUpdatedAt, listFetchedAtAtOpen, fetchTasks])
+  const notFound = doneForListFetchedAt === listFetchedAtAtOpen && !spaceTask && !isFetching && !error && !deleting
 
   // 詳細で変えた内容を一覧にも映す。一覧の取得時刻より新しいデータになったときだけ同期する
   // （古いキャッシュ・削除中で一覧側を上書きしない）
@@ -354,9 +362,16 @@ interface MyTasksData {
  */
 async function fetchMyTasksData(
   supabase: SupabaseClient,
-  userId: string,
+  userId: string | null,
   orgId: string | null
 ): Promise<MyTasksData> {
+  // react-query の refetch() は enabled:false を無視して呼ばれうる（例: ログイン必要状態で
+  // 「再試行」ボタンを押した場合）。userId が無いまま `.eq('assignee_id', userId)` を投げると
+  // `assignee_id=eq.null` という無意味な問い合わせをサーバーへ送ってしまうため、ここで止める
+  if (!userId) {
+    throw new Error('ログインが必要です')
+  }
+
   // クエリ発行の直前に記録。MyTaskInspector 側の判定に使う（MyTasksData.fetchedAt 参照）
   const fetchedAt = Date.now()
 
@@ -446,9 +461,18 @@ export default function MyTasksClient() {
 
   const myTasksQuery = useQuery<MyTasksData>({
     queryKey: myTasksKey,
-    queryFn: () => fetchMyTasksData(supabase, userId as string, activeOrgId ?? null),
+    queryFn: () => fetchMyTasksData(supabase, userId, activeOrgId ?? null),
     // org解決前・本人ID未決定の間はフェッチしない（cross-org leak防止）
     enabled: !orgLoading && !!userId,
+    // 開くたびに裏で取り直す（自分が他の画面で変えた内容を反映する）。ActiveOrgProvider の
+    // orgMemberships クエリと同じ考え方（PAGE_LOADED_AT コメント参照）:
+    // - refetchOnMount:'always' は、/my への通常のページ遷移（このコンポーネント自体が
+    //   毎回アンマウント→マウントし直される）では正しく効く
+    // - ただし cold load 直後（IDB復元でuserIdがまだ null → 判明、の順でqueryKeyが切り替わる
+    //   一瞬）は、'always' のタイミングを素通りしてしまう場合があるため、staleTime を
+    //   PAGE_LOADED_AT より前のデータは常にstale扱いにすることでも同じ結果を保証する
+    refetchOnMount: 'always',
+    staleTime: (query) => (query.state.dataUpdatedAt < PAGE_LOADED_AT ? 0 : DEFAULT_STALE_TIME_MS),
   })
 
   const tasks = useMemo(() => myTasksQuery.data?.tasks ?? [], [myTasksQuery.data?.tasks])
@@ -464,7 +488,16 @@ export default function MyTasksClient() {
   // 「読み込み中」はデータがまだ無いとき(isPending)だけ出す。キャッシュがあれば
   // （IndexedDBから復元したものでも）通信を待たずに即座に表示する
   const loading = !loginRequired && myTasksQuery.isPending
-  const error = loginRequired ? LOGIN_REQUIRED_ERROR : (myTasksQuery.error as Error | null)
+  // エラー画面に丸ごと置き換えるのは、表示できるデータが無いときだけにする。
+  // 開くたびに裏で取り直す(refetchOnMount:'always')ようになった影響で、表示中の一覧を
+  // 保ったまま裏の取り直しだけが失敗することが普通に起こるようになった。そのたびに
+  // 一覧をエラー画面へ丸ごと置き換えると、せっかく出ていた（多少古くても有効な）一覧が
+  // 見えなくなってしまう
+  const error = loginRequired
+    ? LOGIN_REQUIRED_ERROR
+    : myTasksQuery.data === undefined
+      ? (myTasksQuery.error as Error | null)
+      : null
 
   // 行の完了トグル(updateTaskStatus)を tasks の変更のたびに作り直さない（TaskRow の memo を効かせる）ための ref
   const tasksRef = useRef(tasks)
@@ -481,16 +514,27 @@ export default function MyTasksClient() {
 
   // タスクを「開いた」時刻。詳細パネルの表示許容誤差(SHOW_TOLERANCE_MS)の基準に使う
   // （詳細は MyTaskInspector の openedAt コメント参照）。イベントハンドラで記録する
-  // （レンダー中に Date.now() を呼ばない）。初期表示の `?task=` ディープリンクでは
-  // クリックが発生しないため null のままにし、MyTaskInspector 側で listFetchedAt に
-  // フォールバックさせる。
+  // （レンダー中に Date.now() を呼ばない）。
+  //
+  // listFetchedAt へのフォールバックはしない（かつて `openedAt ?? listFetchedAt` として
+  // いたが、これは2つの不具合の原因だった）:
+  // - listFetchedAt は一覧の裏取り直しのたびに進む値のため、フォールバックにすると
+  //   「開いた時刻」が生きたまま動き続け、裏取り直しのたびに表示中の詳細が一瞬
+  //   読み込み中に戻ってしまう（入力途中の内容が消える）
+  // - IndexedDB から復元した直後は listFetchedAt が前日の値のこともあり、その場合
+  //   「開いた時刻から2分より古いものは出さない」という許容誤差判定を素通りしてしまう
+  // 代わりに、`?task=` ディープリンクの場合も下のマウント時 effect で明示的に
+  // setOpenedAt(Date.now()) する。openedAt が決まるまでは詳細を出さない（JSX側で
+  // `openedAt !== null` を条件に加えている）。
   const [openedAt, setOpenedAt] = useState<number | null>(null)
 
   // `?task=` 付きで開かれた（初期表示から詳細を出す）場合、一覧の読み込みや
-  // MyTaskInspector のマウントを待たず、TaskInspector の chunk 先読みを始めておく
+  // MyTaskInspector のマウントを待たず、TaskInspector の chunk 先読みを始めておく。
+  // 併せて openedAt も「今」で確定させる（クリックで開いた場合と同じ扱いにする）
   useEffect(() => {
     if (selectedTaskIdRef.current) {
       void import('@/components/task/TaskInspector')
+      setOpenedAt(Date.now())
     }
     // マウント時に一度だけ（初期表示のディープリンクのみを対象にするため）
   }, [])
@@ -704,6 +748,11 @@ export default function MyTasksClient() {
   const updateTaskStatus = useCallback(async (taskId: string, status: TaskStatus) => {
     const prevStatus = tasksRef.current.find(t => t.id === taskId)?.status
 
+    // 取り消す前に「裏で取り直し中だったか」を控えておく。取り消すだけだと、保存の
+    // 後に本来必要だった取り直しがそのまま消えてしまう（useNotifications の
+    // beginWrite と同じ考え方）。保存が終わったら（成功でも失敗でも）取り直し中
+    // だった場合に限り、あらためて取り直す
+    const wasFetching = queryClient.isFetching({ queryKey: myTasksKey }) > 0
     // 裏で走っているかもしれない再取得が、この後の楽観的更新を古いデータで
     // 上書きしないよう、先に取り消す
     await queryClient.cancelQueries({ queryKey: myTasksKey })
@@ -730,8 +779,11 @@ export default function MyTasksClient() {
         { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
       )
       console.error('Failed to update task status:', error)
+      if (wasFetching) void queryClient.invalidateQueries({ queryKey: myTasksKey })
       return
     }
+
+    if (wasFetching) void queryClient.invalidateQueries({ queryKey: myTasksKey })
 
     // 右側の詳細（プロジェクト単位の読み込み結果）のキャッシュも合わせる。ネットワークは
     // 発行しない — invalidateQueries はプロジェクト全体を丸ごと読み直す重い操作になるため、
@@ -752,8 +804,16 @@ export default function MyTasksClient() {
   }, [supabase, queryClient, myTasksKey])
 
   const handleRetry = useCallback(() => {
+    if (loginRequired) {
+      // ログインが必要な状態のまま myTasksQuery を再試行しても、fetchMyTasksData の
+      // ガードで即座に同じエラーになるだけ（かつ本人IDが無いままなので無意味な
+      // 問い合わせは送らない）。本人IDのキャッシュ(['currentUser'])を取り直し、
+      // 別タブ等で既にログイン済みになっていないか確認する方が自然
+      void queryClient.invalidateQueries({ queryKey: ['currentUser'] })
+      return
+    }
     void myTasksQuery.refetch()
-  }, [myTasksQuery])
+  }, [loginRequired, queryClient, myTasksQuery])
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {
@@ -1133,13 +1193,14 @@ export default function MyTasksClient() {
         spaces={spaceOptions}
       />
 
-      {selectedTask && (
+      {selectedTask && openedAt !== null && (
         <MyTaskInspector
           key={selectedTask.id}
           task={selectedTask}
-          // クリックで開いた場合は openedAt（イベント時刻）、初期表示の `?task=` ディープ
-          // リンクでは openedAt がまだ無いので listFetchedAt を代わりに使う
-          openedAt={openedAt ?? listFetchedAt}
+          // クリックで開いた場合はイベント時刻、初期表示の `?task=` ディープリンクでは
+          // マウント時 effect で確定させた時刻。listFetchedAt へはフォールバックしない
+          // （openedAt コメント参照）。openedAt が決まるまではこの要素自体を出さない
+          openedAt={openedAt}
           listFetchedAt={listFetchedAt}
           onClose={handleInspectorClose}
           onSynced={handleInspectorSynced}
