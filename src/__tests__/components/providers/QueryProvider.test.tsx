@@ -187,49 +187,62 @@ describe('QueryProvider', () => {
     expect(idbGet).not.toHaveBeenCalled()
   })
 
-  // --- PII exclusion ---------------------------------------------------------
-  it('never persists the currentUser query to IDB (excluded from dehydrate)', async () => {
-    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+  // 書き込みは1秒に1回へまとめられる(QueryProviderの永続化デバウンス)ため、
+  // 以下の3件は実時間の waitFor ではなく fake timers で確実に1秒進めて確認する。
+  describe('永続化デバウンスを跨ぐ書き込み内容の確認(fake timers)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
 
-    renderProvider()
+    afterEach(() => {
+      vi.useRealTimers()
+    })
 
-    await waitFor(() => {
+    async function flushMicrotasks() {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+    }
+
+    async function advance(ms: number) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms)
+      })
+    }
+
+    // --- PII exclusion -------------------------------------------------------
+    it('never persists the currentUser query to IDB (excluded from dehydrate)', async () => {
+      mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+
+      renderProvider()
+      await flushMicrotasks()
       expect(capturedClient).not.toBeNull()
-    })
-    await waitFor(() => {
       expect(capturedClient!.getQueryData(['currentUser'])).not.toBe(undefined)
-    })
 
-    // Trigger a persist by writing some other query; retry until the
-    // subscription (attached after the async restore resolves) is live.
-    await waitFor(() => {
       act(() => {
         capturedClient!.setQueryData(['userSpaces', 'user-A', false], [{ id: 's1' }])
       })
+      await advance(1000)
+
       expect(idbSet).toHaveBeenCalled()
+      for (const [, persistedClient] of idbSet.mock.calls as Array<[string, PersistedClient]>) {
+        const hasCurrentUser = persistedClient.clientState.queries.some(
+          (q) => q.queryKey[0] === 'currentUser'
+        )
+        expect(hasCurrentUser).toBe(false)
+      }
     })
 
-    for (const [, persistedClient] of idbSet.mock.calls as Array<[string, PersistedClient]>) {
-      const hasCurrentUser = persistedClient.clientState.queries.some(
-        (q) => q.queryKey[0] === 'currentUser'
-      )
-      expect(hasCurrentUser).toBe(false)
-    }
-  })
+    // ファイル一覧の「検索結果」は、打鍵の切れ目ごとに別キーが生まれ、1件あたり最大500件ぶんの
+    // 本文を含む。IDB が肥大すると他ページの初回描画まで遅くなるので永続しない。
+    // 全件一覧(検索なし)はキャッシュ優先で即描画したいので、そちらは永続する。
+    it('ファイル一覧の検索結果は IDB に載せず、全件一覧は載せる', async () => {
+      mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
 
-  // ファイル一覧の「検索結果」は、打鍵の切れ目ごとに別キーが生まれ、1件あたり最大500件ぶんの
-  // 本文を含む。IDB が肥大すると他ページの初回描画まで遅くなるので永続しない。
-  // 全件一覧(検索なし)はキャッシュ優先で即描画したいので、そちらは永続する。
-  it('ファイル一覧の検索結果は IDB に載せず、全件一覧は載せる', async () => {
-    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
-
-    renderProvider()
-
-    await waitFor(() => {
+      renderProvider()
+      await flushMicrotasks()
       expect(capturedClient).not.toBeNull()
-    })
 
-    await waitFor(() => {
       act(() => {
         capturedClient!.setQueryData(['files', 'space-1', 'v2'], { files: [{ id: 'f1' }], hasMore: false })
         capturedClient!.setQueryData(['files', 'space-1', 'v2', 'search', { q: '請求' }], {
@@ -237,43 +250,41 @@ describe('QueryProvider', () => {
           hasMore: false,
         })
       })
+      await advance(1000)
+
       expect(idbSet).toHaveBeenCalled()
+      const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
+      const keys = persisted.clientState.queries.map((q) => q.queryKey)
+
+      expect(keys).toContainEqual(['files', 'space-1', 'v2'])
+      expect(keys.some((k) => k[0] === 'files' && k[3] === 'search')).toBe(false)
     })
 
-    const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
-    const keys = persisted.clientState.queries.map((q) => q.queryKey)
+    // GitHub Issue の紐付け候補検索(useIssueLinkCandidates)は、打鍵の切れ目ごとに
+    // 別キーが生まれる検索結果を IDB に載せない。空の検索語(候補の一覧)は載せてよい
+    // （表示速度レビューでの是正・ファイル検索と同じ理由・2026-09-11）。
+    it('GitHub Issue の紐付け候補検索は IDB に載せず、空の検索は載せる', async () => {
+      mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
 
-    expect(keys).toContainEqual(['files', 'space-1', 'v2'])
-    expect(keys.some((k) => k[0] === 'files' && k[3] === 'search')).toBe(false)
-  })
-
-  // GitHub Issue の紐付け候補検索(useIssueLinkCandidates)は、打鍵の切れ目ごとに
-  // 別キーが生まれる検索結果を IDB に載せない。空の検索語(候補の一覧)は載せてよい
-  // （表示速度レビューでの是正・ファイル検索と同じ理由・2026-09-11）。
-  it('GitHub Issue の紐付け候補検索は IDB に載せず、空の検索は載せる', async () => {
-    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
-
-    renderProvider()
-
-    await waitFor(() => {
+      renderProvider()
+      await flushMicrotasks()
       expect(capturedClient).not.toBeNull()
-    })
 
-    await waitFor(() => {
       act(() => {
         capturedClient!.setQueryData(['space-github-issue-candidates', ['repo-1'], ''], [{ id: 'i1' }])
         capturedClient!.setQueryData(['space-github-issue-candidates', ['repo-1'], '42'], [{ id: 'i2' }])
       })
+      await advance(1000)
+
       expect(idbSet).toHaveBeenCalled()
+      const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
+      const keys = persisted.clientState.queries.map((q) => q.queryKey)
+
+      expect(keys).toContainEqual(['space-github-issue-candidates', ['repo-1'], ''])
+      expect(
+        keys.some((k) => k[0] === 'space-github-issue-candidates' && k[2] === '42')
+      ).toBe(false)
     })
-
-    const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
-    const keys = persisted.clientState.queries.map((q) => q.queryKey)
-
-    expect(keys).toContainEqual(['space-github-issue-candidates', ['repo-1'], ''])
-    expect(
-      keys.some((k) => k[0] === 'space-github-issue-candidates' && k[2] === '42')
-    ).toBe(false)
   })
 
   // --- legacy-key migration ---------------------------------------------------
@@ -770,5 +781,454 @@ describe('QueryProvider — 認証状態変化でのハードリセット', () =
     await waitFor(() => {
       expect(reloadSpy).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+// --- 永続化の間引きと後始末 -------------------------------------------------
+// react-query の persistQueryClientSubscribe はキャッシュの added/removed/updated
+// イベントごとに persistClient を呼ぶ（間引きなし）。プロジェクトのタスクを全件読む
+// ようにしたため1回の書き込みが大きくなり、IDB への set を1秒に1回へまとめる。
+// 加えて「身元(uid)が変わったら二度と書かない」粘着停止を持つ（過去のクロステナント
+// 事故の再発防止・Fable裁定）。fake timers を使うため、この describe だけ独立させる。
+describe('QueryProvider — 永続化の間引き(1秒デバウンス)と粘着停止', () => {
+  let capturedClient: QueryClient | null = null
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    capturedClient = null
+    mockSignOutInProgress = false
+    idbGet.mockResolvedValue(undefined)
+    idbKeys.mockResolvedValue([])
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  function renderProvider() {
+    return render(
+      <QueryProvider>
+        <Probe onClient={(qc) => { capturedClient = qc }} />
+      </QueryProvider>
+    )
+  }
+
+  /** 進行中のマイクロタスク（restoreClient の await 等）を吐き出すだけで、
+   *  タイマーは1msも進めない。 */
+  async function flushMicrotasks() {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+  }
+
+  async function advance(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+  }
+
+  it('1秒以内に複数回更新しても set は1回だけ、内容は最後の更新のもの', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+    expect(capturedClient).not.toBeNull()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+      capturedClient!.setQueryData(['probe'], 'v2')
+      capturedClient!.setQueryData(['probe'], 'v3')
+    })
+    await flushMicrotasks()
+    expect(idbSet).not.toHaveBeenCalled()
+
+    await advance(1000)
+
+    expect(idbSet).toHaveBeenCalledTimes(1)
+    const [key, persisted] = idbSet.mock.calls[0] as [string, PersistedClient]
+    expect(key).toBe(scopedKey('user-A'))
+    const probeQuery = persisted.clientState.queries.find((q) => q.queryKey[0] === 'probe')
+    expect(probeQuery?.state.data).toBe('v3')
+  })
+
+  it('1秒未満で SIGNED_OUT すると予約が破棄され、set は呼ばれない', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(500)
+
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+    await flushMicrotasks()
+
+    await advance(2000)
+
+    expect(idbSet).not.toHaveBeenCalled()
+  })
+
+  it('uid が A→B に変わると予約が破棄され、以後も一切書き込まない', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(500)
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-B'))
+    })
+    await flushMicrotasks()
+
+    await advance(2000)
+    expect(idbSet).not.toHaveBeenCalled()
+
+    // 切り替え後にさらに更新しても、二度と書き込まれない
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v2')
+    })
+    await advance(2000)
+
+    expect(idbSet).not.toHaveBeenCalled()
+  })
+
+  it('SIGNED_OUT 後に同じ A で SIGNED_IN しても書き込みは再開しない（粘着）', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+    await flushMicrotasks()
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-A'))
+    })
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(2000)
+
+    expect(idbSet).not.toHaveBeenCalled()
+  })
+
+  it('ログイン画面（セッション無し）で始まった文書は、後から同タブでログインしても書き込まない', async () => {
+    // B の箱に既存データがある想定（他の文書がすでに永続化している）
+    const bData = buildPersistedClient([
+      { queryKey: ['userSpaces', 'user-B', false], data: [{ id: 'space-B-1' }] },
+    ])
+    idbGet.mockImplementation(async (key: string) => {
+      if (key === scopedKey('user-B')) return bData
+      return undefined
+    })
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-B'))
+    })
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(2000)
+
+    expect(idbSet).not.toHaveBeenCalled()
+  })
+
+  it('同じ人のまま TOKEN_REFRESHED / SIGNED_IN が続いても、更新は本人の箱に書き込まれる', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      authCallback('TOKEN_REFRESHED', sessionFor('user-A'))
+    })
+    await flushMicrotasks()
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-A'))
+    })
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(1000)
+
+    expect(idbSet).toHaveBeenCalledTimes(1)
+    const [key] = idbSet.mock.calls[0] as [string, PersistedClient]
+    expect(key).toBe(scopedKey('user-A'))
+  })
+
+  it('INITIAL_SESSION が getSession の解決より先に届いても、後にAの箱へ永続化される', async () => {
+    let resolveSession!: (v: { data: { session: Session } }) => void
+    mockGetSession.mockImplementation(
+      () => new Promise((resolve) => { resolveSession = resolve })
+    )
+    renderProvider()
+    expect(capturedClient).not.toBeNull()
+
+    act(() => {
+      authCallback('INITIAL_SESSION', sessionFor('user-A'))
+    })
+    await flushMicrotasks()
+    expect(idbSet).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSession({ data: { session: sessionFor('user-A') } })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(1000)
+
+    expect(idbSet).toHaveBeenCalledTimes(1)
+    const [key] = idbSet.mock.calls[0] as [string, PersistedClient]
+    expect(key).toBe(scopedKey('user-A'))
+  })
+
+  it('INITIAL_SESSION が getSession の解決より後に届いても、Aの箱へ永続化される', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      authCallback('INITIAL_SESSION', sessionFor('user-A'))
+    })
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(1000)
+
+    expect(idbSet).toHaveBeenCalledTimes(1)
+    const [key] = idbSet.mock.calls[0] as [string, PersistedClient]
+    expect(key).toBe(scopedKey('user-A'))
+  })
+
+  it('書き込みの最中に身元が変わったら、set 完了後に自分の箱を消す（後始末）', async () => {
+    let resolveSet!: () => void
+    idbSet.mockImplementation(() => new Promise<void>((resolve) => { resolveSet = resolve }))
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+
+    // タイマーを発火させて flush() に入る（set は未解決のまま止まる）
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(idbSet).toHaveBeenCalledTimes(1)
+    expect(idbDel).not.toHaveBeenCalledWith(scopedKey('user-A'))
+
+    // set の解決前に身元が変わる（SIGNED_OUT）
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+
+    // set を解決させる
+    await act(async () => {
+      resolveSet()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(idbDel).toHaveBeenCalledWith(scopedKey('user-A'))
+  })
+
+  it('予約中に Provider が unmount されたら、その後タイマーを進めても set されない', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const { unmount } = renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    unmount()
+
+    await advance(2000)
+
+    expect(idbSet).not.toHaveBeenCalled()
+  })
+
+  it('set が reject しても外に投げない（unhandled rejection にならない）', async () => {
+    idbSet.mockRejectedValue(new Error('QuotaExceededError'))
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    const onUnhandledRejection = vi.fn()
+    process.on('unhandledRejection', onUnhandledRejection)
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+
+    await advance(1000)
+    // reject 後の後始末(del)も含めて、マイクロタスクをもう一度吐き出す
+    await flushMicrotasks()
+
+    process.off('unhandledRejection', onUnhandledRejection)
+    expect(onUnhandledRejection).not.toHaveBeenCalled()
+    expect(idbSet).toHaveBeenCalledTimes(1)
+  })
+
+  // --- レビュー指摘1: StrictMode の二重effectでcleanupが粘着停止しない -------------
+  // Next 16 は開発既定で StrictMode がオンになる。子effectを「実行→片付け→再実行」する
+  // ため、cleanup で disablePersistence()（粘着・二度と戻らない）を呼ぶと、persister は
+  // useState に保持されたまま生き残るので、開発環境ではこの文書が一度も保存されなくなる。
+  it('StrictMode の二重effectでも、初回マウント後は1秒後に set が呼ばれる', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    render(
+      <React.StrictMode>
+        <QueryProvider>
+          <Probe onClient={(qc) => { capturedClient = qc }} />
+        </QueryProvider>
+      </React.StrictMode>
+    )
+    await flushMicrotasks()
+    expect(capturedClient).not.toBeNull()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(1000)
+
+    expect(idbSet).toHaveBeenCalledTimes(1)
+  })
+
+  // --- レビュー指摘2(a): uid交代の粘着が「一度きり」ではなく持続することの回帰確認 -----
+  it('SIGNED_IN(B) の後に SIGNED_IN(A) に戻っても、粘着停止したまま書き込まれない', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-B'))
+    })
+    await flushMicrotasks()
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-A'))
+    })
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(2000)
+
+    expect(idbSet).not.toHaveBeenCalled()
+  })
+
+  // --- レビュー指摘2(b): boundUid !== null の default-deny の回帰確認 ----------------
+  it('セッション無しで起動すると、更新しても set されない（taskapp-query-cache:null にも書かない）', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(2000)
+
+    expect(idbSet).not.toHaveBeenCalled()
+    expect(idbSet).not.toHaveBeenCalledWith('taskapp-query-cache:null', expect.anything())
+  })
+
+  // --- レビュー指摘3: set 完了後の del も try/catch で包む --------------------------
+  it('set 完了後の del が失敗しても外に投げない（unhandled rejection にならない）', async () => {
+    let resolveSet!: () => void
+    idbSet.mockImplementation(() => new Promise<void>((resolve) => { resolveSet = resolve }))
+    idbDel.mockImplementation(async (key: string) => {
+      if (key === scopedKey('user-A')) throw new Error('IDB del failed')
+      return undefined
+    })
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(idbSet).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+
+    const onUnhandledRejection = vi.fn()
+    process.on('unhandledRejection', onUnhandledRejection)
+    // unhandledRejection の発火は実時間のイベントループに乗るため、ここだけ実タイマーに戻す
+    vi.useRealTimers()
+    resolveSet()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    process.off('unhandledRejection', onUnhandledRejection)
+
+    expect(idbDel).toHaveBeenCalledWith(scopedKey('user-A'))
+    expect(onUnhandledRejection).not.toHaveBeenCalled()
+  })
+
+  // --- レビュー指摘4: signOut 実行中は書かない(メイン判断済み・書かない側に倒す) -------
+  it('isSignOutInProgress() が true の間は、更新しても set されない', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    mockSignOutInProgress = true
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await advance(2000)
+
+    expect(idbSet).not.toHaveBeenCalled()
+  })
+
+  it('set の最中に isSignOutInProgress() が true になったら、set の後で del される', async () => {
+    let resolveSet!: () => void
+    idbSet.mockImplementation(() => new Promise<void>((resolve) => { resolveSet = resolve }))
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await flushMicrotasks()
+
+    act(() => {
+      capturedClient!.setQueryData(['probe'], 'v1')
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(idbSet).toHaveBeenCalledTimes(1)
+    expect(idbDel).not.toHaveBeenCalledWith(scopedKey('user-A'))
+
+    mockSignOutInProgress = true
+
+    await act(async () => {
+      resolveSet()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(idbDel).toHaveBeenCalledWith(scopedKey('user-A'))
   })
 })
