@@ -222,6 +222,7 @@ feature branch → (push/PR) → develop → (PR) → main
 - 目標カバレッジ **80%以上**（特に `lib/`・API route・`rpc.ts`・課金/認可など中核ロジック）。現状カバレッジは低いため、触れた箇所からテストを足していく。
 - 実装エージェント `impl-runner` もこのフローに従う。`tdd` スキル / `tdd-guide` エージェントを活用してよい。
 - 例外（純粋なUIスタイル等テストが困難なもの）は理由をコメントで明記する。
+- public に関数を作る migration では、作った直後に実行権を決める（`revoke … from public, anon, authenticated` → 呼ぶ役割にだけ `grant`。RLS のポリシーが呼ぶ補助関数は authenticated に grant）。既定では誰にも付かない。
 
 ## モデル・オーケストレーション運用ルール
 
