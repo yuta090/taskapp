@@ -34,6 +34,9 @@ type RawMeetingRow = {
   ended_at: string | null
 }
 
+// 本文(minutes_md)を一覧の全件分そのまま返している。件数が少ない前提（実測: 本番で
+// 該当する会議があるプロジェクトは1つ・2件のみで、本文合計329バイト）。1プロジェクトの
+// 本文合計が500KBを超えたら、一覧では本文を含めず、開いたときにその1件だけ読む形に移す。
 const MEETING_COLUMNS = `
   id,
   title,
@@ -72,7 +75,9 @@ function fetchMeetingsPage(supabase: SupabaseClient, spaceId: string, from: numb
  * エラーページに落ちてしまうため、社内一覧（fetchMeetingsQuery）と異なり
  * graceful degradation を守る:
  *   - 1ページ目の取得が失敗 → 空データで続行（従来どおり）
- *   - 2ページ目以降の取得が失敗 → それまでに読めたページ（1ページ目以降）で続行
+ *   - 2ページ目以降の取得が失敗 → collectRemainingPages はページ跨ぎの取得に失敗すると
+ *     それまでに読めた分も含めて例外を投げ、部分結果を返さない仕様のため、実際には
+ *     1ページ目（firstPageRows）だけで続行する（2ページ目以降の追加取得はすべて捨てる）
  */
 export async function fetchPortalMeetingsData(
   supabase: SupabaseClient,
@@ -108,8 +113,10 @@ export async function fetchPortalMeetingsData(
       TASKS_PAGE_SIZE
     )
   } catch (err) {
-    // ページ跨ぎの取得失敗はページ全体を落とさず、読めた分だけで続行する
-    console.error('[Portal Meetings] meetings pagination error, showing already-loaded pages only:', err)
+    // collectRemainingPages は2ページ目以降の取得に失敗すると、それまでに読めた分も
+    // 含めて例外を投げる（部分結果を返さない）。そのためここでは「読めたページまで」
+    // ではなく、1ページ目（firstPageRows）だけで表示を続ける。
+    console.error('[Portal Meetings] meetings pagination error, showing first page only:', err)
     rawMeetings = firstPageRows
   }
 

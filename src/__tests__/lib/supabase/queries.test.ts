@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fetchTasksQuery, fetchMeetingsQuery, collectRemainingPages, TASKS_PAGE_SIZE } from '@/lib/supabase/queries'
+import {
+  fetchTasksQuery,
+  fetchMeetingsQuery,
+  collectRemainingPages,
+  TASKS_PAGE_SIZE,
+  MAX_COLLECT_PAGES,
+} from '@/lib/supabase/queries'
 
 /**
  * fetchTasksQuery は空間(space)の全タスクを、TASKS_PAGE_SIZE件ずつ range ページングで
@@ -422,5 +428,42 @@ describe('collectRemainingPages（export された共通ヘルパー単体）', 
     await expect(collectRemainingPages(firstPage, fetchPage, 2)).rejects.toMatchObject({
       message: 'boom',
     })
+  })
+
+  /**
+   * 呼び出し元が .range() を付け忘れる等でDBが「常に満杯（pageSizeと同数）」を返し続ける
+   * バグを踏むと、従来はページ取得が終わらず無限ループしてしまっていた（テスト実装中に
+   * 実際にJSヒープを使い切ってクラッシュした）。呼び出し元が増えたため、ページ数に
+   * 上限を設けて安全に停止できることを確かめる。
+   *
+   * このテスト自身のモックも「常に満杯」を返し続けるため、万一実装側の上限が効かない
+   * 場合にテストプロセスがOOMしないよう、モック側にも呼び出し回数の安全弁を設けている。
+   */
+  it('DBが常に満杯を返し続けても、ページ数の上限に達するとエラーを投げて停止する', async () => {
+    const pageSize = 10
+    const firstPage = Array.from({ length: pageSize }, (_, i) => ({ id: `p0-${i}` }))
+    // 固定の安全弁（MAX_COLLECT_PAGES を使わない）。実装が未修正/上限が壊れている場合でも
+    // テストプロセスが長時間ハングしたりOOMしたりしないようにするための保険なので、
+    // 実装側の値に依存させない（未実装で MAX_COLLECT_PAGES が undefined でも安全に動く）。
+    const TEST_SAFETY_CAP = 200
+    let callCount = 0
+    const fetchPage = vi.fn(() => {
+      callCount += 1
+      if (callCount > TEST_SAFETY_CAP) {
+        throw new Error(
+          `test safety cap (${TEST_SAFETY_CAP}) exceeded — collectRemainingPages did not stop`
+        )
+      }
+      return Promise.resolve({
+        data: Array.from({ length: pageSize }, (_, i) => ({ id: `p${callCount}-${i}` })),
+        error: null,
+      })
+    })
+
+    await expect(collectRemainingPages(firstPage, fetchPage, pageSize)).rejects.toThrow(
+      new RegExp(String(MAX_COLLECT_PAGES))
+    )
+    // 上限ページ数までしか呼ばれず、そこで止まっていること
+    expect(fetchPage).toHaveBeenCalledTimes(MAX_COLLECT_PAGES - 1)
   })
 })

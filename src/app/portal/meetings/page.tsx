@@ -42,8 +42,8 @@ export default async function PortalMeetingsPage({ searchParams }: PageProps) {
   }
 
   // meetings は全件を range ページングで読み切る（社内一覧と同じ collectRemainingPages）。
-  // 失敗時は空データ/読めたページまでで続行する graceful degradation を守るため、
-  // 例外を投げない fetchPortalMeetingsData に処理を委ねる。
+  // 失敗時は「1ページ目が失敗→空データ」「2ページ目以降が失敗→1ページ目だけ」で続行する
+  // graceful degradation を守るため、例外を投げない fetchPortalMeetingsData に処理を委ねる。
   const { meetings: formattedMeetings, actionCount } = await fetchPortalMeetingsData(
     supabase as SupabaseClient,
     spaceId
