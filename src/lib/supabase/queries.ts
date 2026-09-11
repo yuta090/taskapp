@@ -64,6 +64,18 @@ export const MEETING_LIST_COLUMNS = `
 export const TASKS_PAGE_SIZE = 1000
 
 /**
+ * collectRemainingPages が読み切るページ数の上限（1ページ = pageSize件）。
+ *
+ * 通常の停止条件は「range で頼んだ範囲より少ない件数（＝空を含む）がDBから返ってきた
+ * こと」だけであり、呼び出し元が range の from/to を付け忘れる・別のテーブルへ向いた
+ * ままの fetchPage を渡す等のバグを踏むと、DBが毎回ちょうど pageSize件を返し続け
+ * ループが終わらなくなる（呼び出し元が増えるほどこの種の実装ミスが起きやすい）。
+ * TASKS_PAGE_SIZE(1000) × 50ページ = 5万件は通常のプロジェクト規模を大きく超えるため、
+ * これに達した場合は正常系ではなく実装ミスとみなしてエラーにする。
+ */
+export const MAX_COLLECT_PAGES = 50
+
+/**
  * tasks / meetings 共通の「続きのページを読み切る」ヘルパー。
  *
  * 1ページ目がちょうど pageSize 件だった場合のみ続きのページが存在しうるとみなし、
@@ -73,8 +85,13 @@ export const TASKS_PAGE_SIZE = 1000
  * offsetページングは「順位」で境界を切るため、ページ取得の間に別の誰かが行を
  * 作成すると全行が1つずれ、あるページの最後の行が次ページの先頭にもう一度現れうる。
  * そのため最後に id で重複除去（先勝ち）してから返す。
+ *
+ * MAX_COLLECT_PAGES ページを読んでもなお続きがありそうな場合は、そこまでの結果を
+ * 黙って打ち切って返す（＝古いものが黙って消える）のではなく、例外を投げる。
+ * 呼び出し元は今のところ全て「例外時は前回の結果を保持する／1ページ目のみで続行する」
+ * という既存の失敗時の扱いに乗るため、これは安全側の停止になる。
  */
-async function collectRemainingPages<T extends { id: string }>(
+export async function collectRemainingPages<T extends { id: string }>(
   firstPageRows: T[],
   // Supabase のクエリビルダは Promise ではなく PromiseLike（then を持つだけ）のため、
   // Promise<...> にすると tsc が型不一致で弾く。await は PromiseLike で十分動くので
@@ -86,6 +103,11 @@ async function collectRemainingPages<T extends { id: string }>(
 
   let page = 1
   while (allRows.length === page * pageSize) {
+    if (page >= MAX_COLLECT_PAGES) {
+      throw new Error(
+        `collectRemainingPages: ページ数の上限(${MAX_COLLECT_PAGES}ページ、1ページ${pageSize}件)に達したため中断しました`
+      )
+    }
     const from = page * pageSize
     const to = from + pageSize - 1
     const pageResult = await fetchPage(from, to)
