@@ -23,29 +23,18 @@ export interface MeetingsQueryData {
   participants: Record<string, MeetingParticipant[]>
 }
 
-/** Meeting list columns (excludes minutes_md to reduce transfer size) */
+/**
+ * Meeting list columns。notes / minutes_md はどの画面でも使っていないため除く
+ * （一覧の全件ぶん読まれ、ブラウザの永続キャッシュ(IndexedDB)にも保存されてしまうだけの無駄）。
+ */
 export const MEETING_LIST_COLUMNS = `
-  id, org_id, space_id, title, held_at, notes, status,
+  id, org_id, space_id, title, held_at, status,
   started_at, ended_at, summary_subject, summary_body,
   created_at, updated_at,
   meeting_participants (*)
 ` as const
 
 // ── Shared query functions ──
-
-export interface FetchTasksQueryOptions {
-  /**
-   * 一覧の読み込み範囲に入っていなくても、詳細表示のために必ず含めたいタスクID
-   * （例: /my の詳細パネルで開いたタスクが、何らかの理由でまだ手元に無いケース）。
-   * 指定があれば同じ Promise.all の中で（waterfallにせず）追加取得し、
-   * 読み込み済みの結果に重複しないよう追加する。
-   *
-   * TODO: 今は tasks を全件読み切るため、このオプションは実質的に不要（読み込み範囲の
-   * 「外」がほぼ発生しない）になっている。本番投入後の様子を見て、MyTasksClient /
-   * useTasks / queries.ts から一括で削除するクリーンアップPRを出す。
-   */
-  ensureTaskIds?: string[]
-}
 
 /**
  * tasks クエリ1ページあたりの件数。
@@ -138,13 +127,10 @@ function fetchTasksPage(
 export async function fetchTasksQuery(
   supabase: SupabaseClient,
   orgId: string,
-  spaceId: string,
-  options?: FetchTasksQueryOptions
+  spaceId: string
 ): Promise<TasksQueryData> {
-  const ensureTaskIds = (options?.ensureTaskIds ?? []).filter(Boolean)
-
-  // Run tasks 1ページ目 + reviews (+ 必要なら ensureTaskIds の補完取得) を同じ Promise.all で並列に実行する
-  const [tasksResult, reviewsResult, ensureResult] = await Promise.all([
+  // Run tasks 1ページ目 + reviews を同じ Promise.all で並列に実行する
+  const [tasksResult, reviewsResult] = await Promise.all([
     fetchTasksPage(supabase, orgId, spaceId, 0, TASKS_PAGE_SIZE - 1),
     supabase
       .from('reviews')
@@ -152,14 +138,6 @@ export async function fetchTasksQuery(
       .eq('org_id', orgId)
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false }),
-    ensureTaskIds.length > 0
-      ? supabase
-          .from('tasks')
-          .select('*, task_owners (*)')
-          .eq('org_id', orgId)
-          .eq('space_id', spaceId)
-          .in('id', ensureTaskIds)
-      : Promise.resolve({ data: [] as unknown[], error: null }),
   ])
 
   if (tasksResult.error) throw tasksResult.error
@@ -168,38 +146,17 @@ export async function fetchTasksQuery(
     console.warn('[fetchTasksQuery] reviews query failed:', reviewsResult.error.message)
   }
 
-  // reviews と違い、ensureTaskIds は「選択中タスクを確実に含める」という呼び出し元の要求そのもの。
-  // ここを黙って握りつぶすと、後続の再取得(fetchTasks)が一時的に失敗しただけで選択中タスクが
-  // キャッシュから消え、開いている詳細パネルが「見つからない」表示に化けてしまう。react-query に
-  // 失敗として扱わせ、前回の(選択中タスクを含んだ)データを保持させる。
-  if (ensureTaskIds.length > 0 && ensureResult.error) {
-    throw ensureResult.error
-  }
-
   const firstPageRows = (tasksResult.data || []) as Array<
     Record<string, unknown> & { id: string; task_owners?: unknown[] }
   >
 
   // 続きのページ取得＋ページ跨ぎの重複除去（id優先・先勝ち）は tasks / meetings 共通の
-  // ヘルパーに委ねる。ensureTaskIds のマージより前にここで潰しておかないと、React の
-  // key 重複警告や件数の二重カウントに繋がる。
+  // ヘルパーに委ねる。
   const rawTasks = await collectRemainingPages(
     firstPageRows,
     (from, to) => fetchTasksPage(supabase, orgId, spaceId, from, to),
     TASKS_PAGE_SIZE
   )
-
-  // ensureTaskIds で取れた分は、既に読み込み済みの中に入っているものは重複させず追加する
-  const existingIds = new Set(rawTasks.map((t) => t.id))
-  const ensureRawTasks = (ensureResult.data || []) as Array<
-    Record<string, unknown> & { id: string; task_owners?: unknown[] }
-  >
-  for (const t of ensureRawTasks) {
-    if (!existingIds.has(t.id)) {
-      rawTasks.push(t)
-      existingIds.add(t.id)
-    }
-  }
 
   const ownersByTask: Record<string, TaskOwner[]> = {}
   const cleanTasks: Task[] = rawTasks.map((t) => {

@@ -25,16 +25,6 @@ import type {
 interface UseTasksOptions {
   orgId: string
   spaceId: string
-  /**
-   * 一覧の読み込み結果に入っていなくても、必ず結果へ含めたいタスクID
-   * （/my の詳細パネルなど）。queryKey は変えない — 変えると楽観的更新・
-   * prevTask・副作用がすべて見ているキャッシュと別物になってしまうため。
-   *
-   * TODO: fetchTasksQuery は今はそのプロジェクトの全タスクを読み込むため、
-   * このオプションは実質的に不要（保険）になっている。本番投入後の様子を見て、
-   * MyTasksClient / queries.ts と合わせて削除するクリーンアップPRを出す。
-   */
-  ensureTaskIds?: string[]
 }
 
 export interface CreateTaskInput {
@@ -228,7 +218,7 @@ function getMaxDescendantDepth(taskId: string, tasks: Task[]): number {
   return maxDepth
 }
 
-export function useTasks({ orgId, spaceId, ensureTaskIds }: UseTasksOptions): UseTasksReturn {
+export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
   const queryClient = useQueryClient()
 
   // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
@@ -240,7 +230,7 @@ export function useTasks({ orgId, spaceId, ensureTaskIds }: UseTasksOptions): Us
 
   const query = useQuery<TasksQueryData>({
     queryKey,
-    queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId, { ensureTaskIds }),
+    queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId),
     enabled: !!orgId && !!spaceId,
   })
   const { data, isPending, error: queryError } = query

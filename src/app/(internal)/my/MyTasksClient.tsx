@@ -163,14 +163,8 @@ const SHOW_TOLERANCE_MS = DEFAULT_STALE_TIME_MS
 /**
  * 選んだタスクの詳細を右側(Inspector)に出す。更新はプロジェクト画面と同じ useTasks を通す
  * （承認メール・通知などの副作用をそろえるため）。そのプロジェクトのタスクは親タスク候補・
- * 子タスクの表示にも要る。
- *
- * useTasks は今はそのプロジェクトの全タスクを読み込むが、念のための保険として
- * ensureTaskIds でこのタスクIDを明示的に含める（万一そのタスクが読み込み結果に
- * 無いと担当者が永遠に空配列のまま＝ボール操作で担当者を消してしまうため）。
- * 担当者が揃うまでは TaskInspector を出さない。
- * TODO: ensureTaskIds は全件読み込みにより実質的に不要になっている。本番投入後の
- * 様子を見て、useTasks / queries.ts と合わせて削除するクリーンアップPRを出す。
+ * 子タスクの表示にも要る。useTasks はそのプロジェクトの全タスクを読み込むため、担当者は
+ * 自然に揃う。担当者が揃うまでは TaskInspector を出さない。
  */
 function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
@@ -181,11 +175,9 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
     void import('@/components/task/TaskInspector')
   }, [])
 
-  const ensureTaskIds = useMemo(() => [task.id], [task.id])
   const { tasks, owners, loading, error, dataUpdatedAt, isFetching, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
     orgId: task.org_id,
     spaceId: task.space_id,
-    ensureTaskIds,
   })
   const spaceTask = tasks.find((t) => t.id === task.id)
   const current = spaceTask ?? task
