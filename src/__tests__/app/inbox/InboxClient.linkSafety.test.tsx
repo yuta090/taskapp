@@ -38,6 +38,10 @@ vi.mock('@/lib/hooks/useNotifications', () => ({
   }),
 }))
 
+vi.mock('@/lib/hooks/useUnreadNotificationCount', () => ({
+  useUnreadNotificationCount: () => ({ count: 0, pendingCount: 0, loading: false, error: null, refresh: vi.fn() }),
+}))
+
 vi.mock('@/components/layout', () => ({
   useInspector: () => ({ setInspector: vi.fn() }),
 }))

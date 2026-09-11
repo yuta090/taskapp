@@ -12,6 +12,7 @@ import { TaskRow } from '@/components/task/TaskRow'
 import { useInspector } from '@/components/layout'
 import { useTasks } from '@/lib/hooks/useTasks'
 import type { TasksQueryData } from '@/lib/hooks/useTasks'
+import { useMyPendingReviews } from '@/lib/hooks/useMyPendingReviews'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { Task, Space, Milestone, TaskStatus, ReviewStatus } from '@/types/database'
@@ -480,6 +481,8 @@ export default function MyTasksClient() {
     () => myTasksQuery.data?.reviewStatuses ?? {},
     [myTasksQuery.data?.reviewStatuses]
   )
+  // 自分が社内承認を頼まれているタスク（行に「あなたの承認待ち」を出す）。一覧の取得と同時に読む
+  const { taskIds: myPendingReviewTaskIds } = useMyPendingReviews(activeOrgId ?? null, { enabled: !orgLoading })
   const spaces = useMemo(() => myTasksQuery.data?.spaces ?? [], [myTasksQuery.data?.spaces])
   const milestones = useMemo(() => myTasksQuery.data?.milestones ?? [], [myTasksQuery.data?.milestones])
   // /my の一覧を読み込み始めた時刻。MyTaskInspector 側で「useTasks のキャッシュが
@@ -1146,6 +1149,7 @@ export default function MyTasksClient() {
                                   onClick={handleTaskClick}
                                   onStatusChange={updateTaskStatus}
                                   reviewStatus={reviewStatuses[task.id]}
+                                  awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
                                 />
                               ))}
                             </div>
@@ -1174,6 +1178,7 @@ export default function MyTasksClient() {
                         onClick={handleTaskClick}
                         onStatusChange={updateTaskStatus}
                         reviewStatus={reviewStatuses[task.id]}
+                        awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
                       />
                     ))}
                   </div>

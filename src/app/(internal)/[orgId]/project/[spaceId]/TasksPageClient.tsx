@@ -30,6 +30,7 @@ import { useSpacePendingInvites, pendingInviteLabel } from '@/lib/hooks/useSpace
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { buildAssigneeOptions, groupTasksByAssignee, taskAssigneeKey } from '@/lib/tasks/taskAssignees'
 import { useTasks, type UpdateTaskInput } from '@/lib/hooks/useTasks'
+import { useMyPendingReviews } from '@/lib/hooks/useMyPendingReviews'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import { RiskSummaryBanner } from '@/components/risk/RiskSummaryBanner'
@@ -179,6 +180,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const isMobile = useIsMobile()
   const { tasks, owners, reviewStatuses, loading, error, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange } =
     useTasks({ orgId, spaceId })
+  // 自分が社内承認を頼まれているタスク（行に「あなたの承認待ち」を出す）。タスクの取得と同時に読む
+  const { taskIds: myPendingReviewTaskIds } = useMyPendingReviews(orgId)
   const { milestones } = useMilestones({ spaceId })
   const { members, getMemberName } = useSpaceMembers(spaceId)
 
@@ -1266,6 +1269,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                     indent={row.indent}
                     onStatusChange={handleStatusChange}
                     reviewStatus={reviewStatuses[row.task.id]}
+                    awaitingMyApproval={myPendingReviewTaskIds.has(row.task.id)}
                     assigneeName={assigneeNameOf(row.task)}
                     isNew={recentTaskIds.has(row.task.id)}
                     bulkMode={bulkMode}

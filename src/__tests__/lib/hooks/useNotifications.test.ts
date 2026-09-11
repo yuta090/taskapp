@@ -34,6 +34,31 @@ function makeBuilder(result: Promise<unknown>) {
   return builder
 }
 
+/**
+ * 一覧の読み込み（select）の代役。一覧は「新しい50件」と「未読ぜんぶ」（.is('read_at', null)）の2本を
+ * 同時に読むので、新しい50件の方だけを「一覧を取り直した回数」として数える
+ */
+function makeListBuilder(selectArgs: unknown[]) {
+  let unreadOnly = false
+  let result: Promise<Result> | null = null
+  const builder: Record<string, unknown> = {}
+  for (const method of ['eq', 'in', 'order', 'limit']) {
+    builder[method] = () => builder
+  }
+  builder.is = (column: string, value: unknown) => {
+    if (column === 'read_at' && value === null) unreadOnly = true
+    return builder
+  }
+  builder.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
+    if (!result) {
+      if (!unreadOnly) mockListSelect(...selectArgs)
+      result = listResult()
+    }
+    return result.then(resolve, reject)
+  }
+  return builder
+}
+
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: {
@@ -44,10 +69,7 @@ vi.mock('@/lib/supabase/client', () => ({
         mockUpdate(patch)
         return makeBuilder(updateResult)
       },
-      select: (...args: unknown[]) => {
-        mockListSelect(...args)
-        return makeBuilder(listResult())
-      },
+      select: (...args: unknown[]) => makeListBuilder(args),
     }),
   }),
 }))
