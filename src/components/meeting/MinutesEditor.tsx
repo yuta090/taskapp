@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
@@ -20,6 +20,16 @@ import { MinutesWikiLinkPicker, type MinutesWikiPageOption } from './MinutesWiki
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
 import type { ProjectFile } from '@/lib/hooks/useFiles'
 
+/**
+ * AI秘書の末尾追記との自動合流（MinutesDocumentView）のための差し込み口。
+ * appendMarkdown は Markdown を今の文書の最後のブロックの後ろに挿し込む。本物の
+ * BlockNote トランザクションが起きるので、呼び出し側の onChange（＝自動保存）が
+ * いつもどおり走る。成功したら true、読み取り専用・解析/挿入に失敗したら false。
+ */
+export interface MinutesEditorApi {
+  appendMarkdown: (markdown: string) => boolean
+}
+
 interface MinutesEditorProps {
   /** 保存されている議事録 Markdown。マウント時の初期表示にのみ使う（変更後の再パースはしない） */
   minutesMd: string
@@ -27,6 +37,12 @@ interface MinutesEditorProps {
   editable?: boolean
   orgId: string
   spaceId: string
+  /**
+   * 差し込み口を親へ渡すコールバック。ref は next/dynamic（MinutesEditorDynamic）越しに
+   * 通らないため、関数 props にする。マウント/更新のたびに最新の api を渡し、
+   * アンマウント時は null を渡して外す。
+   */
+  registerApi?: (api: MinutesEditorApi | null) => void
 }
 
 interface TaskMarkerChipProps {
@@ -175,7 +191,7 @@ function useMinutesSchema(orgId: string, spaceId: string) {
  * 再レンダーのたびに BlockNoteView を描き直さないため。渡す props はすべて
  * プリミティブか安定した参照（onChange は呼び出し側で useCallback 済み）にすること。
  */
-function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceId }: MinutesEditorProps) {
+function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceId, registerApi }: MinutesEditorProps) {
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false)
   const [isWikiPickerOpen, setIsWikiPickerOpen] = useState(false)
   const schema = useMinutesSchema(orgId, spaceId)
@@ -232,6 +248,34 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
     ] as Parameters<typeof editor.insertInlineContent>[0])
     setIsWikiPickerOpen(false)
   }
+
+  /**
+   * AI秘書の末尾追記との自動合流用。Markdown を今の文書の最後のブロックの後ろに
+   * insertBlocks で挿す。ここで本物の BlockNote トランザクションが起きるので、
+   * 下の onChange がいつもどおり呼ばれ、呼び出し側の自動保存がそのまま走る
+   * （合流のために保存を別立てで組み立てる必要が無い）。
+   */
+  const appendMarkdown = useCallback(
+    (markdown: string): boolean => {
+      if (!effectiveEditable) return false
+      try {
+        const blocks = parseMinutesMarkdown(markdown) as never
+        const doc = editor.document
+        const lastBlock = doc[doc.length - 1]
+        if (!lastBlock) return false
+        editor.insertBlocks(blocks, lastBlock, 'after')
+        return true
+      } catch {
+        return false
+      }
+    },
+    [editor, effectiveEditable]
+  )
+
+  useEffect(() => {
+    registerApi?.({ appendMarkdown })
+    return () => registerApi?.(null)
+  }, [registerApi, appendMarkdown])
 
   return (
     <div className="minutes-editor" data-testid="minutes-editor">

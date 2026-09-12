@@ -12,7 +12,9 @@ import {
 import { ArrowLeft, Info, Notebook, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
+import type { MinutesEditorApi } from './MinutesEditor'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
+import { appendOnlyAddition } from '@/lib/minutes/rebase'
 import { MinutesConflictError } from '@/lib/hooks/useMeetings'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useMinutesPresence, type MinutesPresencePeer } from '@/lib/hooks/useMinutesPresence'
@@ -197,10 +199,17 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const baselineRef = useRef(initialBaseline.normalized)
     const baseUpdatedAtRef = useRef(initialUpdatedAt)
     // 「サーバーにあると分かっている生の本文」。開いたときは取り直した minutes_md、
-    // 保存の後は更新結果の minutes_md。開始/終了などで updated_at だけが進んだ見せかけの
-    // 競合と、本当に本文が変わった競合を区別するために使う（HIGH-2）。
+    // 保存の後は更新結果の minutes_md、AI秘書の追記と合流できたときはその合流後の
+    // サーバー本文。開始/終了などで updated_at だけが進んだ見せかけの競合と、
+    // 本当に本文が変わった競合を区別するために使う（HIGH-2）。
     const knownServerRawRef = useRef(initialMinutesMd)
     const currentContentRef = useRef(initialBaseline.normalized)
+    // AI秘書の末尾追記との自動合流のための、生きているエディタへの差し込み口
+    // （MinutesEditor が登録する）。本体（このコンポーネント）は作り直さない。
+    const editorApiRef = useRef<MinutesEditorApi | null>(null)
+    const registerEditorApi = useCallback((api: MinutesEditorApi | null) => {
+      editorApiRef.current = api
+    }, [])
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const savedBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const conflictRef = useRef(false)
@@ -251,23 +260,35 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     }, [])
 
     /**
-     * サーバーの現在の詳細を読み、本文が「知っている生の本文」と同じ（＝updated_atだけ
-     * 進んだ見せかけ）なら基準を差し替えて true を返す。本文が違う・読み直しにも
-     * 失敗したら false（呼び出し元が競合扱いにする）。
+     * サーバーの現在の詳細を読み、3通りに分けて判定する。
+     * - 'same': 本文が「知っている生の本文」と同じ（＝開始/終了などで updated_at
+     *   だけ進んだ見せかけの競合）。基準だけ差し替えて保存を続けられる。
+     * - 'appended': 本文が変わっているが、AI秘書やチャットの末尾追記
+     *   （rpc_minutes_append）だけが原因と分かる（appendOnlyAddition 参照）。
+     *   足された分の Markdown・サーバー側の生の本文・updated_at を持って返す。
+     *   ここでは合流「後」の本文は組み立てない（呼び出し側がエディタへ挿し込む）。
+     * - 'conflict': それ以外（本当の競合・読み直し自体に失敗）。
      */
-    const tryRebaseFromServer = useCallback(async (): Promise<boolean> => {
+    const tryRebaseFromServer = useCallback(async (): Promise<
+      { kind: 'same' } | { kind: 'appended'; addition: string; serverRaw: string; updatedAt: string } | { kind: 'conflict' }
+    > => {
       let fresh: Meeting | null = null
       try {
         fresh = await fetchMeetingDetail(meetingId)
       } catch {
         fresh = null
       }
-      const freshRaw = fresh?.minutes_md ?? ''
-      if (fresh && freshRaw === knownServerRawRef.current) {
+      if (!fresh) return { kind: 'conflict' }
+      const freshRaw = fresh.minutes_md ?? ''
+      if (freshRaw === knownServerRawRef.current) {
         baseUpdatedAtRef.current = fresh.updated_at
-        return true
+        return { kind: 'same' }
       }
-      return false
+      const addition = appendOnlyAddition(knownServerRawRef.current, freshRaw)
+      if (addition !== null) {
+        return { kind: 'appended', addition, serverRaw: freshRaw, updatedAt: fresh.updated_at }
+      }
+      return { kind: 'conflict' }
     }, [fetchMeetingDetail, meetingId])
 
     // 実際に DB へ書きに行く1回ぶん。呼び出し元(scheduleSave)が「同時に1本だけ」を保証する。
@@ -293,10 +314,35 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
             if (err instanceof MinutesConflictError && !attempted0Row) {
               attempted0Row = true
               // 0行だった。開始/終了など本文以外の更新で updated_at だけが進んだ見せかけの
-              // 競合かもしれないので、本文とupdated_atを読み直して確かめる。
-              if (await tryRebaseFromServer()) {
+              // 競合か、AI秘書の末尾追記だけが原因の競合かもしれないので、読み直して確かめる。
+              const outcome = await tryRebaseFromServer()
+              if (outcome.kind === 'same') {
                 base = baseUpdatedAtRef.current
                 continue
+              }
+              if (outcome.kind === 'appended') {
+                // 末尾への追記だけが原因と分かった。生きているエディタの末尾に
+                // 差し込む（本体は作り直さない）。ここで本物の BlockNote
+                // トランザクションが起きるので、この直後の onChange から
+                // いつもどおりの自動保存が走る（保存をここで自前に組み立てない）。
+                // データを失わない方に倒す: 差し込み口が無い・挿入に失敗したら、
+                // 黙って進めず今までどおり競合の帯を出す。
+                const inserted = editorApiRef.current?.appendMarkdown(outcome.addition) ?? false
+                if (!inserted) {
+                  conflictRef.current = true
+                  setConflict(true)
+                  lastSaveFailedRef.current = true
+                  setSaveState('idle')
+                  break
+                }
+                // baselineRef はあえて触らない: エディタの中身（追記が挿し込まれた後）と
+                // 基準がここで食い違う状態にすることで、直後の onChange が「開いたときと
+                // 同じ内容」の早期returnに吸収されず、自動保存の道に必ず乗る。
+                knownServerRawRef.current = outcome.serverRaw
+                baseUpdatedAtRef.current = outcome.updatedAt
+                toast.success('ほかから追記された分を取り込みました')
+                setSaveState('idle')
+                break
               }
               // 本文が違う（本当の競合） or 読み直しにも失敗 → 競合として止める
               conflictRef.current = true
@@ -481,6 +527,11 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         ensureUpToDate: async () => {
           // N5: 詳細は1回だけ読む(この結果をそのまま使う。tryRebaseFromServerは呼ばない
           // ——呼ぶと同じ詳細をもう1回読みに行ってしまう)。
+          // ここでは末尾追記との自動合流(appendMarkdown)も行わない: タスク化の直前は
+          // これから ensureUpToDate の直後に「解析した本文」を使って書き戻す処理が
+          // 続く。その途中でエディタへブロックを挿し込むと、解析した本文とこれから
+          // 書き戻す本文がずれてしまう。ここは合流を試みず、本文が変わっていれば
+          // 素直に競合の帯へ倒す（タスク化を保存確定済みの本文でやり直させる）。
           let fresh: Meeting | null = null
           try {
             fresh = await fetchMeetingDetail(meetingId)
@@ -574,6 +625,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
               editable={effectiveEditable}
               orgId={orgId}
               spaceId={spaceId}
+              registerApi={registerEditorApi}
             />
           </div>
         </div>
