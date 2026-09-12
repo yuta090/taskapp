@@ -658,10 +658,43 @@ describe('useTasks — Wiki ページの紐づけと仕様タスク化', () => {
     mockUpdateEq.mockReturnValue({
       select: vi.fn().mockResolvedValue({ data: [{ id: 't1', parent_task_id: null }], error: null }),
     })
+
+    mockInsert.mockReturnValue({ select: mockInsertSelect })
+    mockInsertSelect.mockReturnValue({ single: mockInsertSingle })
+    mockTaskOwnersInsert.mockResolvedValue({ error: null })
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  // タスク作成画面でも同じ入力欄で紐づけられるようにしたので、作成時も「仕様書」以外はリンクだけ保存する
+  it('createTask: ふつうのタスクでも Wiki のページを紐づけて保存する（仕様タスクにはしない）', async () => {
+    mockFetchTasksQuery.mockResolvedValue({ tasks: [], owners: {}, reviewStatuses: {} })
+    mockInsertSingle.mockResolvedValue({
+      data: makeTask({ id: 'new-1', type: 'task', wiki_page_id: 'w2' }),
+      error: null,
+    })
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await act(async () => {
+      await result.current.createTask({
+        title: '議事録を読む',
+        type: 'task',
+        ball: 'internal',
+        origin: 'internal',
+        wikiPageId: 'w2',
+        clientOwnerIds: [],
+        internalOwnerIds: [],
+      })
+    })
+
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'task', wiki_page_id: 'w2', decision_state: null })
+    )
   })
 
   async function renderWithTask(task: Task) {

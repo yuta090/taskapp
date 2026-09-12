@@ -1,6 +1,6 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { TaskCreateSheet } from '@/components/task/TaskCreateSheet'
 
 const mockMembers = [
@@ -20,8 +20,14 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   }),
 }))
 
+// Wiki ページの一覧と「その場で作る」。テストごとに中身を差し替える（既定は空）
+const wikiMock = vi.hoisted(() => ({
+  pages: [] as Array<{ id: string; title: string; tags: string[] }>,
+  createPage: vi.fn(),
+}))
+
 vi.mock('@/lib/hooks/useWikiPages', () => ({
-  useWikiPages: () => ({ pages: [] }),
+  useWikiPages: () => ({ pages: wikiMock.pages, createPage: wikiMock.createPage }),
 }))
 
 function renderSheet(onSubmit = vi.fn()) {
@@ -176,5 +182,111 @@ describe('TaskCreateSheet — モバイル: 高さ制約とスクロール構造
     const footer = submit.parentElement!
     expect(footer.className).toMatch(/border-t/)
     expect(footer.className).toMatch(/flex-shrink-0/)
+  })
+})
+
+// タスク詳細の「仕様書連携」と同じく、1つの入力欄で Wiki のページを探す／無ければ作る。
+// 仕様タスク（検討中→決定まで完了できない）にするのは「仕様書」の名札つきのページだけ。
+describe('TaskCreateSheet — Wiki のページの紐づけ（探す＋その場で作る）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    wikiMock.pages = [
+      { id: 'w1', title: 'UI仕様書', tags: ['仕様書', 'UI'] },
+      { id: 'w2', title: '9月 定例 議事録', tags: [] },
+    ]
+  })
+
+  afterEach(() => {
+    wikiMock.pages = []
+  })
+
+  function openAdvanced() {
+    fireEvent.click(screen.getByText('詳細オプション'))
+  }
+
+  function search(query: string) {
+    const input = screen.getByTestId('task-create-wiki-page-input')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: query } })
+  }
+
+  function submitWithTitle(title = '新しいタスク') {
+    fireEvent.change(screen.getByTestId('task-create-title'), { target: { value: title } })
+    fireEvent.click(screen.getByTestId('task-create-submit'))
+  }
+
+  it('仕様書の名札がないページも探して選べ、ふつうのタスクとしてリンクだけ送る', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderSheet(onSubmit)
+    openAdvanced()
+    search('議事録')
+    fireEvent.click(screen.getByRole('option', { name: /9月 定例 議事録/ }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('task-create-wiki-page-current')).toHaveTextContent('9月 定例 議事録')
+    )
+    expect(screen.queryByText('仕様ステータス')).not.toBeInTheDocument()
+
+    submitWithTitle()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'task', wikiPageId: 'w2', decisionState: undefined })
+    )
+  })
+
+  it('仕様書の名札つきのページを選ぶと、仕様ステータスが出て仕様タスクとして送る', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderSheet(onSubmit)
+    openAdvanced()
+    search('UI')
+    fireEvent.click(screen.getByRole('option', { name: /UI仕様書/ }))
+
+    await waitFor(() => expect(screen.getByText('仕様ステータス')).toBeInTheDocument())
+
+    submitWithTitle()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'spec', wikiPageId: 'w1', decisionState: 'considering' })
+    )
+  })
+
+  it('見つからない名前はその場でページを作り、ふつうのタスクとしてリンクだけ送る（名札は付けない）', async () => {
+    wikiMock.createPage.mockImplementation(async ({ title }: { title: string }) => {
+      const page = { id: 'w9', title, tags: [] as string[] }
+      wikiMock.pages = [page, ...wikiMock.pages]
+      return page
+    })
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderSheet(onSubmit)
+    openAdvanced()
+    search('打ち合わせメモ')
+    fireEvent.click(screen.getByTestId('task-create-wiki-page-create'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('task-create-wiki-page-current')).toHaveTextContent('打ち合わせメモ')
+    )
+    expect(wikiMock.createPage).toHaveBeenCalledWith({ title: '打ち合わせメモ' })
+
+    submitWithTitle()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ type: 'task', wikiPageId: 'w9' }))
+  })
+
+  it('紐づけを外すと、何も紐づけずに送る', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderSheet(onSubmit)
+    openAdvanced()
+    search('UI')
+    fireEvent.click(screen.getByRole('option', { name: /UI仕様書/ }))
+    await waitFor(() => expect(screen.getByTestId('task-create-wiki-page-clear')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('task-create-wiki-page-clear'))
+    await waitFor(() => expect(screen.getByTestId('task-create-wiki-page-input')).toBeInTheDocument())
+
+    submitWithTitle()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'task', wikiPageId: undefined, decisionState: undefined })
+    )
   })
 })

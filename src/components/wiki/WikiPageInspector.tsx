@@ -2,8 +2,11 @@
 
 import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
 import { X, Trash, Clock, Tag, PencilSimple, Check } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import type { Milestone, WikiPage, WikiPageVersion } from '@/types/database'
 import { descendantIds } from '@/lib/wiki/listView'
+
+const SPEC_TAG = '仕様書'
 
 export interface WikiPageUpdates {
   title?: string
@@ -107,6 +110,20 @@ export function WikiPageInspector({
       await onUpdate({ tags: page.tags.filter(t => t !== tagToRemove) })
     } catch {
       // Error handled by hook
+    }
+  }
+
+  // 「仕様書として扱う」スイッチ。タグ配列の '仕様書' の有無で表す（決定フローが有効になる条件は
+  // useTasks.ts の specChangesForWikiLink 側）。ON/OFF どちらも他のタグ・順序はそのまま残す。
+  const isSpec = page.tags.includes(SPEC_TAG)
+
+  const handleToggleSpec = async () => {
+    if (!onUpdate) return
+    const nextTags = isSpec ? page.tags.filter(t => t !== SPEC_TAG) : [...page.tags, SPEC_TAG]
+    try {
+      await onUpdate({ tags: nextTags })
+    } catch {
+      toast.error('仕様書の設定を変更できませんでした')
     }
   }
 
@@ -238,6 +255,42 @@ export function WikiPageInspector({
           )}
         </div>
 
+        {/* Spec switch: タグの '仕様書' をトグルで表す */}
+        {onUpdate ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between px-3 py-2 border border-gray-200 rounded-lg bg-surface">
+              <span className="text-sm text-gray-700">仕様書として扱う</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isSpec}
+                aria-label="仕様書として扱う"
+                onClick={handleToggleSpec}
+                data-testid="wiki-spec-switch"
+                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                  isSpec ? 'bg-indigo-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-surface rounded-full shadow transition-transform ${
+                    isSpec ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400">タスクに紐づけると「検討中→決定」で管理します</p>
+          </div>
+        ) : (
+          isSpec && (
+            <span
+              data-testid="wiki-spec-badge"
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-600"
+            >
+              仕様書
+            </span>
+          )
+        )}
+
         {/* Tags */}
         <div>
           <label className="text-xs font-medium text-gray-500 mb-1 flex items-center gap-1">
@@ -245,7 +298,7 @@ export function WikiPageInspector({
             タグ
           </label>
           <div className="flex flex-wrap gap-1.5 mb-2">
-            {page.tags.map(tag => (
+            {page.tags.filter(tag => tag !== SPEC_TAG).map(tag => (
               <span
                 key={tag}
                 className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded group"

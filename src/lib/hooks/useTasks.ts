@@ -298,7 +298,8 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         origin: task.origin,
         type: task.type,
         spec_path: task.type === 'spec' ? task.specPath ?? null : null,
-        wiki_page_id: task.type === 'spec' ? task.wikiPageId ?? null : null,
+        // Wiki のページはふつうのタスクにも紐づけられる（仕様タスクにするかは type で決まる）
+        wiki_page_id: task.wikiPageId ?? null,
         decision_state: task.type === 'spec' ? task.decisionState ?? null : null,
         client_scope: task.clientScope ?? 'internal',
         // 新規作成タスクはTaskApp発。権威はNULL(TaskApp正本)。gtasks importはINSERT時に自身で
@@ -354,10 +355,9 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               parent_task_id: task.parentTaskId ?? null,
               created_by: userId,
         }
-        // wiki_page_id column may not exist yet (migration pending)
-        const wikiPageId = task.type === 'spec' ? task.wikiPageId : undefined
-        if (wikiPageId) {
-          insertData.wiki_page_id = wikiPageId
+        // Wiki のページはふつうのタスクにも紐づけられる（参考資料としてリンクだけ）
+        if (task.wikiPageId) {
+          insertData.wiki_page_id = task.wikiPageId
         }
 
         const { data: created, error: createError } = await (supabase as SupabaseClient)

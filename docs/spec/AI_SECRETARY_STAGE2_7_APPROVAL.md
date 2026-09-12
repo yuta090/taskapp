@@ -213,6 +213,15 @@ attempts テーブルは LINE userId を保持するため、links/codes と同�
 
 秘書コンソールに「自分のLINEを紐付ける」導線（本人のみ・自分の分だけ発行）と、紐付け済み一覧＋revoke ボタン。紐付け成立時に本人へ通知。
 
+### 3-8. Slack 版（2026-09-08・PR #646 実装済）
+
+本人紐づけは LINE 専用ではない。Slack では、AgentPM の接続ページ（AI秘書 → チャット連携 → Slack → 「自分の Slack をつなぐ」）で発行した同じ `TA-` コードを、秘書アプリへの **DM（`channel_type='im'`・`message.im`・scope `im:history`）** に送ると成立する。
+
+- 消費は同じ `rpc_consume_user_link_code`（`p_channel_account_id`=Slack の口座, `p_external_user_id`=Slack user id）。**`channel` 列は口座（`channel_accounts.channel`）から RPC 内で導出**する（migration `20260908075531`。CHECK も全チャネルに拡張）。
+- 記録は先・本文はマスク・payload に生イベントを入れない・状態別の返事・再送（dedupe=channel:ts）には返事しない。返事は outbound として記録する。
+- **チャンネルに貼られたコードは claimed/limbo の判定より先に即時失効**し、DM に送るよう案内する（合図としては扱わない）。limbo での案内は合言葉不一致と同じレート制限に載せる。
+- 発行 API（`/api/channels/user-links/code`）は口座を id で引き org を照合する（LINE 以外の自社口座も可・共通LINE は org_id が無いので不可）。
+
 ### 3-7. 受け入れ条件（TDD）
 
 - [ ] 他人の user_id を指定してコードを発行できない（403）
