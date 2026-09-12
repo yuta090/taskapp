@@ -109,10 +109,12 @@ export function MeetingInspector({
   }, [activeTab, meeting.id, meeting.minutes_md, onPreviewMinutes, createResult, refreshToken])
 
   // M3: 文書ビューで書いた本文が保存された後は、開いたときの候補が古いままになりうる。
-  // 手動で取り直す
+  // 手動で取り直す。タスク化を1回した後も再確認できるよう createResult も消す
+  // （消さないと、下の effect が「作成済み」のガードで再取得をスキップしてしまう）
   const handleRefreshPreview = () => {
     previewKeyRef.current = null
     setPreview(null)
+    setCreateResult(null)
     setTaskError(null)
     setRefreshToken((t) => t + 1)
   }
@@ -341,7 +343,7 @@ export function MeetingInspector({
                     <ListChecks className="text-sm" />
                     決定事項のタスク化
                   </div>
-                  {!createResult && !previewLoading && (
+                  {!previewLoading && (
                     <button
                       type="button"
                       onClick={handleRefreshPreview}
@@ -429,7 +431,9 @@ export function MeetingInspector({
                         : `${preview.newSpecCount}件をタスク化`}
                     </button>
                   </>
-                ) : (
+                ) : preview && preview.newSpecCount === 0 ? (
+                  // 候補がまだ取れていないとき(preview===null: 議事録が無い等)や取得に
+                  // 失敗したとき(taskError)は、ここでは何も出さない（taskError の文言だけで足りる）
                   <div data-testid="minutes-task-empty" className="text-xs text-gray-400 space-y-1">
                     <p>タスク化できる決定事項はありません</p>
                     <p>
@@ -440,7 +444,7 @@ export function MeetingInspector({
                       」と書くと、ここでタスクにできます。
                     </p>
                   </div>
-                )}
+                ) : null}
               </div>
             )}
           </div>

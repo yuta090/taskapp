@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Notebook, CalendarCheck, Plus, CaretDown, FunnelSimple, CalendarBlank, X } from '@phosphor-icons/react'
 import { useInspector } from '@/components/layout'
 import { toast } from 'sonner'
@@ -48,7 +48,6 @@ const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
 
 export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) {
   const spaceName = useSpaceName(spaceId)
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
   const isMobile = useIsMobile()
@@ -210,6 +209,9 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     }
   }, [setInspector])
 
+  // 表示速度: サーバーとの往復を避けるため router.replace ではなく history.replaceState で
+  // URL だけを変える（手本: TasksPageClient.tsx の syncUrlWithState）。useSearchParams は
+  // これに追従する。
   const updateQuery = useCallback(
     (updates: Record<string, string | null>) => {
       const params = new URLSearchParams(searchParams.toString())
@@ -223,19 +225,18 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         }
       })
       const query = params.toString()
-      router.replace(query ? `${projectBasePath}?${query}` : projectBasePath)
+      const newUrl = query ? `${projectBasePath}?${query}` : projectBasePath
+      window.history.replaceState(null, '', newUrl)
     },
-    [router, projectBasePath, searchParams]
+    [projectBasePath, searchParams]
   )
 
-  // HIGH-3: 一覧へ戻るときは保存を待ってから戻る（ベストエフォート。失敗しても戻ることは妨げない）。
-  // 文書ビュー自身の「戻る」ボタンだけでなく、Inspector の×（一覧へ戻る）でも同じ経路を使う。
-  const handleBackToList = useCallback(async () => {
-    try {
-      await minutesViewRef.current?.flushPendingSave()
-    } catch {
-      // ベストエフォート。一覧へ戻ることは妨げない
-    }
+  // MEDIUM-B: Inspector の×（一覧へ戻る）から離れるときは、保存されていない書きかけが
+  // あれば確認してから戻る（文書ビュー自身の「戻る」ボタンは内部で同じ確認をしてから
+  // onBack を呼ぶだけなので、ここでは Inspector 側からの離脱だけ確認を挟む）。
+  const handleCloseFromInspector = useCallback(async () => {
+    const ok = (await minutesViewRef.current?.confirmLeave()) ?? true
+    if (!ok) return
     updateQuery({ meeting: null })
   }, [updateQuery])
 
@@ -244,12 +245,6 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     if (!selectedMeetingId) return null
     return meetings.find((meeting) => meeting.id === selectedMeetingId) ?? null
   }, [meetings, selectedMeetingId])
-
-  useEffect(() => {
-    if (selectedMeeting && selectedMeeting.minutes_md === undefined) {
-      void fetchMeetingDetail(selectedMeeting.id)
-    }
-  }, [selectedMeeting, fetchMeetingDetail])
 
   // 会議を切り替えたら、モバイルの情報シート表示は毎回閉じ直す
   // （前の会議で開いていた状態のまま次の会議に持ち越さない）
@@ -275,7 +270,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       <MeetingInspector
         meeting={selectedMeeting}
         participants={participants[selectedMeeting.id] || []}
-        onClose={() => (isMobile ? setShowInfo(false) : void handleBackToList())}
+        onClose={() => (isMobile ? setShowInfo(false) : void handleCloseFromInspector())}
         onStart={async () => {
           try {
             await startMeeting(selectedMeeting.id)
@@ -318,14 +313,18 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
                   }
 
                   // RPCを呼ぶ直前にもう一度サーバーの状態を確かめる（flush確定〜RPC呼び出しの
-                  // 一瞬に、別の場所で書き換えられていないか）。基準(updated_at)がずれていれば止める。
-                  const knownUpdatedAt = minutesViewRef.current!.getBaseUpdatedAt()
-                  const justBeforeRpc = await fetchMeetingDetail(meetingId)
-                  if (!justBeforeRpc || (knownUpdatedAt !== null && justBeforeRpc.updated_at !== knownUpdatedAt)) {
+                  // 一瞬に、別の場所で書き換えられていないか）。判定は保存(0行)のときと同じ:
+                  // updated_atが同じ、または本文自体が変わっていなければ基準を差し替えて通す。
+                  // 本文が本当に違えば競合の帯を出して止める（HIGH-A）。
+                  try {
+                    await minutesViewRef.current!.ensureUpToDate()
+                  } catch (err) {
                     const message =
-                      '議事録が別の場所で更新されたため、タスク化を中止しました。最新を読み込んでからやり直してください'
+                      err instanceof Error
+                        ? err.message
+                        : '議事録が別の場所で更新されたため、タスク化を中止しました'
                     toast.error(message)
-                    throw new Error(message)
+                    throw err
                   }
 
                   const result = await parseMinutes(meetingId, flushedContent)
@@ -369,7 +368,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     showInfo,
     fetchMeetingDetail,
     canEdit,
-    handleBackToList,
+    handleCloseFromInspector,
   ])
 
   // ---- Proposal inspector ----
@@ -377,7 +376,6 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const prevProposalIdRef = useRef(selectedProposalId)
   useEffect(() => {
     if (selectedProposalId !== prevProposalIdRef.current) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProposalDetail(null)
       prevProposalIdRef.current = selectedProposalId
     }
@@ -386,7 +384,6 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   useEffect(() => {
     if (!selectedProposalId) {
       if (!selectedMeetingId) setInspector(null)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProposalDetail(null)
       return
     }
@@ -450,8 +447,9 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         orgId={orgId}
         spaceId={spaceId}
         meeting={selectedMeeting}
-        canEdit={canEdit && !isTaskifying}
-        onBack={() => void handleBackToList()}
+        canEdit={canEdit}
+        forceReadOnly={isTaskifying}
+        onBack={() => updateQuery({ meeting: null })}
         onOpenInfo={() => setShowInfo(true)}
         updateMinutes={updateMinutes}
         fetchMeetingDetail={fetchMeetingDetail}

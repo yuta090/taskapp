@@ -196,4 +196,51 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     fireEvent.click(screen.getByTestId('minutes-task-refresh'))
     await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(2))
   })
+
+  it('LOW: 議事録が無く候補がまだ取れていないときは「ありません」を出さない', () => {
+    const onPreviewMinutes = vi.fn()
+    render(
+      <MeetingInspector
+        meeting={makeMeeting({ minutes_md: null })}
+        onClose={vi.fn()}
+        onPreviewMinutes={onPreviewMinutes}
+      />
+    )
+    openMinutesTab()
+    expect(screen.queryByTestId('minutes-task-empty')).toBeNull()
+  })
+
+  it('LOW: 候補の取得に失敗したときは「ありません」を出さず、失敗の文言だけ出す', async () => {
+    const onPreviewMinutes = vi.fn().mockRejectedValue(new Error('network'))
+    render(
+      <MeetingInspector meeting={makeMeeting()} onClose={vi.fn()} onPreviewMinutes={onPreviewMinutes} />
+    )
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalled())
+    expect(await screen.findByText('タスク化候補の取得に失敗しました')).toBeTruthy()
+    expect(screen.queryByTestId('minutes-task-empty')).toBeNull()
+  })
+
+  it('LOW: タスク化を1回した後も「もう一度確認」を出し、押すとプレビューを取り直す', async () => {
+    const onPreviewMinutes = vi.fn().mockResolvedValue(previewResult)
+    const onCreateTasks = vi.fn().mockResolvedValue(createResult)
+    render(
+      <MeetingInspector
+        meeting={makeMeeting()}
+        onClose={vi.fn()}
+        onPreviewMinutes={onPreviewMinutes}
+        onCreateTasks={onCreateTasks}
+      />
+    )
+    openMinutesTab()
+    const button = await screen.findByTestId('minutes-taskify-button')
+    fireEvent.click(button)
+    await screen.findByTestId('minutes-task-result')
+
+    const refreshButton = screen.getByTestId('minutes-task-refresh')
+    fireEvent.click(refreshButton)
+
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(2))
+    expect(screen.queryByTestId('minutes-task-result')).toBeNull()
+  })
 })

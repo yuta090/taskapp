@@ -7,16 +7,19 @@ import type { Meeting } from '@/types/database'
 
 // 会議を選んだら一覧の代わりに議事録の文書ビューを出す（Wiki のエディタビューと同じ考え方）。
 // タスク化ボタンを押す前に、文書ビューの保留中の保存を流してから parseMinutes に渡す。
+//
+// 表示速度: 会議の選択・戻る・閉じるは router.replace ではなく window.history.replaceState
+// で URL を変える（手本: TasksPageClient.tsx）。ここでは history.replaceState の呼び出しを
+// 直接検証する。
 
-const mockSetInspector = vi.fn()
-const mockRouterReplace = vi.fn()
 let searchParamsValue = 'meeting=m1'
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: mockRouterReplace, push: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(searchParamsValue),
 }))
 
+const mockSetInspector = vi.fn()
 vi.mock('@/components/layout', () => ({
   useInspector: () => ({ setInspector: mockSetInspector }),
 }))
@@ -90,16 +93,27 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
 }))
 
 const mockFlushPendingSave = vi.fn().mockResolvedValue('flushed-content')
+const mockEnsureUpToDate = vi.fn().mockResolvedValue(undefined)
 const mockGetBaseUpdatedAt = vi.fn().mockReturnValue('2026-09-01T00:00:00.111111+00')
+const mockConfirmLeave = vi.fn().mockResolvedValue(true)
+
+interface FakeHandle {
+  flushPendingSave: () => Promise<string>
+  ensureUpToDate: () => Promise<void>
+  getBaseUpdatedAt: () => string | null
+  confirmLeave: () => Promise<boolean>
+}
 
 vi.mock('@/components/meeting/MinutesDocumentView', () => ({
   MinutesDocumentView: forwardRef(function FakeMinutesDocumentView(
     props: { onBack: () => void; meeting: Meeting },
-    ref: React.Ref<{ flushPendingSave: () => Promise<string>; getBaseUpdatedAt: () => string | null }>
+    ref: React.Ref<FakeHandle>
   ) {
     useImperativeHandle(ref, () => ({
       flushPendingSave: mockFlushPendingSave,
+      ensureUpToDate: mockEnsureUpToDate,
       getBaseUpdatedAt: mockGetBaseUpdatedAt,
+      confirmLeave: mockConfirmLeave,
     }))
     return (
       <div data-testid="minutes-document-view">
@@ -119,12 +133,17 @@ function renderPage() {
   )
 }
 
+let historyReplaceSpy: ReturnType<typeof vi.spyOn>
+
 beforeEach(() => {
   vi.clearAllMocks()
   searchParamsValue = 'meeting=m1'
   mockFlushPendingSave.mockResolvedValue('flushed-content')
+  mockEnsureUpToDate.mockResolvedValue(undefined)
+  mockConfirmLeave.mockResolvedValue(true)
   mockFetchMeetingDetail.mockResolvedValue(makeMeeting())
   mockParseMinutes.mockResolvedValue({ createdCount: 1, createdTasks: [], updatedMinutes: 'flushed-content' })
+  historyReplaceSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
 })
 
 describe('MeetingsPageClient 議事録の文書ビュー', () => {
@@ -134,15 +153,40 @@ describe('MeetingsPageClient 議事録の文書ビュー', () => {
     expect(screen.getByText('定例MTG')).toBeInTheDocument()
   })
 
-  it('戻るを押すと（保存を待ってから）?meeting= を外して一覧に戻る', async () => {
+  it('戻るを押すと window.history.replaceState で ?meeting= を外したURLに変える', () => {
     renderPage()
+    fireEvent.click(screen.getByText('戻る'))
+    expect(historyReplaceSpy).toHaveBeenCalledWith(null, '', '/org-1/project/space-1/meetings')
+  })
+
+  it('Inspectorの×（一覧へ戻る）は文書ビューのconfirmLeaveを確認してから戻る', async () => {
+    renderPage()
+    await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
+    const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
+
     await act(async () => {
-      fireEvent.click(screen.getByText('戻る'))
+      lastInspectorElement.props.onClose()
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(mockFlushPendingSave).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalledWith('/org-1/project/space-1/meetings')
+
+    expect(mockConfirmLeave).toHaveBeenCalledTimes(1)
+    expect(historyReplaceSpy).toHaveBeenCalledWith(null, '', '/org-1/project/space-1/meetings')
+  })
+
+  it('MEDIUM-B: confirmLeaveがfalse(キャンセル)ならInspectorの×では戻らない', async () => {
+    mockConfirmLeave.mockResolvedValue(false)
+    renderPage()
+    await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
+    const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
+
+    await act(async () => {
+      lastInspectorElement.props.onClose()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(historyReplaceSpy).not.toHaveBeenCalled()
   })
 
   it('タスク化の前に文書ビューの保留中の保存を流し、その本文で parseMinutes する', async () => {
@@ -159,18 +203,17 @@ describe('MeetingsPageClient 議事録の文書ビュー', () => {
     })
 
     expect(mockFlushPendingSave).toHaveBeenCalledTimes(1)
-    // flush 確定後、RPC を呼ぶ前にもう一度サーバーの状態を確かめる(HIGH-1)
-    expect(mockFetchMeetingDetail).toHaveBeenCalledWith('m1')
+    // flush 確定後、RPC を呼ぶ前にもう一度サーバーの状態を確かめる(HIGH-1/HIGH-A)
+    expect(mockEnsureUpToDate).toHaveBeenCalledTimes(1)
     expect(mockParseMinutes).toHaveBeenCalledWith('m1', 'flushed-content')
   })
 
-  it('HIGH-1: flush 確定後に基準(updated_at)がずれていたらタスク化を中止する', async () => {
+  it('HIGH-A: ensureUpToDate が例外を投げたらタスク化を中止する（会議終了直後などの見せかけの競合は自己修復されて通る）', async () => {
     renderPage()
     await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
     const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
 
-    // サーバーの状態がずれている（別の場所で更新済み）
-    mockFetchMeetingDetail.mockResolvedValue(makeMeeting({ updated_at: '2026-09-01T09:99:99.999999+00' }))
+    mockEnsureUpToDate.mockRejectedValue(new Error('この議事録は、別の場所で更新されています'))
 
     await act(async () => {
       await expect(lastInspectorElement.props.onCreateTasks('m1', '本文')).rejects.toThrow()
