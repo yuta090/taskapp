@@ -29,26 +29,27 @@ test.describe('Tasks Page', () => {
   })
 
   test('filter buttons should toggle active state', async ({ page }) => {
-    const allButton = page.getByTestId('tasks-filter-all')
     const activeButton = page.getByTestId('tasks-filter-active')
+    const backlogButton = page.getByTestId('tasks-filter-backlog')
 
-    // Default: "all" is active
-    await expect(allButton).toHaveClass(/bg-surface shadow-sm/)
-
-    // Click active filter
-    await activeButton.click()
-    await expect(page).toHaveURL(/filter=active/)
+    // 既定は「アクティブ」
     await expect(activeButton).toHaveClass(/bg-surface shadow-sm/)
+
+    await backlogButton.click()
+    await expect(page).toHaveURL(/filter=backlog/)
+    await expect(backlogButton).toHaveClass(/bg-surface shadow-sm/)
   })
 
-  test('clicking "all" filter should clear filter param', async ({ page }) => {
+  test('clicking "active" filter should clear filter param', async ({ page }) => {
     const allButton = page.getByTestId('tasks-filter-all')
     const activeButton = page.getByTestId('tasks-filter-active')
 
-    await activeButton.click()
-    await expect(page).toHaveURL(/filter=active/)
-
+    // 既定ではない「すべて」は URL に残す
     await allButton.click()
+    await expect(page).toHaveURL(/filter=all/)
+
+    // 既定の「アクティブ」に戻すと URL から消える
+    await activeButton.click()
     await expect(page).not.toHaveURL(/filter=/)
   })
 })

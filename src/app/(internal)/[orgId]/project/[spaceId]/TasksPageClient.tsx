@@ -50,6 +50,9 @@ interface TasksPageClientProps {
 }
 
 type FilterKey = 'all' | 'active' | 'backlog' | 'client_wait' | 'client_origin'
+
+/** 何も指定がないときの絞り込み。既定なので URL には付けない（付けるのは他を選んだときだけ） */
+const DEFAULT_FILTER: FilterKey = 'active'
 type SortKey = 'milestone' | 'due_date' | 'created_at' | 'assignee' | 'status'
 
 interface TaskGroup {
@@ -278,7 +281,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     if (filterParam === 'all' || filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait' || filterParam === 'client_origin') {
       return filterParam
     }
-    return 'all'
+    // 既定は「アクティブ」。開いた直後に完了・未着手まで並ぶと、いま動いているタスクが埋もれる
+    return DEFAULT_FILTER
   }, [searchParams])
 
   // useQuery auto-fetches tasks, milestones, and the space row — no manual useEffect needed
@@ -303,7 +307,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       if (task) {
         params.set('task', task)
       }
-      if (filter !== 'all') {
+      if (filter !== DEFAULT_FILTER) {
         params.set('filter', filter)
       }
       const query = params.toString()
@@ -367,6 +371,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
     return result
   }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters, searchQuery])
+
+  // タスク自体はあるのに、既定の「アクティブ」だけが理由で0件になっている状態。空のときの案内を出し分ける
+  const onlyDefaultFilterHides =
+    filteredTasks.length === 0 &&
+    activeFilter === DEFAULT_FILTER &&
+    !hasAdvancedFilters &&
+    tasks.length > 0
 
   const STATUS_LABELS: Record<string, string> = {
     backlog: '未着手', todo: '着手予定', in_progress: '進行中',
@@ -1236,7 +1247,15 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           <div className="content-wrap py-4" data-walkthrough="task-create">
             <EmptyState
               icon={searchQuery ? <MagnifyingGlass /> : <Copy />}
-              message={searchQuery ? `「${searchQuery}」に一致するタスクはありません` : 'タスクはありません'}
+              message={
+                searchQuery
+                  ? `「${searchQuery}」に一致するタスクはありません`
+                  : onlyDefaultFilterHides
+                    // 既定が「アクティブ」なので、完了・未着手しか残っていないだけの状態を
+                    // 「1件も無い」と誤解させない
+                    ? '動いているタスクはありません。完了・未着手は「すべて」で見られます。'
+                    : 'タスクはありません'
+              }
               action={searchQuery ? (
                 <button
                   type="button"
@@ -1244,6 +1263,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   className="text-xs text-blue-600 hover:text-blue-700"
                 >
                   検索をクリア
+                </button>
+              ) : onlyDefaultFilterHides ? (
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange('all')}
+                  className="text-xs text-blue-600 hover:text-blue-700"
+                >
+                  すべて表示
                 </button>
               ) : canEdit ? (
                 <button
