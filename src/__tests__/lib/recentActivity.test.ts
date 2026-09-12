@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  */
 
 let auditLogsResponse: { data: Array<Record<string, unknown>> | null; error: { message: string } | null }
-let profilesResponse: { data: Array<{ id: string; display_name: string | null }> | null }
+let profilesResponse: { data: Array<{ id: string; display_name: string | null }> | null; error?: { message: string } | null }
 let getUserByIdImpl: (id: string) => Promise<{ data: { user: { email: string } | null } }>
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,6 +89,22 @@ describe('fetchRecentActivity', () => {
     const rows = await fetchRecentActivity()
 
     expect(rows).toEqual([])
+  })
+
+  it('profilesのクエリでエラーが起きたら、他の問い合わせと同じくコンソールに記録する(空文字表示で握り潰さない)', async () => {
+    auditLogsResponse = {
+      data: [
+        { id: 'log-1', event_type: 'x', summary: null, occurred_at: '2026-01-01T00:00:00Z', actor_id: 'user-1' },
+      ],
+      error: null,
+    }
+    profilesResponse = { data: null, error: { message: 'boom' } }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await fetchRecentActivity()
+
+    expect(errorSpy).toHaveBeenCalledWith('[admin/dashboard] profiles query error:', 'boom')
+    errorSpy.mockRestore()
   })
 
   it('actor_idが無い行しかない場合はprofilesを問い合わせない', async () => {

@@ -51,9 +51,10 @@ export async function fetchRecentActivity(): Promise<AuditLogRow[]> {
   // audit_logs→profilesの外部キーは無いため埋め込みは使えない。表示名は別問い合わせで
   // まとめて引く(adminはservice roleなので全員分読める)
   const actorIds = [...new Set(rows.map((row) => row.actor_id).filter((id): id is string => !!id))]
-  const { data: actorProfiles } = actorIds.length > 0
+  const { data: actorProfiles, error: actorProfilesError } = actorIds.length > 0
     ? await admin.from('profiles').select('id, display_name').in('id', actorIds)
-    : { data: [] as { id: string; display_name: string | null }[] }
+    : { data: [] as { id: string; display_name: string | null }[], error: null }
+  if (actorProfilesError) console.error('[admin/dashboard] profiles query error:', actorProfilesError.message)
   const displayNameByActorId = new Map<string, string | null>(
     (actorProfiles || []).map((p) => [p.id, p.display_name]),
   )

@@ -5,13 +5,15 @@ import path from 'node:path'
 /**
  * PostgREST(Supabaseのデータ取得API)の埋め込み記法(`.select('a, b(...)')`)の歯止め。
  *
- * 1) `profiles` を埋め込むと必ず失敗する。本番には `profiles` を指す外部キーが
- *    1本も無い(profilesは auth.users を指すだけ)ため、`profiles(...)` 形の埋め込みは
- *    起点の表がどれであっても PGRST200(no matches were found)になる。
- * 2) 外部キーが2本以上ある表の組み合わせは、外部キー名を書かない埋め込みが
+ * 1) 一度も外部キーで指されたことが無い表(`profiles`)を埋め込むと必ず失敗する。
+ *    `profiles(...)` 形の埋め込みは起点の表がどれであっても PGRST200
+ *    (no matches were found)になる。
+ * 2) 外部キーが1本も無い特定の組み合わせ(`wiki_page_publications`↔
+ *    `milestone_publications`など)を埋め込むと同じくPGRST200になる。
+ * 3) 外部キーが2本以上ある表の組み合わせは、外部キー名を書かない埋め込みが
  *    PGRST201(more than one relationship was found)で失敗する。
  *
- * どちらも「別問い合わせにしてJS側で突き合わせる」か「`相手!<外部キー名>(...)`の
+ * どれも「別問い合わせにしてJS側で突き合わせる」か「`相手!<外部キー名>(...)`の
  * 形で外部キー名を書く」ことで直す。
  *
  * 検査は完全な構文解析ではない(入れ子の埋め込みは、内側の本当の起点でなく一番外の
@@ -57,6 +59,16 @@ const AMBIGUOUS_TABLE_PAIRS: Record<string, string[]> = {
   'wiki_pages<->users': ['wiki_pages_created_by_fkey', 'wiki_pages_updated_by_fkey'],
 }
 
+// 一度も外部キーで指されたことが無い表。この表を埋め込むと、起点がどれであっても
+// 必ず PGRST200 になる(profilesは auth.users を指すだけで、誰からも指されていない)
+const TABLES_WITH_NO_INCOMING_FK = new Set<string>(['profiles'])
+
+// 外部キーが1本も無い(が、それぞれの表は他の表とは外部キーを持っている)特定の
+// 組み合わせ。表単位でなく組み合わせ単位で見ないと誤検知するため、こちらに載せる
+const KNOWN_NO_FK_PAIRS: Record<string, true> = {
+  'milestone_publications<->wiki_page_publications': true,
+}
+
 function pairKey(a: string, b: string): string {
   return [a, b].sort().join('<->')
 }
@@ -81,7 +93,12 @@ function extractCallArgs(code: string, openParenIndex: number): string {
 const FROM_RE = /\.from\(\s*['"`]([A-Za-z_][A-Za-z0-9_]*)['"`]\s*\)/g
 const SELECT_RE = /\.select\(/g
 // 埋め込み候補: (alias:)?table(!fk)*(  例: `spaces!inner(`, `actor:profiles!x_fkey(`, `wiki_pages(`
-const EMBED_RE = /(?:^|[\s,`\n(])(?:[A-Za-z_][A-Za-z0-9_]*\s*:\s*)?([A-Za-z_][A-Za-z0-9_]*)((?:\s*!\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\(/g
+// 直前が識別子文字/ドットでなければどこでも良い(後読み・consumeしない)。
+// 先頭が区切り文字クラスの消費だと、直前のマッチに文字を食われて次の埋め込みを
+// 見逃したり(入れ子)、文字列の一番先頭(引用符の直後)を拾えなかったりするため。
+const EMBED_RE = /(?<![A-Za-z0-9_.])(?:[A-Za-z_][A-Za-z0-9_]*\s*:\s*)?([A-Za-z_][A-Za-z0-9_]*)((?:\s*!\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\(/g
+// `!inner`/`!left`はPostgRESTの結合種別の指定であって外部キー名ではない
+const JOIN_TYPE_MODIFIERS = new Set(['inner', 'left'])
 
 function findEmbedIssues(filePath: string, code: string): Issue[] {
   const issues: Issue[] = []
@@ -109,21 +126,33 @@ function findEmbedIssues(filePath: string, code: string): Issue[] {
       const targetTable = em[1]
       const modifiers = em[2] || ''
       const fkNames = [...modifiers.matchAll(/!\s*([A-Za-z_][A-Za-z0-9_]*)/g)].map((x) => x[1])
-      const hasExplicitFk = fkNames.some((n) => n !== 'inner')
+      const hasExplicitFk = fkNames.some((n) => !JOIN_TYPE_MODIFIERS.has(n))
 
-      if (targetTable === 'profiles') {
+      if (TABLES_WITH_NO_INCOMING_FK.has(targetTable)) {
         issues.push({
           message:
-            `${filePath}: "profiles" を埋め込もうとしています。本番には profiles を指す外部キーが1本もありません` +
-            `(profiles→auth.usersだけ)。profiles は別問い合わせ(.from('profiles').select(...).in('id', ids))で引き、` +
+            `${filePath}: "${targetTable}" を埋め込もうとしています。本番には "${targetTable}" を指す外部キーが1本も` +
+            `ありません。${targetTable}は別問い合わせ(.from('${targetTable}').select(...).in('id', ids))で引き、` +
             `取得結果をJS側で突き合わせてください。`,
+        })
+        continue
+      }
+
+      const key = pairKey(sourceTable, targetTable)
+
+      if (KNOWN_NO_FK_PAIRS[key]) {
+        issues.push({
+          message:
+            `${filePath}: "${sourceTable}" から "${targetTable}" への埋め込みは、この組み合わせを繋ぐ外部キーが` +
+            `1本も無いため常に失敗します。先に片方をidで引いてから、もう片方を.in()で絞る形にしてください。` +
+            `もしこの組み合わせに見覚えが無ければ、外部キーの一覧が変わっています。本番で ` +
+            `'?select=...&limit=0' を当てて確かめ、この表(src/__tests__/lib/postgrestEmbedRegression.test.ts)を更新してください。`,
         })
         continue
       }
 
       if (hasExplicitFk) continue
 
-      const key = pairKey(sourceTable, targetTable)
       const candidates = AMBIGUOUS_TABLE_PAIRS[key]
       if (candidates) {
         issues.push({
@@ -166,10 +195,10 @@ function listSourceFiles(rootDir: string): string[] {
 }
 
 const REPO_ROOT = process.cwd()
-const SCAN_ROOTS = ['src/lib', 'src/app', 'packages/mcp-server/src']
+const SCAN_ROOTS = ['src/lib', 'src/app', 'src/components', 'packages/mcp-server/src']
 
 describe('PostgREST埋め込みの歯止め', () => {
-  it('src/lib・src/app・packages/mcp-server/src に、profilesの埋め込みや外部キー名の無い曖昧な埋め込みが無いこと', () => {
+  it('src/lib・src/app・src/components・packages/mcp-server/src に、profilesの埋め込みや外部キー名の無い曖昧な埋め込みが無いこと', () => {
     const allIssues: Issue[] = []
     for (const root of SCAN_ROOTS) {
       const absoluteRoot = path.join(REPO_ROOT, root)
@@ -238,6 +267,43 @@ describe('PostgREST埋め込みの歯止め', () => {
     `
     const issues = findEmbedIssues('fixture.ts', code)
     expect(issues).toEqual([])
+  })
+
+  it('外部キーが1本も無い組み合わせ(wiki_page_publications↔milestone_publications)を検知する', () => {
+    const code = `
+      .from('wiki_page_publications')
+      .select('id, milestone_publications!inner(is_published)')
+    `
+    const issues = findEmbedIssues('fixture.ts', code)
+    expect(issues.some((i) => i.message.includes('外部キーが1本も無いため常に失敗します'))).toBe(true)
+  })
+
+  it('文字列の先頭にある埋め込みも検知する(区切り文字を前提にしない)', () => {
+    const code = `
+      .from('audit_logs')
+      .select('profiles(display_name)')
+    `
+    const issues = findEmbedIssues('fixture.ts', code)
+    expect(issues.some((i) => i.message.includes('"profiles" を埋め込もうとしています'))).toBe(true)
+  })
+
+  it('入れ子の埋め込み(外側の埋め込みの内側)も検知する', () => {
+    const code = `
+      .from('tasks')
+      .select('id, a!fk(spaces(name))')
+    `
+    const issues = findEmbedIssues('fixture.ts', code)
+    // 内側の spaces(name) が外部キー名なしのまま検知されること
+    expect(issues.some((i) => i.message.includes('"spaces"'))).toBe(true)
+  })
+
+  it('!left も !inner と同じく「外部キー名を書いた」とは認めない', () => {
+    const code = `
+      .from('tasks')
+      .select('id, spaces!left(name)')
+    `
+    const issues = findEmbedIssues('fixture.ts', code)
+    expect(issues.length).toBeGreaterThan(0)
   })
 
   it('別問い合わせ(profilesを埋め込まない形)は検知しない', () => {

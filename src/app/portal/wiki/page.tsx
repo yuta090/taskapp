@@ -36,15 +36,15 @@ export default async function PortalWikiPage({ searchParams }: PageProps) {
 
   const clientSpaceIds = projects.map((p) => p.id)
 
-  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, currentProject.id, 'wiki'))) {
-    redirect('/portal')
-  }
+  // isPortalSectionEnabled・milestone_publications・actionCountは互いに依存しない
+  // ので並べて読む(セクションが無効なときは問い合わせが2本無駄になるが、稀な経路
+  // なので許容する)。wiki_page_publicationsとmilestone_publicationsの間には外部
+  // キーが無い(どちらもmilestones/organizationsを指すだけ)ため、埋め込みでは
+  // 絞れない。先に公開中のマイルストーンIDを引いてから、それでwiki_page_publications
+  // 側を絞る
+  const [sectionEnabled, milestonePubsResult, actionCountResult] = await Promise.all([
+    isPortalSectionEnabled(supabase as SupabaseClient, currentProject.id, 'wiki'),
 
-  // wiki_page_publicationsとmilestone_publicationsの間には外部キーが無い(どちらも
-  // milestones/organizationsを指すだけ)ため、埋め込みでは絞れない。先に公開中の
-  // マイルストーンIDを引いてから、それでwiki_page_publications側を絞る。
-  // actionCountはこれらと依存しないので並べて読む
-  const [milestonePubsResult, actionCountResult] = await Promise.all([
     (supabase as SupabaseClient)
       .from('milestone_publications')
       .select('milestone_id')
@@ -58,6 +58,10 @@ export default async function PortalWikiPage({ searchParams }: PageProps) {
       .eq('ball', 'client')
       .neq('status', 'done'),
   ])
+
+  if (!sectionEnabled) {
+    redirect('/portal')
+  }
 
   // エラーログ（graceful degradation: 空データで続行）
   if (milestonePubsResult.error) console.error('[Portal Wiki] milestone_publications query error:', milestonePubsResult.error)
@@ -79,6 +83,8 @@ export default async function PortalWikiPage({ searchParams }: PageProps) {
           wiki_pages!inner ( space_id )
         `)
         .eq('org_id', currentProject.orgId)
+        // 未公開のマイルストーンのWikiを止めているのはこの絞り込み自体(RLSではない)。
+        // 社内の人がこのページを開いた場合にも未公開が漏れないよう、意図して残す
         .in('milestone_id', publishedMilestoneIds)
         .in('wiki_pages.space_id', clientSpaceIds)
         .order('published_at', { ascending: false })
