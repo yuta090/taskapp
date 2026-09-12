@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
+import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js'
+
+// 画面の承認者候補と同じ役割の範囲（社内のadmin/editorだけ。rpc_review_open_asも同じ規則）
+const REVIEW_APPROVER_ROLES = ['admin', 'editor'] as const
 
 // Types
 export interface Review {
@@ -80,7 +84,14 @@ export async function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Prom
     throw new Error('タスクが見つかりません')
   }
 
-  const { error } = await supabase.rpc('rpc_review_open', {
+  // 承認者は、画面の承認者候補と同じ範囲・役割（社内のadmin/editor）に限る
+  await assertUsersHaveSpaceRole(params.reviewerIds, params.spaceId, REVIEW_APPROVER_ROLES, 'reviewerIds')
+
+  // 依頼した人（reviews.created_by・task_events.actor_id）は、鍵に紐づく利用者から取る
+  const actor = requireActorUserId()
+
+  const { error } = await supabase.rpc('rpc_review_open_as', {
+    p_actor: actor,
     p_task_id: params.taskId,
     p_reviewer_ids: params.reviewerIds,
     p_meeting_id: null,
@@ -118,7 +129,11 @@ export async function reviewApprove(params: z.infer<typeof reviewApproveSchema>)
     throw new Error('タスクが見つかりません')
   }
 
-  const { data, error } = await supabase.rpc('rpc_review_approve', {
+  // 承認するのは呼んだ本人の分だけ（review_approvals.reviewer_id）。鍵に紐づく利用者から取る
+  const actor = requireActorUserId()
+
+  const { data, error } = await supabase.rpc('rpc_review_approve_as', {
+    p_actor: actor,
     p_task_id: params.taskId,
     p_meeting_id: null,
   })
@@ -148,7 +163,11 @@ export async function reviewBlock(params: z.infer<typeof reviewBlockSchema>): Pr
     throw new Error('タスクが見つかりません')
   }
 
-  const { error } = await supabase.rpc('rpc_review_block', {
+  // ブロックするのは呼んだ本人の分だけ（review_approvals.reviewer_id）。鍵に紐づく利用者から取る
+  const actor = requireActorUserId()
+
+  const { error } = await supabase.rpc('rpc_review_block_as', {
+    p_actor: actor,
     p_task_id: params.taskId,
     p_blocked_reason: params.reason,
     p_meeting_id: null,

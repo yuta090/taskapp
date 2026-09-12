@@ -7,6 +7,7 @@
  * 読み書きの前にこの確認を通す。
  */
 import { getSupabaseClient } from '../supabase/client.js'
+import { getAuthContext } from '../config.js'
 import { ToolUserError } from '../errors.js'
 
 /**
@@ -165,4 +166,21 @@ export async function assertInvitesAreInSpace(inviteIds: string[], spaceId: stri
   if (missing.length > 0) {
     throw new ToolUserError('対象の招待が、このプロジェクトの有効な招待ではありません', 404)
   }
+}
+
+/**
+ * 「誰がやったか」の記録が要る RPC（会議開始・レビュー承認など）を呼ぶ前に、
+ * この鍵に紐づく利用者(user_id)を取り出す。画面は auth.uid() を使うのに対し、
+ * service role で動くこの道具は鍵の持ち主をそのまま渡す。
+ * 個人に紐づかない鍵（組織/space の共用鍵）では実行できない。
+ */
+export function requireActorUserId(): string {
+  const userId = getAuthContext().userId
+  if (!userId) {
+    throw new ToolUserError(
+      'この鍵には利用者が紐づいていないため実行できません。個人の鍵を使ってください',
+      400
+    )
+  }
+  return userId
 }
