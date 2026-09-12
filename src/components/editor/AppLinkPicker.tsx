@@ -40,6 +40,8 @@ interface AppLinkPickerProps {
   defaultKind?: AppLinkKind
   /** 画面に入る高さ。呼び出し側が上下の空きを測って渡す */
   maxHeight?: number
+  /** 候補から外す Wiki ページ。いま開いているページ自身へのリンクは要らない */
+  excludeWikiPageId?: string
 }
 
 /**
@@ -49,7 +51,14 @@ interface AppLinkPickerProps {
  * 種別ごとに別のコンポーネントに分けているのは、**選ばれている種別のぶんしか取りに行かない**
  * ため（1つにまとめると、ファイルを貼りたいだけでもタスク全件を取りに行ってしまう）。
  */
-export function AppLinkPicker({ orgId, spaceId, onSelect, defaultKind = 'file', maxHeight }: AppLinkPickerProps) {
+export function AppLinkPicker({
+  orgId,
+  spaceId,
+  onSelect,
+  defaultKind = 'file',
+  maxHeight,
+  excludeWikiPageId,
+}: AppLinkPickerProps) {
   const [kind, setKind] = useState<AppLinkKind>(defaultKind)
   const [query, setQuery] = useState('')
   const [internalWarning, setInternalWarning] = useState(false)
@@ -115,7 +124,13 @@ export function AppLinkPicker({ orgId, spaceId, onSelect, defaultKind = 'file', 
 
       {kind === 'file' && <FileOptions spaceId={spaceId} query={query} onSelect={handleSelect} />}
       {kind === 'wiki' && (
-        <WikiOptions orgId={orgId} spaceId={spaceId} query={query} onSelect={handleSelect} />
+        <WikiOptions
+          orgId={orgId}
+          spaceId={spaceId}
+          query={query}
+          onSelect={handleSelect}
+          excludePageId={excludeWikiPageId}
+        />
       )}
       {kind === 'meeting' && (
         <MeetingOptions orgId={orgId} spaceId={spaceId} query={query} onSelect={handleSelect} />
@@ -241,15 +256,22 @@ function WikiOptions({
   spaceId,
   query,
   onSelect,
+  excludePageId,
 }: {
   orgId: string
   spaceId: string
   query: string
   onSelect: SelectHandler
+  excludePageId?: string
 }) {
   // canEdit: false — ピッカーを開いただけで既定ページを勝手に作らせない
   const { pages, loading } = useWikiPages({ orgId, spaceId, canEdit: false })
-  const { matches, hiddenCount } = useNarrowed(pages, query)
+  // いま開いているページ自身へのリンクは要らないので候補から外す
+  const others = useMemo(
+    () => (excludePageId ? pages.filter((page) => page.id !== excludePageId) : pages),
+    [pages, excludePageId]
+  )
+  const { matches, hiddenCount } = useNarrowed(others, query)
 
   return (
     <OptionList loading={loading} emptyMessage="Wikiページがありません" hiddenCount={hiddenCount}>

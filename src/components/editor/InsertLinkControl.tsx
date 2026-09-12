@@ -38,6 +38,8 @@ interface InsertLinkControlProps {
   isOpen: boolean
   onToggle: () => void
   onSelect: (link: AppLink) => void
+  /** 候補から外す Wiki ページ。いま開いているページ自身へのリンクは要らない */
+  excludeWikiPageId?: string
 }
 
 /**
@@ -48,7 +50,7 @@ interface InsertLinkControlProps {
  * 測るのはパネルが実際に置かれた瞬間（ref が付いたとき）。effect の中で state を
  * 動かすと描き直しが連鎖するため、ここでは ref のコールバックで1回だけ決める。
  */
-export function InsertLinkControl({ orgId, spaceId, isOpen, onToggle, onSelect }: InsertLinkControlProps) {
+export function InsertLinkControl({ orgId, spaceId, isOpen, onToggle, onSelect, excludeWikiPageId }: InsertLinkControlProps) {
   const anchorRef = useRef<HTMLDivElement>(null)
   const [placement, setPlacement] = useState<Placement>(DEFAULT_PLACEMENT)
 
@@ -87,6 +89,7 @@ export function InsertLinkControl({ orgId, spaceId, isOpen, onToggle, onSelect }
             spaceId={spaceId}
             onSelect={onSelect}
             maxHeight={placement.maxHeight}
+            excludeWikiPageId={excludeWikiPageId}
           />
         </div>
       )}

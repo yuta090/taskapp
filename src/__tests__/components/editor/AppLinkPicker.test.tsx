@@ -179,3 +179,12 @@ describe('AppLinkPicker — 4種類のリンクを同じ操作で差し込める
     expect(screen.getByText(/ファイルはまだありません/)).toBeInTheDocument()
   })
 })
+
+describe('AppLinkPicker — いま開いているページを候補から外す', () => {
+  it('excludeWikiPageId のページは Wiki の候補に出さない', () => {
+    renderPicker({ excludeWikiPageId: 'w1' })
+    switchTo('wiki')
+    expect(screen.queryByText('プロジェクトホーム')).not.toBeInTheDocument()
+    expect(screen.getByText('画面仕様')).toBeInTheDocument()
+  })
+})

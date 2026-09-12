@@ -22,6 +22,8 @@ interface WikiEditorProps {
   editable?: boolean
   orgId?: string
   spaceId?: string
+  /** いま開いている Wiki ページの id。Wiki ページへのリンク挿入で自分自身を候補から外すために使う */
+  currentPageId?: string
   /** 本文中のリンクで画面を移る前に呼ぶ。待ち時間中の自動保存を確定させて書きかけを落とさない */
   onBeforeNavigate?: () => void | Promise<void>
 }
@@ -47,19 +49,30 @@ const WIKI_DICTIONARY = {
 // 外部の URL を再生できず、エディタからアップロードする先も無いため
 const HIDDEN_SLASH_MENU_ITEMS = new Set(['video', 'audio'])
 
-export function WikiEditor({ initialContent, onChange, editable = true, orgId, spaceId, onBeforeNavigate }: WikiEditorProps) {
+export function WikiEditor({
+  initialContent,
+  onChange,
+  editable = true,
+  orgId,
+  spaceId,
+  currentPageId,
+  onBeforeNavigate,
+}: WikiEditorProps) {
   const isInternalApp = Boolean(orgId && spaceId)
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate, isInternalApp)
   const [isLinkPickerOpen, setIsLinkPickerOpen] = useState(false)
+  // 本文の JSON を読み直すのは最初の1回だけ。`useCreateBlockNote` は初回しか
+  // initialContent を見ないので、描き直しのたびに parse すると丸ごと捨てる仕事になる
+  // （挿入パネルの開閉で描き直しが増えたため、ここで1回に絞る）。
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let parsedContent: any[] | undefined
-  if (initialContent) {
+  const [parsedContent] = useState<any[] | undefined>(() => {
+    if (!initialContent) return undefined
     try {
-      parsedContent = JSON.parse(initialContent)
+      return JSON.parse(initialContent)
     } catch {
-      parsedContent = undefined
+      return undefined
     }
-  }
+  })
 
   const editor = useCreateBlockNote({
     schema,
@@ -131,6 +144,7 @@ export function WikiEditor({ initialContent, onChange, editable = true, orgId, s
               isOpen={isLinkPickerOpen}
               onToggle={() => setIsLinkPickerOpen(prev => !prev)}
               onSelect={handleSelectLink}
+              excludeWikiPageId={currentPageId}
             />
           )}
           <EditorToolbarButton
