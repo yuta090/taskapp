@@ -13,10 +13,25 @@ const ACTOR = '00000000-0000-0000-0000-000000000099'
 let authContextUserId: string | null = ACTOR
 const rpcCalls: Array<{ name: string; params: unknown }> = []
 
+function scheduleProposalChain() {
+  const proxy: unknown = new Proxy(
+    {},
+    {
+      get(_target, prop: string) {
+        if (prop === 'then') return (resolve: (v: unknown) => void) => resolve({ data: { id: PROPOSAL }, error: null })
+        if (prop === 'maybeSingle' || prop === 'single') return async () => ({ data: { id: PROPOSAL }, error: null })
+        return () => proxy
+      },
+    }
+  )
+  return proxy
+}
+
 vi.mock('../supabase/client.js', () => ({
   getSupabaseClient: () => ({
-    from: () => {
-      throw new Error('confirm_proposal_slot はテーブルを直接読まない前提')
+    from: (table: string) => {
+      if (table === 'scheduling_proposals') return scheduleProposalChain()
+      throw new Error(`unexpected table: ${table}`)
     },
     rpc: async (name: string, params: unknown) => {
       rpcCalls.push({ name, params })

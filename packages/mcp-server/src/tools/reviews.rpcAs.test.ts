@@ -37,6 +37,11 @@ vi.mock('../supabase/client.js', () => ({
       if (table === 'spaces') return makeChain({ data: { org_id: ORG }, error: null }, { data: [], error: null })
       if (table === 'tasks') return makeChain({ data: TASK_ROW, error: null }, { data: [TASK_ROW], error: null })
       if (table === 'reviews') return makeChain({ data: REVIEW_ROW, error: null }, { data: [REVIEW_ROW], error: null })
+      if (table === 'space_memberships')
+        return makeChain(
+          { data: { user_id: ACTOR, role: 'editor' }, error: null },
+          { data: [{ user_id: ACTOR, role: 'editor' }], error: null }
+        )
       throw new Error(`unexpected table: ${table}`)
     },
     rpc: async (name: string, params: unknown) => {

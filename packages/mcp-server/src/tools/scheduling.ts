@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { config, getAuthContext } from '../config.js'
 import { authorizeAndLog, type ActionType } from '../auth/index.js'
-import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js'
+import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js'
 
 // Schemas
 export const schedulingListSchema = z.object({
@@ -270,6 +270,9 @@ export async function schedulingConfirm(params: z.infer<typeof schedulingConfirm
   await checkAuth(params.spaceId, 'write', 'confirm_proposal_slot', params.proposalId)
 
   const supabase = getSupabaseClient()
+
+  // proposalId は、画面のほかの日程調整の道具と同じく渡された space のものだけ
+  await assertInSpace('scheduling_proposals', params.proposalId, params.spaceId, '提案が見つかりません')
 
   // 確定した人（meetings.created_by・scheduling_proposals.confirmed_by）は、
   // 鍵に紐づく利用者から取る

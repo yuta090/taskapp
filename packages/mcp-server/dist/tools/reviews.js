@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
-import { requireActorUserId } from '../auth/scope.js';
+import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js';
+// 画面の承認者候補と同じ役割の範囲（社内のadmin/editorだけ。rpc_review_open_asも同じ規則）
+const REVIEW_APPROVER_ROLES = ['admin', 'editor'];
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
@@ -49,6 +51,8 @@ export async function reviewOpen(params) {
     if (checkError || !existingTask) {
         throw new Error('タスクが見つかりません');
     }
+    // 承認者は、画面の承認者候補と同じ範囲・役割（社内のadmin/editor）に限る
+    await assertUsersHaveSpaceRole(params.reviewerIds, params.spaceId, REVIEW_APPROVER_ROLES, 'reviewerIds');
     // 依頼した人（reviews.created_by・task_events.actor_id）は、鍵に紐づく利用者から取る
     const actor = requireActorUserId();
     const { error } = await supabase.rpc('rpc_review_open_as', {
