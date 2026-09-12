@@ -42,6 +42,8 @@ const mockUpdateEq = vi.fn()
 const mockInsert = vi.fn()
 const mockInsertSelect = vi.fn()
 const mockInsertSingle = vi.fn()
+const mockDelete = vi.fn()
+const mockDeleteEq = vi.fn()
 const mockTaskOwnersInsert = vi.fn()
 const mockTaskOwnersSelect = vi.fn()
 const mockTaskOwnersEq = vi.fn()
@@ -52,6 +54,7 @@ const mockFrom = vi.fn((table: string) => {
     return {
       insert: mockInsert,
       update: mockUpdate,
+      delete: mockDelete,
     }
   }
   if (table === 'task_owners') {
@@ -497,6 +500,69 @@ describe('useTasks — レビュー整合性: status=done への変更ガード'
     })
 
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ title: '新しいタイトル' }))
+  })
+})
+
+// RLS で消せない人（閲覧者など）が削除しようとすると、DB はエラーにせず
+// 「0 件消えた」で返る。削除件数を確認しないと、一覧から先に消える楽観更新だけが
+// 残り、画面では消えたように見えたまま（再読み込みで戻る）になっていた。
+describe('useTasks — 削除は実際に消えた件数を確認する', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDelete.mockReturnValue({ eq: mockDeleteEq })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('削除が0件だった場合は失敗として扱い、一覧を元に戻す', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1' })],
+      owners: {},
+      reviewStatuses: {},
+    })
+    mockDeleteEq.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await expect(result.current.deleteTask('t1')).rejects.toThrow()
+
+    expect(result.current.tasks).toHaveLength(1)
+    expect(result.current.tasks[0].id).toBe('t1')
+    expect(mockToastError).toHaveBeenCalledWith(
+      expect.stringContaining('削除する権限がありません')
+    )
+  })
+
+  it('削除が1件成功した場合は、これまでどおり一覧から消える', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1' })],
+      owners: {},
+      reviewStatuses: {},
+    })
+    mockDeleteEq.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [{ id: 't1' }], error: null }),
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.deleteTask('t1')
+    })
+
+    await waitFor(() => expect(result.current.tasks).toHaveLength(0))
+    expect(mockToastError).not.toHaveBeenCalled()
   })
 })
 
