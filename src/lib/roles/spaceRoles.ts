@@ -152,6 +152,16 @@ export function canEditSpaceMoney(
   return (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole ?? '')
 }
 
+/**
+ * 社内承認（レビュー）の承認者候補になれる役割か（space の admin / editor だけ）。
+ * DB 側の判定（rpc_review_open, 20260911180601_review_request_notify.sql の
+ * 「社内承認のレビュアーは社内ロール（admin / editor）のみ」）と同じ規則。
+ * 閲覧者（viewer）を選んで依頼すると DB 側で断られるため、画面の選択肢にも出さない。
+ */
+export function isReviewApproverRole(role: string | undefined | null): boolean {
+  return (EDITABLE_SPACE_ROLES as readonly string[]).includes(role ?? '')
+}
+
 const INTERNAL_ORG_SPACE_ROLES: SpaceRoleGuide['value'][] = ['admin', 'editor', 'viewer']
 
 /**

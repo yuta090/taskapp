@@ -16,6 +16,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
+import { isReviewApproverRole } from '@/lib/roles/spaceRoles'
 import {
   PICKUP_MODE_OPTIONS,
   resolvePickupOptionState,
@@ -61,7 +62,7 @@ export function GroupApproverRow({
   dualModeEntitled: boolean
 }) {
   const { internalMembers, loading } = useSpaceMembers(group.spaceId)
-  const eligible = internalMembers.filter((m) => m.role === 'admin' || m.role === 'editor')
+  const eligible = internalMembers.filter((m) => isReviewApproverRole(m.role))
   const [value, setValue] = useState(group.approverUserId ?? '')
   const [saving, setSaving] = useState(false)
 

@@ -1106,11 +1106,15 @@ export function TaskInspector({
               )}
               {task.assignee_id && !internalMembers.some((m) => m.id === task.assignee_id) && !clientMembers.some((m) => m.id === task.assignee_id) && (() => {
                 const currentAssignee = members.find((m) => m.id === task.assignee_id)
-                return currentAssignee ? (
+                if (!currentAssignee) return null
+                // vendor（協力会社）は internalMembers にも clientMembers にも含まれない
+                // 役割なので、ここに来る。「(不明)」ではなく役割の分かる表示にする
+                const label = currentAssignee.role === 'vendor' ? '協力会社' : '不明'
+                return (
                   <option key={currentAssignee.id} value={currentAssignee.id}>
-                    {currentAssignee.displayName} (不明)
+                    {currentAssignee.displayName} ({label})
                   </option>
-                ) : null
+                )
               })()}
             </select>
           ) : (

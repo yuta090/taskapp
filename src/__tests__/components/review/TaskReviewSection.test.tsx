@@ -399,3 +399,27 @@ describe('TaskReviewSection — 既定の承認者', () => {
     expect(screen.getByRole('button', { name: '依頼する' })).not.toBeDisabled()
   })
 })
+
+// rpc_review_open は承認者を space の admin/editor しか受け付けない
+// （20260911180601_review_request_notify.sql）。viewer を選べてしまうと依頼が失敗する
+describe('TaskReviewSection — 承認者候補は admin/editor だけ（viewerは選べない）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNoReview()
+    mockDefaultReviewerIds = []
+    mockMembers = [
+      { id: 'u1', displayName: '自分', role: 'editor' },
+      { id: 'i1', displayName: '田中（社内）', role: 'editor' },
+      { id: 'v1', displayName: '鈴木（閲覧者）', role: 'viewer' },
+    ]
+  })
+
+  it('閲覧者(viewer)は依頼画面の候補に出ない', async () => {
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+
+    expect(screen.getByRole('button', { name: /田中（社内）/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /鈴木（閲覧者）/ })).not.toBeInTheDocument()
+  })
+})

@@ -11,10 +11,12 @@ let members = [
 
 let membersPending = false
 
+// internalMembers は useSpaceMembers 本体と同じ規則（admin/editor/viewer）で渡す。
+// ApprovalSettings 側は、そこからさらに承認者になれる役割（admin/editor）に絞る
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({
     members,
-    internalMembers: members.filter((m) => m.role !== 'client'),
+    internalMembers: members.filter((m) => m.role === 'admin' || m.role === 'editor' || m.role === 'viewer'),
     clientMembers: members.filter((m) => m.role === 'client'),
     loading: false,
     isPending: membersPending,
@@ -101,6 +103,17 @@ describe('ApprovalSettings — 既定の承認者', () => {
     render(<ApprovalSettings orgId="o1" spaceId="s1" />)
 
     expect(screen.getByText('社内メンバーがいません')).toBeInTheDocument()
+  })
+
+  it('閲覧者(viewer)は承認者候補に並ばない（rpc_review_openがadmin/editorしか受け付けないため）', () => {
+    members = [
+      { id: 'u1', displayName: '自分', avatarUrl: null, role: 'admin' },
+      { id: 'v1', displayName: '鈴木（閲覧者）', avatarUrl: null, role: 'viewer' },
+    ]
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
+
+    expect(screen.getByText('自分')).toBeInTheDocument()
+    expect(screen.queryByText('鈴木（閲覧者）')).not.toBeInTheDocument()
   })
 })
 

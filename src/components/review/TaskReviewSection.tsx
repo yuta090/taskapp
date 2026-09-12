@@ -17,6 +17,7 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useDefaultReviewers } from '@/lib/hooks/useDefaultReviewers'
 import { resolveDefaultReviewerIds } from '@/lib/review/defaultReviewers'
+import { isReviewApproverRole } from '@/lib/roles/spaceRoles'
 import { useConfirmDialog } from '@/components/shared'
 import type { Review, ReviewApproval } from '@/types/database'
 
@@ -59,9 +60,10 @@ export function TaskReviewSection({
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const { defaultReviewerIds, setDefaultReviewer } = useDefaultReviewers(spaceId)
 
-  // 自分は自分の承認者にできないので、選択肢からも既定からも外す
+  // 自分は自分の承認者にできないので、選択肢からも既定からも外す。
+  // 承認者候補は admin/editor だけ（rpc_review_openが受け付ける範囲。viewerを選べると依頼が失敗する）
   const selectableMembers = useMemo(
-    () => internalMembers.filter((m) => m.id !== user?.id),
+    () => internalMembers.filter((m) => m.id !== user?.id && isReviewApproverRole(m.role)),
     [internalMembers, user?.id]
   )
   const defaultSelection = useMemo(
