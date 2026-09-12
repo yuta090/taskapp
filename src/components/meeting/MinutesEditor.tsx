@@ -16,7 +16,7 @@ import { filterSuggestionItems } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { LinkSimple, FileText, CheckCircle } from '@phosphor-icons/react'
 import { WikiFileLinkPicker } from '@/components/wiki/WikiFileLinkPicker'
-import { MinutesWikiLinkPicker, type MinutesWikiPageOption } from './MinutesWikiLinkPicker'
+import { WikiPageLinkInsertPicker, type WikiPageInsertOption } from '@/components/wiki/WikiPageLinkInsertPicker'
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
 import type { ProjectFile } from '@/lib/hooks/useFiles'
 
@@ -226,7 +226,7 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
     }
   }
 
-  const handleSelectWikiPage = (page: MinutesWikiPageOption) => {
+  const handleSelectWikiPage = (page: WikiPageInsertOption) => {
     editor.insertInlineContent([
       { type: 'link', href: `/${orgId}/project/${spaceId}/wiki?page=${page.id}`, content: page.title || '（無題）' },
     ] as Parameters<typeof editor.insertInlineContent>[0])
@@ -287,7 +287,7 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
               // スマホ(md未満)は2つ目のボタンなので left-0 だと右にはみ出す。
               // right-0 にして画面内に収め、デスクトップ(md以上)だけ従来どおり left-0 に戻す。
               <div className="absolute bottom-full right-0 md:right-auto md:left-0 mb-2 z-10">
-                <MinutesWikiLinkPicker orgId={orgId} spaceId={spaceId} onSelect={handleSelectWikiPage} />
+                <WikiPageLinkInsertPicker orgId={orgId} spaceId={spaceId} onSelect={handleSelectWikiPage} />
               </div>
             )}
           </div>
