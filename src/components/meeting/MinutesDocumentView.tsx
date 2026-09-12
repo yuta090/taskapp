@@ -13,7 +13,10 @@ import { ArrowLeft, ArrowsIn, ArrowsOut, Info, Notebook, PencilSimple } from '@p
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
-import { MinutesConflictError } from '@/lib/hooks/useMeetings'
+// 競合の型は、フック（useMeetings）ではなく差し替えられない置き場から取る。
+// 画面のテストは useMeetings をまるごとモックすることがあり、そこから取ると
+// 型が undefined になって instanceof が壊れる（理由は errors.ts のコメント）。
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useMinutesPresence, type MinutesPresencePeer } from '@/lib/hooks/useMinutesPresence'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
@@ -79,6 +82,13 @@ export interface MinutesDocumentViewHandle {
    * true を返したときだけ呼び出し側は実際に画面を離れる。
    */
   confirmLeave: () => Promise<boolean>
+  /**
+   * 競合状態にして帯を出す（以後の自動保存も止める）。保存や ensureUpToDate では
+   * 気づけなかった競合——タスク化の RPC が DB 側で「渡された本文が今の本文と違う」と
+   * 断ったとき——に、呼び出し側（MeetingsPageClient）から同じ帯を出すために使う。
+   * 通信はしない。
+   */
+  markConflict: () => void
 }
 
 interface MinutesDocumentViewProps {
@@ -155,6 +165,8 @@ interface MinutesDocumentBodyHandle {
   getKnownRaw: () => string
   /** 保存されていない書きかけ(未確定)があるか */
   hasUnconfirmedDraft: () => boolean
+  /** 競合状態にして帯を出す（外から気づいた競合を、保存が0行だったときと同じ扱いにする） */
+  markConflict: () => void
   /** 「捨てて戻る」が選ばれた印を立てる。以後アンマウント時の後始末で送らない（N4） */
   discardDraft: () => void
 }
@@ -515,6 +527,15 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         getBaseUpdatedAt: () => baseUpdatedAtRef.current,
         getKnownRaw: () => knownServerRawRef.current,
         hasUnconfirmedDraft: () => currentContentRef.current !== baselineRef.current,
+        markConflict: () => {
+          // 保留中のデバウンス保存も止める（古い基準のまま送ると、相手の書き込みを消す）
+          if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current)
+            saveTimerRef.current = null
+          }
+          conflictRef.current = true
+          setConflict(true)
+        },
         discardDraft: () => {
           discardedRef.current = true
         },
@@ -714,6 +735,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
         getBaseUpdatedAt: () => bodyRef.current?.getBaseUpdatedAt() ?? null,
         getKnownRaw: () => bodyRef.current?.getKnownRaw() ?? null,
         confirmLeave,
+        markConflict: () => bodyRef.current?.markConflict(),
       }),
       [confirmLeave]
     )

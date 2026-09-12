@@ -524,6 +524,37 @@ describe('MinutesDocumentView 競合（本当に本文が変わったとき。HI
     })
     expect(updateMinutes).toHaveBeenCalledWith('m1', '新しい基準からの編集', '2026-09-01T00:00:02.333333+00')
   })
+
+  it('markConflict(): タスク化の RPC が DB に断られたときも、同じ帯を出して自動保存を止める', async () => {
+    // タスク化は DB 側でも「渡した本文が今の本文と同じか」を確かめる。断られたら
+    // 画面は保存が0行だったときと同じ帯を出し、「最新を読み込む」で復帰させる。
+    const { updateMinutes, fetchMeetingDetail, ref } = setup()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(screen.queryByTestId('minutes-conflict-banner')).not.toBeInTheDocument()
+
+    act(() => ref.current!.markConflict())
+
+    expect(screen.getByTestId('minutes-conflict-banner')).toBeInTheDocument()
+    expect(screen.getByText(/AI秘書やほかの人が、この議事録を先に書き換えました/)).toBeInTheDocument()
+
+    // 以後の自動保存は走らない（古い基準で上書きしないため）
+    updateMinutes.mockClear()
+    act(() => capturedOnChange?.('帯が出た後の編集'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(updateMinutes).not.toHaveBeenCalled()
+
+    // 「最新を読み込む」で復帰できる
+    fetchMeetingDetail.mockResolvedValue(makeMeeting({ minutes_md: 'サーバー側の最新本文' }))
+    await act(async () => {
+      fireEvent.click(screen.getByText('最新を読み込む'))
+    })
+    expect(screen.queryByTestId('minutes-conflict-banner')).not.toBeInTheDocument()
+    expect(lastEditorProps?.minutesMd).toBe('サーバー側の最新本文')
+  })
 })
 
 describe('MinutesDocumentView 権限', () => {
