@@ -7,6 +7,7 @@ import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { IntegrationStatusBadge } from '@/components/integrations'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceRow, patchSpaceRow } from '@/lib/hooks/useSpaceRow'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 
@@ -31,6 +32,9 @@ export function VideoProviderSettings({ orgId, spaceId }: VideoProviderSettingsP
   const defaultProvider = (space?.default_video_provider as VideoProvider | null) ?? ''
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
+  // デフォルトプロバイダーは専用のDBトリガーを持たない spaces の列。spaces の更新RLS
+  // （app_can_write_space）と同じ規則なので canEdit を使う
+  const { canEdit } = useCanEditSpace(spaceId, orgId)
 
   const isZoomEnabled = process.env.NEXT_PUBLIC_ZOOM_ENABLED === 'true'
   const isTeamsEnabled = process.env.NEXT_PUBLIC_TEAMS_ENABLED === 'true'
@@ -105,7 +109,7 @@ export function VideoProviderSettings({ orgId, spaceId }: VideoProviderSettingsP
           onChange={(e) =>
             handleDefaultProviderChange(e.target.value as VideoProvider | '')
           }
-          disabled={defaultProviderLoading || saving}
+          disabled={defaultProviderLoading || saving || !canEdit}
           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           data-testid="video-default-provider"
         >

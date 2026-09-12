@@ -20,6 +20,7 @@ import { isSlackConfigured } from '@/lib/slack/config'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
 import { ToolSetupGuide } from '@/components/integrations/ToolSetupGuide'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import Link from 'next/link'
 
 interface SlackChannelSettingsProps {
@@ -30,6 +31,10 @@ interface SlackChannelSettingsProps {
 export function SlackChannelSettings({ orgId, spaceId }: SlackChannelSettingsProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [selectedChannelId, setSelectedChannelId] = useState('')
+  // チャンネルの連携・解除・自動通知は space_slack_channels の RLS
+  // ("space admins can manage slack channels": role in ('admin','editor') の明示行のみ)
+  // と同じ規則。代理店設定・ポータル表示設定と同じ canEditMoney を使う
+  const { canEditMoney: canEditSlack } = useCanEditSpace(spaceId, orgId)
 
   const { data: workspace, isLoading: loadingWorkspace } = useSlackWorkspace(orgId)
   const { data: linkedChannel, isLoading: loadingLinked } = useSlackChannel(spaceId)
@@ -138,8 +143,8 @@ export function SlackChannelSettings({ orgId, spaceId }: SlackChannelSettingsPro
                 </span>
                 <button
                   onClick={handleUnlink}
-                  disabled={unlinkChannel.isPending}
-                  className="ml-2 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                  disabled={unlinkChannel.isPending || !canEditSlack}
+                  className="ml-2 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   title="チャンネル連携を解除"
                 >
                   <Trash className="text-sm" />
@@ -162,13 +167,15 @@ export function SlackChannelSettings({ orgId, spaceId }: SlackChannelSettingsPro
                     <input
                       type="checkbox"
                       checked={linkedChannel?.[key] ?? (key !== 'notify_comment_added')}
+                      disabled={!canEditSlack}
                       onChange={(e) => {
+                        if (!canEditSlack) return
                         updateToggles.mutate({
                           spaceId,
                           toggles: { [key]: e.target.checked },
                         })
                       }}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                     <span className="text-sm text-gray-700">{label}</span>
                   </label>
@@ -212,7 +219,7 @@ export function SlackChannelSettings({ orgId, spaceId }: SlackChannelSettingsPro
                   </div>
                   <button
                     onClick={handleLink}
-                    disabled={!selectedChannelId || linkChannel.isPending}
+                    disabled={!selectedChannelId || linkChannel.isPending || !canEditSlack}
                     className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-[#4A154B] hover:bg-[#611f64] disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
                   >
                     {linkChannel.isPending ? '連携中...' : '連携する'}

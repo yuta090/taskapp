@@ -20,9 +20,11 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
   const { space, isPending: spacePending } = useSpaceRow(spaceId)
   const presetGenre = (space?.preset_genre as string | null) ?? null
   const queryClient = useQueryClient()
-  // テンプレート適用(rpc_apply_preset_to_space)は app_can_write_space と同じ規則。
-  // 役割が未確定の間も canEdit は false（読み取り専用側に倒す）
-  const { canEdit } = useCanEditSpace(spaceId, orgId)
+  // テンプレート適用(rpc_apply_preset_to_space)は、app_can_write_space の前に
+  // 「space_memberships の行がはっきり admin/editor」かを確かめる（行が無い社内メンバーへの
+  // editor 扱いフォールバックは無い）。代理店設定・ポータル表示設定と同じ規則なので
+  // canEditMoney を使う。役割が未確定の間も false（読み取り専用側に倒す）
+  const { canEditMoney: canApplyPreset } = useCanEditSpace(spaceId, orgId)
 
   const [showPicker, setShowPicker] = useState(false)
 
@@ -70,7 +72,7 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
           <span className="ml-2 text-gray-400">適用済み</span>
         </div>
       ) : isEmpty ? (
-        showPicker && canEdit ? (
+        showPicker && canApplyPreset ? (
           <PresetApplicator spaceId={spaceId} onApplied={handleApplied} />
         ) : (
           <div className="space-y-2">
@@ -80,7 +82,7 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
             <button
               type="button"
               onClick={() => setShowPicker(true)}
-              disabled={!canEdit}
+              disabled={!canApplyPreset}
               className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-indigo-ink border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
             >
               テンプレートを適用

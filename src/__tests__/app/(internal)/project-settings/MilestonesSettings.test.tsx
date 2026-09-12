@@ -91,10 +91,8 @@ describe('MilestonesSettings — 閲覧者・役割未確定には操作させ�
     renderSettings()
     await screen.findByText('既存マイルストーン')
 
-    const row = screen.getByText('既存マイルストーン').closest('div')!.parentElement!.parentElement!
-    const buttons = row.querySelectorAll('button')
-    expect(buttons.length).toBeGreaterThan(0)
-    buttons.forEach((btn) => expect(btn).toBeDisabled())
+    expect(screen.getByRole('button', { name: '編集' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '削除' })).toBeDisabled()
   })
 
   it('追加ボタンを押しても作成しない', async () => {

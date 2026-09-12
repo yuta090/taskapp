@@ -64,7 +64,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const [showPresetApplicator, setShowPresetApplicator] = useState(false)
 
   // 閲覧者（viewer）・相手先には編集操作を出さない。組織の役割は URL の orgId で判定する
-  const { canEdit } = useCanEditSpace(spaceId, orgId)
+  const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
 
   const {
     pages,
@@ -473,9 +473,11 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             <p className="text-gray-500 mb-1">Wikiページがありません</p>
             <p className="text-sm text-gray-400 mb-4">「新規ページ」からページを作成してください</p>
 
-            {/* Template apply CTA — only when both wiki and milestones are empty。テンプレート適用もページ作成
-                の一種なので、閲覧者には出さない */}
-            {canEdit && milestonesEmpty === true && (
+            {/* Template apply CTA — only when both wiki and milestones are empty。
+                内部で使う rpc_apply_preset_to_space は「space_memberships の行がはっきり
+                admin/editor」を求める（canEdit=行が無い社内メンバーも含む、より広い規則）ため、
+                代理店設定・ポータル表示設定と同じ canEditMoney で出し分ける */}
+            {canEditMoney && milestonesEmpty === true && (
               effectiveShowPresetApplicator ? (
                 <div className="w-full max-w-lg text-left">
                   <PresetApplicator

@@ -22,6 +22,9 @@ vi.mock('@/components/shared', () => ({
 }))
 vi.mock('@/lib/github/enabled', () => ({ isGitHubConfigured: () => true }))
 vi.mock('@/lib/slack/config', () => ({ isSlackConfigured: () => true }))
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: true, canEditMoney: true, resolved: true, loading: false }),
+}))
 
 const idle = { data: undefined, isLoading: false, isPending: false }
 const mutation = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false }
