@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import InboxClient from '@/app/(internal)/inbox/InboxClient'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
 
@@ -98,7 +98,7 @@ describe('InboxClient — 開いたら既読にする', () => {
     expect(mockMarkAsRead).not.toHaveBeenCalled()
   })
 
-  it('「未読のみ」で開いた通知は、既読になっても一覧と詳細から消えない', () => {
+  it('「未読のみ」（既定）で開いた通知は、既読になっても一覧と詳細から消えない', () => {
     // 開いた直後に既読になった状態（n1）と、まだ未読の別の通知（n2）
     mockSearch = 'id=n1'
     mockNotifications = [
@@ -106,7 +106,6 @@ describe('InboxClient — 開いたら既読にする', () => {
       makeNotification({ id: 'n2', read_at: null, payload: { title: '別の未読' } }),
     ]
     render(<InboxClient />)
-    fireEvent.click(screen.getByRole('button', { name: '未読のみ' }))
 
     expect(screen.getByText('開いている通知')).toBeInTheDocument()
     expect(screen.getByText('別の未読')).toBeInTheDocument()
@@ -123,7 +122,6 @@ describe('InboxClient — 開いたら既読にする', () => {
       makeNotification({ id: 'n2', read_at: null, payload: { title: '開いている未読' } }),
     ]
     render(<InboxClient />)
-    fireEvent.click(screen.getByRole('button', { name: '未読のみ' }))
     expect(screen.queryByText('読んだ通知')).not.toBeInTheDocument()
   })
 })

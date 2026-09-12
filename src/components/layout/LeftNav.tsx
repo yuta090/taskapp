@@ -56,6 +56,7 @@ import { useHydrated } from '@/lib/hooks/useHydrated'
 
 const STORAGE_KEY = 'taskapp:sidebar:internal:collapsed'
 const GROUP_COLLAPSED_KEY = 'taskapp:sidebar:group-collapsed'
+const LAST_SPACE_KEY = 'taskapp:sidebar:last-space'
 
 // ハイドレーション前（＝サーバーと同じ表示にしておく間）に使う空配列。呼び出しのたびに
 // 新しい配列を作ると依存配列で無駄な再計算を招くため、固定の参照を使い回す。
@@ -74,6 +75,27 @@ function getCollapsedGroups(): Set<string> {
 
 function saveCollapsedGroups(groups: Set<string>) {
   localStorage.setItem(GROUP_COLLAPSED_KEY, JSON.stringify([...groups]))
+}
+
+/** 組織ごとの「最後に開いたプロジェクト」を localStorage から復元（受信トレイ等へ移っても開いたままにする） */
+function getLastSpaces(): Record<string, string> {
+  try {
+    const saved = localStorage.getItem(LAST_SPACE_KEY)
+    const parsed: unknown = saved ? JSON.parse(saved) : null
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, string>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveLastSpace(orgId: string, spaceId: string) {
+  try {
+    localStorage.setItem(LAST_SPACE_KEY, JSON.stringify({ ...getLastSpaces(), [orgId]: spaceId }))
+  } catch {
+    // localStorage が使えない（プライベートブラウズ等）ときは覚えないだけ
+  }
 }
 
 interface NavItemProps {
@@ -917,6 +939,25 @@ export const LeftNav = memo(function LeftNav() {
   const orgInitial = orgInitialOf(effectiveOrgName)
   const orgDisplayName = effectiveOrgName ?? '組織未設定'
 
+  // 受信トレイ・マイタスクなどプロジェクト外の画面へ移っても、最後に開いていたプロジェクトは
+  // 開いたままにする（URLのプロジェクトIDだけで判定していたため、移った瞬間に閉じていた）。
+  // hydration が済むまでは localStorage 由来の値を使わない（サーバーと同じ表示にする・React #418）
+  // プロジェクトを開いている間は localStorage に覚えるだけにして、表示に使う state は動かさない
+  // （動かすと、プロジェクトを切り替えるたびに左メニュー全体を余計に描き直すことになる）。
+  // 覚えた値を表示に取り込むのは、プロジェクト外の画面に来たときだけでよい
+  const [lastSpaces, setLastSpaces] = useState<Record<string, string>>(() => getLastSpaces())
+  useEffect(() => {
+    if (!orgId) return
+    if (spaceId) {
+      saveLastSpace(orgId, spaceId)
+      return
+    }
+    const saved = getLastSpaces()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage（外部ストア）との同期
+    setLastSpaces((prev) => (prev[orgId] === saved[orgId] ? prev : saved))
+  }, [orgId, spaceId])
+  const expandedSpaceId = spaceId ?? (hydrated ? lastSpaces[orgId] : undefined)
+
   // spaceId はURLから取得、なければ最初のアクティブスペース
   const effectiveSpaceId = spaceId ?? activeSpaces[0]?.id
   const projectBasePath = effectiveSpaceId ? `/${orgId}/project/${effectiveSpaceId}` : null
@@ -1293,7 +1334,7 @@ export const LeftNav = memo(function LeftNav() {
                           key={space.id}
                           space={space}
                           orgId={orgId}
-                          isExpanded={space.id === spaceId}
+                          isExpanded={space.id === expandedSpaceId}
                           pathname={pathname}
                           searchParams={searchParams}
                           collapsed={collapsed}
@@ -1323,7 +1364,7 @@ export const LeftNav = memo(function LeftNav() {
                       key={space.id}
                       space={space}
                       orgId={orgId}
-                      isExpanded={space.id === spaceId}
+                      isExpanded={space.id === expandedSpaceId}
                       pathname={pathname}
                       searchParams={searchParams}
                       collapsed={collapsed}
@@ -1359,7 +1400,7 @@ export const LeftNav = memo(function LeftNav() {
                         key={space.id}
                         space={space}
                         orgId={orgId}
-                        isExpanded={space.id === spaceId}
+                        isExpanded={space.id === expandedSpaceId}
                         pathname={pathname}
                         searchParams={searchParams}
                         collapsed={collapsed}

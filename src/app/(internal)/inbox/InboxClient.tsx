@@ -286,17 +286,41 @@ export default function InboxClient() {
   const olderUnreadCount = loadedUnreadCount >= INBOX_UNREAD_LIMIT ? unreadCount - loadedUnreadCount : 0
 
   // ── Filter state ──
-  const [readFilter, setReadFilter] = useState<ReadFilter>('all')
+  // 既定は「未読のみ」。読み終わった通知まで並んでいると、対応が要るものが埋もれる
+  const [readFilter, setReadFilter] = useState<ReadFilter>('unread')
   const [actionFilter, setActionFilter] = useState<ActionFilter>('all')
   const [typeFilter, setTypeFilter] = useState<ReadonlySet<string>>(new Set())
 
-  const hasActiveFilters = readFilter !== 'all' || actionFilter !== 'all' || typeFilter.size > 0
+  // 開いている通知は、既読になっても一覧に残す（開いた瞬間に行が消えるのを防ぐ）。ただしこれは
+  // 「開く操作の巻き添えで消さない」ための例外なので、絞り込みを押したときは解除する。解除しないと
+  // 読み終わった通知が「未読のみ」に居座り、既読にしても消えないように見える
+  const [keepVisibleId, setKeepVisibleId] = useState<string | null>(selectedId)
+  const [syncedSelectedId, setSyncedSelectedId] = useState<string | null>(selectedId)
+  if (syncedSelectedId !== selectedId) {
+    // 開いている通知が変わったら、残す対象も切り替える。effect ではなく描画中に直すことで、
+    // ↑↓ で次々に読むときに描き直しと詳細の入れ替えが1回ずつで済む
+    setSyncedSelectedId(selectedId)
+    setKeepVisibleId(selectedId)
+  }
+
+  /** 絞り込みの操作。押した時点で「開いているから残す」例外を解除し、条件どおりに絞り込む */
+  const applyFilter = useCallback((change: () => void) => {
+    setKeepVisibleId(null)
+    change()
+  }, [])
+
+  const handleTypeFilterChange = useCallback(
+    (types: ReadonlySet<string>) => applyFilter(() => setTypeFilter(types)),
+    [applyFilter]
+  )
+
+  const hasActiveFilters = readFilter !== 'unread' || actionFilter !== 'all' || typeFilter.size > 0
 
   const filteredNotifications = useMemo(() => {
     return notifications.filter(n => {
       // Read status filter。開いている通知は開いた時点で既読になるので、ここでは外さない
-      // （外すと「未読のみ」で開いた瞬間に一覧から消え、詳細も閉じてしまう）
-      const isOpen = n.id === selectedId
+      // （外すと「未読のみ」で開いた瞬間に一覧から消え、次にどれを読んだのか分からなくなる）
+      const isOpen = n.id === keepVisibleId
       if (readFilter === 'unread' && n.read_at !== null && !isOpen) return false
       if (readFilter === 'read' && n.read_at === null && !isOpen) return false
 
@@ -313,17 +337,18 @@ export default function InboxClient() {
 
       return true
     })
-  }, [notifications, readFilter, actionFilter, typeFilter, selectedId])
+  }, [notifications, readFilter, actionFilter, typeFilter, keepVisibleId])
 
-  // Find selected notification and its index within the filtered list
-  const { selectedNotification, selectedIndex } = useMemo(() => {
-    if (!selectedId) return { selectedNotification: null, selectedIndex: -1 }
-    const index = filteredNotifications.findIndex(n => n.id === selectedId)
-    return {
-      selectedNotification: index >= 0 ? filteredNotifications[index] : null,
-      selectedIndex: index,
-    }
-  }, [selectedId, filteredNotifications])
+  // 開いている通知は、一覧の絞り込みに関わらず引く（メールやプッシュのリンクから既読の通知を開いても
+  // 詳細が出るように）。前後の移動は一覧の並びに沿うので、一覧に無いとき（index が -1）は前後を無効にする
+  const selectedNotification = useMemo(
+    () => (selectedId ? notifications.find(n => n.id === selectedId) ?? null : null),
+    [selectedId, notifications]
+  )
+  const selectedIndex = useMemo(
+    () => (selectedId ? filteredNotifications.findIndex(n => n.id === selectedId) : -1),
+    [selectedId, filteredNotifications]
+  )
 
   // 開いた通知は既読にする（一覧で押す・↑↓で移る・メールやプッシュのリンクから直接開く、のどれでも）。
   // 以前は「既読にして次へ」などを押したときだけ既読になり、開いて読んでもバッジが消えなかった。
@@ -370,7 +395,7 @@ export default function InboxClient() {
           onMarkAsActioned={markAsActioned}
           onNavigate={navigateNotification}
           hasPrev={selectedIndex > 0}
-          hasNext={selectedIndex < filteredNotifications.length - 1}
+          hasNext={selectedIndex >= 0 && selectedIndex < filteredNotifications.length - 1}
         />
       )
     } else {
@@ -492,7 +517,7 @@ export default function InboxClient() {
           <button
             key={value}
             type="button"
-            onClick={() => setReadFilter(value)}
+            onClick={() => applyFilter(() => setReadFilter(value))}
             className={`px-2 py-1 text-[11px] rounded-md transition-colors border ${
               readFilter === value
                 ? 'border-blue-200 bg-blue-50 text-blue-700'
@@ -514,7 +539,7 @@ export default function InboxClient() {
           <button
             key={value}
             type="button"
-            onClick={() => setActionFilter(value)}
+            onClick={() => applyFilter(() => setActionFilter(value))}
             className={`px-2 py-1 text-[11px] rounded-md transition-colors border ${
               actionFilter === value
                 ? 'border-blue-200 bg-blue-50 text-blue-700'
@@ -530,17 +555,17 @@ export default function InboxClient() {
         {/* Type filter dropdown */}
         <TypeFilterDropdown
           selectedTypes={typeFilter}
-          onChange={setTypeFilter}
+          onChange={handleTypeFilterChange}
         />
 
         {hasActiveFilters && (
           <button
             type="button"
-            onClick={() => {
-              setReadFilter('all')
+            onClick={() => applyFilter(() => {
+              setReadFilter('unread')
               setActionFilter('all')
               setTypeFilter(new Set())
-            }}
+            })}
             className="px-2 py-1 text-[11px] rounded-md transition-colors text-gray-500 hover:text-gray-700 hover:bg-gray-50"
           >
             リセット
@@ -562,7 +587,15 @@ export default function InboxClient() {
         )}
 
         {!loading && !error && notifications.length > 0 && filteredNotifications.length === 0 && (
-          <EmptyState icon={<Funnel />} message="フィルター条件に一致する通知はありません" />
+          <EmptyState
+            icon={<Funnel />}
+            message={
+              // 既定が「未読のみ」なので、全部読み終わっているだけの状態を「絞り込みのせい」と誤解させない
+              readFilter === 'unread' && actionFilter === 'all' && typeFilter.size === 0
+                ? '未読の通知はありません。読み終わった分は「すべて」で見られます。'
+                : 'フィルター条件に一致する通知はありません'
+            }
+          />
         )}
 
         {!loading && !error && filteredNotifications.length > 0 && (
