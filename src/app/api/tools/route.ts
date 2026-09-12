@@ -1,38 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-/** Fire-and-forget: log CLI command usage. Never throws. */
+/** dispatchTool がこの呼び出しで認証した鍵・組織・利用者と、実際に使われた spaceId */
+interface DispatchAuthInfo {
+  keyId: string
+  orgId: string
+  userId: string | null
+  spaceId: string | null
+}
+
+/**
+ * Fire-and-forget: log CLI command usage. Never throws.
+ * この呼び出しで dispatchTool が認証した info をそのまま使う。共有の config モジュールは
+ * 読み直さない（複数のリクエストが同時に処理されうるため、常にこの呼び出し自身の値を使う）
+ */
 function logCliUsage(
   toolName: string,
   status: 'success' | 'error',
   responseMs: number,
+  info: DispatchAuthInfo | null,
   errorMessage?: string,
 ) {
+  if (!info) return // 認証前に失敗した等、記録すべき鍵・組織が確定していない
   try {
-    // Import config to get auth context (set by dispatchTool → initializeAuthWithApiKey)
-    import('agentpm-core/dist/config.js').then(({ config }) => {
-      const ctx = config.authContext
-      if (!ctx) return
-
-      const admin = createAdminClient()
-      admin
-        .from('cli_usage_logs')
-        .insert({
-          api_key_id: ctx.keyId === 'dev-key' ? null : ctx.keyId,
-          org_id: ctx.orgId,
-          space_id: config.spaceId || null,
-          user_id: ctx.userId || null,
-          tool_name: toolName,
-          status,
-          error_message: errorMessage || null,
-          response_ms: responseMs,
-        })
-        .then(({ error }) => {
-          if (error) console.error('cli_usage_logs insert failed:', error.message)
-        })
-    }).catch(() => {
-      // config not available — skip logging
-    })
+    const admin = createAdminClient()
+    admin
+      .from('cli_usage_logs')
+      .insert({
+        api_key_id: info.keyId === 'dev-key' ? null : info.keyId,
+        org_id: info.orgId,
+        space_id: info.spaceId,
+        user_id: info.userId,
+        tool_name: toolName,
+        status,
+        error_message: errorMessage || null,
+        response_ms: responseMs,
+      })
+      .then(({ error }: { error: { message: string } | null }) => {
+        if (error) console.error('cli_usage_logs insert failed:', error.message)
+      })
   } catch {
     // Never block the response
   }
@@ -41,6 +47,7 @@ function logCliUsage(
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   let toolName = 'unknown'
+  let authInfo: DispatchAuthInfo | null = null
 
   try {
     // 1. Extract API key
@@ -96,16 +103,18 @@ export async function POST(request: NextRequest) {
 
     // 3. Dispatch to MCP handler (dynamic import to avoid build-time env var check)
     const { dispatchTool } = await import('agentpm-core/dist/dispatch.js')
-    const result = await dispatchTool(apiKey, tool, (params || {}) as Record<string, unknown>)
+    const result = await dispatchTool(apiKey, tool, (params || {}) as Record<string, unknown>, (info) => {
+      authInfo = info
+    })
 
     // 4. Log usage (fire-and-forget)
-    logCliUsage(toolName, 'success', Date.now() - startTime)
+    logCliUsage(toolName, 'success', Date.now() - startTime, authInfo)
 
     return NextResponse.json(result)
   } catch (error) {
     // Log error usage (fire-and-forget)
     const errMsg = error instanceof Error ? error.message : String(error)
-    logCliUsage(toolName, 'error', Date.now() - startTime, errMsg)
+    logCliUsage(toolName, 'error', Date.now() - startTime, authInfo, errMsg)
 
     if (error instanceof Error) {
       // Auth errors

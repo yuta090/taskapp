@@ -740,12 +740,22 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
       })
 
       try {
-        const { error: deleteError } = await (supabase as SupabaseClient)
+        // .select('id') で実際に消えた行を確かめる。RLS で消せない人（閲覧者など）が
+        // 削除しようとすると、DB はエラーにせず0件のまま成功で返ってくるため、
+        // error の有無だけでは「消せなかった」ことを検知できない
+        const { data: deletedRows, error: deleteError } = await (supabase as SupabaseClient)
           .from('tasks')
           .delete()
           .eq('id', taskId)
+          .select('id')
 
         if (deleteError) throw deleteError
+
+        if (!deletedRows || deletedRows.length === 0) {
+          const message = 'このタスクを削除する権限がありません'
+          toast.error(message)
+          throw new Error(message)
+        }
 
         // Fire-and-forget audit log
         if (removedTask) {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
+import { assertUsersAreSpaceMembers } from '../auth/scope.js';
 // Schemas
 export const schedulingListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -118,6 +119,8 @@ export async function schedulingCreate(params) {
     if (spaceError || !space) {
         throw new Error('スペースが見つかりません');
     }
+    // 回答者は、画面の回答者選択肢と同じ範囲（このプロジェクトのメンバー）に限る
+    await assertUsersAreSpaceMembers(params.respondents.map((r) => r.userId), params.spaceId);
     // Create proposal
     const { data: proposal, error: proposalError } = await supabase
         .from('scheduling_proposals')

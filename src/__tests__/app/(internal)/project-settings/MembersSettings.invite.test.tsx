@@ -50,6 +50,28 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   }),
 }))
 
+// RC-2: 役割の選択肢の絞り込み（spaceRoles.test.ts / MembersSettings.roleOptions.test.tsx で
+// 別途検証済み）。ここでは招待フォーム・役割の説明ヒントの表示だけを見るので、
+// 誰でも「社内」役割を選べる状態に固定する（実際の react-query は使わない）
+vi.mock('@/lib/hooks/useSpaceRow', () => ({
+  useSpaceRow: () => ({ space: { agency_mode: false }, isPending: false }),
+}))
+vi.mock('@/lib/hooks/useOrgMembers', () => ({
+  useOrgMembers: () => ({
+    members: [],
+    roleByUserId: new Map([
+      ['u1', 'owner'],
+      ['u2', 'member'],
+    ]),
+    isPending: false,
+    isLoadingError: false,
+    error: null,
+  }),
+}))
+vi.mock('@/lib/hooks/useUserSpaces', () => ({
+  useUserSpaces: () => ({ spaces: [{ id: 's1', role: 'admin' }], isPending: false, isLoadingError: false }),
+}))
+
 // 招待メールの文面・招待の一覧は、開いたときだけ読みに行く（このテストでは開かない）
 vi.mock('@/lib/hooks/useInviteTemplate', () => ({
   useInviteTemplate: () => ({ template: null, loading: false, error: null, refresh: vi.fn() }),

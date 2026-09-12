@@ -165,4 +165,12 @@ describe('client_update', () => {
     await clientUpdate({ userId: TARGET, spaceId: SPACE, role: 'client' })
     expect(updated).toHaveLength(1)
   })
+
+  it('space のメンバーだが組織にいない人の役割は変更できない', async () => {
+    orgMembership = null
+
+    const err = await clientUpdate({ userId: TARGET, spaceId: SPACE, role: 'viewer' }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 404 })
+    expect(updated).toHaveLength(0)
+  })
 })

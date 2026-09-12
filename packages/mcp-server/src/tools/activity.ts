@@ -2,6 +2,23 @@ import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { config } from '../config.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
+import { assertInSpace } from '../auth/scope.js'
+import { ToolUserError } from '../errors.js'
+
+/**
+ * entityId の確認を通せる表（space_id 列を持ち、そのプロジェクトの行だけを指せる表）。
+ * ここに無い表は entityTable として受け付けない。
+ */
+const ALLOWED_ACTIVITY_ENTITY_TABLES = new Set([
+  'tasks',
+  'milestones',
+  'meetings',
+  'wiki_pages',
+  'reviews',
+  'task_comments',
+  'files',
+  'scheduling_proposals',
+])
 
 // ActivityLog type
 export interface ActivityLog {
@@ -45,7 +62,7 @@ export const activityLogSchema = z.object({
   entityTable: z.string().describe('対象テーブル名 (tasks, milestones, etc.)'),
   entityId: z.string().uuid().describe('対象レコードのUUID'),
   action: z.string().describe('アクション (insert, update, delete, etc.)'),
-  actorType: z.enum(['user', 'system', 'ai', 'service']).default('ai').describe('アクタータイプ'),
+  actorType: z.enum(['user', 'system', 'ai', 'service']).default('ai').describe('道具からの記録は常に ai として残る（指定しても無視される）'),
   actorService: z.string().optional().describe('サービス名 (MCP/Claude/GPT等)'),
   requestId: z.string().uuid().optional().describe('リクエストID（相関用）'),
   sessionId: z.string().uuid().optional().describe('セッションID（相関用）'),
@@ -79,6 +96,13 @@ export const activityEntityHistorySchema = z.object({
 // Tool implementations
 export async function activityLog(params: z.infer<typeof activityLogSchema>): Promise<{ id: string }> {
   await checkAuth(params.spaceId, 'write', 'activity_log', 'activity', params.entityId)
+
+  if (!ALLOWED_ACTIVITY_ENTITY_TABLES.has(params.entityTable)) {
+    throw new ToolUserError(`entityTable "${params.entityTable}" には記録できません`, 400)
+  }
+  // entityId は、許可した表の中でこのプロジェクトに実在する行だけを受け付ける
+  await assertInSpace(params.entityTable, params.entityId, params.spaceId, '対象の行が見つかりません')
+
   const supabase = getSupabaseClient()
   const orgId = await getOrgId(params.spaceId)
 
@@ -86,7 +110,8 @@ export async function activityLog(params: z.infer<typeof activityLogSchema>): Pr
     .from('activity_log')
     .insert({
       actor_id: config.actorId,
-      actor_type: params.actorType,
+      // 道具からの記録は常に ai。引数の actorType は無視する（実際に操作したのは AI/CLI）
+      actor_type: 'ai',
       actor_service: params.actorService || 'MCP',
       request_id: params.requestId || null,
       session_id: params.sessionId || null,

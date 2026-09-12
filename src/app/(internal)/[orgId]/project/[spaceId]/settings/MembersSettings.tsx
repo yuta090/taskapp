@@ -10,6 +10,9 @@ import { useConfirmDialog, Hint } from '@/components/shared'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useSpaceMemberJoinedAt } from '@/lib/hooks/useSpaceMemberJoinedAt'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useSpaceRow } from '@/lib/hooks/useSpaceRow'
+import { useOrgMembers } from '@/lib/hooks/useOrgMembers'
+import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import {
   SPACE_ROLE_GUIDE,
   SPACE_ROLE_LABELS,
@@ -17,6 +20,8 @@ import {
   INVITE_ROLE_LABELS,
   isSpaceAdminRole,
   canInviteMembers,
+  allowedSpaceRolesFor,
+  type SpaceRoleGuide,
 } from '@/lib/roles/spaceRoles'
 import { InviteTemplateEditor, type InviteTemplateState } from './InviteTemplateEditor'
 import { useSpaceInvites } from '@/lib/hooks/useSpaceInvites'
@@ -39,6 +44,22 @@ interface MembersSettingsProps {
 const ROLE_LABELS = SPACE_ROLE_LABELS
 
 const VALID_ROLES = new Set<string>(SPACE_ROLE_GUIDE.map((r) => r.value))
+
+// ひらがな・カタカナ・漢字のいずれかを含むか（DBが日本語で分かる理由を返したときだけ
+// そのまま見せ、英語など機械的な文言は一律のメッセージに差し替えるための判定）
+function containsJapanese(text: string): boolean {
+  // ひらがな・カタカナ(U+3040-30FF) / 漢字(U+4E00-9FFF)
+  return /[぀-ヿ一-鿿]/.test(text)
+}
+
+// supabase-js のエラーは Error のインスタンスとは限らない（{ message } だけの
+// プレーンオブジェクトのことが多い）ため、instanceof Error では拾えない
+function getErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message
+  }
+  return ''
+}
 
 const INVITE_STATUS_STYLE: Record<InviteStatus, string> = {
   pending: 'bg-amber-50 text-amber-700',
@@ -125,6 +146,42 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const isAdmin = isSpaceAdminRole(myRole)
   const canInvite = canInviteMembers(myRole)
 
+  // 代理店モードか（ベンダーが選べるかどうかに関わる。実体は spaces の1行 = useSpaceRow）
+  const { space: spaceRow } = useSpaceRow(spaceId)
+  const agencyMode = !!spaceRow?.agency_mode
+
+  // 「自分がこの space の管理者か」を、この画面の一覧（useSpaceMembers）だけでなく、
+  // 左メニュー等が既に持っている自分の所属space一覧（useUserSpaces）からも取る。
+  // isAdmin は sharedMembers の到着を待つため、それだけを組織メンバー取得の条件にすると
+  // 「一覧 → 組織メンバー」の2往復になってしまう（isAdmin は他の画面表示にも使うため、
+  // こちらは変えず、組織メンバーを取り始める判定にだけ両方を見る）
+  const { spaces: userSpaces } = useUserSpaces({ includeArchived: true })
+  const isLikelyAdminFromUserSpaces = useMemo(
+    () => userSpaces.find((s) => s.id === spaceId)?.role === 'admin',
+    [userSpaces, spaceId]
+  )
+
+  // 役割の選択肢を「その人の組織の役割」で絞る（RC-2, role-consistency-decision）。
+  // 役割を変えられる人（管理者）がメンバータブを開いたときだけ、一覧と並行して取りに行く。
+  const { roleByUserId: orgRoleByUserId, isPending: orgMembersPending, isLoadingError: orgMembersLoadingError } =
+    useOrgMembers(orgId, {
+      enabled: (isAdmin || isLikelyAdminFromUserSpaces) && activeTab === 'members',
+    })
+
+  /**
+   * その人が space で選べる役割。組織の役割がまだ取れていない・取得に失敗した場合は
+   * 空配列にして「変更不可（今の役割の表示のまま）」に倒す（安全側）。
+   */
+  const selectableRolesFor = useCallback(
+    (userId: string): SpaceRoleGuide['value'][] => {
+      if (orgMembersPending || orgMembersLoadingError) return []
+      const orgRole = orgRoleByUserId.get(userId)
+      if (orgRole == null) return []
+      return allowedSpaceRolesFor(orgRole, agencyMode)
+    },
+    [orgRoleByUserId, orgMembersPending, orgMembersLoadingError, agencyMode]
+  )
+
   const handleRoleChange = async (userId: string, newRole: string) => {
     if (!isAdmin || userId === currentUserId) return
 
@@ -132,6 +189,13 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     if (!VALID_ROLES.has(newRole)) {
       console.error('Invalid role:', newRole)
       toast.error('無効な役割です')
+      return
+    }
+
+    // 組織の役割に合わない役割は、選択肢を絞っていても念のため二重に断る
+    // （DBでも同じ規則で断るが、画面側でも分かる文で先に止める）
+    if (!selectableRolesFor(userId).includes(newRole as SpaceRoleGuide['value'])) {
+      toast.error('この人の組織の役割ではこの役割は選べません')
       return
     }
 
@@ -151,7 +215,11 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     } catch (err) {
       console.error('Failed to update role:', err)
       rollback()
-      toast.error('役割の変更に失敗しました')
+      // DB（rpc_update_space_member_role）は日本語で分かる理由を返すことがある
+      // （例:「社内のメンバーには、社内の役割（admin / editor / viewer）しか付けられません」）。
+      // その場合はそのまま見せ、英語などそれ以外は一律の文言にする
+      const message = getErrorMessage(err)
+      toast.error(containsJapanese(message) ? message : '役割の変更に失敗しました')
     }
   }
 
@@ -294,6 +362,26 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     }
   }
 
+  // 役割を変更できない・まだ選択肢が分からない人向けの、これまでどおりの読み取り専用表示
+  function renderRoleBadge(role: string) {
+    return (
+      <span
+        className={`px-2 py-1 text-xs rounded ${
+          role === 'admin'
+            ? 'bg-amber-100 text-amber-700'
+            : role === 'client'
+            ? 'bg-amber-50 text-amber-700'
+            : role === 'vendor'
+            ? 'bg-indigo-50 text-indigo-ink'
+            : 'bg-gray-100 text-gray-700'
+        }`}
+      >
+        {role === 'admin' && <Crown className="inline w-3 h-3 mr-1" weight="fill" />}
+        {ROLE_LABELS[role] || role}
+      </span>
+    )
+  }
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -414,34 +502,33 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
               </div>
 
               {/* Role */}
-              {isAdmin && member.userId !== currentUserId ? (
-                <select
-                  value={member.role}
-                  onChange={(e) => handleRoleChange(member.userId, e.target.value)}
-                  className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  {SPACE_ROLE_GUIDE.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span
-                  className={`px-2 py-1 text-xs rounded ${
-                    member.role === 'admin'
-                      ? 'bg-amber-100 text-amber-700'
-                      : member.role === 'client'
-                      ? 'bg-amber-50 text-amber-700'
-                      : member.role === 'vendor'
-                      ? 'bg-indigo-50 text-indigo-ink'
-                      : 'bg-gray-100 text-gray-700'
-                  }`}
-                >
-                  {member.role === 'admin' && <Crown className="inline w-3 h-3 mr-1" weight="fill" />}
-                  {ROLE_LABELS[member.role] || member.role}
-                </span>
-              )}
+              {(() => {
+                if (!isAdmin || member.userId === currentUserId) return renderRoleBadge(member.role)
+
+                const selectable = selectableRolesFor(member.userId)
+                // 選べる役割がまだ分からない・無ければ、変更させず今の役割の表示のまま（安全側）
+                if (selectable.length === 0) return renderRoleBadge(member.role)
+
+                // 今の役割が（何らかの理由で）許可集合の外でも、value と一致する option が
+                // 無いまま<select>を出さない（ブラウザが黙って先頭の選択肢にすり替えるため）
+                const options = selectable.includes(member.role as SpaceRoleGuide['value'])
+                  ? selectable
+                  : [member.role as SpaceRoleGuide['value'], ...selectable]
+
+                return (
+                  <select
+                    value={member.role}
+                    onChange={(e) => handleRoleChange(member.userId, e.target.value)}
+                    className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {SPACE_ROLE_GUIDE.filter((opt) => options.includes(opt.value)).map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                )
+              })()}
 
               {/* Delete button */}
               {isAdmin && member.userId !== currentUserId && (

@@ -72,7 +72,7 @@ beforeEach(() => {
   mockConfirm.mockResolvedValue(true)
   mockUseCurrentUser.mockReturnValue({ user: { id: 'user-1' }, loading: false, error: null })
   mockUseUserSpaces.mockReturnValue({
-    spaces: [{ id: 'space-1', name: 'Space 1', orgId: 'org-1', orgName: 'Org', role: 'admin' }],
+    spaces: [{ id: 'space-1', name: 'Space 1', orgId: 'org-1', orgName: 'Org', role: 'admin', archivedAt: null }],
     loading: false,
     error: null,
     refetch: vi.fn(),
@@ -188,8 +188,8 @@ describe('ApiKeysSettingsPage — 社内メンバーのプロジェクトだけ�
   it('相手先として参加しているプロジェクトは、発行フォームの選択肢に出さない', async () => {
     mockUseUserSpaces.mockReturnValue({
       spaces: [
-        { id: 'space-1', name: 'Space 1', orgId: 'org-1', orgName: 'Org', role: 'admin' },
-        { id: 'space-2', name: 'Client Space', orgId: 'org-2', orgName: 'Other', role: 'client' },
+        { id: 'space-1', name: 'Space 1', orgId: 'org-1', orgName: 'Org', role: 'admin', archivedAt: null },
+        { id: 'space-2', name: 'Client Space', orgId: 'org-2', orgName: 'Other', role: 'client', archivedAt: null },
       ],
       loading: false,
       error: null,
@@ -206,7 +206,7 @@ describe('ApiKeysSettingsPage — 社内メンバーのプロジェクトだけ�
 
   it('選べるプロジェクトが1つも無ければ、社内メンバー向けの機能だと知らせる', async () => {
     mockUseUserSpaces.mockReturnValue({
-      spaces: [{ id: 'space-2', name: 'Client Space', orgId: 'org-2', orgName: 'Other', role: 'client' }],
+      spaces: [{ id: 'space-2', name: 'Client Space', orgId: 'org-2', orgName: 'Other', role: 'client', archivedAt: null }],
       loading: false,
       error: null,
       refetch: vi.fn(),

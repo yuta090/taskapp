@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isOrgInternalRole, canEditSpaceContent, canEditSpaceMoney } from '@/lib/roles/spaceRoles'
+import { isOrgInternalRole, canEditSpaceContent, canEditSpaceMoney, allowedSpaceRolesFor } from '@/lib/roles/spaceRoles'
 
 // DB側の判定（app_can_write_space / app_is_org_internal, 20260911143112_space_role_boundary.sql）
 // と同じ規則になっているかを確かめる。
@@ -90,5 +90,39 @@ describe('canEditSpaceMoney', () => {
   it('組織の役割が未取得なら操作できない側に倒す', () => {
     expect(canEditSpaceMoney('admin', null)).toBe(false)
     expect(canEditSpaceMoney('admin', undefined)).toBe(false)
+  })
+})
+
+// 組織の役割と space の役割をそろえる規則（Fable裁定 role-consistency-decision, 2026-09-12）。
+// 組織 owner/member（社内）→ space は 管理者/編集者/閲覧者 だけ。
+// 組織 client → space は クライアント だけ。代理店モード(spaces.agency_mode)のときだけ ベンダー も選べる。
+// 社内メンバーに space の vendor / client は禁止（降格として正式化しない）。
+describe('allowedSpaceRolesFor', () => {
+  it('組織が owner なら 管理者/編集者/閲覧者 だけ選べる（代理店モードでも変わらない）', () => {
+    expect(allowedSpaceRolesFor('owner', false)).toEqual(['admin', 'editor', 'viewer'])
+    expect(allowedSpaceRolesFor('owner', true)).toEqual(['admin', 'editor', 'viewer'])
+  })
+
+  it('組織が member なら 管理者/編集者/閲覧者 だけ選べる', () => {
+    expect(allowedSpaceRolesFor('member', false)).toEqual(['admin', 'editor', 'viewer'])
+  })
+
+  it('組織が admin（死に値）でも社内扱いで 管理者/編集者/閲覧者', () => {
+    expect(allowedSpaceRolesFor('admin', false)).toEqual(['admin', 'editor', 'viewer'])
+  })
+
+  it('組織が client なら、代理店モードでなければ クライアント だけ', () => {
+    expect(allowedSpaceRolesFor('client', false)).toEqual(['client'])
+  })
+
+  it('組織が client かつ代理店モードなら クライアント と ベンダー が選べる', () => {
+    expect(allowedSpaceRolesFor('client', true)).toEqual(['client', 'vendor'])
+  })
+
+  it('組織の役割が未取得・不明なら選べる役割は無し（安全側に倒す）', () => {
+    expect(allowedSpaceRolesFor(null, false)).toEqual([])
+    expect(allowedSpaceRolesFor(undefined, false)).toEqual([])
+    expect(allowedSpaceRolesFor('', false)).toEqual([])
+    expect(allowedSpaceRolesFor('unknown', false)).toEqual([])
   })
 })

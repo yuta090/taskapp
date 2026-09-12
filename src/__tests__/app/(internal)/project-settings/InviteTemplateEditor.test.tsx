@@ -38,6 +38,24 @@ vi.mock('@/lib/hooks/useSpaceInvites', () => ({
   useSpaceInvites: () => ({ invites: [], canManage: true, loading: false, error: null, refresh: vi.fn() }),
 }))
 
+// RC-2: 役割の選択肢の絞り込み自体は別テスト（spaceRoles.test.ts /
+// MembersSettings.roleOptions.test.tsx）で検証済み。ここでは招待文面の編集だけを見る
+vi.mock('@/lib/hooks/useSpaceRow', () => ({
+  useSpaceRow: () => ({ space: { agency_mode: false }, isPending: false }),
+}))
+vi.mock('@/lib/hooks/useOrgMembers', () => ({
+  useOrgMembers: () => ({
+    members: [],
+    roleByUserId: new Map([['user-1', 'owner']]),
+    isPending: false,
+    isLoadingError: false,
+    error: null,
+  }),
+}))
+vi.mock('@/lib/hooks/useUserSpaces', () => ({
+  useUserSpaces: () => ({ spaces: [{ id: 'space-1', role: 'admin' }], isPending: false, isLoadingError: false }),
+}))
+
 const mockGetUser = vi.fn()
 const mockRpc = vi.fn()
 const mockFrom = vi.fn()
