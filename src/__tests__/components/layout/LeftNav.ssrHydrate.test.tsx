@@ -43,24 +43,36 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
       : { user: { user_metadata: { name: 'テスト太郎' }, email: 'u@example.com' }, loading: false, error: null },
 }))
 vi.mock('@/lib/auth/signOutClient', () => ({ signOutAndLeave: vi.fn() }))
+// ブラウザ側（hydration後）のプロジェクト一覧の状態。'has-space'=1件取得済み、
+// 'loading'=まだ取得中(isPending)、'empty'=取得が終わって本当に0件
+type ClientSpacesMode = 'has-space' | 'loading' | 'empty'
+let clientSpacesMode: ClientSpacesMode = 'has-space'
 vi.mock('@/lib/hooks/useUserSpaces', () => ({
-  useUserSpaces: () => ({
-    spaces:
-      phase === 'server'
-        ? []
-        : [
-            {
-              id: 'space1',
-              name: 'テストプロジェクト',
-              orgId: 'org1',
-              orgName: 'テスト組織',
-              role: 'admin',
-              archivedAt: null,
-              groupId: includeGroupOnClient ? 'group1' : null,
-              sortOrder: 0,
-            },
-          ],
-  }),
+  useUserSpaces: () => {
+    // サーバーは常に「まだ何も取れていない」(isPending:true)。react-queryはSSRでは
+    // このqueryFnを実行しないため、実際の挙動と一致する
+    if (phase === 'server' || clientSpacesMode === 'loading') {
+      return { spaces: [], isPending: true }
+    }
+    if (clientSpacesMode === 'empty') {
+      return { spaces: [], isPending: false }
+    }
+    return {
+      spaces: [
+        {
+          id: 'space1',
+          name: 'テストプロジェクト',
+          orgId: 'org1',
+          orgName: 'テスト組織',
+          role: 'admin',
+          archivedAt: null,
+          groupId: includeGroupOnClient ? 'group1' : null,
+          sortOrder: 0,
+        },
+      ],
+      isPending: false,
+    }
+  },
 }))
 vi.mock('@/lib/hooks/useSpaceGroups', () => ({
   useSpaceGroups: () => ({
@@ -141,6 +153,11 @@ async function renderThenHydrate(clientOrgValue: ActiveOrgContextValue) {
     projectName: container.textContent?.includes('テストプロジェクト') ?? false,
     orgName: container.textContent?.includes('テスト組織') ?? false,
     groupHeader: container.textContent?.includes('グループA') ?? false,
+    noProjectsMessage: container.textContent?.includes('プロジェクトがありません') ?? false,
+    spacesSkeleton: !!container.querySelector('[data-testid="leftnav-spaces-skeleton"]'),
+    // サーバーが描いたHTML自体（hydrate前）にも骨組みが入っているかを見るため
+    serverHtmlHadSkeleton: html.includes('data-testid="leftnav-spaces-skeleton"'),
+    serverHtmlHadNoProjectsMessage: html.includes('プロジェクトがありません'),
   }
 
   act(() => root.unmount())
@@ -151,6 +168,7 @@ async function renderThenHydrate(clientOrgValue: ActiveOrgContextValue) {
 describe('LeftNav — サーバーの描画とハイドレーション時の描画の食い違いが無い（React #418）', () => {
   afterEach(() => {
     includeGroupOnClient = false
+    clientSpacesMode = 'has-space'
     localStorage.removeItem(GROUP_COLLAPSED_KEY)
   })
 
@@ -224,5 +242,75 @@ describe('LeftNav — サーバーの描画とハイドレーション時の描�
     expect(result.groupHeader).toBe(true)
     // 折りたたみ済みなので、配下のプロジェクトは描かれない
     expect(result.projectName).toBe(false)
+  })
+
+  it('サーバー・hydration中は骨組み表示で「プロジェクトがありません」を出さず、取得完了後に本物の一覧に置き換わる', async () => {
+    pathname = '/org1/project/space1'
+    params = { orgId: 'org1', spaceId: 'space1' }
+    clientSpacesMode = 'has-space'
+
+    const clientOrgValue: ActiveOrgContextValue = {
+      ...serverOrgValue,
+      activeOrgId: 'org1',
+      activeOrgName: 'テスト組織',
+      orgs: [{ orgId: 'org1', orgName: 'テスト組織', role: 'owner' }],
+      orgsStatus: 'verified',
+      loading: false,
+    }
+
+    const result = await renderThenHydrate(clientOrgValue)
+
+    expect(result.consoleErrors).toEqual([])
+    expect(result.windowErrors).toEqual([])
+    // サーバーはプロジェクト一覧を取れていないので骨組みを描き、「プロジェクトがありません」は出さない
+    expect(result.serverHtmlHadSkeleton).toBe(true)
+    expect(result.serverHtmlHadNoProjectsMessage).toBe(false)
+    // 取得が終わった後は本物の一覧に置き換わる
+    expect(result.projectName).toBe(true)
+    expect(result.noProjectsMessage).toBe(false)
+  })
+
+  it('取得中(isPending)の間は骨組みのまま、「プロジェクトがありません」を出さない', async () => {
+    pathname = '/org1/project/space1'
+    params = { orgId: 'org1', spaceId: 'space1' }
+    clientSpacesMode = 'loading'
+
+    const clientOrgValue: ActiveOrgContextValue = {
+      ...serverOrgValue,
+      activeOrgId: 'org1',
+      activeOrgName: 'テスト組織',
+      orgs: [{ orgId: 'org1', orgName: 'テスト組織', role: 'owner' }],
+      orgsStatus: 'verified',
+      loading: false,
+    }
+
+    const result = await renderThenHydrate(clientOrgValue)
+
+    expect(result.consoleErrors).toEqual([])
+    expect(result.windowErrors).toEqual([])
+    expect(result.spacesSkeleton).toBe(true)
+    expect(result.noProjectsMessage).toBe(false)
+  })
+
+  it('取得が終わって本当に0件のときだけ「プロジェクトがありません」を表示する', async () => {
+    pathname = '/org1/project/space1'
+    params = { orgId: 'org1', spaceId: 'space1' }
+    clientSpacesMode = 'empty'
+
+    const clientOrgValue: ActiveOrgContextValue = {
+      ...serverOrgValue,
+      activeOrgId: 'org1',
+      activeOrgName: 'テスト組織',
+      orgs: [{ orgId: 'org1', orgName: 'テスト組織', role: 'owner' }],
+      orgsStatus: 'verified',
+      loading: false,
+    }
+
+    const result = await renderThenHydrate(clientOrgValue)
+
+    expect(result.consoleErrors).toEqual([])
+    expect(result.windowErrors).toEqual([])
+    expect(result.noProjectsMessage).toBe(true)
+    expect(result.spacesSkeleton).toBe(false)
   })
 })

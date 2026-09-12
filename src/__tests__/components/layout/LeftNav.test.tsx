@@ -43,8 +43,8 @@ vi.mock('@/lib/auth/signOutClient', () => ({
   signOutAndLeave: mockSignOutAndLeave,
 }))
 
-vi.mock('@/lib/hooks/useUserSpaces', () => ({
-  useUserSpaces: () => ({
+const { mockUseUserSpaces } = vi.hoisted(() => ({
+  mockUseUserSpaces: vi.fn(() => ({
     spaces: [
       {
         id: 'space1',
@@ -57,7 +57,11 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
         sortOrder: 0,
       },
     ],
-  }),
+    isPending: false,
+  })),
+}))
+vi.mock('@/lib/hooks/useUserSpaces', () => ({
+  useUserSpaces: mockUseUserSpaces,
 }))
 
 vi.mock('@/lib/hooks/useSpaceGroups', () => ({
@@ -283,6 +287,21 @@ describe('LeftNav — hydration前はキャッシュ由来の表示をサーバ�
       error: null,
       refresh: vi.fn(),
     })
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [
+        {
+          id: 'space1',
+          name: 'テストプロジェクト',
+          orgId: 'org1',
+          orgName: 'テスト組織',
+          role: 'admin',
+          archivedAt: null,
+          groupId: null,
+          sortOrder: 0,
+        },
+      ],
+      isPending: false,
+    })
   })
 
   it('hydration前はユーザー欄をローディング表示のままにする（キャッシュに既にユーザーがいても）', () => {
@@ -292,11 +311,26 @@ describe('LeftNav — hydration前はキャッシュ由来の表示をサーバ�
     expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
-  it('hydration前はプロジェクト一覧をサーバーと同じ「プロジェクトがありません」表示にする（キャッシュに既にプロジェクトがあっても）', () => {
+  it('hydration前はプロジェクト一覧を骨組み表示にする（キャッシュに既にプロジェクトがあっても、「プロジェクトがありません」もまだ出さない）', () => {
     mockUseHydrated.mockReturnValue(false)
-    render(<LeftNav />)
+    const { container } = render(<LeftNav />)
     expect(screen.queryByText('テストプロジェクト')).not.toBeInTheDocument()
+    expect(screen.queryByText('プロジェクトがありません')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-testid="leftnav-spaces-skeleton"]')).toBeInTheDocument()
+  })
+
+  it('hydration後も読み込み中(isPending)の間は骨組み表示のままで、「プロジェクトがありません」は出さない', () => {
+    mockUseUserSpaces.mockReturnValue({ spaces: [], isPending: true })
+    const { container } = render(<LeftNav />)
+    expect(screen.queryByText('プロジェクトがありません')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-testid="leftnav-spaces-skeleton"]')).toBeInTheDocument()
+  })
+
+  it('読み込みが終わって本当に0件のときだけ「プロジェクトがありません」を表示する', () => {
+    mockUseUserSpaces.mockReturnValue({ spaces: [], isPending: false })
+    const { container } = render(<LeftNav />)
     expect(screen.getByText('プロジェクトがありません')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="leftnav-spaces-skeleton"]')).not.toBeInTheDocument()
   })
 
   it('hydration前は未読バッジを出さない（キャッシュに既に未読があっても）', () => {

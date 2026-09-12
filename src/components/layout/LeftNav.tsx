@@ -836,8 +836,12 @@ export const LeftNav = memo(function LeftNav() {
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
 
   // 動的スペースリスト（アーカイブ含む）。hydration前はサーバーと同じ「空」にする
-  const { spaces: rawAllSpaces } = useUserSpaces({ includeArchived: true })
+  const { spaces: rawAllSpaces, isPending: spacesPending } = useUserSpaces({ includeArchived: true })
   const allSpaces = hydrated ? rawAllSpaces : EMPTY_SPACES
+  // hydration前・読み込み中はどちらも allSpaces が空になるが、この2つを区別しないと
+  // 読み込み中にも「プロジェクトがありません」が一瞬出てしまう。読み込み中は骨組みを
+  // 出し、「プロジェクトがありません」は読み込みが終わって本当に0件のときだけ出す
+  const spacesLoading = !hydrated || spacesPending
   const [showArchived, setShowArchived] = useState(false)
 
   // グループ管理。hydration前はサーバーと同じ「空」にする
@@ -1360,7 +1364,18 @@ export const LeftNav = memo(function LeftNav() {
               </div>
             )}
 
-            {activeSpaces.length === 0 && !collapsed && (
+            {activeSpaces.length === 0 && !collapsed && spacesLoading && (
+              <div className="space-y-0.5" aria-hidden="true" data-testid="leftnav-spaces-skeleton">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="px-2 py-2 flex items-center gap-2.5">
+                    <div className="w-5 h-5 rounded bg-gray-200 animate-pulse flex-shrink-0" />
+                    <div className="h-3 flex-1 max-w-[70%] bg-gray-200 rounded animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {activeSpaces.length === 0 && !collapsed && !spacesLoading && (
               <div className="px-2 py-3 text-center">
                 <p className="text-xs text-gray-400 mb-2">プロジェクトがありません</p>
                 <button
