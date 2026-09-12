@@ -9,7 +9,7 @@ import { NextRequest } from 'next/server'
 const CRON_SECRET = 'test-secret'
 process.env.CRON_SECRET = CRON_SECRET
 
-const USERS = ['user-a', 'user-b', 'user-c']
+const USERS = ['user-a', 'user-b', 'user-c', 'user-d', 'user-e', 'user-f']
 const WEEKDAY_NOON = new Date('2026-09-09T03:00:00.000Z') // 水 12:00 JST
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -95,17 +95,17 @@ describe('POST /api/cron/notification-immediate — 送信は一斉に投げず�
     vi.useRealTimers()
   })
 
-  it('3人いても、最初は2人ぶんだけ送り、残り1人は間隔を空けてから送る', async () => {
+  it('6人いても、最初は5人ぶんだけ送り、残り1人は間隔を空けてから送る', async () => {
     const promise = callPost()
 
     await vi.advanceTimersByTimeAsync(0)
-    expect(sendDigestEmailMock).toHaveBeenCalledTimes(2)
+    expect(sendDigestEmailMock).toHaveBeenCalledTimes(5)
 
     await vi.advanceTimersByTimeAsync(2000)
-    expect(sendDigestEmailMock).toHaveBeenCalledTimes(3)
+    expect(sendDigestEmailMock).toHaveBeenCalledTimes(6)
 
     const res = await promise
     const json = await res.json()
-    expect(json.emailsSent).toBe(3)
+    expect(json.emailsSent).toBe(6)
   })
 })

@@ -40,6 +40,20 @@ describe('sendEmailWithRetry', () => {
     expect(send).toHaveBeenCalledTimes(2)
   })
 
+  it('statusCode=429（name は rate_limit_exceeded 以外）でも数え直す', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ data: null, error: { name: 'application_error', statusCode: 429, message: 'Too many requests' } })
+      .mockResolvedValueOnce({ data: { id: 'm3' }, error: null })
+
+    const promise = sendEmailWithRetry(makeResend(send), { from: 'a', to: 'b', subject: 's', html: 'h' } as never)
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result).toEqual({ data: { id: 'm3' }, error: null })
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+
   it('rate_limit_exceeded以外のエラーは数え直さずそのまま返す', async () => {
     const send = vi.fn().mockResolvedValue({ data: null, error: { name: 'validation_error', message: '宛先が不正です' } })
     const result = await sendEmailWithRetry(makeResend(send), { from: 'a', to: 'b', subject: 's', html: 'h' } as never)
