@@ -72,19 +72,24 @@ export interface MinutesBlock {
 // ---- DB 側（SQL）と結合する正規表現。SQL 側の定義と完全に一致させること ----
 
 /**
- * `supabase/migrations/20240206_000_minutes_parser.sql` の
- * `v_line ~ '^-\s*\[\s*\]\s*SPEC\([^)]+\):\s*.+$'` と同一パターン。
+ * 土台は `supabase/migrations/20240206_000_minutes_parser.sql`。現在この関数が
+ * 実際に生きているのは `supabase/migrations/20260911143112_space_role_boundary.sql`
+ * の `rpc_parse_meeting_minutes` / `rpc_get_minutes_preview`(`v_line ~
+ * '^-\s*\[\s*\]\s*SPEC\([^)]+\):\s*.+$'`)。この定数はそのパターンと一致させること
+ * (`src/__tests__/lib/minutes/markdown.test.ts` でマイグレーションから抜き出して確認)。
  */
 export const SPEC_LINE_REGEX = /^-\s*\[\s*\]\s*SPEC\([^)]+\):\s*.+$/
 
 /**
- * 同マイグレーションの `v_line ~ '<!--task:[^>]+-->\s*$'` と同一パターン。
+ * 同 RPC 内の `v_line ~ '<!--task:[^>]+-->\s*$'` と同一パターン。
  */
 export const TASK_MARKER_REGEX = /<!--task:([^>]+)-->\s*$/
 
 // ---- 行レベルの文法パターン ----
 
-const FENCE_RE = /^```(\S*)\s*$/
+// 3つ以上のバッククォート(長いフェンス)を開きとして受ける。info string は
+// バッククォートさえ含まなければ空白入り(`js title="x"`)も許す。
+const FENCE_RE = /^(`{3,})([^`]*)$/
 const HEADING_RE = /^(#{1,3})[ \t]+(.*)$/
 const CHECK_RE = /^[-*+][ \t]+\[([ xX])\][ \t]*(.*)$/
 const BULLET_RE = /^[-*+][ \t]+(.*)$/
@@ -92,12 +97,51 @@ const NUMBERED_RE = /^(\d+)\.[ \t]+(.*)$/
 const TABLE_SEP_RE = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/
 
 /**
- * 素のURL(裸で書ける http(s) URL)として許す文字。空白・山括弧に加え、この文法で
- * 特別な意味を持つ記号 (`()*~\`[]\`) も除く。これらを含む URL を裸のまま埋め込むと、
- * 隣接する `*` 等と結合して再解析のたびに構造が変わってしまう(実際に踏んだ不安定化)。
- * その場合でも `[text](href)` の明示リンクとしては書ける。
+ * 素のURL(裸で書ける http(s) URL)として許す文字。ASCII の URL らしい文字だけに
+ * 絞る(全角/日本語や `()*~\`[]\` はここで打ち切る)。全角記号や日本語に続けて
+ * 書かれた URL(`詳細はhttps://a.bを参照`)がそこまで飲み込んで壊れるのを防ぎ、
+ * この文法で特別な意味を持つ記号との結合による再解析時の不安定化も避ける
+ * (`[text](href)` の明示リンクとしてなら任意の文字を書ける)。
  */
-const BARE_URL_RE = /^https?:\/\/[^\s<>()*~`[\]\\]+/
+const BARE_URL_RE = /^https?:\/\/[A-Za-z0-9\-._:/?#@!$&'+,;=%]+/
+/** 素のURLの末尾に付きがちな文の区切り記号は URL に含めない(例: 「…を参照。」の直前)。 */
+const BARE_URL_TRAILING_PUNCT_RE = /[.,:;!?]+$/
+
+/**
+ * `[text](href)` の href として受け付ける安全な形だけを通す。
+ * AI/CLI が書いた議事録を BlockNote で開くため、`javascript:` `data:` 等を
+ * リンクにしてしまうとクリック時にスクリプトが動く恐れがある。大文字小文字・
+ * 前後の空白・タブ/改行等の制御文字で偽装した scheme(`JaVaScRiPt:`・`\tjavascript:`)
+ * も弾けるよう、判定だけ制御文字/空白を除いた正規化した文字列で行う。
+ */
+function isSafeLinkHref(href: string): boolean {
+  const normalized = href.replace(/[\x00-\x1f\x7f\s]+/g, '').toLowerCase()
+  if (normalized.startsWith('http:') || normalized.startsWith('https:') || normalized.startsWith('mailto:')) return true
+  if (normalized.startsWith('/') || normalized.startsWith('#')) return true
+  return false
+}
+
+/**
+ * href を `(` から読み、対応する `)` が来るまでを href とする(括弧の対応を数える)。
+ * `[^)]*` のような単純な形だと、Wikipedia のように href 自体に `(...)` を含む
+ * リンク(例: `/wiki/東京_(曖昧さ回避)`)が最初の `)` で切れてしまう。生の改行は
+ * 許さない(この関数は複数の生テキスト行を`\n`で連結した1論理行を処理しており、
+ * href に生の改行が混じると行分割の前提が崩れて安定した往復ができない)。
+ */
+function scanBalancedHref(raw: string, from: number): { href: string; end: number } | null {
+  let depth = 0
+  for (let i = from; i < raw.length; i++) {
+    const c = raw[i]
+    if (c === '\n') return null
+    if (c === '(') {
+      depth++
+    } else if (c === ')') {
+      if (depth === 0) return { href: raw.slice(from, i), end: i }
+      depth--
+    }
+  }
+  return null
+}
 
 /**
  * この形に一致する行は、段落の生テキストとして書くと別のブロックに化けてしまう。
@@ -116,36 +160,98 @@ function matchesBlockTrigger(line: string): boolean {
   )
 }
 
-function lineIndentLevel(line: string): number {
-  const m = /^( *)/.exec(line)
-  const spaces = m ? m[1].length : 0
-  return Math.floor(spaces / 2)
+/**
+ * 行頭の `\` が「行の逃がし」(段落強制)かどうか。次の文字が `*` `` ` `` `~` `\`
+ * (文字としての逃がし)のときは行の逃がしとして外さない。例えば `\* 注: ` は
+ * 「見た目が箇条書きに見える段落」ではなく「文字としての `*` に続く普通の文」で、
+ * 続く inline トークナイザ側の `\` エスケープに任せるべきもの。ここで先に
+ * 外してしまうと、後続の `*重要*` が正しく斜体として読めなくなる(実際に踏んだ不具合)。
+ */
+function isEscapedTriggerLine(line: string): boolean {
+  if (!line.startsWith('\\')) return false
+  const next = line[1]
+  if (next !== undefined && ESCAPABLE_INLINE_CHARS.has(next)) return false
+  return matchesBlockTrigger(line.slice(1))
 }
 
-function stripIndent(line: string, level: number): string {
-  return line.slice(level * 2)
+/** 行頭の半角スペースの個数(生の文字数)。2スペース単位を仮定しない。 */
+function lineIndentChars(line: string): number {
+  const m = /^( *)/.exec(line)
+  return m ? m[1].length : 0
+}
+
+function stripIndent(line: string, chars: number): string {
+  return line.slice(chars)
 }
 
 // ---- inline 文字エスケープ ----
 
-/** 文字としての `*` `` ` `` `~` `\` をバックスラッシュで逃がす（順序: \ を最初に）。 */
-function escapeText(text: string): string {
-  return text.replace(/\\/g, '\\\\').replace(/\*/g, '\\*').replace(/`/g, '\\`').replace(/~/g, '\\~')
-}
-
 const ESCAPABLE_INLINE_CHARS = new Set(['\\', '*', '`', '~'])
 
-function findUnescapedChar(raw: string, from: number, ch: string): number {
-  let k = from
-  while (k < raw.length) {
-    if (raw[k] === '\\') {
-      k += 2
+/**
+ * 文字としての `*` `` ` `` はどこにあっても逃がす(単独でも将来の再解析で
+ * 区切りと誤読されうるため)。`~` は `~~`(取り消し線)になる連続だけ逃がし、
+ * 単独の `~`(例: `10:00~11:00`)は逃がさない。`\` は直後が `\` `*` `` ` `` `~`
+ * のとき(読み込み側がエスケープとして外す組み合わせ)だけ逃がす。それ以外
+ * (`C:\Users\taro` 等)はそのまま書く。ただし文字列の**末尾**の `\` は、次に
+ * 続く実際の文字(このトークンの外、太字/斜体などの閉じ記号かもしれない)を
+ * ここでは知りようがないため、安全側に倒して常に逃がす(実際に `*~(\` を
+ * 斜体にした際、閉じの `*` が `\*` と誤読され構造が壊れる不具合があった)。
+ */
+function escapeText(text: string): string {
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === '\\') {
+      // 末尾と同様、埋め込み改行の直前も「この行の見た目上の末尾」になるので
+      // 安全側に倒して逃がす(段落やリスト項目の複数行テキストで、この行が
+      // 別の行と結合されて閉じ記号に化ける可能性がある)。
+      const next = text[i + 1]
+      out += i === text.length - 1 || next === '\n' || ESCAPABLE_INLINE_CHARS.has(next) ? '\\\\' : '\\'
       continue
     }
-    if (raw[k] === ch) return k
-    k++
+    if (ch === '*' || ch === '`') {
+      out += '\\' + ch
+      continue
+    }
+    // `~` はトークンの先頭・末尾にあるときも逃がす。取り消し線の `~~` で
+    // 挟まれた際、隣の閉じ/開き記号と連結して `~~~` 以上の曖昧な連続になり
+    // うるため(このトークン単体では判断できない、上の `\` と同じ理由)。
+    if (
+      ch === '~' &&
+      (i === 0 || i === text.length - 1 || text[i - 1] === '~' || text[i + 1] === '~' || text[i - 1] === '\n' || text[i + 1] === '\n')
+    ) {
+      out += '\\~'
+      continue
+    }
+    out += ch
   }
-  return -1
+  return out
+}
+
+/**
+ * U+200B(幅ゼロ文字)。`*` 系の区切り記号どうしが連結して `***`/`****` のような
+ * 曖昧な連続記号になるのを防ぐ最後の保険としてだけ挟む。見た目には影響しない。
+ * 太字+斜体をまとめて開閉する場合は `***` を使うため(下記参照)、通常はここまで
+ * 頼らずに済む。ソースに見えない文字を直接書かないよう \u200B のエスケープで書く。
+ */
+const ZERO_WIDTH_GUARD = '\u200B'
+const ZERO_WIDTH_BETWEEN_STARS_RUN_RE = /(\*+)(\u200B+)(?=\*)/g
+
+/**
+ * `*` と `*` の間の幅ゼロ文字は、本文の内容ではないので読み込み時に捨てて
+ * モデルに残さない(HIGH-3参照)。ただし、挟まれている `*` を合わせて消したときの
+ * 連続本数がちょうど2になる(安全な太字ひとつ分になる)場合だけ捨てる。3本
+ * (`***` = 太字+斜体をまとめて開閉する記号と区別が付かない)や4本以上(文字
+ * 扱いになり構造が壊れる)になる組み合わせでは、曖昧さを避けるため幅ゼロ文字を
+ * 残す。
+ */
+function stripZeroWidthBetweenStars(raw: string): string {
+  return raw.replace(ZERO_WIDTH_BETWEEN_STARS_RUN_RE, (whole, stars: string, zws: string, offset: number) => {
+    const afterMatch = /^\*+/.exec(raw.slice(offset + whole.length))
+    const mergedLength = stars.length + (afterMatch ? afterMatch[0].length : 0)
+    return mergedLength === 2 ? stars : whole
+  })
 }
 
 function findUnescapedSeq(raw: string, from: number, seq: string): number {
@@ -190,7 +296,11 @@ function addStyle(item: MinutesInlineContent, style: keyof MinutesInlineStyles):
  * 1 論理行（複数の生テキスト行を `\n` で連結したもの）を inline トークン列にする。
  * `_` の強調・CommonMark の flanking 規則は扱わない。日本語に隣接した `**…**` も太字として読む。
  */
-function tokenizeInline(raw: string): MinutesInlineContent[] {
+function tokenizeInline(rawInput: string, noLinks = false): MinutesInlineContent[] {
+  // 太字+斜体を同時に開閉する境目でだけ挟む幅ゼロ文字(U+200B)は、本文の
+  // 内容ではない。`*` に挟まれた分だけ読み込み時に捨て、モデルに残さない。
+  // こうすることで、選択範囲へのスタイル付け外しを繰り返しても増え続けない。
+  const raw = rawInput.includes(ZERO_WIDTH_GUARD) ? stripZeroWidthBetweenStars(rawInput) : rawInput
   const out: MinutesInlineContent[] = []
   let buf = ''
   let i = 0
@@ -211,10 +321,18 @@ function tokenizeInline(raw: string): MinutesInlineContent[] {
     }
 
     if (ch === '`') {
-      const close = findUnescapedChar(raw, i + 1, '`')
+      // コード表記の中では `\` はただの文字(CommonMark と同じくコード内はエスケープ
+      // なし)。findUnescapedChar だと `\`` を「エスケープされた閉じ」と誤読して
+      // 本来の閉じ `` ` `` を素通りしてしまうため、単純な indexOf で次の ` を探す。
+      const close = raw.indexOf('`', i + 1)
       if (close !== -1) {
-        flush()
-        out.push({ type: 'text', text: raw.slice(i + 1, close), styles: { code: true } })
+        // 空コード(` `` `)は文字を持たないので要素を作らない(BlockNote 実機でも
+        // 空の inline content は捨てられ表示されない)。
+        const codeText = raw.slice(i + 1, close)
+        if (codeText) {
+          flush()
+          out.push({ type: 'text', text: codeText, styles: { code: true } })
+        }
         i = close + 1
         continue
       }
@@ -224,8 +342,31 @@ function tokenizeInline(raw: string): MinutesInlineContent[] {
       const close = findUnescapedSeq(raw, i + 2, '~~')
       if (close !== -1 && close > i + 2) {
         flush()
-        out.push(...tokenizeInline(raw.slice(i + 2, close)).map((t) => addStyle(t, 'strike')))
+        out.push(...tokenizeInline(raw.slice(i + 2, close), noLinks).map((t) => addStyle(t, 'strike')))
         i = close + 2
+        continue
+      }
+    }
+
+    // 4個以上連続する `*` はどの区切りとも対応が決めがたく、組み合わせ次第で
+    // 再帰的な突合せが極端に深くなる(約7,700個の連続で実際に RangeError を確認)。
+    // 文字としてまとめて扱い、区切り記号としては解釈しない。
+    if (raw[i + 3] === '*' && raw.startsWith('****', i)) {
+      let end = i
+      while (raw[end] === '*') end++
+      buf += raw.slice(i, end)
+      i = end
+      continue
+    }
+
+    // `***text***`(太字+斜体をまとめて開閉する AI流の書き方)を先に試す。ここを
+    // 飛ばすと "**" 判定が先に食いつき、太字("*text")+平文("*")に誤って割れる。
+    if (raw.startsWith('***', i)) {
+      const close = findUnescapedSeq(raw, i + 3, '***')
+      if (close !== -1 && close > i + 3) {
+        flush()
+        out.push(...tokenizeInline(raw.slice(i + 3, close), noLinks).map((t) => addStyle(addStyle(t, 'bold'), 'italic')))
+        i = close + 3
         continue
       }
     }
@@ -234,7 +375,7 @@ function tokenizeInline(raw: string): MinutesInlineContent[] {
       const close = findUnescapedSeq(raw, i + 2, '**')
       if (close !== -1 && close > i + 2) {
         flush()
-        out.push(...tokenizeInline(raw.slice(i + 2, close)).map((t) => addStyle(t, 'bold')))
+        out.push(...tokenizeInline(raw.slice(i + 2, close), noLinks).map((t) => addStyle(t, 'bold')))
         i = close + 2
         continue
       }
@@ -244,36 +385,42 @@ function tokenizeInline(raw: string): MinutesInlineContent[] {
       const close = findUnescapedSingleStar(raw, i + 1)
       if (close !== -1 && close > i + 1) {
         flush()
-        out.push(...tokenizeInline(raw.slice(i + 1, close)).map((t) => addStyle(t, 'italic')))
+        out.push(...tokenizeInline(raw.slice(i + 1, close), noLinks).map((t) => addStyle(t, 'italic')))
         i = close + 1
         continue
       }
     }
 
-    if (ch === '[') {
-      const m = /^\[([^\]]*)\]\(([^)]*)\)/.exec(raw.slice(i))
+    if (ch === '[' && !noLinks) {
+      const textMatch = /^\[([^\]]*)\]\(/.exec(raw.slice(i))
+      const hrefScan = textMatch ? scanBalancedHref(raw, i + textMatch[0].length) : null
       // href・リンクテキストに改行を含むものはリンクとして扱わない。この関数は
       // 1論理行(複数の生テキスト行を\nで連結したもの)を処理しており、リンクの
       // 構成要素に生の改行が混じると、行分割の前提が崩れて安定した往復ができない。
-      if (m && !m[1].includes('\n') && !m[2].includes('\n')) {
+      // href が安全な形(http/https/mailto/相対パス/フラグメント)でないものは
+      // リンクにせず、`[text](href)` をそのまま文字として残す(内容は落とさない)。
+      if (textMatch && !textMatch[1].includes('\n') && hrefScan && isSafeLinkHref(hrefScan.href)) {
         flush()
-        const linkTextTokens = tokenizeInline(m[1]).filter((t): t is MinutesTextInline => t.type === 'text')
+        // リンク文字の中では素のURL自動認識を切る(でないと `[https://a](https://b)` の
+        // ような入力で文字側が内側リンクに化け、外側リンクの表示文字が失われる)。
+        const linkTextTokens = tokenizeInline(textMatch[1], true).filter((t): t is MinutesTextInline => t.type === 'text')
         out.push({
           type: 'link',
-          href: m[2],
-          content: linkTextTokens.length ? linkTextTokens : [{ type: 'text', text: m[2], styles: {} }],
+          href: hrefScan.href,
+          content: linkTextTokens.length ? linkTextTokens : [{ type: 'text', text: hrefScan.href, styles: {} }],
         })
-        i += m[0].length
+        i = hrefScan.end + 1
         continue
       }
     }
 
-    if (raw.startsWith('http://', i) || raw.startsWith('https://', i)) {
+    if (!noLinks && (raw.startsWith('http://', i) || raw.startsWith('https://', i))) {
       const m = BARE_URL_RE.exec(raw.slice(i))
-      if (m) {
+      const trimmed = m ? m[0].replace(BARE_URL_TRAILING_PUNCT_RE, '') : ''
+      if (trimmed) {
         flush()
-        out.push({ type: 'link', href: m[0], content: [{ type: 'text', text: m[0], styles: {} }] })
-        i += m[0].length
+        out.push({ type: 'link', href: trimmed, content: [{ type: 'text', text: trimmed, styles: {} }] })
+        i += trimmed.length
         continue
       }
     }
@@ -286,12 +433,24 @@ function tokenizeInline(raw: string): MinutesInlineContent[] {
   return out
 }
 
-/** 行末の ` <!--task:<id>-->`（前の空白は捨てる）を taskMarker inline として取り出す。 */
-function tokenizeInlineWithMarker(rawText: string): MinutesInlineContent[] {
-  const m = TASK_MARKER_REGEX.exec(rawText)
-  if (!m) return tokenizeInline(rawText)
-  const body = rawText.slice(0, m.index).replace(/[ \t]+$/, '')
-  const tokens = tokenizeInline(body)
+/**
+ * 複数の生テキスト行(`\n`結合前)を inline トークン列にする。目印 ` <!--task:<id>-->` は
+ * **最初の行の行末**からだけ拾う。DB 側(SQL)は minutes_md を1行ずつ見て
+ * `^-\s*\[\s*\]\s*SPEC\(...)` に一致する行だけを未処理とみなすため、目印も
+ * その1行目に対応していないと意味がない。作成済みの SPEC 項目へ Shift+Enter で
+ * 補足を足すと、目印が2行目以降に押し出され、DB からは「未作成の行」に見えて
+ * 同じタスクを二重に作ってしまう(BlockNote 実機で再現)。
+ */
+function tokenizeLinesWithMarker(lines: readonly string[]): MinutesInlineContent[] {
+  if (lines.length === 0) return tokenizeInline('')
+  const [first, ...rest] = lines
+  const m = TASK_MARKER_REGEX.exec(first)
+  if (!m) return tokenizeInline(lines.join('\n'))
+  // 書き出し側は目印の前に必ず半角スペース1個だけを足す(下の contentArrayToText
+  // 参照)。ここで複数の空白/タブをまとめて剥がすと、文字そのものの末尾の空白まで
+  // 一緒に消えて、書き戻すたびに空白の数が変わってしまう。1個だけ外す。
+  const newFirst = first.slice(0, m.index).replace(/ $/, '')
+  const tokens = tokenizeInline([newFirst, ...rest].join('\n'))
   tokens.push({ type: TASK_MARKER_TYPE, props: { taskId: m[1] } })
   return tokens
 }
@@ -334,9 +493,12 @@ function splitTableRow(line: string): string[] {
   return cells
 }
 
+/** 書き出し側が表のセル改行に使う `<br>`(大小文字・`<br/>`も許容)。 */
+const BR_TAG_RE = /<br\s*\/?>/gi
+
 function buildTableBlock(rowLines: string[]): MinutesBlock {
   const rows: MinutesTableRow[] = rowLines.map((line) => ({
-    cells: splitTableRow(line).map((cellText) => tokenizeInline(cellText)),
+    cells: splitTableRow(line).map((cellText) => tokenizeInline(cellText.replace(BR_TAG_RE, '\n'))),
   }))
   return {
     type: 'table',
@@ -351,7 +513,7 @@ function isBlockTriggerLine(line: string, lines: string[], idx: number, depth: n
   if (
     /^\|/.test(line) &&
     idx + 1 < end &&
-    lineIndentLevel(lines[idx + 1]) === depth &&
+    lineIndentChars(lines[idx + 1]) === depth &&
     TABLE_SEP_RE.test(stripIndent(lines[idx + 1], depth))
   ) {
     return true
@@ -366,9 +528,9 @@ function consumeParagraphRun(lines: string[], start: number, end: number, depth:
   while (j < end) {
     const raw = lines[j]
     if (raw.trim() === '') break
-    if (lineIndentLevel(raw) !== depth) break
+    if (lineIndentChars(raw) !== depth) break
     const line = stripIndent(raw, depth)
-    if (line.startsWith('\\') && matchesBlockTrigger(line.slice(1))) {
+    if (isEscapedTriggerLine(line)) {
       textLines.push(line.slice(1))
       j++
       continue
@@ -382,7 +544,7 @@ function consumeParagraphRun(lines: string[], start: number, end: number, depth:
     textLines.push(stripIndent(lines[start], depth))
     j = start + 1
   }
-  blocksOut.push({ type: 'paragraph', content: tokenizeInlineWithMarker(textLines.join('\n')) })
+  blocksOut.push({ type: 'paragraph', content: tokenizeLinesWithMarker(textLines) })
   return j
 }
 
@@ -408,6 +570,9 @@ function consumeListItem(lines: string[], start: number, end: number, depth: num
   } else {
     type = 'bulletListItem'
     ownFirstLineText = (bulletMatch as RegExpExecArray)[1]
+    // 通常の箇条書きの文字が `[ ] `/`[x] ` で始まると、素の Markdown ではチェック
+    // 項目と区別が付かない。書き出し側は `\[` で逃がすので、ここで一段だけ外す。
+    if (/^\\\[[ xX]\]/.test(ownFirstLineText)) ownFirstLineText = ownFirstLineText.slice(1)
   }
 
   const ownTextLines = [ownFirstLineText]
@@ -422,17 +587,19 @@ function consumeListItem(lines: string[], start: number, end: number, depth: num
       break
     }
     const nextRaw = lines[k]
-    const nextIndent = lineIndentLevel(nextRaw)
+    const nextIndent = lineIndentChars(nextRaw)
 
     if (nextIndent <= depth) {
       j = k
       break
     }
 
-    // nextIndent > depth: 子リスト or このアイテムの続き行
-    const childLevel = depth + 1
+    // nextIndent > depth: 子リスト or このアイテムの続き行。子の基準幅は「今より
+    // 深く字下げされていれば良い」とし、実際にその行が使っている幅をそのまま
+    // 採用する(AI がよく書く3〜4スペースの字下げもそのまま子として受ける)。
+    const childLevel = nextIndent
     const childStripped = stripIndent(nextRaw, childLevel)
-    if (nextIndent === childLevel && (CHECK_RE.test(childStripped) || BULLET_RE.test(childStripped) || NUMBERED_RE.test(childStripped))) {
+    if (CHECK_RE.test(childStripped) || BULLET_RE.test(childStripped) || NUMBERED_RE.test(childStripped)) {
       const { blocks: childBlocks, nextIndex } = parseBlocks(lines, k, end, childLevel)
       children.push(...childBlocks)
       j = nextIndex
@@ -441,12 +608,12 @@ function consumeListItem(lines: string[], start: number, end: number, depth: num
 
     // 字下げされた非リスト行 → 内容を落とさないため、このアイテム自身のテキストの続きとして扱う
     let contLine = stripIndent(nextRaw, childLevel)
-    if (contLine.startsWith('\\') && matchesBlockTrigger(contLine.slice(1))) contLine = contLine.slice(1)
+    if (isEscapedTriggerLine(contLine)) contLine = contLine.slice(1)
     ownTextLines.push(contLine)
     j = k + 1
   }
 
-  const block: MinutesBlock = { type, content: tokenizeInlineWithMarker(ownTextLines.join('\n')) }
+  const block: MinutesBlock = { type, content: tokenizeLinesWithMarker(ownTextLines) }
   if (Object.keys(props).length) block.props = props
   if (children.length) block.children = children
   return { block, nextIndex: j }
@@ -463,13 +630,13 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
       continue
     }
 
-    const indent = lineIndentLevel(raw)
+    const indent = lineIndentChars(raw)
     if (indent < depth) break
 
     if (indent > depth) {
       // このレベルに対応する親が無い字下げ行 → 生テキストとして保持する(内容を落とさない)
       const textLines: string[] = []
-      while (i < end && lines[i].trim() !== '' && lineIndentLevel(lines[i]) > depth) {
+      while (i < end && lines[i].trim() !== '' && lineIndentChars(lines[i]) > depth) {
         textLines.push(lines[i])
         i++
       }
@@ -477,7 +644,7 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
         textLines.push(raw)
         i++
       }
-      blocks.push({ type: 'paragraph', content: tokenizeInlineWithMarker(textLines.join('\n')) })
+      blocks.push({ type: 'paragraph', content: tokenizeLinesWithMarker(textLines) })
       continue
     }
 
@@ -485,18 +652,22 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
 
     const fenceMatch = FENCE_RE.exec(line)
     if (fenceMatch) {
-      const lang = fenceMatch[1] || ''
+      const fenceLen = fenceMatch[1].length
+      const lang = fenceMatch[2].trim()
+      // 閉じは「開きと同じ数以上のバッククォートだけの行」。開きが4個以上なら
+      // 中に3個の```が出てきても閉じにならない(書き出し側もこれに合わせる)。
+      const closeRe = new RegExp('^`{' + fenceLen + ',}\\s*$')
       i++
       const codeLines: string[] = []
       let closed = false
       while (i < end) {
         const l = lines[i]
-        if (lineIndentLevel(l) === depth && /^```\s*$/.test(stripIndent(l, depth))) {
+        if (lineIndentChars(l) === depth && closeRe.test(stripIndent(l, depth))) {
           i++
           closed = true
           break
         }
-        codeLines.push(lineIndentLevel(l) >= depth ? stripIndent(l, depth) : l)
+        codeLines.push(lineIndentChars(l) >= depth ? stripIndent(l, depth) : l)
         i++
       }
       void closed // 閉じないフェンスでも、末尾まで読み切って内容を落とさない
@@ -504,22 +675,22 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
       continue
     }
 
-    if (line.startsWith('\\') && matchesBlockTrigger(line.slice(1))) {
+    if (isEscapedTriggerLine(line)) {
       i = consumeParagraphRun(lines, i, end, depth, blocks)
       continue
     }
 
     const headingMatch = HEADING_RE.exec(line)
     if (headingMatch) {
-      blocks.push({ type: 'heading', props: { level: headingMatch[1].length }, content: tokenizeInlineWithMarker(headingMatch[2]) })
+      blocks.push({ type: 'heading', props: { level: headingMatch[1].length }, content: tokenizeLinesWithMarker([headingMatch[2]]) })
       i++
       continue
     }
 
-    if (/^\|/.test(line) && i + 1 < end && lineIndentLevel(lines[i + 1]) === depth && TABLE_SEP_RE.test(stripIndent(lines[i + 1], depth))) {
+    if (/^\|/.test(line) && i + 1 < end && lineIndentChars(lines[i + 1]) === depth && TABLE_SEP_RE.test(stripIndent(lines[i + 1], depth))) {
       const rowLines: string[] = [line]
       let j = i + 2
-      while (j < end && lineIndentLevel(lines[j]) === depth && /^\|/.test(stripIndent(lines[j], depth))) {
+      while (j < end && lineIndentChars(lines[j]) === depth && /^\|/.test(stripIndent(lines[j], depth))) {
         rowLines.push(stripIndent(lines[j], depth))
         j++
       }
@@ -619,25 +790,26 @@ function inlineItemToText(item: unknown): string {
  * そのまま連結して `***`/`****` のような曖昧な連続記号を生み、再解析で構造が壊れる
  * （例: bold→bold+italic→bold の並びを素朴に wrap すると `**a****b*****c**` になる）。
  */
-/** U+200B(幅ゼロ文字)。`*`系の区切り記号どうしが連結して `***`/`****` のような
- * 曖昧な連続記号になるのを防ぐためだけに挟む。見た目には影響しない。 */
-const ZERO_WIDTH_GUARD = '\u200B'
+interface StyleStackEntry {
+  styles: MergeableStyle[]
+  delim: string
+}
 
 function renderTextRunList(items: readonly unknown[]): string {
   let out = ''
-  const openStack: MergeableStyle[] = []
+  const openStack: StyleStackEntry[] = []
 
   // `*` の区切り記号どうしが素朴に連結すると、再解析時に単独の `*`(斜体)と
-  // `**`(太字)の境界があいまいになる(例: bold→bold+italic→bold を素朴に閉じ開き
-  // すると `**a****b*****c**` のようになり構造が壊れる)。直前が `*` で終わり、
-  // これから書く区切りも `*` から始まる場合だけ、幅ゼロ文字を1つ挟んで区切る。
+  // `**`(太字)の境界があいまいになる。最後の保険として、直前が `*` で終わり
+  // これから書く区切りも `*` から始まる場合だけ、幅ゼロ文字を1つ挟む
+  // (通常は下の「太字+斜体をまとめて `***` にする」処理でここに来ない)。
   const append = (delim: string) => {
     if (delim.startsWith('*') && out.endsWith('*')) out += ZERO_WIDTH_GUARD
     out += delim
   }
-  const closeTo = (common: number) => {
-    while (openStack.length > common) {
-      append(STYLE_DELIM[openStack.pop() as MergeableStyle])
+  const closeTo = (entryCount: number) => {
+    while (openStack.length > entryCount) {
+      append((openStack.pop() as StyleStackEntry).delim)
     }
   }
 
@@ -652,12 +824,36 @@ function renderTextRunList(items: readonly unknown[]): string {
         continue
       }
       const wanted = STYLE_ORDER.filter((s) => styles[s])
+
+      // openStack をスタイル単位に展開して wanted との共通の頭を求める
+      const flatOpen: MergeableStyle[] = []
+      openStack.forEach((entry) => flatOpen.push(...entry.styles))
       let common = 0
-      while (common < openStack.length && common < wanted.length && openStack[common] === wanted[common]) common++
-      closeTo(common)
-      for (let k = common; k < wanted.length; k++) {
+      while (common < flatOpen.length && common < wanted.length && flatOpen[common] === wanted[common]) common++
+
+      // common がエントリの境目でない(bold+italic の片方だけ落とす等)場合は、
+      // そのエントリごと閉じる。丸め込みで足りなくなった分は下の open で開き直す。
+      let cum = 0
+      let entryCommon = 0
+      for (const entry of openStack) {
+        if (cum + entry.styles.length > common) break
+        cum += entry.styles.length
+        entryCommon++
+      }
+      closeTo(entryCommon)
+
+      for (let k = cum; k < wanted.length; ) {
+        // bold の直後に italic を同時に開く場合は `***` としてまとめて開く。
+        // 個別に `**`+`*` を書くと再解析時に閉じ側と結合して曖昧になるため。
+        if (wanted[k] === 'bold' && wanted[k + 1] === 'italic') {
+          append('***')
+          openStack.push({ styles: ['bold', 'italic'], delim: '***' })
+          k += 2
+          continue
+        }
         append(STYLE_DELIM[wanted[k]])
-        openStack.push(wanted[k])
+        openStack.push({ styles: [wanted[k]], delim: STYLE_DELIM[wanted[k]] })
+        k += 1
       }
       out += escapeText(text)
       continue
@@ -685,7 +881,11 @@ function contentArrayToText(contentRaw: unknown): string {
     filtered.push(it)
   }
   const text = renderTextRunList(filtered)
-  return markerId !== null ? `${text} <!--task:${markerId}-->` : text
+  if (markerId === null) return text
+  // 目印は元の並び順に関わらず「最初の行の行末」に正規化する(HIGH-1参照)。
+  const lines = text.split('\n')
+  lines[0] = `${lines[0]} <!--task:${markerId}-->`
+  return lines.join('\n')
 }
 
 function getCellContent(cell: unknown): unknown {
@@ -694,13 +894,30 @@ function getCellContent(cell: unknown): unknown {
   return []
 }
 
+/**
+ * タスク化の目印は SPEC 行(checkListItem)の1行目のためのもので、表のセルには
+ * 意味を持たない(DB 側は表のセルを行として見ない)。`<br>` による改行の書き換えと
+ * 目印の行頭正規化が重なって不安定になるのも避けたいので、セルの中では捨てる。
+ */
+function dropTaskMarkers(contentRaw: unknown): unknown {
+  const arr = Array.isArray(contentRaw) ? contentRaw : []
+  return arr.filter((it) => !(it && typeof it === 'object' && (it as Record<string, unknown>).type === TASK_MARKER_TYPE))
+}
+
 function tableToLines(contentRaw: unknown): string[] {
   const content = contentRaw && typeof contentRaw === 'object' ? (contentRaw as Record<string, unknown>) : {}
   const rows = Array.isArray(content.rows) ? content.rows : []
   const rowTexts: string[][] = rows.map((row) => {
     const r = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
     const cells = Array.isArray(r.cells) ? r.cells : []
-    return cells.map((cell) => contentArrayToText(getCellContent(cell)).replace(/\|/g, '\\|'))
+    // 表のセルは1つの `| ... |` 行に収まる必要があるため、セル内の改行は `<br>` で書く
+    // (読み込み側で `\n` に戻す)。生の改行のままだと行が割れて表そのものが壊れる。
+    // セルの前後の空白は読み込み側で必ず trim される(splitTableRow)ため、
+    // 書き出す時点で先に落としておかないと2回目の変換で消えて不安定になる。
+    return cells.map((cell) => {
+      const rendered = contentArrayToText(dropTaskMarkers(getCellContent(cell))).replace(/\n/g, '<br>').replace(/\|/g, '\\|')
+      return fixEscapeBoundaryAfterTrim(rendered, rendered.trim())
+    })
   })
   if (rowTexts.length === 0) return []
   const colCount = rowTexts[0].length
@@ -717,13 +934,80 @@ function escapeLineStart(line: string): string {
   return matchesBlockTrigger(line) ? '\\' + line : line
 }
 
+/**
+ * マーカー/見出しの `#`/リストの `- ` などの直後にある先頭の空白は、再解析の
+ * 貪欲な区切り([ \t]+)に飲み込まれ区別が付かないため先に落とす(見出し・
+ * リスト項目の共通処理)。ここで初めて `~` が文字列の先頭に来ることがあり、
+ * `escapeText` は元の(空白込みの)位置で判断済みなので、先頭に来た `~` を
+ * ここで改めて逃がす(`*`/`` ` `` は位置によらず常に逃がすのでこの問題はない)。
+ */
+/**
+ * `text` の前後にある空白を落とした後、新たに先頭/末尾の境界に出てきた
+ * 単独の `~` や `\` を逃がす。`escapeText` はエスケープ時点での位置で
+ * 判断済みなので、後から空白を落として境界に来ても気づけない(この関数を
+ * 呼ぶ側が trim している)。本物の取り消し線の開閉 `~~` や、すでに逃がして
+ * ある `\\` はここでは触らない(空白を落としても状態が変わっていない=
+ * もともと境界にあった、とみなせるため対象外)。
+ */
+function fixEscapeBoundaryAfterTrim(original: string, trimmed: string): string {
+  if (trimmed === original) return trimmed
+  let s = trimmed
+  const leadingTrimmed = original.length - original.replace(/^\s+/, '').length > 0
+  const trailingTrimmed = original.length - original.replace(/\s+$/, '').length > 0
+  if (leadingTrimmed) {
+    if (s.startsWith('~') && s[1] !== '~' && !s.startsWith('\\~')) s = '\\' + s
+    // 先頭の `\` は元の位置では常に(次の文字次第で)判断済みなので、ここで
+    // 新たに先頭に来ても直後の文字との関係は変わらず、追加のエスケープは不要。
+  }
+  if (trailingTrimmed) {
+    if (s.endsWith('~') && s[s.length - 2] !== '~' && s[s.length - 2] !== '\\') s = s.slice(0, -1) + '\\~'
+    // 末尾の単独 `\`(直後が改行/末尾でなかったため元は逃がされなかったもの)は、
+    // 空白を落として初めて「見た目上の末尾」になるのでここで逃がす。
+    else if (countTrailingBackslashes(s) % 2 === 1) s += '\\'
+  }
+  return s
+}
+
+function countTrailingBackslashes(s: string): number {
+  let n = 0
+  for (let i = s.length - 1; i >= 0 && s[i] === '\\'; i--) n++
+  return n
+}
+
+function trimLeadingSeparatorWhitespace(text: string): string {
+  return fixEscapeBoundaryAfterTrim(text, text.replace(/^[ \t]+/, ''))
+}
+
+/**
+ * 段落/リスト項目の複数行テキストの中に埋め込まれた空行(空白のみの行)を落とす。
+ * パーサーは空行に出会うと段落/項目をそこで終えてしまう(空行をまたいで
+ * 1つのブロックとして続けることはない)ため、埋め込み空行をそのまま書き出すと
+ * 再解析のたびに構造が変わって不安定になる。書き出す時点で先に畳んでおく。
+ * テキスト全体が空(単独の空段落)のときはそのまま('')残す。
+ */
+function collapseEmbeddedBlankLines(text: string): string {
+  // 改行を含まない(単独の空段落を含む)ときはそのまま返す。改行入りで全行が
+  // 空白のときは、複数の空行と1個の空文字列は再解析後に見分けが付かないので
+  // 空文字列に正規化する(空行を2本以上残すと、その本数が再解析のたびに変わる)。
+  if (!text.includes('\n')) return text
+  const lines = text.split('\n').filter((l) => l.trim() !== '')
+  return lines.join('\n')
+}
+
 function textToLines(text: string): string[] {
-  return text.split('\n').map(escapeLineStart)
+  return collapseEmbeddedBlankLines(text).split('\n').map(escapeLineStart)
 }
 
 function itemLines(marker: string, text: string): string[] {
-  const parts = text.split('\n')
-  const first = marker + parts[0]
+  const parts = collapseEmbeddedBlankLines(text).split('\n')
+  // マーカーと文字の間の区切り(`[ \t]+`/`[ \t]*`)は再解析時に貪欲にすべての
+  // 空白を飲み込むため、文字側の先頭にある余分な空白は区別が付かず消える。
+  // 書き出す時点で先に落としておく(見出しの先頭空白と同じ理由)。
+  const firstPart = trimLeadingSeparatorWhitespace(parts[0])
+  // 普通の箇条書き(`- `)の文字が `[ ] `/`[x] ` で始まると素の Markdown では
+  // チェック項目と区別できない。`\[` で逃がし、普通の箇条書きのまま読み戻せるようにする。
+  const firstText = marker === '- ' && /^\[[ xX]\]/.test(firstPart) ? '\\' + firstPart : firstPart
+  const first = marker + firstText
   const rest = parts.slice(1).map((l) => '  ' + escapeLineStart(l))
   return [first, ...rest]
 }
@@ -752,7 +1036,11 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
   switch (block.type) {
     case 'heading': {
       const level = Math.min(Math.max(Number(block.props.level) || 1, 1), 3)
-      return ['#'.repeat(level) + ' ' + contentArrayToText(block.content)]
+      // 見出しは1行だけの形。中身に生の改行が混じっていたら空白に置き換える
+      // (`<br>` は表セル用の約束ごとなので見出しでは使わない)。先頭の空白は
+      // `#` との区切りと再解析時に見分けが付かず飲み込まれるので、先に落とす。
+      const text = trimLeadingSeparatorWhitespace(contentArrayToText(block.content).replace(/\n/g, ' '))
+      return ['#'.repeat(level) + ' ' + text]
     }
     case 'paragraph':
       return textToLines(contentArrayToText(block.content))
@@ -771,7 +1059,11 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
     case 'codeBlock': {
       const lang = typeof block.props.language === 'string' ? block.props.language : ''
       const text = extractPlainText(block.content)
-      return ['```' + lang, ...text.split('\n'), '```']
+      // 中身に ``` 相当の行があると、そのまま3つのバッククォートで囲むと途中で
+      // 閉じてしまう。中身の最長のバッククォート連続より長いフェンスで囲む。
+      const longestBacktickRun = (text.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0)
+      const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1))
+      return [fence + lang, ...text.split('\n'), fence]
     }
     default: {
       const text = extractPlainText(block.content) || extractPlainText(block.children)
@@ -784,16 +1076,68 @@ function isListItemBlockType(type: string): boolean {
   return type === 'bulletListItem' || type === 'checkListItem' || type === 'numberedListItem'
 }
 
-function serializeBlockList(blocks: unknown[], indentLevel: number): string[] {
-  const prefix = '  '.repeat(indentLevel)
+/** `SPEC(` で始まる checkListItem か(タスク化 RPC が拾う SPEC 項目)。 */
+function isSpecCheckItem(block: NormalizedBlockView): boolean {
+  if (block.type !== 'checkListItem') return false
+  return /^SPEC\(/.test(contentArrayToText(block.content))
+}
+
+interface FlatEntry {
+  block: NormalizedBlockView
+  indent: number
+}
+
+/**
+ * ブロック木を「実際に書き出す行の並び」へ平らにする(方式b)。
+ *
+ * - SPEC 項目(`SPEC(` で始まる checkListItem)は、木のどこにあっても常に最上位
+ *   (字下げなし)に出す。DB 側(SQL)は minutes_md の各行を単独で見て
+ *   `^-\s*\[\s*\]\s*SPEC\(...)` に一致するかだけを判定するため、字下げされた
+ *   SPEC 行は「未処理の行」として認識されず、タスクが作られない(実際に踏んだ不具合)。
+ * - 字下げ(2スペース)で読み戻せるのは「リスト項目の子がリスト項目」のときだけ
+ *   (パーサーが子リストとして認識する形はそれだけ)。それ以外の組み合わせ
+ *   (段落/見出しの子、SPEC項目の子、非リスト種別の子)は字下げせず、親と同じ段
+ *   として直後に並べる。関係は失われるが、読み戻しても壊れない形を優先する。
+ */
+function flattenBlocks(blocks: readonly unknown[], indent: number, out: FlatEntry[]): void {
+  for (const raw of blocks) {
+    const block = normalizeBlock(raw)
+    const isSpec = isSpecCheckItem(block)
+    const effectiveIndent = isSpec ? 0 : indent
+    out.push({ block, indent: effectiveIndent })
+
+    if (block.children.length === 0) continue
+    const parentIsIndentableList = isListItemBlockType(block.type) && !isSpec
+    for (const childRaw of block.children) {
+      const childBlock = normalizeBlock(childRaw)
+      const childIndent = parentIsIndentableList && isListItemBlockType(childBlock.type) ? effectiveIndent + 1 : effectiveIndent
+      flattenBlocks([childRaw], childIndent, out)
+    }
+  }
+}
+
+/** 空の paragraph か(SPEC 判定用の contentArrayToText 呼び出しと共有できるよう独立させる)。 */
+function isEmptyParagraph(block: NormalizedBlockView): boolean {
+  return block.type === 'paragraph' && contentArrayToText(block.content) === ''
+}
+
+function serializeBlockList(blocks: unknown[]): string[] {
+  const flat: FlatEntry[] = []
+  flattenBlocks(blocks, 0, flat)
+
+  // 空段落は、他に何も無ければ「空の議事録」の唯一のしるしとして残し(''を返す)、
+  // それ以外(間に挟まる・末尾に付く等)は落とす。ブロック間の空行と見分けが付かず、
+  // そのまま書くと再解析のたびに空行の数が変わって不安定になるため。
+  const normalized = flat.length > 1 ? flat.filter(({ block }) => !isEmptyParagraph(block)) : flat
+
   const out: string[] = []
   let prevWasListItem = false
+  let prevIndent = -1
   let numCounter = 0
   let numPrevWasNumbered = false
   let isFirst = true
 
-  for (const raw of blocks) {
-    const block = normalizeBlock(raw)
+  for (const { block, indent } of normalized) {
     const isListItem = isListItemBlockType(block.type)
 
     if (!isFirst && !(prevWasListItem && isListItem)) out.push('')
@@ -801,8 +1145,11 @@ function serializeBlockList(blocks: unknown[], indentLevel: number): string[] {
 
     let computedNumber: number | null = null
     if (block.type === 'numberedListItem') {
+      // BlockNote は「直前も numberedListItem」なら途中の start を無視して連番の
+      // まま数える(実機で確認)。start が効くのは連番の先頭アイテムだけ。
       const explicitStart = typeof block.props.start === 'number' ? block.props.start : null
-      computedNumber = explicitStart !== null ? explicitStart : numPrevWasNumbered ? numCounter + 1 : 1
+      const continuesRun = numPrevWasNumbered && prevIndent === indent
+      computedNumber = continuesRun ? numCounter + 1 : (explicitStart ?? 1)
       numCounter = computedNumber
       numPrevWasNumbered = true
     } else {
@@ -810,13 +1157,11 @@ function serializeBlockList(blocks: unknown[], indentLevel: number): string[] {
       numCounter = 0
     }
 
+    const prefix = '  '.repeat(indent)
     out.push(...blockToLines(block, computedNumber).map((l) => prefix + l))
 
-    if (block.children.length) {
-      out.push(...serializeBlockList(block.children, indentLevel + 1))
-    }
-
     prevWasListItem = isListItem
+    prevIndent = indent
   }
 
   return out
@@ -830,5 +1175,5 @@ function serializeBlockList(blocks: unknown[], indentLevel: number): string[] {
 export function serializeMinutesBlocks(blocks: ReadonlyArray<unknown>): string {
   const arr = Array.isArray(blocks) ? blocks : []
   if (arr.length === 0) return ''
-  return serializeBlockList(arr, 0).join('\n')
+  return serializeBlockList(arr).join('\n')
 }
