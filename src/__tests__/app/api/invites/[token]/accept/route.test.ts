@@ -61,6 +61,12 @@ const orgMembershipMaybeSingleMock = vi.fn(() => Promise.resolve(orgMembershipRe
 const inviteUpdateEqMock = vi.fn(() => Promise.resolve({ error: null }))
 const inviteUpdateMock = vi.fn(() => ({ eq: inviteUpdateEqMock }))
 
+// 近道（すでに space のメンバー）でも、招待中の担当者として置かれていたタスクの
+// 引き継ぎ（20260910201400_accept_invite_handover_assignee.sql と同じ update）を行う
+let taskHandoverUpdateResponse: { error: { message: string } | null }
+const taskHandoverUpdateEqMock = vi.fn(() => Promise.resolve(taskHandoverUpdateResponse))
+const taskHandoverUpdateMock = vi.fn(() => ({ eq: taskHandoverUpdateEqMock }))
+
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => rateLimitAllowedMock(...args),
   getClientIp: () => '127.0.0.1',
@@ -125,6 +131,11 @@ vi.mock('@/lib/supabase/admin', () => ({
           upsert: notificationsUpsertMock,
         }
       }
+      if (table === 'tasks') {
+        return {
+          update: taskHandoverUpdateMock,
+        }
+      }
       return {}
     }),
     auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) }, 
@@ -163,6 +174,7 @@ describe('POST /api/invites/[token]/accept', () => {
     notificationsUpsertResponse = { error: null }
     spaceMembershipResponse = { data: null, error: null }
     orgMembershipResponse = { data: null, error: null }
+    taskHandoverUpdateResponse = { error: null }
   })
 
   it('returns 404 when the token does not match any invite', async () => {
@@ -385,6 +397,41 @@ describe('POST /api/invites/[token]/accept', () => {
       expect(inviteUpdateEqMock).toHaveBeenCalledWith('id', baseInvite.id)
     })
 
+    // rpc_accept_invite はこの近道を通らないため、招待中の担当者として置かれていた
+    // タスクの引き継ぎ（20260910201400_accept_invite_handover_assignee.sql）もここで
+    // 明示的に行う必要がある。忘れるとタスクが「受諾済みの招待」を指したまま残る
+    it('すでに space のメンバーで、招待に割り当てたタスクがあると、そのタスクが本人に移る', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      spaceMembershipResponse = { data: { id: 'sm-1' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(200)
+      expect(taskHandoverUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assignee_id: 'existing-user-1',
+          assignee_invite_id: null,
+        })
+      )
+      expect(taskHandoverUpdateEqMock).toHaveBeenCalledWith('assignee_invite_id', baseInvite.id)
+      // 引き継ぎのあとで受諾済みにする
+      expect(inviteUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({ accepted_at: expect.any(String) })
+      )
+    })
+
+    it('引き継ぎに失敗したら500で返し、受諾済みにしない（次にやり直せる）', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      spaceMembershipResponse = { data: { id: 'sm-1' }, error: null }
+      taskHandoverUpdateResponse = { error: { message: 'db error' } }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(500)
+      expect(inviteUpdateMock).not.toHaveBeenCalled()
+      expect(notificationsUpsertMock).not.toHaveBeenCalled()
+    })
+
     it('すでに社内メンバー(member)として組織にいる人が、相手先向けの招待を受けようとしたら409＋日本語', async () => {
       authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
       inviteSelectResponse = { data: { ...baseInvite, role: 'client' }, error: null }
@@ -439,6 +486,18 @@ describe('POST /api/invites/[token]/accept', () => {
       authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
       inviteSelectResponse = { data: { ...baseInvite, role: 'client' }, error: null }
       acceptRpcResponse = { data: { org_id: 'org-1', space_id: 'space-1', role: 'client' }, error: null }
+      orgMembershipResponse = { data: { role: 'client' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(200)
+      expect(adminRpcMock).toHaveBeenCalled()
+    })
+
+    it('組織の役割と招待の種類が合っていれば、これまでどおり受諾できる（相手先(client)の人が、まだいないspaceの協力会社(vendor)向けの招待を受ける）', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      inviteSelectResponse = { data: { ...baseInvite, role: 'vendor' }, error: null }
+      acceptRpcResponse = { data: { org_id: 'org-1', space_id: 'space-1', role: 'vendor' }, error: null }
       orgMembershipResponse = { data: { role: 'client' }, error: null }
 
       const response = await callPost(VALID_TOKEN, {})

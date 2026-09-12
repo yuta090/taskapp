@@ -164,11 +164,34 @@ export async function POST(
     if (existingSpaceMembership) {
       // すでにこの space のメンバー: 人数枠チェックも RPC も通さず、招待だけ受諾済みにする
       // （on conflict do nothing で無害とはいえ、定員に達した組織で再クリックすると
-      // rpc_check_org_limits の枠チェックにだけ引っかかって失敗して見える不具合を避ける）
-      await admin
+      // rpc_check_org_limits の枠チェックにだけ引っかかって失敗して見える不具合を避ける）。
+      //
+      // rpc_accept_invite はこの近道を通らないため、招待中の担当者として置かれていた
+      // タスクの引き継ぎ（20260910201400_accept_invite_handover_assignee.sql の
+      // 本文と同じ update）もここで行う。排他制約（tasks_single_assignee_chk）に
+      // 当たらないよう、assignee_id と assignee_invite_id は同じ update で書く。
+      const nowIso = new Date().toISOString()
+      const { error: handoverError } = await admin
+        .from('tasks')
+        .update({ assignee_id: userId, assignee_invite_id: null, updated_at: nowIso })
+        .eq('assignee_invite_id', inviteRow.id)
+
+      if (handoverError) {
+        console.error('Failed to hand over assignee-invite tasks:', handoverError)
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+      }
+
+      // 引き継ぎが済んでから受諾済みにする。ここが失敗したら受諾済みにしない
+      // （次に押したときにもう一度やり直せるようにする）
+      const { error: acceptMarkError } = await admin
         .from('invites')
-        .update({ accepted_at: new Date().toISOString() })
+        .update({ accepted_at: nowIso })
         .eq('id', inviteRow.id)
+
+      if (acceptMarkError) {
+        console.error('Failed to mark invite as accepted:', acceptMarkError)
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+      }
 
       await notifyInviter(admin, inviteRow, userId)
 
