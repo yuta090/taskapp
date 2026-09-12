@@ -1,4 +1,6 @@
+import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import BillingPageClient, { type BillingRow } from './BillingPageClient'
 
 interface OrgRow { id: string; name: string }
@@ -40,6 +42,11 @@ async function fetchBillingData(): Promise<BillingRow[]> {
 }
 
 export default async function AdminBillingPage() {
+  // (panel) layout でも門番を通しているが、service role でデータを取るページなので
+  // データ取得の直前でも確認する（Next.js の推奨: 認可はデータ源の近くで）。
+  const currentUserId = await verifySuperadmin()
+  if (!currentUserId) redirect('/admin/login')
+
   const rows = await fetchBillingData()
   return <BillingPageClient initialData={rows} />
 }

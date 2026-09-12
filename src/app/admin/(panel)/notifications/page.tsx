@@ -1,4 +1,6 @@
+import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
 import {
@@ -8,6 +10,11 @@ import {
 } from '@/lib/notifications/labels'
 
 export default async function AdminNotificationsPage() {
+  // (panel) layout でも門番を通しているが、service role でデータを取るページなので
+  // データ取得の直前でも確認する（Next.js の推奨: 認可はデータ源の近くで）。
+  const currentUserId = await verifySuperadmin()
+  if (!currentUserId) redirect('/admin/login')
+
   const admin = createAdminClient()
 
   const [
