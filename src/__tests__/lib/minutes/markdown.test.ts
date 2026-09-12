@@ -25,15 +25,19 @@ function extractSqlPattern(sql: string, label: string): string {
 }
 
 /**
- * 議事録→タスク化 RPC の**最新の定義**が入っているマイグレーションを探して読む。
+ * 指定した RPC の**最新の定義**が入っているマイグレーションを探して読む。
  * ファイル名を決め打ちすると、あとから RPC を作り直す(create or replace)
  * マイグレーションが増えたときに古い定義と突き合わせてしまい、SQL と TS の
- * ずれを見逃す。マイグレーションは名前順=適用順なので、名前順で最後に
- * `rpc_parse_meeting_minutes` を定義しているファイルを正本として扱う。
+ * ずれを見逃す。マイグレーションは名前順=適用順なので、名前順で最後にその関数を
+ * 定義しているファイルを正本として扱う。
+ *
+ * 関数ごとに探すのは、2 つの RPC が同じファイルに入っているとは限らないため。
+ * 片方だけを作り直すマイグレーション（タスク化だけを直す等）では、もう一方の
+ * 正本は前のファイルに残る。
  */
-function readLatestMinutesRpcMigration(): { file: string; sql: string } {
+function readLatestMigrationDefining(fnName: string): { file: string; sql: string } {
   const dir = join(__dirname, '../../../../supabase/migrations')
-  const defines = /create\s+or\s+replace\s+function\s+(?:public\.)?rpc_parse_meeting_minutes/i
+  const defines = new RegExp(`create\\s+or\\s+replace\\s+function\\s+(?:public\\.)?${fnName}`, 'i')
   const files = readdirSync(dir)
     .filter((f) => f.endsWith('.sql'))
     .sort()
@@ -41,7 +45,7 @@ function readLatestMinutesRpcMigration(): { file: string; sql: string } {
     const sql = readFileSync(join(dir, files[i]), 'utf-8')
     if (defines.test(sql)) return { file: files[i], sql }
   }
-  throw new Error('rpc_parse_meeting_minutes を定義するマイグレーションが見つかりません')
+  throw new Error(`${fnName} を定義するマイグレーションが見つかりません`)
 }
 
 describe('parseMinutesMarkdown: 空入力', () => {
@@ -381,21 +385,32 @@ describe('不変条件5: どんな入力でも例外を出さない', () => {
 })
 
 describe('不変条件6: SQL(最新マイグレーション)の正規表現とTS側の定数が一致する', () => {
+  /** 有無だけを見る v_has_marker はTS側から捕捉グループを外した形と一致する */
+  function expectHasMarkerMatches(sql: string) {
+    const hasMarkerMatches = [...sql.matchAll(/v_has_marker := v_line ~ '([^']+)'/g)]
+    expect(hasMarkerMatches.length).toBeGreaterThan(0)
+    const withoutGroup = TASK_MARKER_REGEX.source.replace('([^>]+)', '[^>]+')
+    for (const m of hasMarkerMatches) expect(m[1]).toBe(withoutGroup)
+  }
+
   it('rpc_parse_meeting_minutes の SPEC_LINE_REGEX / TASK_MARKER_REGEX と文字列一致する', () => {
-    const { file, sql } = readLatestMinutesRpcMigration()
+    const { file, sql } = readLatestMigrationDefining('rpc_parse_meeting_minutes')
     expect(file).toMatch(/\.sql$/)
     const specPattern = extractSqlPattern(sql, 'v_line')
     expect(specPattern).toBe(SPEC_LINE_REGEX.source)
+    expectHasMarkerMatches(sql)
+  })
+
+  it('rpc_get_minutes_preview(候補確認)の正規表現も一致する', () => {
+    const { file, sql } = readLatestMigrationDefining('rpc_get_minutes_preview')
+    expect(file).toMatch(/\.sql$/)
+    expect(extractSqlPattern(sql, 'v_line')).toBe(SPEC_LINE_REGEX.source)
+    expectHasMarkerMatches(sql)
     // 目印の取り出し(substring)は「末尾アンカー無し」でTS側の捕捉グループ部分と一致する
     const extractMatches = [...sql.matchAll(/substring\(v_line from '(<!--task:\([^']+)'\)/g)]
     expect(extractMatches.length).toBeGreaterThan(0)
     const withoutAnchor = TASK_MARKER_REGEX.source.replace(/\\s\*\$$/, '')
     for (const m of extractMatches) expect(m[1]).toBe(withoutAnchor)
-    // 有無だけを見る v_has_marker はTS側から捕捉グループを外した形と一致する
-    const hasMarkerMatches = [...sql.matchAll(/v_has_marker := v_line ~ '([^']+)'/g)]
-    expect(hasMarkerMatches.length).toBeGreaterThan(0)
-    const withoutGroup = TASK_MARKER_REGEX.source.replace('([^>]+)', '[^>]+')
-    for (const m of hasMarkerMatches) expect(m[1]).toBe(withoutGroup)
   })
 })
 

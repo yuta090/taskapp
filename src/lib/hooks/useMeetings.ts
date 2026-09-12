@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
 import { getCachedUser } from '@/lib/supabase/cached-auth'
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import { fetchMeetingsQuery, MEETING_DETAIL_COLUMNS } from '@/lib/supabase/queries'
 import type { MeetingsQueryData } from '@/lib/supabase/queries'
 import type { Meeting, MeetingParticipant } from '@/types/database'
@@ -39,13 +40,10 @@ export interface ParseMinutesResult {
 /**
  * 議事録の Web 保存で「開いたときの updated_at のままの行だけ書く」楽観ロックが
  * 0 行にマッチしたときの失敗（＝別の場所で本文が更新済み）。DB エラーとは区別する。
+ * 定義は '@/lib/minutes/errors' に移した（タスク化の RPC からも同じ型を投げるため。
+ * 理由はそのファイルのコメント）。ここからの再輸出は既存の import を保つためのもの。
  */
-export class MinutesConflictError extends Error {
-  constructor(message = 'この議事録は、別の場所で更新されています') {
-    super(message)
-    this.name = 'MinutesConflictError'
-  }
-}
+export { MinutesConflictError }
 
 export interface MinutesPreviewResult {
   newSpecCount: number

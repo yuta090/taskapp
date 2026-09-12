@@ -4,6 +4,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import type {
   Database,
   BallSide,
@@ -48,17 +49,32 @@ interface MeetingMinutesResult {
 // Error handling wrapper
 // =============================================================================
 
+/** RPC が返した Postgres のエラー（PostgrestError の必要な分だけ） */
+interface RpcError {
+  message?: string
+  code?: string
+  details?: string | null
+  hint?: string | null
+}
+
+/**
+ * DB の例外を、画面が instanceof で見分けられる型に言い換える差し替え口。
+ * null を返したら既定どおり素の Error にする。
+ */
+type RpcErrorMapper = (error: RpcError) => Error | null
+
 async function callRpc<T>(
   client: Client,
   fnName: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  mapError?: RpcErrorMapper
 ): Promise<T> {
   const { data, error } = await (client as SupabaseClient).rpc(fnName, params as Record<string, unknown>)
 
   if (error) {
     const msg = error.message || error.details || error.hint || `RPC ${fnName} failed`
     console.error(`RPC ${fnName} failed:`, { message: msg, code: error.code, details: error.details, hint: error.hint })
-    throw new Error(msg)
+    throw mapError?.({ ...error, message: msg }) ?? new Error(msg)
   }
 
   return data as T
@@ -293,14 +309,33 @@ interface ParseMeetingMinutesResult extends RpcResult {
   updated_minutes: string
 }
 
+/**
+ * DB 側の「渡された本文が、いま DB にある本文と違う」拒否かどうかを見分ける。
+ * rpc_parse_meeting_minutes は hint='minutes_stale' を付けて例外を投げる
+ * （supabase/migrations/20260913040637_minutes_taskify_base_check.sql）。
+ * hint が届かない構成でも取りこぼさないよう、文面でも拾う。
+ */
+function isMinutesStaleError(error: RpcError): boolean {
+  if (error.hint === 'minutes_stale') return true
+  return (error.message ?? '').includes('別の場所で更新されています')
+}
+
 export async function parseMeetingMinutes(
   client: Client,
   params: ParseMeetingMinutesParams
 ): Promise<ParseMeetingMinutesResult> {
-  return callRpc<ParseMeetingMinutesResult>(client, 'rpc_parse_meeting_minutes', {
-    p_meeting_id: params.meetingId,
-    p_minutes_md: params.minutesMd,
-  })
+  return callRpc<ParseMeetingMinutesResult>(
+    client,
+    'rpc_parse_meeting_minutes',
+    {
+      p_meeting_id: params.meetingId,
+      p_minutes_md: params.minutesMd,
+    },
+    // 隙間に入った他の人・AI秘書の書き込みを消さないため、DB は本文が違えば何も書かずに
+    // 断る。画面が競合として扱えるよう（帯を出して「最新を読み込む」で復帰できるよう）、
+    // 保存が0行だったときと同じ型に言い換える。
+    (error) => (isMinutesStaleError(error) ? new MinutesConflictError(error.message) : null)
+  )
 }
 
 // =============================================================================
