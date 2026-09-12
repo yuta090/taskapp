@@ -29,6 +29,11 @@ vi.mock('@/lib/org/activeOrg', () => ({
   clearActiveOrgId: (...args: unknown[]) => mockClearActiveOrgId(...args),
 }))
 
+const mockInvalidateCachedUser = vi.fn()
+vi.mock('@/lib/supabase/cached-auth', () => ({
+  invalidateCachedUser: (...args: unknown[]) => mockInvalidateCachedUser(...args),
+}))
+
 // signOutAndLeave() 自身が既にフルページ遷移するため、その最中に onAuthStateChange の
 // SIGNED_OUT が発火しても二重リロードしないようにするためのガード。既定は false（実行中でない）
 let mockSignOutInProgress = false
@@ -490,6 +495,76 @@ describe('QueryProvider', () => {
     await waitFor(() => {
       expect(getByTestId('user').textContent).toBe('user-B')
     })
+  })
+
+  // 起動時のユーザー確認の待ちを減らす（案A）: INITIAL_SESSION は起動直後に自然に届くが、
+  // 既に本人だと分かっている（restoreClient が getSession() で先に同じ user id を確立済み）
+  // 場合にまで毎回キャッシュを消すと、認証サーバーへの往復が2回に割れてしまう。
+  // ユーザー識別が実際に変わった場合（別人・null→本人）は、これまでどおり消す
+  it('INITIAL_SESSION で同じユーザーのままなら、認証キャッシュ(getCachedUser)を消さない', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const { getByTestId } = renderProvider()
+    await waitFor(() => expect(getByTestId('user').textContent).toBe('user-A'))
+    mockInvalidateCachedUser.mockClear()
+
+    act(() => {
+      authCallback('INITIAL_SESSION', sessionFor('user-A'))
+    })
+
+    await waitFor(() => expect(getByTestId('user').textContent).toBe('user-A'))
+    expect(mockInvalidateCachedUser).not.toHaveBeenCalled()
+  })
+
+  it('INITIAL_SESSION でユーザーが変わっていれば、認証キャッシュを消す', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const { getByTestId } = renderProvider()
+    await waitFor(() => expect(getByTestId('user').textContent).toBe('user-A'))
+    mockInvalidateCachedUser.mockClear()
+
+    act(() => {
+      authCallback('INITIAL_SESSION', sessionFor('user-B'))
+    })
+
+    await waitFor(() => expect(getByTestId('user').textContent).toBe('user-B'))
+    expect(mockInvalidateCachedUser).toHaveBeenCalled()
+  })
+
+  it('INITIAL_SESSION が初回の識別確立（null→本人）なら、認証キャッシュを消す', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    const { getByTestId } = renderProvider()
+    await waitFor(() => expect(getByTestId('user').textContent).toBe('null'))
+    mockInvalidateCachedUser.mockClear()
+
+    act(() => {
+      authCallback('INITIAL_SESSION', sessionFor('user-A'))
+    })
+
+    await waitFor(() => expect(getByTestId('user').textContent).toBe('user-A'))
+    expect(mockInvalidateCachedUser).toHaveBeenCalled()
+  })
+
+  it('SIGNED_OUT・SIGNED_IN・TOKEN_REFRESHED は、ユーザーが同じでもこれまでどおり認証キャッシュを消す', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const { getByTestId } = renderProvider()
+    await waitFor(() => expect(getByTestId('user').textContent).toBe('user-A'))
+
+    mockInvalidateCachedUser.mockClear()
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-A'))
+    })
+    await waitFor(() => expect(mockInvalidateCachedUser).toHaveBeenCalledTimes(1))
+
+    mockInvalidateCachedUser.mockClear()
+    act(() => {
+      authCallback('TOKEN_REFRESHED', sessionFor('user-A'))
+    })
+    await waitFor(() => expect(mockInvalidateCachedUser).toHaveBeenCalledTimes(1))
+
+    mockInvalidateCachedUser.mockClear()
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+    await waitFor(() => expect(mockInvalidateCachedUser).toHaveBeenCalledTimes(1))
   })
 
   // --- MFA recovery: 二要素認証コード入力後は orgMemberships を必ず取り直す ------------------

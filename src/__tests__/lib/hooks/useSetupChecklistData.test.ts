@@ -16,11 +16,14 @@ function createWrapper() {
 }
 
 const mockGetUser = vi.fn()
+// getCachedUser（cached-auth.ts）はロックを避けるため getSession() でトークンを
+// ローカルに読んでから getUser(token) で検証する。既定はログイン中を表す値を返す
+const mockGetSession = vi.fn()
 const mockFrom = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { getUser: mockGetUser },
+    auth: { getSession: mockGetSession, getUser: mockGetUser },
     from: mockFrom,
   }),
 }))
@@ -79,6 +82,10 @@ describe('useSetupChecklistData', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     invalidateCachedUser()
+    mockGetSession.mockResolvedValue({
+      data: { session: { access_token: 'test-token' } },
+      error: null,
+    })
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
   })
 

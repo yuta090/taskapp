@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getCachedUser } from '@/lib/supabase/cached-auth'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type OnboardingFlagKey = 'internal_walkthrough' | 'portal_walkthrough' | 'setup_checklist'
@@ -50,7 +51,10 @@ export function useOnboardingFlag(
 
       try {
         const supabase = supabaseRef.current as SupabaseClient
-        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        // 他フックと合流する共通のキャッシュ経由（起動時に複数のフックが生の
+        // getUser() をそれぞれ呼ぶと、認証サーバーへの往復が重なって全データ取得が
+        // 順番待ちになる）
+        const { user, error: userError } = await getCachedUser(supabase)
         if (userError || !user) {
           if (!cancelled) setShouldShow(true)
           return

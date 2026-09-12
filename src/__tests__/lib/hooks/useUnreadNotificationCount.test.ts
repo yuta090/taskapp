@@ -6,7 +6,6 @@ import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCou
 import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOrgProvider'
 
 // Mock Supabase client
-const mockGetUser = vi.fn()
 const mockFrom = vi.fn()
 const mockSelect = vi.fn()
 const mockEq = vi.fn()
@@ -14,11 +13,14 @@ const mockIs = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: {
-      getUser: mockGetUser,
-    },
     from: mockFrom,
   }),
+}))
+
+// 認証確認は他フックと合流する共通の getCachedUser 経由（cached-auth.test.ts で別途検証済み）
+const mockGetCachedUser = vi.fn()
+vi.mock('@/lib/supabase/cached-auth', () => ({
+  getCachedUser: (...args: unknown[]) => mockGetCachedUser(...args),
 }))
 
 interface QueryResult {
@@ -85,7 +87,7 @@ describe('useUnreadNotificationCount', () => {
   })
 
   it('should start with loading state', () => {
-    mockGetUser.mockImplementation(() => new Promise(() => {}))
+    mockGetCachedUser.mockImplementation(() => new Promise(() => {}))
 
     const { result } = renderHook(() => useUnreadNotificationCount(), {
       wrapper: createWrapper(),
@@ -97,10 +99,7 @@ describe('useUnreadNotificationCount', () => {
   })
 
   it('should return 0 when user is not logged in', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: null },
-      error: null,
-    })
+    mockGetCachedUser.mockResolvedValue({ user: null, error: null })
 
     const { result } = renderHook(() => useUnreadNotificationCount(), {
       wrapper: createWrapper(),
@@ -115,10 +114,7 @@ describe('useUnreadNotificationCount', () => {
   })
 
   it('should return unread count when user is logged in', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-123' } },
-      error: null,
-    })
+    mockGetCachedUser.mockResolvedValue({ user: { id: 'user-123' }, error: null })
     mockIs.mockReturnValue(createQueryResult({ count: 5, error: null }))
 
     const { result } = renderHook(() => useUnreadNotificationCount(), {
@@ -134,10 +130,7 @@ describe('useUnreadNotificationCount', () => {
   })
 
   it('should return 0 when count is null', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-123' } },
-      error: null,
-    })
+    mockGetCachedUser.mockResolvedValue({ user: { id: 'user-123' }, error: null })
     mockIs.mockReturnValue(createQueryResult({ count: null, error: null }))
 
     const { result } = renderHook(() => useUnreadNotificationCount(), {
@@ -152,10 +145,7 @@ describe('useUnreadNotificationCount', () => {
   })
 
   it('should handle database error', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-123' } },
-      error: null,
-    })
+    mockGetCachedUser.mockResolvedValue({ user: { id: 'user-123' }, error: null })
     mockIs.mockReturnValue(
       createQueryResult({ count: null, error: { message: 'Database error' } })
     )
@@ -173,10 +163,7 @@ describe('useUnreadNotificationCount', () => {
   })
 
   it('should call supabase with correct query', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-123' } },
-      error: null,
-    })
+    mockGetCachedUser.mockResolvedValue({ user: { id: 'user-123' }, error: null })
     mockIs.mockReturnValue(createQueryResult({ count: 3, error: null }))
 
     renderHook(() => useUnreadNotificationCount(), {
@@ -194,10 +181,7 @@ describe('useUnreadNotificationCount', () => {
   })
 
   it('should provide refresh function', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-123' } },
-      error: null,
-    })
+    mockGetCachedUser.mockResolvedValue({ user: { id: 'user-123' }, error: null })
     mockIs.mockReturnValue(createQueryResult({ count: 2, error: null }))
 
     const { result } = renderHook(() => useUnreadNotificationCount(), {

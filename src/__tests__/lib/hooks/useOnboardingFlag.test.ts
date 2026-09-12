@@ -18,6 +18,22 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
+// check() だけ他フックと合流する共通の getCachedUser 経由にする
+// （markDone / resetOnboardingFlagOnServer は今回のスコープ外・生の getUser() のまま）
+const mockGetCachedUser = vi.fn()
+vi.mock('@/lib/supabase/cached-auth', () => ({
+  getCachedUser: (...args: unknown[]) => mockGetCachedUser(...args),
+}))
+
+function setLoggedInAs(id: string) {
+  mockGetUser.mockResolvedValue({ data: { user: { id } }, error: null })
+  mockGetCachedUser.mockResolvedValue({ user: { id }, error: null })
+}
+function setLoggedOut() {
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: null })
+  mockGetCachedUser.mockResolvedValue({ user: null, error: null })
+}
+
 describe('useOnboardingFlag', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -45,11 +61,11 @@ describe('useOnboardingFlag', () => {
       expect(result.current.shouldShow).toBe(false)
     })
 
-    expect(mockGetUser).not.toHaveBeenCalled()
+    expect(mockGetCachedUser).not.toHaveBeenCalled()
   })
 
   it('returns shouldShow=false when the server flag for the key is true', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    setLoggedInAs('user-1')
     mockSingle.mockResolvedValue({
       data: { onboarding_flags: { internal_walkthrough: true } },
       error: null,
@@ -60,10 +76,12 @@ describe('useOnboardingFlag', () => {
     await waitFor(() => {
       expect(result.current.shouldShow).toBe(false)
     })
+    // 他フックと合流する共通の getCachedUser を通っている（生の getUser() を直に呼ばない）
+    expect(mockGetCachedUser).toHaveBeenCalled()
   })
 
   it('returns shouldShow=true when the server flag for the key is absent', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    setLoggedInAs('user-1')
     mockSingle.mockResolvedValue({
       data: { onboarding_flags: { portal_walkthrough: true } },
       error: null,
@@ -77,7 +95,7 @@ describe('useOnboardingFlag', () => {
   })
 
   it('falls back to shouldShow=true when the server lookup errors (e.g. column not migrated yet)', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    setLoggedInAs('user-1')
     mockSingle.mockResolvedValue({
       data: null,
       error: { message: 'column "onboarding_flags" does not exist' },
@@ -91,7 +109,7 @@ describe('useOnboardingFlag', () => {
   })
 
   it('falls back to shouldShow=true when there is no logged-in user', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null }, error: null })
+    setLoggedOut()
 
     const { result } = renderHook(() => useOnboardingFlag('internal_walkthrough', LOCAL_KEY))
 
@@ -103,7 +121,7 @@ describe('useOnboardingFlag', () => {
   })
 
   it('markDone writes localStorage and merges the key into profiles.onboarding_flags', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    setLoggedInAs('user-1')
     mockSingle.mockResolvedValue({
       data: { onboarding_flags: { portal_walkthrough: true } },
       error: null,
@@ -129,7 +147,7 @@ describe('useOnboardingFlag', () => {
   })
 
   it('markDone flips shouldShow to false immediately（押した瞬間に消える。保存を待たない）', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
+    setLoggedInAs('u1')
     mockSingle.mockResolvedValue({ data: { onboarding_flags: {} }, error: null })
     // 保存を遅らせても表示は即座に消える
     mockUpsert.mockReturnValue(new Promise(() => {}))
@@ -142,7 +160,7 @@ describe('useOnboardingFlag', () => {
   })
 
   it('markDone still writes localStorage when the server update fails (swallows the error)', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    setLoggedInAs('user-1')
     mockSingle.mockResolvedValue({ data: { onboarding_flags: {} }, error: null })
     mockUpsert.mockResolvedValue({ error: { message: 'update failed' } })
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -200,7 +218,7 @@ describe('useOnboardingFlag', () => {
 
     it('reproduces the reported bug: after reset, shouldShow flips back to true for a fresh hook instance', async () => {
       // Complete the walkthrough first — server flag becomes true.
-      mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+      setLoggedInAs('user-1')
       mockSingle.mockResolvedValue({ data: { onboarding_flags: {} }, error: null })
 
       const { result, unmount } = renderHook(() => useOnboardingFlag('internal_walkthrough', LOCAL_KEY))

@@ -200,14 +200,10 @@ export interface Database {
             wiki: boolean
             history: boolean
           }
+          // 既定の利益率・協力会社向けの表示設定は社内専用の別表 space_agency_settings にある（useSpaceRow が埋め込みで読む）
           agency_mode: boolean
-          default_margin_rate: number | null
           /** 社内承認の既定の承認者(承認者選択の初期値) */
           default_reviewer_ids: string[]
-          vendor_settings: {
-            show_client_name: boolean
-            allow_client_comments: boolean
-          }
           created_at: string
         }
         Insert: {
@@ -231,12 +227,7 @@ export interface Database {
             history: boolean
           }
           agency_mode?: boolean
-          default_margin_rate?: number | null
           default_reviewer_ids?: string[]
-          vendor_settings?: {
-            show_client_name: boolean
-            allow_client_comments: boolean
-          }
           created_at?: string
         }
         Update: {
@@ -260,12 +251,7 @@ export interface Database {
             history: boolean
           }
           agency_mode?: boolean
-          default_margin_rate?: number | null
           default_reviewer_ids?: string[]
-          vendor_settings?: {
-            show_client_name: boolean
-            allow_client_comments: boolean
-          }
           created_at?: string
         }
       }
@@ -485,7 +471,6 @@ export interface Database {
           wiki_page_id: string | null
           decision_state: DecisionState | null
           client_scope: ClientScope
-          actual_hours: number | null
           estimated_cost: number | null
           estimate_status: EstimateStatus
           completed_at: string | null
@@ -521,7 +506,6 @@ export interface Database {
           wiki_page_id?: string | null
           decision_state?: DecisionState | null
           client_scope?: ClientScope
-          actual_hours?: number | null
           estimated_cost?: number | null
           estimate_status?: EstimateStatus
           completed_at?: string | null
@@ -552,7 +536,6 @@ export interface Database {
           wiki_page_id?: string | null
           decision_state?: DecisionState | null
           client_scope?: ClientScope
-          actual_hours?: number | null
           estimated_cost?: number | null
           estimate_status?: EstimateStatus
           completed_at?: string | null
@@ -1536,7 +1519,9 @@ export type SpaceMembership = Tables['space_memberships']['Row']
 export type Invite = Tables['invites']['Row']
 export type Plan = Tables['plans']['Row']
 export type OrgBilling = Tables['org_billing']['Row']
-export type Task = Tables['tasks']['Row']
+// 実績工数(actual_hours)は tasks の列ではなく社内専用の別表 task_internal_metrics にあり、読むときに埋め込みで
+// 一緒に読んでこの形にまとめる（src/lib/supabase/queries.ts）
+export type Task = Tables['tasks']['Row'] & { actual_hours: number | null }
 export type TaskInsert = Tables['tasks']['Insert']
 export type TaskUpdate = Tables['tasks']['Update']
 export type TaskOwner = Tables['task_owners']['Row']

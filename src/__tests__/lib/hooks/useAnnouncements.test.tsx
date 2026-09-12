@@ -7,6 +7,7 @@ import { getCachedUser, invalidateCachedUser } from '@/lib/supabase/cached-auth'
 import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOrgProvider'
 
 const mockGetUser = vi.fn()
+const mockGetSession = vi.fn()
 
 /** announcements の取得チェーン（.select().eq().eq().or().order().limit()）を最後まで受け流す */
 function makeQueryBuilder() {
@@ -20,7 +21,7 @@ function makeQueryBuilder() {
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { getUser: mockGetUser },
+    auth: { getUser: mockGetUser, getSession: mockGetSession },
     from: () => makeQueryBuilder(),
   }),
 }))
@@ -55,12 +56,16 @@ describe('useAnnouncements の認証往復', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     invalidateCachedUser()
+    mockGetSession.mockResolvedValue({
+      data: { session: { access_token: 'tok-1', user: { id: 'user-1' } } },
+      error: null,
+    })
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
   })
 
   it('他フックと同じ getCachedUser を通るので、認証の往復は1回で済む', async () => {
     // 別のフックが先に認証を取った状態を作る（同一タブ・5秒以内）
-    await getCachedUser({ auth: { getUser: mockGetUser } })
+    await getCachedUser({ auth: { getUser: mockGetUser, getSession: mockGetSession } })
     expect(mockGetUser).toHaveBeenCalledTimes(1)
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

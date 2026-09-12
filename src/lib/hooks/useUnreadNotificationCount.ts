@@ -3,6 +3,7 @@
 import { useCallback, useContext, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { getCachedUser } from '@/lib/supabase/cached-auth'
 import { ACTIONABLE_TYPES_ARRAY } from '@/lib/notifications/classify'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
@@ -43,8 +44,10 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
   const { data, isPending, error: queryError } = useQuery<CountQueryData>({
     queryKey,
     queryFn: async (): Promise<CountQueryData> => {
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      // Get current user（他フックと合流する共通のキャッシュ経由。起動時に別々のフックが
+      // それぞれ生の getUser() を呼ぶと、認証サーバーへの往復が重なって全データ取得が
+      // 順番待ちになる）
+      const { user, error: userError } = await getCachedUser(supabase)
 
       if (userError || !user) {
         return { count: 0, pendingCount: 0 }

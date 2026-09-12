@@ -491,3 +491,20 @@ describe('TaskInspector — 説明の編集中は保存ボタンが下端に貼�
     expect(row?.className).toMatch(/\bbg-gray-50\b/)
   })
 })
+
+describe('TaskInspector — 実績工数の表示（編集できないとき）', () => {
+  it('実績工数のキーが無い行（作った直後など）は「h」だけを出さず「未入力」と出す', () => {
+    const row = { ...makeTask({ status: 'done' }) } as Record<string, unknown>
+    delete row.actual_hours
+    renderInspector({ task: row as unknown as Task, spaceId: 's1', onClose: vi.fn() })
+
+    expect(screen.getByText('未入力')).toBeInTheDocument()
+    expect(screen.queryByText('h')).toBeNull()
+  })
+
+  it('実績工数があるときは時間を出す', () => {
+    renderInspector({ task: makeTask({ status: 'done', actual_hours: 3 }), spaceId: 's1', onClose: vi.fn() })
+
+    expect(screen.getByText('3h')).toBeInTheDocument()
+  })
+})
