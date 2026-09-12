@@ -473,6 +473,24 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 }
 
 /* ============================================
+   BlockNote - 「/」メニューを画面の中に収める
+   ============================================ */
+
+/* BlockNote は入る高さを max-height で渡してくるが、Mantine 側の一覧には overflow の指定が
+   無いので、画面の下の方で「/」を押すと、はみ出した項目が枠の外に出てアプリの外枠
+   （AppShell の h-[100dvh] overflow-hidden）に切られ、選べなくなる。中でスクロールさせる。
+   絵文字などの格子メニューも同じ作りなので合わせる */
+.bn-suggestion-menu {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.bn-grid-suggestion-menu {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ============================================
    Wiki Editor - Link Styling
    BlockNote/Mantine overrides require !important
    ============================================ */
