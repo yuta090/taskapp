@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
 import { videoConferenceRegistry } from '@/lib/video-conference'
 import type { VideoConferenceProviderName } from '@/lib/video-conference'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -88,25 +90,40 @@ export async function POST(
 
       if (provider && provider.isConfigured()) {
         try {
-          // 参加者情報を取得（respondents → profiles join）
-          const { data: respondents } = await (supabase as SupabaseClient)
+          // 参加者情報を取得（respondents → profiles join）。profilesにemail列は無いため、
+          // 名前はprofilesから、メールはサーバーの管理用の鍵(admin.auth.admin)で解決する
+          const { data: respondents, error: respondentsError } = await (supabase as SupabaseClient)
             .from('proposal_respondents')
-            .select('user_id, profiles!inner(display_name, email)')
+            .select('user_id, profiles!inner(display_name)')
             .eq('proposal_id', proposalId)
 
-          type RespondentRow = { user_id: string; profiles: { display_name: string | null; email: string | null }[] }
-          const participants = (respondents as RespondentRow[] || [])
-            .filter((r) => {
-              const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
-              return profile?.email
-            })
+          if (respondentsError) {
+            console.error('Failed to fetch respondents (non-blocking):', respondentsError)
+          }
+
+          type RespondentRow = { user_id: string; profiles: { display_name: string | null }[] | { display_name: string | null } }
+          const respondentRows = (respondents as RespondentRow[]) || []
+
+          const admin = createAdminClient()
+          const respondentEmails = await mapWithConcurrency(
+            respondentRows.map((r) => r.user_id),
+            EMAIL_LOOKUP_CONCURRENCY,
+            async (userId): Promise<[string, string | null]> => {
+              const { data } = await admin.auth.admin.getUserById(userId)
+              return [userId, data.user?.email ?? null]
+            },
+          )
+          const emailByUserId = new Map<string, string>(
+            respondentEmails.filter((e): e is [string, string] => !!e[1]),
+          )
+
+          const participants = respondentRows
             .map((r) => {
               const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
-              return {
-                email: profile!.email as string,
-                name: profile!.display_name || '',
-              }
+              const email = emailByUserId.get(r.user_id)
+              return email ? { email, name: profile?.display_name || '' } : null
             })
+            .filter((p): p is { email: string; name: string } => p !== null)
 
           const videoResult = await provider.createMeeting({
             title: proposal.title,

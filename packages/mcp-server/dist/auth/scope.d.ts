@@ -19,6 +19,13 @@ export declare function assertUsersInSpaceOrg(userIds: string[], spaceId: string
  */
 export declare function assertUsersAreSpaceMembers(userIds: string[], spaceId: string): Promise<void>;
 /**
+ * 渡した user たちが、指定した space のメンバーで、かつ許可された役割であることを確かめる
+ * （画面の担当者選択肢と同じ範囲: 相手先側=client/vendor、社内側=admin/editor/viewer）。
+ * space外なら404（assertUsersAreSpaceMembersと同じ理由）、メンバーだが役割が合わなければ
+ * 400（呼んだ人が直せる入力の問題として分かるように）。
+ */
+export declare function assertUsersHaveSpaceRole(userIds: string[], spaceId: string, allowedRoles: readonly string[], fieldLabel: string): Promise<void>;
+/**
  * 渡した invite たちが、指定した space の未受諾(accepted_at is null)・期限内(expires_at > now)の
  * 招待であることを確かめる（画面の「招待中の担当者」候補と同じ範囲）。
  * 1人でも該当しなければ断る（呼んだ人に見せてよい理由=404）。

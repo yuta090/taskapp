@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getCachedUser } from '@/lib/supabase/cached-auth'
+import { INTERNAL_SPACE_ROLES } from '@/lib/roles/spaceRoles'
 
 export interface SpaceMember {
   id: string          // user_id
@@ -83,14 +84,16 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
     },
   })
 
-  // Filter by role (DB uses: admin, editor, viewer, client)
+  // Filter by role (DB uses: admin, editor, viewer, client, vendor)
   const clientMembers = useMemo(
     () => members.filter((m) => m.role === 'client'),
     [members]
   )
 
+  // 社内側は admin/editor/viewer だけ。vendor（協力会社）は相手先と同じ社外側の役割なので、
+  // ここにもクライアント側にも入れない（/vendor-portal 側の専用画面で扱う）
   const internalMembers = useMemo(
-    () => members.filter((m) => m.role !== 'client'), // admin, editor, viewer
+    () => members.filter((m) => (INTERNAL_SPACE_ROLES as readonly string[]).includes(m.role)),
     [members]
   )
 

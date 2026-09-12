@@ -268,3 +268,46 @@ describe('ApiKeysSettingsPage — 【是正3】プロジェクト設定側の一
     )
   })
 })
+
+// 発行済みキーの一覧のプロジェクト名は、アーカイブ済みも含む全部から引く
+// （アーカイブ済みのプロジェクトを含むキーでも、名前が欠けないようにするため）
+describe('ApiKeysSettingsPage — 一覧のプロジェクト名はアーカイブ済みでも欠けない', () => {
+  it('アーカイブ済みのプロジェクトを指すキーでも、名前をそのまま表示する', async () => {
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [
+        { id: 'space-1', name: 'Space 1', orgId: 'org-1', orgName: 'Org', role: 'admin', archivedAt: null },
+        { id: 'space-archived', name: 'アーカイブ済みプロジェクト', orgId: 'org-1', orgName: 'Org', role: 'admin', archivedAt: '2026-01-01T00:00:00Z' },
+      ],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: [
+            {
+              id: 'key-1',
+              name: 'My Key',
+              key_prefix: 'tsk_abc...',
+              created_at: '2026-09-01T00:00:00Z',
+              last_used_at: null,
+              expires_at: null,
+              is_active: true,
+              scope: 'space',
+              space_id: 'space-archived',
+              allowed_space_ids: [],
+              allowed_actions: ['read'],
+            },
+          ],
+        }),
+    })
+
+    renderPage()
+
+    await waitFor(() =>
+      expect(screen.getByText(/アーカイブ済みプロジェクトのみ（プロジェクト設定で発行）/)).toBeInTheDocument()
+    )
+  })
+})

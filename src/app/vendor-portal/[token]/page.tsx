@@ -7,6 +7,8 @@ import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
+import { describeAcceptInviteError, isMfaRequiredError } from '@/lib/invite/acceptErrorMessage'
+import { MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
@@ -34,6 +36,10 @@ export default function VendorInvitePage({
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [mfaRequired, setMfaRequired] = useState(false)
+  // アカウント自体は作れたのに、直後のログインだけ失敗したとき（招待は既に受諾済みなので
+  // 「登録できませんでした」と誤解させず、ログイン画面へ進めばよいと分かる案内にする）
+  const [signInFailedAfterCreate, setSignInFailedAfterCreate] = useState(false)
   const [loading, setLoading] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -43,6 +49,8 @@ export default function VendorInvitePage({
   const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
     setLoading(true)
     setError('')
+    setMfaRequired(false)
+    setSignInFailedAfterCreate(false)
 
     try {
       if (!isAutoAccept && password.length < 8) {
@@ -60,7 +68,8 @@ export default function VendorInvitePage({
       const data = await response.json()
 
       if (!response.ok) {
-        setError(data.error || 'エラーが発生しました')
+        setError(describeAcceptInviteError(data, 'エラーが発生しました'))
+        setMfaRequired(isMfaRequiredError(data))
         setLoading(false)
         return
       }
@@ -73,7 +82,8 @@ export default function VendorInvitePage({
         })
 
         if (signInError) {
-          setError(signInError.message)
+          setError('アカウントは作成しましたが、ログインできませんでした。ログイン画面からログインしてください。')
+          setSignInFailedAfterCreate(true)
           setLoading(false)
           return
         }
@@ -272,6 +282,25 @@ export default function VendorInvitePage({
             {error && (
               <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
                 {error}
+                {mfaRequired && (
+                  <>
+                    {' '}
+                    <Link
+                      href={`${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent(`/vendor-portal/${token}`)}`}
+                      className="underline"
+                    >
+                      認証アプリのコードを入力する
+                    </Link>
+                  </>
+                )}
+                {signInFailedAfterCreate && (
+                  <>
+                    {' '}
+                    <Link href="/login" className="underline">
+                      ログイン画面へ
+                    </Link>
+                  </>
+                )}
               </div>
             )}
 

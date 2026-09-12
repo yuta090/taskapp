@@ -187,11 +187,11 @@ function resolveUser(ref, users) {
     const trimmed = ref.trim();
     if (trimmed.includes('@')) {
         const id = users.byEmail.get(trimmed.toLowerCase());
-        return id ? { id } : { error: `担当者「${trimmed}」はこの組織のメンバーに見つかりません` };
+        return id ? { id } : { error: `担当者「${trimmed}」はこのプロジェクトのメンバーに見つかりません` };
     }
     const ids = users.byName.get(trimmed) ?? [];
     if (ids.length === 0)
-        return { error: `担当者「${trimmed}」はこの組織のメンバーに見つかりません（メールアドレスでも指定できます）` };
+        return { error: `担当者「${trimmed}」はこのプロジェクトのメンバーに見つかりません（メールアドレスでも指定できます）` };
     if (ids.length > 1)
         return { error: `担当者「${trimmed}」と同じ表示名のメンバーが複数います。メールアドレスで指定してください` };
     return { id: ids[0] };

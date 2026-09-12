@@ -1,4 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
+import { resolveActorName } from '@/lib/admin/actorName'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
 
@@ -79,9 +81,10 @@ async function fetchRecentActivity(): Promise<AuditLogRow[]> {
   const admin = createAdminClient()
   const nowMs = Date.now()
 
+  // profilesにemail列は無いため、埋め込み(actor_profile)にはdisplay_nameだけを含める
   const { data, error } = await admin
     .from('audit_logs')
-    .select('id, event_type, summary, occurred_at, actor_id, actor_profile:profiles!audit_logs_actor_id_fkey(display_name, email)')
+    .select('id, event_type, summary, occurred_at, actor_id, actor_profile:profiles!audit_logs_actor_id_fkey(display_name)')
     .order('occurred_at', { ascending: false })
     .limit(8)
 
@@ -96,16 +99,41 @@ async function fetchRecentActivity(): Promise<AuditLogRow[]> {
     summary: string | null
     occurred_at: string
     actor_id: string | null
-    actor_profile: { display_name: string | null; email: string | null } | null
+    actor_profile: { display_name: string | null } | null
   }
 
-  return (((data as unknown) as RawRow[] | null) ?? []).map((row) => ({
+  const rows = ((data as unknown) as RawRow[] | null) ?? []
+
+  // 表示名が無い行だけ、メールを管理用の鍵(admin.auth.admin)で補う
+  const missingActorIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.actor_id && !row.actor_profile?.display_name)
+        .map((row) => row.actor_id as string)
+    ),
+  ]
+  const missingActorEmails = await mapWithConcurrency(
+    missingActorIds,
+    EMAIL_LOOKUP_CONCURRENCY,
+    async (id): Promise<[string, string | null]> => {
+      const { data: authUser } = await admin.auth.admin.getUserById(id)
+      return [id, authUser.user?.email ?? null]
+    },
+  )
+  const emailByActorId = new Map<string, string>(
+    missingActorEmails.filter((e): e is [string, string] => !!e[1]),
+  )
+
+  return rows.map((row) => ({
     id: row.id,
     event_type: row.event_type,
     summary: row.summary,
     occurred_at: row.occurred_at,
     actor_id: row.actor_id,
-    actorName: row.actor_profile?.display_name ?? row.actor_profile?.email ?? 'System',
+    actorName: resolveActorName(
+      row.actor_profile?.display_name,
+      row.actor_id ? emailByActorId.get(row.actor_id) : undefined,
+    ),
     relativeTime: computeRelativeTime(row.occurred_at, nowMs),
   }))
 }

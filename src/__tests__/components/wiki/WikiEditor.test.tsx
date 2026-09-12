@@ -11,23 +11,50 @@ const mockInsertInlineContent = vi.fn()
 const mockInsertBlocks = vi.fn()
 const mockGetTextCursorPosition = vi.fn(() => ({ block: { id: 'block-1' } }))
 
+// 「/」メニューの既定の項目（本物は editor の辞書と schema から作られる）
+const DEFAULT_SLASH_ITEMS = [
+  { key: 'heading', title: '見出し１', aliases: ['h1'], group: '見出し', onItemClick: () => {} },
+  { key: 'bullet_list', title: '箇条書き', aliases: ['ul'], group: '基本ブロック', onItemClick: () => {} },
+  { key: 'image', title: '画像', aliases: ['image'], group: 'メディア', onItemClick: () => {} },
+  { key: 'video', title: 'ビデオ', aliases: ['video'], group: 'メディア', onItemClick: () => {} },
+  { key: 'audio', title: 'オーディオ', aliases: ['audio'], group: 'メディア', onItemClick: () => {} },
+  { key: 'file', title: 'ファイル', aliases: ['file'], group: 'メディア', onItemClick: () => {} },
+]
+
+let capturedEditorOptions:
+  | { dictionary?: { placeholders: Record<string, string | undefined>; slash_menu: Record<string, { title: string }> } }
+  | undefined
+let capturedSlashMenuProps:
+  | { triggerCharacter: string; getItems?: (query: string) => Promise<Array<{ key: string }>> }
+  | undefined
+
 // BlockNote mounts a real ProseMirror editor which is heavy/unstable in jsdom.
 // Mock the hook and view so this test focuses on the toolbar wiring instead.
 vi.mock('@blocknote/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@blocknote/react')>()
   return {
     ...actual,
-    useCreateBlockNote: () => ({
-      document: [],
-      insertInlineContent: mockInsertInlineContent,
-      insertBlocks: mockInsertBlocks,
-      getTextCursorPosition: mockGetTextCursorPosition,
-    }),
+    useCreateBlockNote: (options: typeof capturedEditorOptions) => {
+      capturedEditorOptions = options
+      return {
+        document: [],
+        insertInlineContent: mockInsertInlineContent,
+        insertBlocks: mockInsertBlocks,
+        getTextCursorPosition: mockGetTextCursorPosition,
+      }
+    },
+    getDefaultReactSlashMenuItems: () => DEFAULT_SLASH_ITEMS,
+    SuggestionMenuController: (props: NonNullable<typeof capturedSlashMenuProps>) => {
+      capturedSlashMenuProps = props
+      return null
+    },
   }
 })
 
 vi.mock('@blocknote/mantine', () => ({
-  BlockNoteView: () => <div data-testid="blocknote-view" />,
+  BlockNoteView: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="blocknote-view">{children}</div>
+  ),
 }))
 
 let capturedOnSelect: ((file: ProjectFile) => void) | undefined
@@ -107,5 +134,36 @@ describe('WikiEditor file link insertion', () => {
       { type: 'link', href: '/api/files/file-99/download', content: '内部メモ.txt' },
     ])
     expect(screen.getByTestId('wiki-file-link-picker')).toBeInTheDocument()
+  })
+})
+
+describe('WikiEditor slash menu and Japanese texts', () => {
+  beforeEach(() => {
+    capturedEditorOptions = undefined
+    capturedSlashMenuProps = undefined
+  })
+
+  // 行の左の「＋」も、BlockNote の中でこの「/」メニューを開く（AddBlockButton → openSuggestionMenu('/')）
+  it('opens a menu when typing "/" (the "+" beside a line opens the same menu)', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(capturedSlashMenuProps?.triggerCharacter).toBe('/')
+  })
+
+  it('lists the default items except video and audio, which cannot play on this page', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = await capturedSlashMenuProps!.getItems!('')
+    expect(items.map(item => item.key)).toEqual(['heading', 'bullet_list', 'image', 'file'])
+  })
+
+  it('narrows the items by what is typed after "/"', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = await capturedSlashMenuProps!.getItems!('見出し')
+    expect(items.map(item => item.key)).toEqual(['heading'])
+  })
+
+  it('uses Japanese texts, including the hint on an empty line', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(capturedEditorOptions?.dictionary?.placeholders.default).toBe('文字を入力、または「/」でメニューを開く')
+    expect(capturedEditorOptions?.dictionary?.slash_menu.heading.title).toBe('見出し１')
   })
 })

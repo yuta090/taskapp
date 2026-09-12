@@ -58,7 +58,8 @@ let spaceMembershipResponse: { data: { id: string } | null; error: { message: st
 const spaceMembershipMaybeSingleMock = vi.fn(() => Promise.resolve(spaceMembershipResponse))
 let orgMembershipResponse: { data: { role: string } | null; error: { message: string } | null }
 const orgMembershipMaybeSingleMock = vi.fn(() => Promise.resolve(orgMembershipResponse))
-const inviteUpdateEqMock = vi.fn(() => Promise.resolve({ error: null }))
+let inviteAcceptMarkUpdateResponse: { error: { message: string } | null } = { error: null }
+const inviteUpdateEqMock = vi.fn(() => Promise.resolve(inviteAcceptMarkUpdateResponse))
 const inviteUpdateMock = vi.fn(() => ({ eq: inviteUpdateEqMock }))
 
 // 近道（すでに space のメンバー）でも、招待中の担当者として置かれていたタスクの
@@ -175,6 +176,7 @@ describe('POST /api/invites/[token]/accept', () => {
     spaceMembershipResponse = { data: null, error: null }
     orgMembershipResponse = { data: null, error: null }
     taskHandoverUpdateResponse = { error: null }
+    inviteAcceptMarkUpdateResponse = { error: null }
   })
 
   it('returns 404 when the token does not match any invite', async () => {
@@ -350,24 +352,76 @@ describe('POST /api/invites/[token]/accept', () => {
     expect(data.error).not.toMatch(/Organization has reached/)
   })
 
-  it('人数枠以外のRPCエラーは従来どおり400でメッセージを返す', async () => {
+  it('rpc_accept_invite が「招待が無効・期限切れ」で断ったら、事前確認と同じ404＋日本語で返す', async () => {
+    // 事前確認をすり抜けた（受諾リクエストが競合した等の）レース想定
     authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
-    acceptRpcResponse = { data: null, error: { message: 'invite expired' } }
+    acceptRpcResponse = { data: null, error: { message: 'Invalid or expired invite token' } }
 
     const response = await callPost(VALID_TOKEN, {})
     const data = await response.json()
 
-    expect(response.status).toBe(400)
-    expect(data.error).toBe('invite expired')
+    expect(response.status).toBe(404)
+    expect(data.error).toBe('招待リンクが無効または期限切れです')
   })
 
-  it('returns 429 when the rate limit is exceeded', async () => {
+  it('それ以外の想定外のRPCエラーは、DBの文言をそのまま出さず一律の日本語にする（記録はサーバーログにだけ）', async () => {
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+    acceptRpcResponse = { data: null, error: { message: 'Not authorized: caller must be the target user' } }
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const response = await callPost(VALID_TOKEN, {})
+    const data = await response.json()
+
+    // 利用者側の入力の問題ではない想定外の失敗なので400ではなく500にする
+    // （画面は状態番号で表示を分けていないため見え方は変わらない）
+    expect(response.status).toBe(500)
+    expect(data.error).not.toMatch(/Not authorized/)
+    expect(data.error).toBe('招待の受諾に失敗しました。時間をおいてもう一度お試しください。')
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('rpc_accept_invite'),
+      expect.anything()
+    )
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('returns 429 when the rate limit is exceeded, with a Japanese message (not the raw English string)', async () => {
     rateLimitAllowedMock.mockReturnValue({ allowed: false, remaining: 0, resetAt: Date.now() + 60000 })
 
     const response = await callPost(VALID_TOKEN, { password: 'password123' })
+    const data = await response.json()
 
     expect(response.status).toBe(429)
+    expect(data.error).toBe('操作が続いたため、しばらく時間をおいてからお試しください。')
     expect(inviteSingleMock).not.toHaveBeenCalled()
+  })
+
+  it('タスクの引き継ぎに失敗した500は、日本語の理由を返す（内部の英語の文言をそのまま出さない）', async () => {
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+    spaceMembershipResponse = { data: { id: 'sm-1' }, error: null }
+    taskHandoverUpdateResponse = { error: { message: 'db error' } }
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const response = await callPost(VALID_TOKEN, {})
+    const data = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(data.error).toBe('招待の受諾に失敗しました。時間をおいてもう一度お試しください。')
+    expect(data.error).not.toMatch(/Internal server error/)
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('想定外の例外（catch節）も、日本語の理由を返す（内部の英語の文言をそのまま出さない）', async () => {
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+    getUserMock.mockRejectedValueOnce(new Error('unexpected'))
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const response = await callPost(VALID_TOKEN, {})
+    const data = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(data.error).toBe('招待の受諾に失敗しました。時間をおいてもう一度お試しください。')
+    expect(data.error).not.toMatch(/Internal server error/)
+    consoleErrorSpy.mockRestore()
   })
 
   // 組織の役割と space の役割をそろえる決まり（20260912112543_org_space_role_consistency.sql）を
@@ -430,6 +484,29 @@ describe('POST /api/invites/[token]/accept', () => {
       expect(response.status).toBe(500)
       expect(inviteUpdateMock).not.toHaveBeenCalled()
       expect(notificationsUpsertMock).not.toHaveBeenCalled()
+    })
+
+    it('引き継ぎのあとの「受諾済みにする」更新に失敗したら500で返す（次にやり直せる）', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      spaceMembershipResponse = { data: { id: 'sm-1' }, error: null }
+      inviteAcceptMarkUpdateResponse = { error: { message: 'db error' } }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(500)
+      expect(notificationsUpsertMock).not.toHaveBeenCalled()
+    })
+
+    it('近道では、タスクの引き継ぎを済ませてから招待を受諾済みにする（この順番を守る）', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      spaceMembershipResponse = { data: { id: 'sm-1' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(200)
+      expect(taskHandoverUpdateEqMock.mock.invocationCallOrder[0]).toBeLessThan(
+        inviteUpdateEqMock.mock.invocationCallOrder[0]
+      )
     })
 
     it('すでに社内メンバー(member)として組織にいる人が、相手先向けの招待を受けようとしたら409＋日本語', async () => {

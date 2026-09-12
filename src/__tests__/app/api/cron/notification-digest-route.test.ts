@@ -52,7 +52,6 @@ let prefsResponse: { data: Array<Record<string, unknown>> | null; error: { messa
 let notificationsResponse: { data: Array<Record<string, unknown>> | null; error: null }
 let spacesResponse: { data: Array<Record<string, unknown>> | null; error: null }
 let profilesResponse: { data: Array<Record<string, unknown>> | null; error: null }
-let memberProfilesResponse: { data: Array<Record<string, unknown>> | null; error: null }
 let invitesResponse: { data: Array<Record<string, unknown>> | null; error: null }
 let orgMembershipsResponse: { data: Array<Record<string, unknown>> | null; error: null }
 let prefsUpdateResponse: { data: null; error: null }
@@ -64,6 +63,7 @@ let profilesFromCallCount = 0
 let invitesQueryCalls: Record<string, unknown[][]> = {}
 let notificationsQueryCalls: Record<string, unknown[][]> = {}
 let prefsUpsertRows: unknown[] = []
+let getUserByIdCalls: string[] = []
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({
@@ -80,9 +80,10 @@ vi.mock('@/lib/supabase/admin', () => ({
       if (table === 'notifications') return recordingChain(notificationsResponse, notificationsQueryCalls)
       if (table === 'spaces') return chain(spacesResponse)
       if (table === 'profiles') {
+        // profilesにemail列は無いため、受信者のdisplay_name解決だけがここを通る。
+        // (c)の既存メンバーのメール解決は auth.admin.getUserById（下の mock）で行う。
         profilesFromCallCount += 1
-        // 1回目=受信者の display_name 解決（既存）、2回目以降=(c)の既存メンバーのメール解決（新規）
-        return chain(profilesFromCallCount === 1 ? profilesResponse : memberProfilesResponse)
+        return chain(profilesResponse)
       }
       if (table === 'org_memberships') {
         orgMembershipsFromCallCount += 1
@@ -96,7 +97,10 @@ vi.mock('@/lib/supabase/admin', () => ({
     }),
     auth: {
       admin: {
-        getUserById: vi.fn((id: string) => getUserByIdImpl(id)),
+        getUserById: vi.fn((id: string) => {
+          getUserByIdCalls.push(id)
+          return getUserByIdImpl(id)
+        }),
       },
     },
   })),
@@ -146,6 +150,7 @@ function resetHarness() {
   invitesQueryCalls = {}
   notificationsQueryCalls = {}
   prefsUpsertRows = []
+  getUserByIdCalls = []
 
   prefsResponse = { data: [basePrefRow(USER_A)], error: null }
     notificationsResponse = {
@@ -158,9 +163,9 @@ function resetHarness() {
     profilesResponse = { data: [{ id: USER_A, display_name: 'ユーザーA' }], error: null }
     // 既定: 招待作成者(USER_A)は今もorg-1のメンバー。メールは招待先と重複しない。
     orgMembershipsResponse = { data: [{ org_id: ORG_ID, user_id: USER_A }], error: null }
-    memberProfilesResponse = { data: [{ id: USER_A, email: 'usera@example.com' }], error: null }
     invitesResponse = { data: [], error: null }
   prefsUpdateResponse = { data: null, error: null }
+  // profilesにemail列は無いため、既存メンバーのメールは管理用の鍵(auth.admin.getUserById)で解決する
   getUserByIdImpl = (id: string) => Promise.resolve({ data: { user: { email: `${id}@example.com` } } })
 }
 
@@ -251,9 +256,12 @@ describe('POST /api/cron/notification-digest — 未承諾の招待の節', () =
 
     expect(invitesFromCallCount).toBe(1)
     expect(orgMembershipsFromCallCount).toBe(1)
-    // profiles は 1回目=display_name解決、2回目=既存メンバーのメール解決 の計2回で、
-    // ユーザー数(N)には比例しない
-    expect(profilesFromCallCount).toBe(2)
+    // profiles への問い合わせは受信者のdisplay_name解決の1回だけ（ユーザー数(N)には比例しない）。
+    // profilesにemail列は無いため、既存メンバーのメール解決はauth.admin.getUserByIdで
+    // メンバーごとに1回ずつ行う（受信者本人のメール送信解決とは別枠。対象はorgメンバー数分で、
+    // 通知件数には比例しない）
+    expect(profilesFromCallCount).toBe(1)
+    expect(new Set(getUserByIdCalls)).toEqual(new Set([USER_A, USER_B]))
     expect(invitesQueryCalls.in?.[0]?.[1]).toEqual(expect.arrayContaining([USER_A, USER_B]))
   })
 
@@ -287,13 +295,11 @@ describe('POST /api/cron/notification-digest — 未承諾の招待の節', () =
       ],
       error: null,
     }
-    memberProfilesResponse = {
-      data: [
-        { id: USER_A, email: 'usera@example.com' },
-        { id: 'already-joined-user', email: 'already-joined@example.com' },
-      ],
-      error: null,
+    const emailByUserId: Record<string, string> = {
+      [USER_A]: 'usera@example.com',
+      'already-joined-user': 'already-joined@example.com',
     }
+    getUserByIdImpl = (id: string) => Promise.resolve({ data: { user: { email: emailByUserId[id] ?? null } } })
 
     await callPost()
 
