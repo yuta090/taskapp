@@ -1,6 +1,18 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import OrganizationSettingsPage from '@/app/settings/organization/page'
+
+/** react-queryのキャッシュがテスト間で漏れないよう、テストごとに新しいQueryClientで包む */
+function renderPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <OrganizationSettingsPage />
+    </QueryClientProvider>
+  )
+}
 
 vi.mock('next/link', () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -20,8 +32,10 @@ vi.mock('@/lib/hooks/useCurrentOrg', () => ({
  * policyResponse/policyErrorを各itで差し替えられるようにする。
  */
 let policyResponse: { data: unknown; error: unknown } = { data: null, error: null }
-const rpcMock = vi.fn((...args: unknown[]) => {
-  void args
+// 保存後(onSettled)にサーバー側の値へ取り直すため、成功したRPC呼び出しはpolicyResponseを
+// 実際に書き換える（そうしないと、取り直しの応答が古いままで楽観的更新の結果が消えてしまう）
+const rpcMock = vi.fn((_fn: string, args: { p_org_id: string; p_enabled: boolean }) => {
+  policyResponse = { data: { due_reminders_enabled: args.p_enabled }, error: null }
   return Promise.resolve<{ error: { message: string } | null }>({ error: null })
 })
 
@@ -41,7 +55,7 @@ vi.mock('@/lib/supabase/client', () => ({
         update: () => ({ eq: () => Promise.resolve({ error: null }) }),
       }
     },
-    rpc: (...args: unknown[]) => rpcMock(...args),
+    rpc: (fn: string, args: { p_org_id: string; p_enabled: boolean }) => rpcMock(fn, args),
   }),
 }))
 
@@ -60,7 +74,7 @@ describe('OrganizationSettingsPage management links', () => {
   })
 
   it('shows a management section with links to members, org integrations, and billing', () => {
-    render(<OrganizationSettingsPage />)
+    renderPage()
 
     expect(screen.getByText('組織の管理')).toBeInTheDocument()
 
@@ -90,7 +104,7 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
   })
 
   it('行が無ければfail-open(既定オン)で表示する', async () => {
-    render(<OrganizationSettingsPage />)
+    renderPage()
 
     const checkbox = await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
     await waitFor(() => expect(checkbox).toBeChecked())
@@ -98,22 +112,22 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
 
   it('due_reminders_enabled=falseなら初期表示はオフになる', async () => {
     policyResponse = { data: { due_reminders_enabled: false }, error: null }
-    render(<OrganizationSettingsPage />)
+    renderPage()
 
     const checkbox = await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
     await waitFor(() => expect(checkbox).not.toBeChecked())
   })
 
   it('ownerはトグルを操作でき、楽観的更新のうえrpc_set_org_due_reminders_enabledを呼ぶ（保存ボタン無し）', async () => {
-    render(<OrganizationSettingsPage />)
+    renderPage()
 
     const checkbox = await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
     await waitFor(() => expect(checkbox).toBeChecked())
 
     fireEvent.click(checkbox)
 
-    // 楽観的更新: クリック直後に即オフ表示になる
-    expect(checkbox).not.toBeChecked()
+    // 楽観的更新: 保存の完了を待たずに表示が切り替わる
+    await waitFor(() => expect(checkbox).not.toBeChecked())
 
     await waitFor(() => {
       expect(rpcMock).toHaveBeenCalledWith('rpc_set_org_due_reminders_enabled', {
@@ -131,7 +145,7 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
           resolveRpc = resolve
         }),
     )
-    render(<OrganizationSettingsPage />)
+    renderPage()
 
     const checkbox = await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
     await waitFor(() => expect(checkbox).toBeChecked())
@@ -139,9 +153,9 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
     fireEvent.click(checkbox) // 1回目: RPCがpendingのまま
     fireEvent.click(checkbox) // 2回目: in-flightなので無視されるべき
 
-    expect(rpcMock).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(1))
     // in-flight中はdisabledになる
-    expect(checkbox).toBeDisabled()
+    await waitFor(() => expect(checkbox).toBeDisabled())
 
     resolveRpc({ error: null })
     await waitFor(() => expect(checkbox).not.toBeDisabled())
@@ -150,14 +164,14 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
 
   it('rpc失敗時はロールバックし、エラーを表示する', async () => {
     rpcMock.mockResolvedValueOnce({ error: { message: 'permission denied' } })
-    render(<OrganizationSettingsPage />)
+    renderPage()
 
     const checkbox = await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
     await waitFor(() => expect(checkbox).toBeChecked())
 
     fireEvent.click(checkbox)
-    expect(checkbox).not.toBeChecked()
 
+    // 失敗して直前の値(オン)へロールバックし、エラーを表示する
     await waitFor(() => expect(checkbox).toBeChecked())
     expect(
       screen.getByText('保存に失敗しました。もう一度お試しください。'),
@@ -172,7 +186,7 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
       loading: false,
       error: null,
     })
-    render(<OrganizationSettingsPage />)
+    renderPage()
 
     const checkbox = await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
     expect(checkbox).toBeDisabled()
@@ -183,7 +197,7 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
   })
 
   it('補足文言に事務所全体で停止する旨・個人設定への言及・手動リマインド不停止の注記を含む（MEDIUM-2是正）', () => {
-    render(<OrganizationSettingsPage />)
+    renderPage()
     expect(screen.getByText('AI秘書の自動期限リマインド')).toBeInTheDocument()
     const note = screen.getByText(
       /オフにすると、この事務所全体で自動期限リマインドを停止します/,
@@ -195,7 +209,7 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
   describe('HIGH-1是正: 取得失敗時はfail-open表示せず、disabled＋エラー表示にする', () => {
     it('取得(select)が失敗したらトグルをdisabledのままにし、エラーを表示する（既定ON表示のまま操作可能にしない）', async () => {
       policyResponse = { data: null, error: { message: 'permission denied for column' } }
-      render(<OrganizationSettingsPage />)
+      renderPage()
 
       const checkbox = await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
       await waitFor(() => expect(checkbox).toBeDisabled())
@@ -224,7 +238,7 @@ describe('role確認中（role===null。hydration前・所属一覧取得中）�
   })
 
   it('役割バッジは中立の「確認中」を表示し、オーナー/メンバー/クライアントと断定しない', () => {
-    render(<OrganizationSettingsPage />)
+    renderPage()
     // ヘッダーと「あなたの役割」の2箇所に同じバッジが出る
     expect(screen.getAllByText('確認中').length).toBeGreaterThan(0)
     expect(screen.queryByText('オーナー')).not.toBeInTheDocument()
@@ -233,12 +247,12 @@ describe('role確認中（role===null。hydration前・所属一覧取得中）�
   })
 
   it('「組織名の変更はオーナーのみ可能です」の案内を出さない（実際はオーナーの可能性があるため）', () => {
-    render(<OrganizationSettingsPage />)
+    renderPage()
     expect(screen.queryByText('組織名の変更はオーナーのみ可能です')).not.toBeInTheDocument()
   })
 
   it('自動期限リマインドの「オーナーのみ変更できます」の注記も出さない（実際はオーナーの可能性があるため）', async () => {
-    render(<OrganizationSettingsPage />)
+    renderPage()
     await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
     expect(screen.queryByText('オーナーのみ変更できます')).not.toBeInTheDocument()
   })

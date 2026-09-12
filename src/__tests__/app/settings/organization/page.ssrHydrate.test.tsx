@@ -2,6 +2,7 @@ import React, { act } from 'react'
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { renderToString } from 'react-dom/server'
 import { hydrateRoot } from 'react-dom/client'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 /**
  * サーバーの描画（HTML文字列）と、ブラウザ側のハイドレーション時の描画を実際に
@@ -50,16 +51,18 @@ const serverOrgValue: ActiveOrgContextValue = {
   loading: true,
 }
 
-function tree(value: ActiveOrgContextValue) {
+function tree(value: ActiveOrgContextValue, queryClient: QueryClient) {
   return (
-    <ActiveOrgContext.Provider value={value}>
-      <OrganizationSettingsPage />
-    </ActiveOrgContext.Provider>
+    <QueryClientProvider client={queryClient}>
+      <ActiveOrgContext.Provider value={value}>
+        <OrganizationSettingsPage />
+      </ActiveOrgContext.Provider>
+    </QueryClientProvider>
   )
 }
 
 async function renderThenHydrate(clientOrgValue: ActiveOrgContextValue) {
-  const html = renderToString(tree(serverOrgValue))
+  const html = renderToString(tree(serverOrgValue, new QueryClient()))
 
   const container = document.createElement('div')
   container.innerHTML = html
@@ -72,7 +75,7 @@ async function renderThenHydrate(clientOrgValue: ActiveOrgContextValue) {
 
   let root!: ReturnType<typeof hydrateRoot>
   await act(async () => {
-    root = hydrateRoot(container, tree(clientOrgValue))
+    root = hydrateRoot(container, tree(clientOrgValue, new QueryClient()))
   })
 
   const consoleErrors = consoleErrorSpy.mock.calls.map((call) => String(call[0]))
