@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { WikiPageLinkPicker } from '@/components/task/WikiPageLinkPicker'
 
 // タスク詳細の「仕様書連携」欄。1つの入力欄で
@@ -281,6 +281,34 @@ describe('WikiPageLinkPicker — うまくいかなかったとき', () => {
     await waitFor(() =>
       expect(onSelect).toHaveBeenCalledWith('new1', expect.objectContaining({ id: 'new1' }))
     )
+  })
+})
+
+describe('WikiPageLinkPicker — 仕様書バッジ', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('仕様書タグの付いたページだけ候補にバッジが出る', () => {
+    setup()
+    fireEvent.focus(input())
+
+    expect(
+      within(screen.getByRole('option', { name: /契約書テンプレート/ })).getByTestId('picker-spec-badge')
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('option', { name: /01 事業計画/ })).queryByTestId('picker-spec-badge')
+    ).not.toBeInTheDocument()
+  })
+
+  it('紐づけ中のページが仕様書なら現在地の表示にもバッジが出る', () => {
+    setup({ value: 'p1' })
+
+    expect(within(screen.getByTestId('picker-current')).getByTestId('picker-spec-badge')).toBeInTheDocument()
+  })
+
+  it('紐づけ中のページが仕様書でなければバッジは出ない', () => {
+    setup({ value: 'p2' })
+
+    expect(within(screen.getByTestId('picker-current')).queryByTestId('picker-spec-badge')).not.toBeInTheDocument()
   })
 })
 
