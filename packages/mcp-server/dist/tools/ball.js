@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
+import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js';
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
@@ -57,14 +58,14 @@ export async function ballPass(params) {
         throw new Error('ボール移動に失敗しました');
     const { data: task, error: taskError } = await supabase
         .from('tasks')
-        .select('*')
+        .select('*, task_internal_metrics (actual_hours)')
         .eq('id', params.taskId)
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId)
         .single();
     if (taskError)
         throw new Error('タスクが見つかりません');
-    return { ok: true, task: task };
+    return { ok: true, task: flattenTaskInternalMetrics(task) };
 }
 export async function ballQuery(params) {
     await checkAuth(params.spaceId, 'read', 'ball_query', 'task');
@@ -72,7 +73,7 @@ export async function ballQuery(params) {
     const orgId = await getOrgId(params.spaceId);
     const { data: tasks, error: tasksError } = await supabase
         .from('tasks')
-        .select('*')
+        .select('*, task_internal_metrics (actual_hours)')
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId)
         .eq('ball', params.ball)
@@ -81,7 +82,7 @@ export async function ballQuery(params) {
     if (tasksError)
         throw new Error('タスクの取得に失敗しました');
     const result = {
-        tasks: (tasks || []),
+        tasks: (tasks || []).map(flattenTaskInternalMetrics),
     };
     if (params.includeOwners && tasks && tasks.length > 0) {
         const taskIds = tasks.map((t) => t.id);

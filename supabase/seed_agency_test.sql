@@ -51,18 +51,25 @@ BEGIN
   -- ==========================================================================
   -- 2. Agency Mode スペース
   -- ==========================================================================
-  INSERT INTO spaces (id, org_id, type, name, agency_mode, default_margin_rate, vendor_settings, created_at)
+  INSERT INTO spaces (id, org_id, type, name, agency_mode, created_at)
   VALUES (
     v_space_id, v_org_id, 'project',
     'CM動画制作プロジェクト',
     true,           -- agency_mode ON
-    35.00,          -- default margin 35%
-    '{"show_client_name": false, "allow_client_comments": false}',
     v_now
   )
   ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
-    agency_mode = EXCLUDED.agency_mode,
+    agency_mode = EXCLUDED.agency_mode;
+
+  -- 既定の利益率・ベンダーポータル設定は社内専用の別表 space_agency_settings へ
+  INSERT INTO space_agency_settings (space_id, org_id, default_margin_rate, vendor_settings)
+  VALUES (
+    v_space_id, v_org_id,
+    35.00,          -- default margin 35%
+    '{"show_client_name": false, "allow_client_comments": false}'
+  )
+  ON CONFLICT (space_id) DO UPDATE SET
     default_margin_rate = EXCLUDED.default_margin_rate,
     vendor_settings = EXCLUDED.vendor_settings;
 

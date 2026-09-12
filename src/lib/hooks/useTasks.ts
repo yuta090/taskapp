@@ -551,7 +551,6 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
         if (input.clientScope !== undefined) updateData.client_scope = input.clientScope
         if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
-        if (input.actualHours !== undefined) updateData.actual_hours = input.actualHours
         if (input.estimatedCost !== undefined) updateData.estimated_cost = input.estimatedCost
         if (input.estimateStatus !== undefined) updateData.estimate_status = input.estimateStatus
         if (input.wikiPageId !== undefined) {
@@ -559,30 +558,43 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           Object.assign(updateData, specChangesForWikiLink(input, prevTask))
         }
 
-        const { data: updatedRows, error: updateError } = await (supabase as SupabaseClient)
-          .from('tasks')
-          .update(updateData)
-          .eq('id', taskId)
-          .select('id, parent_task_id')
+        // actualHours(実績工数)は tasks の列ではなく、社内専用の別表 task_internal_metrics
+        // （task_id が主キー・tasks と1:1）へ書く。それ以外の変更が無ければ tasks 自体は
+        // 更新しない
+        if (Object.keys(updateData).length > 0) {
+          const { data: updatedRows, error: updateError } = await (supabase as SupabaseClient)
+            .from('tasks')
+            .update(updateData)
+            .eq('id', taskId)
+            .select('id, parent_task_id')
 
-        if (updateError) throw updateError
+          if (updateError) throw updateError
 
-        // Verify the update actually affected a row (RLS can silently block updates)
-        if (!updatedRows || updatedRows.length === 0) {
-          throw new Error('タスクの更新が反映されませんでした（権限不足の可能性）')
+          // Verify the update actually affected a row (RLS can silently block updates)
+          if (!updatedRows || updatedRows.length === 0) {
+            throw new Error('タスクの更新が反映されませんでした（権限不足の可能性）')
+          }
+
+          // Verify parent-child update persisted
+          if (input.parentTaskId !== undefined) {
+            const { data: verifyRow } = await (supabase as SupabaseClient)
+              .from('tasks')
+              .select('id, parent_task_id')
+              .eq('id', taskId)
+              .single()
+
+            if (verifyRow && String(verifyRow.parent_task_id) !== String(input.parentTaskId)) {
+              throw new Error(`DB保存失敗: 送信=${input.parentTaskId}, DB値=${verifyRow.parent_task_id}`)
+            }
+          }
         }
 
-        // Verify parent-child update persisted
-        if (input.parentTaskId !== undefined) {
-          const { data: verifyRow } = await (supabase as SupabaseClient)
-            .from('tasks')
-            .select('id, parent_task_id')
-            .eq('id', taskId)
-            .single()
+        if (input.actualHours !== undefined) {
+          const { error: metricsError } = await (supabase as SupabaseClient)
+            .from('task_internal_metrics')
+            .upsert({ task_id: taskId, actual_hours: input.actualHours }, { onConflict: 'task_id' })
 
-          if (verifyRow && String(verifyRow.parent_task_id) !== String(input.parentTaskId)) {
-            throw new Error(`DB保存失敗: 送信=${input.parentTaskId}, DB値=${verifyRow.parent_task_id}`)
-          }
+          if (metricsError) throw metricsError
         }
 
         // Fire-and-forget notification on status change
@@ -689,6 +701,10 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (previousData) {
           queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], previousData)
         }
+        // tasks の更新は成功し task_internal_metrics の upsert だけが失敗した場合、
+        // 上のロールバックは「実際にはDBへ反映済みの変更」まで巻き戻してしまう
+        // （半分だけ保存された状態）。取り直しをかけてサーバー側の実際の値に合わせる
+        void queryClient.invalidateQueries({ queryKey: ['tasks', orgId, spaceId] })
         // AI秘書 Stage5 期限リマインド PR-0(§5.2): external権威タスク(due_authority_connection_id
         // 非NULL)の due_date 変更は DB トリガー trg_guard_external_due が拒否し、'due_managed_externally'
         // を含む生のPostgresエラーを返す。ロールバック(上)は既存の汎用経路に乗るが、ユーザーには

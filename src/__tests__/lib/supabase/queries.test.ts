@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   fetchTasksQuery,
   fetchMeetingsQuery,
+  fetchSpaceRowQuery,
   collectRemainingPages,
   MEETING_LIST_COLUMNS,
   MEETING_DETAIL_COLUMNS,
@@ -189,7 +190,9 @@ describe('fetchTasksQuery — 全件をページングで読む', () => {
       expect((t as unknown as { task_owners?: unknown }).task_owners).toBeUndefined()
     })
     // task_owners を同じクエリで一緒に読んでいること（実装どおりの列指定）
-    expect(tasksChain.select).toHaveBeenCalledWith('*, task_owners (*)')
+    expect(tasksChain.select).toHaveBeenCalledWith(
+      '*, task_owners (*), task_internal_metrics (actual_hours)'
+    )
   })
 
   it('補完クエリ（.in(\'id\', …)）は発行しない（options 自体を廃止済み）', async () => {
@@ -200,6 +203,121 @@ describe('fetchTasksQuery — 全件をページングで読む', () => {
 
     expect(result.tasks.map((t) => t.id)).toEqual(['a'])
     expect(tasksChain.in).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 実績工数(actual_hours)は C2 で社内専用の別表 task_internal_metrics（task_id 1:1）
+   * に移した。tasks.* の生の列（つなぎトリガーが写す旧列。C3 で削除予定）ではなく、
+   * 埋め込みで読んだ新表の値を task.actual_hours として使う（呼び出し側の形は変えない）。
+   */
+  it('task_internal_metrics の埋め込み(object)から actual_hours を取り出し、tasks側には残さない', async () => {
+    const tasksChain = makeTasksChain([
+      {
+        data: [makeTask('a', { actual_hours: 999, task_internal_metrics: { actual_hours: 12.5 } })],
+        error: null,
+      },
+    ])
+    const supabase = makeSupabase(tasksChain)
+
+    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
+
+    expect(result.tasks[0].actual_hours).toBe(12.5)
+    expect(
+      (result.tasks[0] as unknown as { task_internal_metrics?: unknown }).task_internal_metrics
+    ).toBeUndefined()
+  })
+
+  it('埋め込みが配列で返っても(to-one embed)先頭要素から actual_hours を取り出す', async () => {
+    const tasksChain = makeTasksChain([
+      { data: [makeTask('a', { task_internal_metrics: [{ actual_hours: 3 }] })], error: null },
+    ])
+    const supabase = makeSupabase(tasksChain)
+
+    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
+
+    expect(result.tasks[0].actual_hours).toBe(3)
+  })
+
+  it('task_internal_metrics に行が無い(null)場合は actual_hours も null になる', async () => {
+    const tasksChain = makeTasksChain([
+      { data: [makeTask('a', { actual_hours: 999, task_internal_metrics: null })], error: null },
+    ])
+    const supabase = makeSupabase(tasksChain)
+
+    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
+
+    expect(result.tasks[0].actual_hours).toBeNull()
+  })
+})
+
+describe('fetchSpaceRowQuery — 代理店設定(default_margin_rate/vendor_settings)は space_agency_settings から読む', () => {
+  function makeSpaceChain(result: { data: unknown; error: unknown }) {
+    const chain: Record<string, ReturnType<typeof vi.fn>> = {}
+    chain.select = vi.fn(() => chain)
+    chain.eq = vi.fn(() => chain)
+    chain.maybeSingle = vi.fn(() => Promise.resolve(result))
+    return chain
+  }
+
+  function makeSpaceSupabase(chain: ReturnType<typeof makeSpaceChain>) {
+    const from = vi.fn((table: string) => {
+      if (table === 'spaces') return chain
+      throw new Error(`unexpected table: ${table}`)
+    })
+    return { from } as unknown as import('@supabase/supabase-js').SupabaseClient
+  }
+
+  it('埋め込みの値を default_margin_rate / vendor_settings として平らにする', async () => {
+    const chain = makeSpaceChain({
+      data: {
+        id: 'space-1',
+        name: 'テスト',
+        default_margin_rate: 999, // 旧列(つなぎ)の値。埋め込みの値を優先する
+        vendor_settings: { show_client_name: true, allow_client_comments: true }, // 旧列
+        space_agency_settings: {
+          default_margin_rate: 35,
+          vendor_settings: { show_client_name: false, allow_client_comments: true },
+        },
+      },
+      error: null,
+    })
+    const supabase = makeSpaceSupabase(chain)
+
+    const result = await fetchSpaceRowQuery(supabase, 'space-1')
+
+    expect(result?.default_margin_rate).toBe(35)
+    expect(result?.vendor_settings).toEqual({ show_client_name: false, allow_client_comments: true })
+    expect((result as Record<string, unknown>).space_agency_settings).toBeUndefined()
+  })
+
+  it('space_agency_settings に行が無い space では既定値（マージン無し・ベンダー設定は両方false）で補う', async () => {
+    const chain = makeSpaceChain({
+      data: {
+        id: 'space-1',
+        name: 'テスト',
+        // 新表に行が無くても、旧列(つなぎ)に値が残っていることがある(C3で削除予定)。
+        // 埋め込みが null なら既定値を出す(旧列の値を画面に出さない)
+        default_margin_rate: 999,
+        vendor_settings: { show_client_name: true, allow_client_comments: true },
+        space_agency_settings: null,
+      },
+      error: null,
+    })
+    const supabase = makeSpaceSupabase(chain)
+
+    const result = await fetchSpaceRowQuery(supabase, 'space-1')
+
+    expect(result?.default_margin_rate).toBeNull()
+    expect(result?.vendor_settings).toEqual({ show_client_name: false, allow_client_comments: false })
+  })
+
+  it('space の行自体が無ければ null を返す', async () => {
+    const chain = makeSpaceChain({ data: null, error: null })
+    const supabase = makeSpaceSupabase(chain)
+
+    const result = await fetchSpaceRowQuery(supabase, 'space-1')
+
+    expect(result).toBeNull()
   })
 })
 

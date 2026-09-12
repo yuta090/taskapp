@@ -26,6 +26,12 @@ function escapeLikePattern(term: string): string {
  * Find similar completed tasks with actual_hours recorded.
  * Matches by title substring (supports Japanese).
  * Also calculates client wait days from task_events PASS_BALL history.
+ *
+ * actual_hours lives in task_internal_metrics (a 1:1 sidecar table keyed by task_id,
+ * task_id being that table's primary key/FK to tasks.id), not on tasks itself. The
+ * query starts from tasks (so ordering/limiting by tasks.updated_at applies to the
+ * outer rows, not the embedded ones) and inner-joins task_internal_metrics via
+ * `!inner` to keep only tasks that actually have actual_hours recorded.
  */
 export async function findSimilarTasks(
   supabase: SupabaseClient,
@@ -45,14 +51,14 @@ export async function findSimilarTasks(
 
   const sb = supabase as SupabaseClient
 
-  // Search for completed tasks with actual_hours in the same space
+  // Search for completed tasks with actual_hours recorded, in the same space
   const { data: tasks, error } = await sb
     .from('tasks')
-    .select('id, title, actual_hours, completed_at, updated_at')
+    .select('id, title, completed_at, updated_at, task_internal_metrics!inner(actual_hours)')
     .eq('space_id' as never, spaceId as never)
     .eq('org_id' as never, orgId as never)
     .eq('status' as never, 'done' as never)
-    .not('actual_hours' as never, 'is' as never, null)
+    .not('task_internal_metrics.actual_hours' as never, 'is' as never, null)
     .ilike('title' as never, `%${searchTerm}%` as never)
     .order('updated_at' as never, { ascending: false })
     .limit(10)
@@ -61,8 +67,16 @@ export async function findSimilarTasks(
     return { similarTasks: [], avgHours: null, avgClientWaitDays: null }
   }
 
+  type TaskRow = {
+    id: string
+    title: string
+    completed_at: string | null
+    updated_at: string
+    task_internal_metrics: { actual_hours: number } | Array<{ actual_hours: number }>
+  }
+
   // Batch fetch: get all task_events for candidate tasks in one query (avoid N+1)
-  const taskIds = tasks.map((t: { id: string }) => t.id)
+  const taskIds = (tasks as TaskRow[]).map((t) => t.id)
   const { data: allEvents } = await sb
     .from('task_events')
     .select('task_id, action, payload, created_at')
@@ -81,20 +95,21 @@ export async function findSimilarTasks(
   }
 
   // Build similar tasks with client wait days
-  const similarTasks: SimilarTask[] = tasks.map(
-    (task: { id: string; title: string; actual_hours: number; completed_at: string | null; updated_at: string }) => {
-      const events = eventsByTask.get(task.id) || []
-      const completionTime = task.completed_at ?? task.updated_at
-      const clientWaitDays = calculateClientWaitDays(events, completionTime)
-      return {
-        id: task.id,
-        title: task.title,
-        actual_hours: task.actual_hours,
-        completed_at: task.completed_at ?? task.updated_at,
-        client_wait_days: clientWaitDays,
-      }
+  const similarTasks: SimilarTask[] = (tasks as TaskRow[]).map((task) => {
+    const metrics = Array.isArray(task.task_internal_metrics)
+      ? task.task_internal_metrics[0]
+      : task.task_internal_metrics
+    const events = eventsByTask.get(task.id) || []
+    const completionTime = task.completed_at ?? task.updated_at
+    const clientWaitDays = calculateClientWaitDays(events, completionTime)
+    return {
+      id: task.id,
+      title: task.title,
+      actual_hours: metrics.actual_hours,
+      completed_at: task.completed_at ?? task.updated_at,
+      client_wait_days: clientWaitDays,
     }
-  )
+  })
 
   // Calculate averages
   const avgHours =

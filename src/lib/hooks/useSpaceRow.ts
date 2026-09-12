@@ -3,7 +3,7 @@
 import { useRef } from 'react'
 import { useQuery, type QueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { spaceQueryKey } from '@/lib/supabase/queries'
+import { spaceQueryKey, fetchSpaceRowQuery } from '@/lib/supabase/queries'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
@@ -13,8 +13,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * 以前はそれぞれが別のクエリで同じ行を取りにいっていたため、設定画面を開くだけで同じ行へ
  * 4〜6往復していた。ここに集約し、queryKey も ['space', spaceId] の1本にする。
  *
- * 列を1つ足すたびにクエリを増やさないよう select は '*'。1行なので転送量は問題にならず、
+ * 列を1つ足すたびにクエリを増やさないよう select は基本 '*'。1行なので転送量は問題にならず、
  * 「まだ本番に無い列」を読んでも undefined になるだけで、呼び出し側が既定値へ落とせる。
+ * 代理店設定(default_margin_rate・vendor_settings)だけは社内専用の別表
+ * space_agency_settings（space_id が主キー・spaces と1:1）にあるため、埋め込みで
+ * 一緒に読んで同じ行の列に見えるよう平らにする（fetchSpaceRowQuery を参照）。
  */
 export interface SpaceRow {
   id: string
@@ -62,17 +65,11 @@ export function useSpaceRow(spaceId: string | null): UseSpaceRowResult {
 
   const { data, isPending } = useQuery<SpaceRow | null>({
     queryKey: spaceQueryKey(spaceId),
-    queryFn: async (): Promise<SpaceRow | null> => {
-      // maybeSingle: 消されたプロジェクトや権限外の spaceId をURLで踏んだとき、
-      // 「行が無い」をエラーにせず null で返す（無駄な再試行を繰り返さない）
-      const { data, error } = await supabaseRef
-        .current!.from('spaces')
-        .select('*')
-        .eq('id', spaceId!)
-        .maybeSingle()
-      if (error) throw error
-      return (data as SpaceRow | null) ?? null
-    },
+    // server prefetch(prefetch.ts)と同じ fetchSpaceRowQuery に委ねる（形のドリフト防止。
+    // 代理店設定は社内専用の別表 space_agency_settings から埋め込みで読み、この行の
+    // default_margin_rate / vendor_settings として平らにする）
+    queryFn: async (): Promise<SpaceRow | null> =>
+      (await fetchSpaceRowQuery(supabaseRef.current!, spaceId!)) as SpaceRow | null,
     enabled: !!spaceId,
     // STRUCTUREティア(設定・接続構成): 実質固定だが他メンバーの変更を陳腐化させないため
     // Infinityにはせず、mount時のサイレントSWR(背景refetch)は効かせる(freshness tiers)。
