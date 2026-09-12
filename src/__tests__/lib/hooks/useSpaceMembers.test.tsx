@@ -110,6 +110,47 @@ describe('useSpaceMembers — 取り直しの間隔', () => {
   })
 })
 
+describe('useSpaceMembers — clientMembers / internalMembers の絞り込み', () => {
+  it('internalMembers は admin/editor/viewer だけ（vendor は含まない）', async () => {
+    rpcMock.mockResolvedValue({
+      data: [
+        { user_id: 'u-admin', display_name: '管理者', avatar_url: null, role: 'admin' },
+        { user_id: 'u-editor', display_name: '編集者', avatar_url: null, role: 'editor' },
+        { user_id: 'u-viewer', display_name: '閲覧者', avatar_url: null, role: 'viewer' },
+        { user_id: 'u-vendor', display_name: '協力会社', avatar_url: null, role: 'vendor' },
+        { user_id: 'u-client', display_name: '相手先', avatar_url: null, role: 'client' },
+      ],
+      error: null,
+    })
+    const { Wrapper } = createWrapper()
+
+    const { result } = renderHook(() => useSpaceMembers('space-1'), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.members).toHaveLength(5))
+
+    expect(result.current.internalMembers.map((m) => m.id).sort()).toEqual([
+      'u-admin',
+      'u-editor',
+      'u-viewer',
+    ])
+  })
+
+  it('clientMembers は role=client だけ（vendor は含まない）', async () => {
+    rpcMock.mockResolvedValue({
+      data: [
+        { user_id: 'u-client', display_name: '相手先', avatar_url: null, role: 'client' },
+        { user_id: 'u-vendor', display_name: '協力会社', avatar_url: null, role: 'vendor' },
+      ],
+      error: null,
+    })
+    const { Wrapper } = createWrapper()
+
+    const { result } = renderHook(() => useSpaceMembers('space-1'), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.members).toHaveLength(2))
+
+    expect(result.current.clientMembers.map((m) => m.id)).toEqual(['u-client'])
+  })
+})
+
 describe('useUserName — 表示名', () => {
   it('staleTimeはSTRUCTUREティア(5分)に揃える', async () => {
     const { Wrapper } = createWrapper()
