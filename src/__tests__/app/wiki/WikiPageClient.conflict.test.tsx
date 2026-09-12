@@ -122,6 +122,24 @@ const initialContents = vi.hoisted(() => ({ current: [] as Array<string | undefi
 // (開いただけでは保存しない)を意味のある形でテストするため、スタブでもこれを再現する。
 const STUB_CONTENT_1 = 'STUB_CONTENT_1'
 const STUB_CONTENT_2 = 'STUB_CONTENT_2'
+
+// 【低】正規化のテスト用: JSON文字列を「内容は同じだがオブジェクトのキー順を変えた」
+// 別の文字列に作り直す(再帰的に降順へ並べ替え・キーが1つ以下なら並べ替えようが無いので
+// そのテストでは2階層目のオブジェクトにキーを複数持たせておくこと)。
+function reorderJsonKeysForTest(value: string): string {
+  const reorder = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(reorder)
+    if (input !== null && typeof input === 'object') {
+      const keys = Object.keys(input as Record<string, unknown>).sort().reverse()
+      const result: Record<string, unknown> = {}
+      for (const key of keys) result[key] = reorder((input as Record<string, unknown>)[key])
+      return result
+    }
+    return input
+  }
+  return JSON.stringify(reorder(JSON.parse(value)))
+}
+
 vi.mock('@/components/wiki/WikiEditorDynamic', async () => {
   const React = await import('react')
   return {
@@ -155,6 +173,26 @@ vi.mock('@/components/wiki/WikiEditorDynamic', async () => {
             onClick: () => onChange?.(STUB_CONTENT_2),
           },
           '入力2'
+        ),
+        // Ctrl+Z 等で開いたときと同じ内容へ戻したことを再現するボタン(【低】saveStatus 残留の確認用)
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            'data-testid': 'wiki-editor-stub-revert',
+            onClick: () => onChange?.(initialContent ?? ''),
+          },
+          '元に戻す'
+        ),
+        // 【低】正規化の確認用: サーバーの本文とキー順だけ違う(内容は同じ)値を emit する
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            'data-testid': 'wiki-editor-stub-reorder',
+            onClick: () => onChange?.(reorderJsonKeysForTest(initialContent ?? '{}')),
+          },
+          'キー順だけ変えて再emit'
         )
       )
     },
@@ -406,16 +444,34 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
     expect(mockUpdatePage).not.toHaveBeenCalled()
   })
 
-  // 【高】1: 保留中の（まだ発火していない）デバウンス保存を止めずに基準を差し替えると、
-  // 帯を出したあとに古い書きかけが新しい基準で保存されてしまう。
+  // 【低】updatePage の戻り値は型どおり null もあり得る(baseUpdatedAtを渡した保存で
+  // 実際に null が返ることは無いはずだが、型で表現されている以上コードは護らないといけない)。
+  // ここで基準(baseUpdatedAtRef)を null で壊すと、以後の保存が楽観ロックの条件無しで
+  // 送られてしまう(黙って上書き許可に戻る)。基準は開いたときの値のまま保たれることを確かめる。
+  it('【低】updatePage が異常に null を返しても、基準(baseUpdatedAt)を壊さない', async () => {
+    mockUpdatePage.mockResolvedValueOnce({ updatedAt: null })
+
+    await setup()
+    await typeAndFlush() // 1回目: 異常応答(updatedAt: null)
+
+    mockUpdatePage.mockClear()
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-type-2'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+
+    // 基準は開いたときの updated_at のまま(null に壊されていない)
+    expect(mockUpdatePage).toHaveBeenCalledWith('p1', { body: STUB_CONTENT_2 }, INITIAL_PAGE.updated_at)
+  })
+
   // 保存を予約したまま(T2)「最新を読み込む」を押しても、その予約が後から発火して
-  // 保存を送らないことをエンドツーエンドで確かめる。Wiki の直しは何重かの砦が重なって
-  // この結果を保証する: ①ここで直した明示クリア(【高】1本体・handleReloadLatestの先頭)
-  // ②conflictRef が競合中は再スケジュールを止める(【高】2) ③本文が読み直した内容と
-  // 一致すればそもそも保存しない(【高】3の土台)。削除済み(fresh===null)の経路は
-  // conflictRef を true のまま維持する設計のため、明示クリアを外しても②に守られてしまい
-  // 単体では見分けが付かない。それでも「予約が発火しても保存は送られない」という
-  // 利用者から見える結果自体は、どの砦が効いていても壊れてはいけないので、それを確かめる。
+  // 保存を送らないことをエンドツーエンドで確かめる。
+  // レビューで訂正: この経路を実際に守っているのは、performSave が「発火した時点の
+  // currentContentRef.current」を読むこと（古い closure の content 引数ではない）。
+  // T2 が発火しても、その時点の currentContentRef はリロードで置き換わった最新の内容に
+  // なっているため、古い書きかけが送られようがない。handleReloadLatest 先頭の明示クリアは
+  // 主犯の直しではなく、「送っても無駄な1往復・不要な版の1行」を省く最適化に過ぎない
+  // （このテストは reload/restore とも明示クリアの有無に関わらず通る）。
   it('【高】1: 保存を予約した状態で「最新を読み込む」を押すと、その予約が発火しても保存が送られない', async () => {
     let rejectFirstUpdate: (err: unknown) => void = () => {}
     mockUpdatePage.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirstUpdate = reject }))
@@ -458,22 +514,25 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
     expect(mockUpdatePage).not.toHaveBeenCalled()
   })
 
-  // 版の復元でも同じ結果(予約が発火しても保存されない)をエンドツーエンドで確かめる。
-  // 復元は成功すると必ずエディタを作り直す(初回 onChange が復元後の本文と一致し、
-  // 【高】3の土台がついでに保留分も止める)ため、明示クリア単体を機械的に切り分けては
-  // いないが、利用者から見える結果(黙って取り消されない)はどちらの砦でも守られる。
-  it('【高】1(版の復元): 保存を予約した状態で版を復元すると、その予約が発火しても保存が送られない', async () => {
+  // レビュー訂正: 版の復元では明示クリアが「唯一の砦」。復元は updatePage → fetchPage の
+  // 2往復で、その窓の間は conflictRef=false・currentContentRef は復元前の書きかけ・
+  // baseUpdatedAtRef も復元前のまま(reload と違って作り直しは復元成功後にしか起きない)。
+  // ここで保留中の自動保存(T1)が発火すると、書きかけが「まだ有効な(復元前の)基準」で
+  // 保存に成功してしまい、後から届く復元の結果とレースする。明示クリアが無いとこの窓を
+  // 通ってしまうことを、updatePage を意図的に未解決のままにして確かめる
+  // （【高】2 のテストと同じ「未解決の Promise」の手法）。
+  it('【高】1(版の復元): 復元の実行中(updatePage→fetchPageの間)に保留中の自動保存が発火する窓を塞ぐ', async () => {
     await setup()
 
-    // T1: まだ発火していないデバウンスタイマーを予約したままにする
+    // T1: まだ発火していないデバウンスタイマーを予約したままにする(打ちっぱなしの書きかけ)
     fireEvent.click(screen.getByTestId('wiki-editor-stub-type'))
 
-    mockFetchPage.mockResolvedValueOnce(
-      page({ body: 'restored-body', title: '復元タイトル', updated_at: '2026-09-13T00:09:00+09:00' })
-    )
+    // 復元の updatePage をわざと未解決のままにし、updatePage→fetchPage の窓を開けておく
+    let resolveRestoreUpdate: (v: { updatedAt: string | null }) => void = () => {}
+    mockUpdatePage.mockImplementationOnce(() => new Promise((resolve) => { resolveRestoreUpdate = resolve }))
+
     const inspectorElement = getLastInspectorElement()
-    mockUpdatePage.mockClear()
-    await act(async () => {
+    act(() => {
       inspectorElement.props.onRestoreVersion({
         id: 'v1',
         org_id: 'org1',
@@ -483,19 +542,24 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
         created_by: 'user1',
         created_at: '2026-09-13T00:05:00+09:00',
       })
-      await Promise.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
     })
-    // ここまでで updatePage は「復元」の1回だけ呼ばれている
-    expect(mockUpdatePage).toHaveBeenCalledTimes(1)
-    mockUpdatePage.mockClear()
 
-    // T1 が本来発火するはずだった時刻を過ぎても、古い書きかけの保存は送られない
+    // 復元の updatePage がまだ解決していない間に、T1(打ちっぱなしの自動保存)が本来
+    // 発火するはずの時刻まで進める。明示クリアが効いていれば T1 は発火せず、
+    // updatePage の呼び出し回数は復元の1回のままになる。
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000)
+      await vi.advanceTimersByTimeAsync(1500)
     })
-    expect(mockUpdatePage).not.toHaveBeenCalled()
+    expect(mockUpdatePage).toHaveBeenCalledTimes(1)
+
+    // 後始末: 復元を正常に終わらせる
+    mockFetchPage.mockResolvedValueOnce(
+      page({ body: 'restored-body', title: '復元タイトル', updated_at: '2026-09-13T00:09:00+09:00' })
+    )
+    await act(async () => {
+      resolveRestoreUpdate({ updatedAt: '2026-09-13T00:09:00+09:00' })
+      await vi.advanceTimersByTimeAsync(0)
+    })
   })
 
   // 【高】2: conflict が React state だけだと、setConflict 後も再描画前の古い closure
@@ -579,6 +643,56 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
       await vi.advanceTimersByTimeAsync(3000)
     })
     expect(mockUpdatePage).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('wiki-conflict-banner')).not.toBeInTheDocument()
+  })
+
+  // 【中】(本命): A で保存が通信中のまま B に切り替え、B が正しく開き終わった後に A の
+  // 保存が完了すると、その結果(基準・本文・保存状態)が共有 ref/state 経由で B の画面に
+  // 書き込まれてしまう。世代(pageEpochRef)でこれを防ぐ。防げていないと、直後に B で
+  // 実際に編集したときに A の基準で送ってしまい、0行→本当の競合と誤判定されて
+  // 偽の帯が出る（B の内容は正しいのに、である）。
+  it('【中】保存の通信中にページを切り替えても、開いた先(B)に前のページ(A)の基準や偽の帯が書き込まれない', async () => {
+    mockFetchPage.mockImplementation(async (id: string) => {
+      if (id === 'p1') return INITIAL_PAGE
+      if (id === 'p2') return PAGE_B
+      return null
+    })
+
+    const { rerender } = render(<WikiPageClient orgId="org1" spaceId="space1" />)
+    await waitFor(() => {
+      expect(screen.getByTestId('wiki-editor-stub')).toBeInTheDocument()
+      expect(mountCount.current).toBeGreaterThan(0)
+    })
+
+    // A で打ち、保存を「未解決のまま」通信中にする
+    let resolveAUpdate: (v: { updatedAt: string }) => void = () => {}
+    mockUpdatePage.mockImplementationOnce(() => new Promise((resolve) => { resolveAUpdate = resolve }))
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-type'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+
+    // A の保存が通信中のまま B へ切り替える
+    searchParamsPageId.current = 'p2'
+    rerender(<WikiPageClient orgId="org1" spaceId="space1" />)
+    await waitFor(() => expect(screen.getByText('ページB')).toBeInTheDocument())
+
+    // B が開き終わってから、A の保存(通信が遅かった想定)がここで完了する
+    await act(async () => {
+      resolveAUpdate({ updatedAt: '2026-09-13T00:05:00+09:00' })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // A の結果が B の画面に漏れていない(偽の帯が出ていない)
+    expect(screen.queryByTestId('wiki-conflict-banner')).not.toBeInTheDocument()
+
+    // B で実際に編集すると、B自身の基準(PAGE_B.updated_at)で送られる(Aの基準に汚染されない)
+    mockUpdatePage.mockClear()
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-type-2'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(mockUpdatePage).toHaveBeenCalledWith('p2', { body: STUB_CONTENT_2 }, PAGE_B.updated_at)
     expect(screen.queryByTestId('wiki-conflict-banner')).not.toBeInTheDocument()
   })
 
@@ -675,5 +789,45 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
     })
 
     expect(screen.getByTestId('wiki-conflict-banner')).toBeInTheDocument()
+  })
+
+  // 【低】打った直後に開いたときと同じ内容へ戻すと(Ctrl+Z等)、baseline一致の枝で
+  // タイマーだけ消して return していたため setSaveStatus('idle') が呼ばれず、
+  // 「保存中...」の表示が永久に残っていた。
+  it('【低】打った直後に元の内容へ戻すと、「保存中...」の表示が残らない', async () => {
+    await setup()
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-type')) // 別の内容に変える → 保存中...
+    expect(screen.getByText('保存中...')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-revert')) // 開いたときと同じ内容へ戻す
+    expect(screen.queryByText('保存中...')).not.toBeInTheDocument()
+
+    // 保存自体も走らない(戻した時点でタイマーは消えている)
+    mockUpdatePage.mockClear()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(mockUpdatePage).not.toHaveBeenCalled()
+  })
+
+  // 【低】「開くだけでは保存しない」の比較が DB の生の文字列と JSON.stringify(editor.document)
+  // をそのまま突き合わせていたため、rpc_set_spec_state の追記(jsonb→::text でキー順・空白が
+  // 変わる)・generateDefaultWikiBody・SPEC_TEMPLATES・プリセット適用で組み立てられた本文
+  // では、内容が同じでもキー順が違うだけで一致せず、開いただけで保存が走ってしまっていた。
+  it('【低】キー順だけ違う同内容の本文では、開いただけで保存が走らない(正規化)', async () => {
+    mockFetchPage.mockReset().mockResolvedValue(
+      page({ body: JSON.stringify({ a: 1, b: { x: 1, y: 2 } }) })
+    )
+
+    await setup()
+
+    // サーバーの本文とキー順だけ違う(内容は同じ)値を emit する
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-reorder'))
+    expect(screen.queryByText('保存中...')).not.toBeInTheDocument()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(mockUpdatePage).not.toHaveBeenCalled()
   })
 })

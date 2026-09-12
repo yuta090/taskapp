@@ -56,6 +56,39 @@ const WIKI_CONFLICT_MESSAGE =
 const WIKI_PAGE_DELETED_MESSAGE =
   'このページは見つかりませんでした（削除された可能性があります）。自動保存は止まっています。'
 
+/**
+ * Wiki 本文(BlockNote の JSON文字列)を「開いただけでは保存しない」比較のために正規化する。
+ * DB 側で組み立てられた本文（rpc_set_spec_state の追記は jsonb を ::text にするため
+ * キー順・空白が変わる／generateDefaultWikiBody・SPEC_TEMPLATES・プリセット適用で
+ * 手組みされた本文）は、クライアントの JSON.stringify(editor.document) とキー順や
+ * 空白が一致しないことがある。単純な JSON.parse→JSON.stringify の往復では
+ * オブジェクトのキー順は元のまま保たれてしまう（並べ替わらない）ため、それだけでは
+ * 足りない。オブジェクトのキーをアルファベット順に並べ替えてから比較用の文字列に
+ * する（配列の並びは意味を持つため崩さない）。JSON として壊れている値は、正規化を
+ * あきらめて元の文字列のまま返す（＝そのケースは「別物」として保存される安全側に倒れる。
+ * 議事録の computeBaseline(MinutesDocumentView.tsx) と同じ「開いたときと同じなら
+ * 保存しない」という考え方を、Wiki の JSON 本文向けに実装したもの）。
+ */
+function canonicalizeWikiBody(value: string | null): string | null {
+  if (value === null) return null
+  try {
+    const sortKeysDeep = (input: unknown): unknown => {
+      if (Array.isArray(input)) return input.map(sortKeysDeep)
+      if (input !== null && typeof input === 'object') {
+        const sorted: Record<string, unknown> = {}
+        for (const key of Object.keys(input as Record<string, unknown>).sort()) {
+          sorted[key] = sortKeysDeep((input as Record<string, unknown>)[key])
+        }
+        return sorted
+      }
+      return input
+    }
+    return JSON.stringify(sortKeysDeep(JSON.parse(value)))
+  } catch {
+    return value
+  }
+}
+
 interface WikiPageClientProps {
   orgId: string
   spaceId: string
@@ -97,9 +130,16 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   // 安定した終端状態にする＝「毎回帯が出ては消える」を防ぐ）。
   const [pageDeleted, setPageDeleted] = useState(false)
   // 本文保存が同時に2本走らないようにする(【中】4)。通信中に来た保存要求は
-  // pendingSaveRequestedRef に印だけ立て、通信が終わってから最新の内容でもう一度だけ送る。
+  // pendingSaveRequestRef に(宛先ページ・世代を添えて)控え、通信が終わってから
+  // 最新の内容でもう一度だけ送る。
   const savingRef = useRef(false)
-  const pendingSaveRequestedRef = useRef(false)
+  const pendingSaveRequestRef = useRef<{ pageId: string; epoch: number } | null>(null)
+  // ページを切り替えるたびに1つ進む「世代」。保存(performSave)は開始時に世代を掴み、
+  // await の後(送信結果が返った後・見せかけの競合の確認後・再送の後)ごとに
+  // pageEpochRef.current と一致するかを確かめてから共有の ref/state を書く。一致しなければ
+  // 「もう見ていないページの結果」として何も書かずに捨てる(レビュー指摘: 保存の通信中に
+  // ページを切り替えると、開いた先に前のページの基準・本文・競合状態が書き込まれてしまう)。
+  const pageEpochRef = useRef(0)
   // 「最新を読み込む」で1つ進める。エディタの key に含め、再マウントさせて
   // initialContent を読み直させる（本体は onChange の度に作り直さない）。ページを
   // 切り替えても 0 に戻さない（【高】3）: activePage.id が変わればどのみち key は変わるため
@@ -261,6 +301,13 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   // Load active page content when selected
   useEffect(() => {
+    // ページを離れる・切り替えるたびに世代を進める。前のページの保存(performSave)は
+    // 開始時に掴んだ世代を持ち続けるので、これだけで「もう見ていない」と自ら気づいて
+    // 共有の ref/state を書かなくなる（savingRef はここではリセットしない — 前のページの
+    // 保存が自分の finally で正しく false に戻す。ここでリセットすると、前のページの保存が
+    // 通信中のまま新しいページの保存が二重に走ってしまう＝【中】4 の排他が抜ける）。
+    pageEpochRef.current += 1
+
     if (!selectedPageId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset state when no page selected
       setActivePage(null)
@@ -281,8 +328,6 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     conflictRef.current = false
     setConflict(false)
     setPageDeleted(false)
-    savingRef.current = false
-    pendingSaveRequestedRef.current = false
 
     setShowInfo(false)
     // ページを切り替えたら全画面表示は必ず解除する
@@ -445,10 +490,17 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   // 本文保存の実体。savingRef で「今まさに通信中」を表し、同時に2本走らないようにする
   // （【中】4）。呼ばれた時点の currentContentRef.current を読む（古い closure の内容では
   // なく、その時点で分かっている最新の書きかけを送る）。見せかけの競合(本文は同じ)は
-  // 基準を差し替えて1回だけ内部でやり直す（既存どおり）。終わったら pendingSaveRequestedRef
+  // 基準を差し替えて1回だけ内部でやり直す（既存どおり）。終わったら pendingSaveRequestRef
   // を確かめ、通信中に来た保存要求があれば最新の内容でもう一度だけ送る。
-  const performSave = useCallback(async (pageId: string) => {
+  //
+  // epoch は呼び出し開始時に pageEpochRef.current を掴んだもの。await のたびに
+  // pageEpochRef.current と比べ、ズレていれば「もう見ていないページの結果」として
+  // 共有の ref/state を一切書かずに抜ける（レビュー指摘: 保存の通信中にページを切り替えると
+  // 開いた先に前のページの基準・本文・競合状態が書き込まれ、偽の帯が出たり【中】4の
+  // 排他が別ページをまたいで効かなくなる）。
+  const performSave = useCallback(async (pageId: string, epoch: number) => {
     if (conflictRef.current) return
+    if (pageEpochRef.current !== epoch) return
     savingRef.current = true
     setSaveStatus('saving')
     const content = currentContentRef.current
@@ -457,6 +509,15 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       const base = baseUpdatedAtRef.current ?? undefined
       try {
         const result = await updatePage(pageId, { body: content }, base)
+        if (pageEpochRef.current !== epoch) return
+        if (result.updatedAt === null) {
+          // baseUpdatedAt を渡した保存で null が返ることは無いはずだが、型どおり有り得る
+          // ものとして扱う。基準(baseUpdatedAtRef)を null で壊すと、以後の保存が
+          // 楽観ロックの条件無しで送られてしまう（黙って上書き許可に戻る）ため、
+          // 基準には触れず異常として終える。
+          setSaveStatus('idle')
+          return
+        }
         baseUpdatedAtRef.current = result.updatedAt
         knownServerBodyRef.current = content
         setSaveStatus('saved')
@@ -464,6 +525,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
         return
       } catch (err) {
+        if (pageEpochRef.current !== epoch) return
         if (!(err instanceof WikiConflictError)) {
           setSaveStatus('idle')
           return
@@ -473,6 +535,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       // WikiConflictError: 0行だった＝基準の updated_at がズレていた。まず見せかけの競合
       // （他の人がタイトル等だけ変え、本文は変わっていない）かどうかを確かめる。
       const fresh = await fetchPage(pageId)
+      if (pageEpochRef.current !== epoch) return
       if (fresh === null) {
         // 【中】5: ページ自体が既に削除されていた（0行の原因は競合とは限らない）
         conflictRef.current = true
@@ -497,12 +560,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       }
       try {
         const retryResult = await updatePage(pageId, { body: content }, fresh.updated_at)
+        if (pageEpochRef.current !== epoch) return
+        if (retryResult.updatedAt === null) {
+          setSaveStatus('idle')
+          return
+        }
         baseUpdatedAtRef.current = retryResult.updatedAt
         knownServerBodyRef.current = content
         setSaveStatus('saved')
         if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
         savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
       } catch (retryErr) {
+        if (pageEpochRef.current !== epoch) return
         if (retryErr instanceof WikiConflictError) {
           conflictRef.current = true
           setConflict(true)
@@ -510,25 +579,32 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         setSaveStatus('idle')
       }
     } finally {
+      // savingRef は世代に関わらず必ず戻す(このページを離れていても、自分が立てた
+      // 「通信中」フラグは自分で下ろす。ここを世代ガードで飛ばすと savingRef が
+      // true のまま残り、以後どのページでも保存できなくなる)。
       savingRef.current = false
-      if (pendingSaveRequestedRef.current) {
-        pendingSaveRequestedRef.current = false
-        if (!conflictRef.current) {
-          void performSave(pageId)
+      const pending = pendingSaveRequestRef.current
+      if (pending) {
+        pendingSaveRequestRef.current = null
+        // 保留された要求が「今も見ているページ」宛てのときだけ送り直す。別のページへ
+        // さらに切り替わっていれば、宛先はもうどこにも表示されていないので送らない。
+        if (!conflictRef.current && pageEpochRef.current === pending.epoch) {
+          void performSave(pending.pageId, pending.epoch)
         }
       }
     }
   }, [updatePage, fetchPage])
 
   // デバウンスのタイマーが実際に発火したときの入口。通信中なら送らず「要求あり」の印だけ
-  // 立てて performSave の finally に任せる（【中】4）。
+  // (宛先ページ・世代とともに)控えて performSave の finally に任せる（【中】4）。
   const scheduleSave = useCallback((pageId: string) => {
     if (conflictRef.current) return
+    const epoch = pageEpochRef.current
     if (savingRef.current) {
-      pendingSaveRequestedRef.current = true
+      pendingSaveRequestRef.current = { pageId, epoch }
       return
     }
-    void performSave(pageId)
+    void performSave(pageId, epoch)
   }, [performSave])
 
   const handleEditorChange = useCallback((content: string) => {
@@ -546,8 +622,15 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     // 張らない。BlockNote は初期表示直後に一度 onChange を呼ぶため、これが無いと
     // ページを開くだけで保存が走り、版の履歴が無駄に増える
     // （議事録の baselineRef 比較(MinutesDocumentView.tsx:380-383)と同じ考え方）。
-    if (content === knownServerBodyRef.current) {
+    // 生の文字列そのままではなく正規化(canonicalizeWikiBody)して比べる — DB側で
+    // 組み立てられた本文はキー順・空白がクライアントの JSON.stringify と一致しない
+    // ことがあるため（【低】指摘）。
+    if (canonicalizeWikiBody(content) === canonicalizeWikiBody(knownServerBodyRef.current)) {
       if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+      // 【低】指摘: 打った直後に元へ戻すと(Ctrl+Zなど)ここに来るが、直前に
+      // setSaveStatus('saving') 済みのことがあるため、ここで idle に戻さないと
+      // 「保存中...」の表示が永久に残る。
+      setSaveStatus('idle')
       return
     }
 
@@ -585,7 +668,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     // （すでに通信中の保存自体は取り消せない。楽観ロックが最後の砦になる）
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
     if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
-    pendingSaveRequestedRef.current = false
+    pendingSaveRequestRef.current = null
 
     const fresh = await fetchPage(activePage.id)
     if (fresh === null) {

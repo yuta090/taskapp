@@ -332,7 +332,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
     pageId: string,
     input: UpdateWikiPageInput,
     baseUpdatedAt?: string
-  ): Promise<{ updatedAt: string }> => {
+  ): Promise<{ updatedAt: string | null }> => {
     // Capture previous state for rollback
     const previousData = queryClient.getQueryData<{
       pages: WikiPage[]
@@ -403,7 +403,12 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       }
       // baseUpdatedAt を渡さない呼び出しで0行なら、更新できる行が無かった（削除済み等）。
       // 存在しない基準をでっち上げない — null をそのまま返し、呼び出し側の判断に委ねる。
-      updatedAt = rows[0]?.updated_at ?? null
+      // `rows[0]` ではなく `rows.at(0)` を使う — この配列の型注釈には `noUncheckedIndexedAccess`
+      // が無いと `| undefined` が付かず、`rows[0]` だと「必ず存在する」ものとして扱われて
+      // しまい、戻り値の型注釈が実体(string | null)とズレていても tsc が気づけなかった
+      // （レビュー指摘）。`Array.prototype.at()` は常に `T | undefined` を返す型なので、
+      // この案内板の設定に関わらず「無いかもしれない」がそのまま型に出る。
+      updatedAt = rows.at(0)?.updated_at ?? null
     } catch (err) {
       // Revert optimistic update
       if (previousData) {
