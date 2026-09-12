@@ -49,11 +49,31 @@ interface UseWikiPagesReturn {
   autoCreatedPageId: string | null
   fetchPages: () => Promise<void>
   createPage: (input: CreateWikiPageInput) => Promise<WikiPage>
-  updatePage: (pageId: string, input: UpdateWikiPageInput) => Promise<void>
+  /**
+   * baseUpdatedAt を渡すと保存の合言葉（楽観ロック）が働く: DB update に
+   * `.eq('updated_at', baseUpdatedAt)` を足し、他の人（またはAI）が先に書き換えていて
+   * 0行しか更新できなければ WikiConflictError を投げる。渡さない呼び出し（ページ情報
+   * パネルの属性更新・版の復元）は今までどおり無条件で上書きする。
+   * 戻り値の updatedAt は、次の保存の基準としてそのまま使えるDB上の最新値。
+   */
+  updatePage: (pageId: string, input: UpdateWikiPageInput, baseUpdatedAt?: string) => Promise<{ updatedAt: string }>
   deletePage: (pageId: string) => Promise<void>
   fetchPage: (pageId: string) => Promise<WikiPage | null>
   fetchVersions: (pageId: string) => Promise<WikiPageVersion[]>
   publishPage: (pageId: string, milestoneId: string) => Promise<void>
+}
+
+/**
+ * Wiki 本文の保存で「基準の updated_at を渡したのに 0 行しか更新できなかった」ことを表す。
+ * ＝ 他の人（またはAI）がこのページを先に書き換えていた、という合図（楽観ロックの失敗）。
+ * ページ自体が存在しない・権限が無い場合は Supabase が updateError を返すのでここには来ない
+ * （0行との区別: updateError が無いのに rows.length === 0 のときだけこの例外にする）。
+ */
+export class WikiConflictError extends Error {
+  constructor(message = 'このページは、別の場所で更新されています') {
+    super(message)
+    this.name = 'WikiConflictError'
+  }
 }
 
 // 読み込み中に毎レンダー新しい [] を返すと呼び出し側の useMemo が毎回無効化されるため共有定数にする
@@ -303,7 +323,11 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId+spaceId already in deps
   }, [orgId, spaceId, supabase, queryClient])
 
-  const updatePage = useCallback(async (pageId: string, input: UpdateWikiPageInput): Promise<void> => {
+  const updatePage = useCallback(async (
+    pageId: string,
+    input: UpdateWikiPageInput,
+    baseUpdatedAt?: string
+  ): Promise<{ updatedAt: string }> => {
     // Capture previous state for rollback
     const previousData = queryClient.getQueryData<{
       pages: WikiPage[]
@@ -333,6 +357,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       })
     )
 
+    let updatedAt: string
     try {
       const { data: authData } = await supabase.auth.getUser()
       const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID
@@ -345,18 +370,39 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       if (input.milestone_id !== undefined) updateData.milestone_id = input.milestone_id
       if (input.pinned_at !== undefined) updateData.pinned_at = input.pinned_at
 
-      const { error: updateError } = await (supabase as SupabaseClient)
+      let query = (supabase as SupabaseClient)
         .from('wiki_pages')
         .update(updateData)
         .eq('id', pageId)
         .eq('org_id', orgId)
 
+      // baseUpdatedAt が渡されたときだけ楽観ロックの条件を足す（議事録の updateMinutes と同じ形）。
+      // 渡されない呼び出し（ページ情報パネルの属性更新・版の復元）は当面そのまま無条件で上書きする。
+      if (baseUpdatedAt !== undefined) {
+        query = query.eq('updated_at', baseUpdatedAt)
+      }
+
+      // .select() は常に付ける。属性更新の呼び出しでも updated_at はトリガーで進むため、
+      // これを取っておかないと「次の本文保存が持つ基準」が更新できず、自分の属性更新が
+      // 原因で偽の競合を起こしてしまう。
+      const { data: updated, error: updateError } = await query.select('id, updated_at')
+
       if (updateError) throw updateError
+
+      const rows = (updated ?? []) as Array<{ id: string; updated_at: string }>
+      if (baseUpdatedAt !== undefined && rows.length === 0) {
+        // updateError が無いのに 0 行 = id/org_id は一致したが updated_at が渡した基準と
+        // ズレていた（＝先に誰かが書き換えた）。行が存在しない・権限が無い場合は上の
+        // updateError で先に弾かれるので、ここに来るのは本当の競合だけ。
+        throw new WikiConflictError()
+      }
+      updatedAt = rows[0]?.updated_at ?? new Date().toISOString()
     } catch (err) {
       // Revert optimistic update
       if (previousData) {
         queryClient.setQueryData(queryKey, previousData)
       }
+      if (err instanceof WikiConflictError) throw err
       throw err instanceof Error ? err : new Error('Failed to update wiki page')
     }
 
@@ -381,6 +427,8 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
         // Version snapshot failure is non-critical
       }
     }
+
+    return { updatedAt }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId already in deps
   }, [orgId, supabase, queryClient])
 

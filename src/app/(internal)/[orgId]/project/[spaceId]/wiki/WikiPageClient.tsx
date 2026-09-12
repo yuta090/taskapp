@@ -12,7 +12,7 @@ import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { EmptyState } from '@/components/shared'
-import { useWikiPages, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages'
+import { useWikiPages, WikiConflictError, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -43,6 +43,12 @@ const EMPTY_GROUPS: ReturnType<typeof groupWikiPagesByMilestone> = []
 // resolveWikiMilestones も同じ意図で EMPTY_MILESTONE_LIST を入れるので、通常はそちらが返る。
 const EMPTY_PAGE_MILESTONES: Milestone[] = EMPTY_MILESTONE_LIST
 
+// 議事録の競合帯(MinutesDocumentView.tsx)と同じ文面の作り。Wiki には掲示板のような
+// 自動合流・保存の直列化までは作らない（必要最小限）。
+const WIKI_CONFLICT_MESSAGE =
+  'このページは、ほかの人（またはAI）が先に書き換えました。あなたが書いた分はまだ保存されていません。' +
+  '「書きかけをコピー」で控えてから「最新を読み込む」を押してください（読み込むと、この画面の書きかけは消えます）。'
+
 interface WikiPageClientProps {
   orgId: string
   spaceId: string
@@ -66,6 +72,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const savedTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [showPresetApplicator, setShowPresetApplicator] = useState(false)
+
+  // 保存の合言葉（楽観ロック）まわり。基準の updated_at と、サーバーにあると分かっている
+  // 本文を持つ。開いたとき(fetchPage)と、updatePage が成功した後（属性更新・版の復元を
+  // 含むすべての呼び出し）に必ず両方更新する（そうしないと本文保存が偽の競合を出す）。
+  const baseUpdatedAtRef = useRef<string | null>(null)
+  const knownServerBodyRef = useRef<string | null>(null)
+  // 今エディタに表示されている書きかけ（onChange の生値）。「書きかけをコピー」で使う。
+  const currentContentRef = useRef<string>('')
+  const [conflict, setConflict] = useState(false)
+  // 「最新を読み込む」で1つ進める。エディタの key に含め、再マウントさせて
+  // initialContent を読み直させる（本体は onChange の度に作り直さない）。
+  const [editorReloadToken, setEditorReloadToken] = useState(0)
 
   // 閲覧者（viewer）・相手先には編集操作を出さない。組織の役割は URL の orgId で判定する
   const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
@@ -233,6 +251,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     setSaveStatus('idle')
+    // ページを切り替えたら競合状態・保存の基準も必ずリセットする（前のページの取り違えを防ぐ）
+    setConflict(false)
+    setEditorReloadToken(0)
 
     setShowInfo(false)
     // ページを切り替えたら全画面表示は必ず解除する
@@ -243,6 +264,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       const page = await fetchPage(selectedPageId)
       if (!cancelled) {
         setActivePage(page) // null if not found — clears stale state
+        baseUpdatedAtRef.current = page?.updated_at ?? null
+        knownServerBodyRef.current = page?.body ?? null
+        currentContentRef.current = page?.body ?? ''
       }
     }
     load()
@@ -271,10 +295,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }
 
     const handleUpdate = async (updates: UpdateWikiPageInput) => {
+      // 属性更新は当面 baseUpdatedAt を渡さず無条件で上書きする（設計どおり）。
       await updatePage(activePage.id, updates)
       // Re-fetch page for fresh data
       const fresh = await fetchPage(activePage.id)
-      if (fresh) setActivePage(fresh)
+      if (fresh) {
+        setActivePage(fresh)
+        // 本文保存の基準もここで必ず差し替える。差し替えないと、この属性更新で
+        // 進んだ updated_at を知らないまま次の本文保存が古い基準で送られ、
+        // 偽の競合（WikiConflictError）を起こしてしまう。
+        baseUpdatedAtRef.current = fresh.updated_at
+        knownServerBodyRef.current = fresh.body ?? null
+      }
     }
 
     const handleDelete = async () => {
@@ -283,10 +315,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }
 
     const handleRestoreVersion = (version: WikiPageVersion) => {
-      // Update the page body with the version's body
+      // Update the page body with the version's body（当面 baseUpdatedAt は渡さず無条件で上書き）
       updatePage(activePage.id, { body: version.body, title: version.title }).then(async () => {
         const fresh = await fetchPage(activePage.id)
-        if (fresh) setActivePage(fresh)
+        if (fresh) {
+          setActivePage(fresh)
+          baseUpdatedAtRef.current = fresh.updated_at
+          knownServerBodyRef.current = fresh.body ?? null
+          currentContentRef.current = fresh.body ?? ''
+          // エディタも作り直す。作り直さないと画面には戻す前の本文が残り、
+          // 次に1文字打った時点でその本文が保存されて復元が取り消されてしまう。
+          setEditorReloadToken(t => t + 1)
+        }
       })
     }
 
@@ -354,6 +394,11 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   const handleEditorChange = useCallback((content: string) => {
     if (!activePage) return
+    // 「書きかけをコピー」が常に今の内容を返せるよう、保存の成否に関わらず先に控える
+    currentContentRef.current = content
+
+    // 競合中は新しい保存を投げない（編集自体は止めない・帯の「最新を読み込む」を待つ）
+    if (conflict) return
 
     // Clear existing timers
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
@@ -361,16 +406,72 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
     setSaveStatus('saving')
 
+    const pageId = activePage.id
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await updatePage(activePage.id, { body: content })
+        const base = baseUpdatedAtRef.current ?? undefined
+        const result = await updatePage(pageId, { body: content }, base)
+        baseUpdatedAtRef.current = result.updatedAt
+        knownServerBodyRef.current = content
         setSaveStatus('saved')
         savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
-      } catch {
+      } catch (err) {
+        if (err instanceof WikiConflictError) {
+          // 0行だった＝基準の updated_at がズレていた。まず見せかけの競合
+          // （他の人がタイトル等だけ変え、本文は変わっていない）かどうかを確かめる。
+          const fresh = await fetchPage(pageId)
+          if (fresh && fresh.body === knownServerBodyRef.current) {
+            // 本文は同じ → 基準だけ差し替えて1回だけ保存をやり直す
+            try {
+              const retryResult = await updatePage(pageId, { body: content }, fresh.updated_at)
+              baseUpdatedAtRef.current = retryResult.updatedAt
+              knownServerBodyRef.current = content
+              setSaveStatus('saved')
+              savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
+              return
+            } catch (retryErr) {
+              if (retryErr instanceof WikiConflictError) {
+                setConflict(true)
+              }
+              setSaveStatus('idle')
+              return
+            }
+          }
+          // 本文が本当に違う（本当の競合）。読み直しに失敗したときも安全側で競合扱いにする。
+          setConflict(true)
+          setSaveStatus('idle')
+          return
+        }
         setSaveStatus('idle')
       }
     }, 1500)
-  }, [activePage, updatePage])
+  }, [activePage, updatePage, conflict, fetchPage])
+
+  const handleCopyDraft = useCallback(async () => {
+    try {
+      // 本文はもともと BlockNote の JSON 文字列（WikiEditor の onChange が
+      // JSON.stringify(editor.document) を渡す）。読みやすい Markdown 等へ変換すると
+      // 貼り戻せなくなるため、変換せずそのままクリップボードへ入れる。
+      await navigator.clipboard.writeText(currentContentRef.current)
+    } catch {
+      // クリップボードが使えない環境でも画面は壊さない
+    }
+  }, [])
+
+  const handleReloadLatest = useCallback(async () => {
+    if (!activePage) return
+    const fresh = await fetchPage(activePage.id)
+    if (fresh) {
+      setActivePage(fresh)
+      baseUpdatedAtRef.current = fresh.updated_at
+      knownServerBodyRef.current = fresh.body ?? null
+      currentContentRef.current = fresh.body ?? ''
+    }
+    setConflict(false)
+    setSaveStatus('idle')
+    // key に含めてエディタを作り直し、読み直した内容を initialContent として反映する
+    setEditorReloadToken(t => t + 1)
+  }, [activePage, fetchPage])
 
   // Cleanup timers
   useEffect(() => {
@@ -458,11 +559,34 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           </div>
         </div>
 
+        {/* 競合の帯（議事録の帯と同じ考え方）。モーダルにはしない。 */}
+        {conflict && (
+          <div data-testid="wiki-conflict-banner" className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
+            <p className="text-sm text-orange-ink">{WIKI_CONFLICT_MESSAGE}</p>
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleCopyDraft()}
+                className="text-xs font-medium text-orange-ink hover:underline underline"
+              >
+                書きかけをコピー
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleReloadLatest()}
+                className="text-xs font-medium text-orange-ink hover:underline underline"
+              >
+                最新を読み込む
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Editor */}
         <div className="flex-1 overflow-y-auto">
           <div className={isFullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}>
             <WikiEditorDynamic
-              key={activePage.id}
+              key={`${activePage.id}-${editorReloadToken}`}
               initialContent={activePage.body || undefined}
               onChange={handleEditorChange}
               editable={canEdit}
