@@ -11,21 +11,22 @@ import { NextRequest } from 'next/server'
  *   3. 二要素認証
  *   4. ログイン中の利用者と state の利用者 ID が一致するか
  *   5. その組織の owner か
- *   6. code の有無
- *   7. code を user-to-server トークンに交換できるか
- *   8. そのトークンで GET /user/installations に installation_id が含まれるか。
+ *   6. installation_id に対応する既存の紐づけを引く（この後の判定・保存で使うため1回だけ）
+ *   7. code の有無（無ければ、6 で引いた行が同じ組織のときだけ再取り込み。それ以外は oauth_required）
+ *   8. code を user-to-server トークンに交換できるか
+ *   9. そのトークンで GET /user/installations に installation_id が含まれるか。
  *      含まれていても、個人アカウントならログイン中の GitHub アカウントと同じ ID か、
  *      組織アカウントならその組織の管理者（admin）かをさらに確認する
- *   9. 確認済みトークンの破棄
- *   10. 既存の紐づけが別の組織でないか
- *   11. 保存
+ *   10. 確認済みトークンの破棄
+ *   11. 6 で引いた行が別の組織でないか
+ *   12. 保存
  *
  * 回帰の背景（保存部分）: github_installations.created_by は auth.users への外部キーだが、
  * 以前は存在しない仮 ID（全部ゼロの UUID）を入れていたため insert が必ず失敗し、
  * GitHub 側ではインストール済みなのに AgentPM には保存されない状態になっていた
  * （組織設定に「連携する」ボタンが出続ける）。
  *
- * code が無い戻り（手順6）: GitHub は「既にインストール済みのアプリの設定画面で
+ * code が無い戻り（手順7）: GitHub は「既にインストール済みのアプリの設定画面で
  * 保存した」ときの戻りに code を付けてこない（installation_id + state だけ）。
  * このときは、installation_id が既に同じ組織に結び付いている場合に限り、
  * リポジトリ一覧・許可範囲だけを再取り込みする（GitHub 側での本人確認はしない。
@@ -348,6 +349,34 @@ describe('GET /api/github/callback', () => {
     const location = new URL(res.headers.get('location')!)
     expect(location.searchParams.get('github')).toBe('connected')
     expect(location.searchParams.get('repos')).toBe('1')
+  })
+
+  it('code が無い再取り込みでも、その時点の許可範囲を github_installations.permissions に保存する', async () => {
+    existingInstallRow = { id: 'install-row-1', org_id: ORG_ID }
+    const { GET, createSignedState } = await load()
+    const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
+    await GET(req({ state, code: null }))
+
+    expect(getInstallationPermissionsMock).toHaveBeenCalledWith(INSTALLATION_ID)
+    const permissionsUpdate = updateCalls.find((c) => 'permissions' in c.patch)
+    expect(permissionsUpdate?.patch).toMatchObject({
+      permissions: { pull_requests: 'read', issues: 'write', metadata: 'read' },
+    })
+    expect(permissionsUpdate?.eqs).toContainEqual(['org_id', ORG_ID])
+    expect(permissionsUpdate?.eqs).toContainEqual(['installation_id', INSTALLATION_ID])
+  })
+
+  it('code が無い再取り込みで、リポジトリ一覧の取得に失敗したら api_error で戻し、何も保存しない', async () => {
+    existingInstallRow = { id: 'install-row-1', org_id: ORG_ID }
+    getInstallationRepositoriesMock.mockRejectedValueOnce(new Error('GitHub API error'))
+    const { GET, createSignedState } = await load()
+    const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
+    const res = await GET(req({ state, code: null }))
+
+    expect(upsertMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('github')).toBe('api_error')
   })
 
   it('code が無いときの再取り込みは setup_action の値では分岐しない（install でも同じ結果）', async () => {

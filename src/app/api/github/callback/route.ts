@@ -213,6 +213,10 @@ export async function GET(request: NextRequest) {
   // どこかに結び付いているかどうかは漏らさない
   if (!code) {
     if (!existingInstall || existingInstall.org_id !== orgId) {
+      // 値は出さず、断った理由の区分だけ残す（利用者への応答はどちらも oauth_required で変えない）
+      console.warn('[github/callback] reimport rejected', {
+        reason: existingInstall ? 'other_org' : 'no_link',
+      })
       return NextResponse.redirect(
         new URL(`${redirectUri}?github=oauth_required`, request.url)
       )
