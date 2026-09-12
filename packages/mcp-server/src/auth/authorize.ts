@@ -77,10 +77,12 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
   })
 
   if (error) {
-    console.error('Authorization error:', error)
+    // 詳しい内容はサーバーの記録だけに残す。この reason は「権限エラー: 」を付けて
+    // 呼んだ人にそのまま返る決まりなので、DBの生の文言を混ぜない
+    console.error('mcp_authorize failed:', error.code, error.message)
     return {
       allowed: false,
-      reason: `Authorization failed: ${error.message}`
+      reason: '権限を確認できませんでした。しばらくしてからやり直してください'
     }
   }
 

@@ -46,6 +46,8 @@ export async function dryRunDelete(params: {
   })
 
   if (error) {
+    // 詳しい内容はサーバーの記録だけに残し、呼んだ人には決まった日本語を返す
+    console.error('mcp_dry_run_delete failed:', error.code, error.message)
     return {
       success: false,
       dryRun: true,
@@ -55,7 +57,7 @@ export async function dryRunDelete(params: {
       confirmToken: '',
       expiresInSeconds: 0,
       message: '',
-      error: error.message,
+      error: '削除の下見に失敗しました。しばらくしてからやり直してください',
     }
   }
 
@@ -87,9 +89,11 @@ export async function confirmDelete(params: {
   })
 
   if (error) {
+    // 詳しい内容はサーバーの記録だけに残し、呼んだ人には決まった日本語を返す
+    console.error('mcp_confirm_delete failed:', error.code, error.message)
     return {
       success: false,
-      error: error.message,
+      error: '削除の確定に失敗しました。しばらくしてからやり直してください',
     }
   }
 
