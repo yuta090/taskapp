@@ -336,7 +336,9 @@ export default function InviteAcceptPage({
           />
         )}
 
-        <AuthButton type="submit" loading={loading}>
+        {/* アカウント自体は作れているので、押し直すと招待は使用済みで「無効な招待」に
+            なってしまう（/login への案内リンクも消える）。押させない */}
+        <AuthButton type="submit" loading={loading} disabled={signInFailedAfterCreate}>
           {inviteInfo.is_existing_user ? '参加する' : 'アカウントを作成して参加'}
         </AuthButton>
       </form>

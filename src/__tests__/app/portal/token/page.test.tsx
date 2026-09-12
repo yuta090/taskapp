@@ -229,6 +229,8 @@ describe('PortalInvitePage — 受諾動線', () => {
     })
     expect(screen.queryByText('Invalid login credentials')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'ログイン画面へ' })).toHaveAttribute('href', '/login')
+    // 押し直すと招待は使用済みで「無効な招待」になり、/login への案内リンクも消える
+    expect(screen.getByRole('button', { name: 'アカウントを作成して参加' })).toBeDisabled()
   })
 
   it('無効な招待はエラーカードを表示（回帰）', async () => {
