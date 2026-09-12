@@ -1,8 +1,15 @@
+import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminBadge } from '@/components/admin/AdminBadge'
 
 export default async function AdminApiKeysPage() {
+  // (panel) layout でも門番を通しているが、service role でデータを取るページなので
+  // データ取得の直前でも確認する（Next.js の推奨: 認可はデータ源の近くで）。
+  const currentUserId = await verifySuperadmin()
+  if (!currentUserId) redirect('/admin/login')
+
   const admin = createAdminClient()
 
   const [{ data: keys }, { data: orgs }, { data: spaces }] = await Promise.all([

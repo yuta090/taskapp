@@ -1,4 +1,6 @@
+import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import InvitesPageClient, { type InviteRow } from './InvitesPageClient'
 
 function computeStatus(
@@ -46,6 +48,11 @@ async function fetchInvitesData(): Promise<InviteRow[]> {
 }
 
 export default async function AdminInvitesPage() {
+  // (panel) layout でも門番を通しているが、service role でデータを取るページなので
+  // データ取得の直前でも確認する（Next.js の推奨: 認可はデータ源の近くで）。
+  const currentUserId = await verifySuperadmin()
+  if (!currentUserId) redirect('/admin/login')
+
   const rows = await fetchInvitesData()
   return <InvitesPageClient initialData={rows} />
 }

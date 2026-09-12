@@ -1,5 +1,6 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import BlogEditorClient, {
   type EditablePost,
@@ -29,6 +30,11 @@ export default async function BlogEditorPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  // (panel) layout でも門番を通しているが、service role でデータを取るページなので
+  // データ取得の直前でも確認する（Next.js の推奨: 認可はデータ源の近くで）。
+  const currentUserId = await verifySuperadmin()
+  if (!currentUserId) redirect('/admin/login')
+
   const admin = createAdminClient()
 
   const { data: ctas } = await (admin as SupabaseClient)

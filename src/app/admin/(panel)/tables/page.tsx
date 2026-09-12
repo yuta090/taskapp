@@ -1,4 +1,6 @@
+import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { TABLE_CATEGORIES, TABLE_LABELS } from '@/lib/admin/table-config'
 import Link from 'next/link'
@@ -11,6 +13,11 @@ async function getRowCount(tableName: string) {
 }
 
 export default async function AdminTablesPage() {
+  // (panel) layout でも門番を通しているが、service role でデータを取るページなので
+  // データ取得の直前でも確認する（Next.js の推奨: 認可はデータ源の近くで）。
+  const currentUserId = await verifySuperadmin()
+  if (!currentUserId) redirect('/admin/login')
+
   // 全テーブルのカウントを並列取得
   const allTables = TABLE_CATEGORIES.flatMap((c) => c.tables)
   const counts = await Promise.all(allTables.map((t) => getRowCount(t)))
