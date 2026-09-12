@@ -430,7 +430,10 @@ async function processLeakedUserLinkCode(
   if (group) {
     await replyAndRecord(account, group.orgId, { id: group.id, spaceId: group.spaceId }, channelId, text, { kind: 'user_link_leaked_reply', expired }, deps)
   } else {
-    // limbo: 帰属が無いので記録は 0 行（受信側と同じ方針）。返事だけ出す
+    // limbo: 帰属が無いので記録は 0 行（受信側と同じ方針）。返事は合言葉の不一致と同じ
+    // レート制限に載せる（ワークスペースの誰でも bot に返事を吐かせられる口にしない）。
+    // 失効そのものは制限に関係なく行う（漏れたコードを放置しない）。
+    if (deps.registerInvalidAttempt(account.id, channelId)) return
     await deps.reply(account.credentials.bot_token, channelId, text)
   }
 }

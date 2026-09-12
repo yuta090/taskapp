@@ -779,6 +779,15 @@ describe('handleSlackWebhook — 本人紐づけコード（DM）', () => {
     expect(text).toContain('DM')
   })
 
+  it('未紐づけ（limbo）チャンネルで回数制限に達していたら、失効はするが返事は出さない（bot に返事を吐かせる遊びを防ぐ）', async () => {
+    const body = eventBody({ text: USER_LINK_CODE })
+    const deps = makeDeps({ registerInvalidAttempt: vi.fn().mockReturnValue(true) })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(deps.expireUserLinkCode).toHaveBeenCalledWith(USER_LINK_CODE_HASH)
+    expect(deps.registerInvalidAttempt).toHaveBeenCalledWith(ACCOUNT.id, 'C123')
+    expect(deps.reply).not.toHaveBeenCalled()
+  })
+
   it('未紐づけ（limbo）チャンネルに貼られた場合も失効＋案内（記録は0行・合言葉の判定に入らない）', async () => {
     const body = eventBody({ text: USER_LINK_CODE })
     const deps = makeDeps()

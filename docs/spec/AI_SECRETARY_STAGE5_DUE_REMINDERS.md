@@ -126,6 +126,20 @@ v2（うざくない秘書 再設計）で ball による文面の出し分け�
 - **postback authz は digest-postback＋`_via_line` 型が正典**（署名 task/action/recipient/expiry トークン機構は**発明しない**＝前回「承認トークンモジュール再利用」は撤回）。
 - **個人ミラー**（`trg_enqueue_task_mirror`＝`user_task_mirror_jobs`・担当者個人の gtasks）は同 UPDATE の AFTER で従来通り発火。connector層と二重にならない・触らない。
 
+### 7.1 Slack 経路（2026-09-08・PR #644 / #646 実装済）
+
+確認ループは LINE 専用ではない。Slack では同じ3ボタンを Block Kit（`buildDueReminderSlackBlocks`）で送り、押下（Interactivity / `block_actions`）を秘書 Slack の**イベント購読と同じ組織単位URL**（`/api/channels/slack/webhook/org/{orgId}`）で受ける。
+
+- **value は LINE の postback data と同一形式**（`buildDueReminder*PostbackData`）。受信側は action_id ではなく value を `parseDueReminder*Postback` で読み、**同じ RPC**（`rpc_confirm_task_done_via_line` / `rpc_snooze_due_reminder_via_line`）を呼ぶ。authz は RPC 内で完結（`channel_user_links` は口座×外部ユーザーで本人を解決するためチャネル非依存）。
+- **ack と返事**: Slack の3秒制約に合わせ、route は署名検証の前に「200・空ボディ」で ack し、処理本体は `after()` に回す。返事は `response_url`（ephemeral・押した本人にだけ見える）。ペイロードのチャンネルへ `chat.postMessage` はしない（社内タスク名を顧客チャンネルへ出さない）。
+- **沈黙方針は LINE と同一**: forbidden / not_found / already_snoozed は返事も監査行も残さない。返事の文言は `src/lib/reminders/dueReminderReplyTexts.ts` が LINE/Slack 共通の正本。
+- **前提**: 押した人が Slack で本人紐づけ済みであること（STAGE2_7 §3-8）。未紐づけは forbidden＝無反応。
+
+### 7.2 複数チャネルにつないだ人の宛先（2026-09-08・Fable 裁定）
+
+`channel_user_links` の一意性は org×口座×user なので、1人が LINE と Slack の両方につなぐことがある。DM の宛先は `pickPreferredUserLink`（`src/lib/channels/store.ts`）が正本:
+1) 使える口座（`channel_accounts.status='active'` かつ `dm_unreachable_at is null`）の中で最後につないだもの、2) 無ければ最新1件（送信は試み、disabled は sender が no_route 終端）。送信側（`findActiveUserLinkForUser`）と digest 安全網（`findUserIdsWithActiveLink`）は同じ述語 `isUserLinkRouteUsable` で判定する（非対称だと DM にも digest にも出ない穴ができる）。全チャネル同報はしない。
+
 ## 8. リマインド設定UI（TaskApp所有）
 
 - **v1(PR-1) は設定UIなし**: グローバル定数（既定オフセットは v2 で `[-1440, 0, +1440]` → **`[0, +1440]`**（当日＋超過1回）へ変更・§9.1）＋`SEND_HOUR_JST` で planner が materialize（entitlement-blind）。**設定UI（org/project既定＋タスク単位上書き）は PR-2**。

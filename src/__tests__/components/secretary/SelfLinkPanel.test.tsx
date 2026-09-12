@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render as rtlRender, screen, waitFor, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SelfLinkPanel } from '@/components/secretary/SelfLinkPanel'
+
+// 紐づけ一覧は react-query 経由（Slack 版と同じ hook）。テストごとに新しい client を張る
+function render(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
 
 /**
  * SelfLinkPanel — UserLinksClient から SecretaryTabNav を除いた本体を純粋抽出したもの。
@@ -143,5 +150,26 @@ describe('SelfLinkPanel', () => {
     // 開くと発行ボタンが出る
     fireEvent.click(screen.getByTestId('connect-reopen-toggle'))
     expect(screen.getByText(/コードを発行してつなぐ/)).toBeInTheDocument()
+  })
+})
+
+describe('SelfLinkPanel — 一覧の取得中', () => {
+  it('つないだ人の一覧が返るまで「まだつないでいません」を出さない（つないだ本人に再発行させない・Slack 版と同じ）', async () => {
+    let resolveLinks: (v: unknown) => void = () => {}
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/channels/accounts')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ account: { id: 'acc-1', displayName: 'OA' } }) })
+      }
+      if (url.includes('/api/channels/user-links')) return new Promise((r) => (resolveLinks = r))
+      if (url.includes('/api/channels/line/basic-id')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ basicId: '@abc1234', ownerType: 'platform' }) })
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+    })
+    render(<SelfLinkPanel orgId={ORG} />)
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/channels/user-links'))).toBe(true))
+    expect(screen.queryByText(/まだつないでいません/)).not.toBeInTheDocument()
+    resolveLinks({ ok: true, json: () => Promise.resolve({ links: [{ id: 'link-1', userId: 'user-1', channelAccountId: 'acc-1', linkedAt: '2026-07-01T00:00:00Z' }] }) })
+    await waitFor(() => expect(screen.getByText(/接続済みです（1件）/)).toBeInTheDocument())
   })
 })

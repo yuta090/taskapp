@@ -1,15 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Copy, Check, Warning, LinkBreak } from '@phosphor-icons/react'
 import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { ConnectionFlowSection, type ConnectState } from '@/components/secretary/ConnectionFlowSection'
-
-interface UserLink {
-  id: string
-  userId: string
-  linkedAt: string
-}
+import { useOrgUserLinks, orgUserLinksQueryKey } from '@/lib/hooks/useOrgUserLinks'
 
 interface ChannelAccount {
   id: string
@@ -26,26 +22,29 @@ interface ChannelAccount {
  * 再利用するため抽出した（SecretaryTabNav は含めない・挙動は完全に同一）。
  */
 export function SelfLinkPanel({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient()
   const [account, setAccount] = useState<ChannelAccount | null>(null)
-  const [links, setLinks] = useState<UserLink[]>([])
+  // 紐づけ一覧は Slack 版（SlackSelfLinkPanel）と同じ react-query（永続キャッシュ）経由。
+  // この口座の分だけをサーバー側で絞る。取得中は「まだつないでいません」を出さない。
+  const { data: links = [], isPending: linksPending } = useOrgUserLinks(account ? orgId : undefined, account?.id)
   const [issuedCode, setIssuedCode] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const reload = useCallback(async () => {
-    const [accountsRes, linksRes] = await Promise.all([
-      fetch(`/api/channels/accounts?orgId=${orgId}`),
-      fetch(`/api/channels/user-links?orgId=${orgId}`),
-    ])
+  const loadAccount = useCallback(async () => {
+    const accountsRes = await fetch(`/api/channels/accounts?orgId=${orgId}`)
     // /api/channels/accounts は org に1件の account を *単数* で返す（複数形ではない）
     if (accountsRes.ok) setAccount((await accountsRes.json()).account ?? null)
-    if (linksRes.ok) setLinks((await linksRes.json()).links ?? [])
   }, [orgId])
 
   useEffect(() => {
-    void reload()
-  }, [reload])
+    void loadAccount()
+  }, [loadAccount])
+
+  const reload = async () => {
+    await queryClient.invalidateQueries({ queryKey: orgUserLinksQueryKey(orgId, account?.id) })
+  }
 
   const issue = async (channelAccountId: string) => {
     setLoading(true)
@@ -93,11 +92,13 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
   // > アカウント登録済み未連携(ready) > アカウント未登録(preparing)。
   const state: ConnectState = issuedCode
     ? 'codeIssued'
-    : links.length > 0
-      ? 'connected'
-      : account
-        ? 'ready'
-        : 'preparing'
+    : account && linksPending
+      ? 'loading'
+      : links.length > 0
+        ? 'connected'
+        : account
+          ? 'ready'
+          : 'preparing'
 
   const summary =
     links.length > 0 ? (
