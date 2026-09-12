@@ -26,18 +26,35 @@ describe('dbErrorHint', () => {
 })
 
 describe('hideDbErrorWithHint', () => {
-  it('見覚えのあるコードならヒントを返す（生の文言は出さない）', () => {
+  it('見覚えのあるコード（重複=23505）は ToolUserError(409) でヒントを返す（生の文言は出さない）', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const err = hideDbErrorWithHint({ code: '23505', message: 'duplicate key value violates unique constraint "x"' }, 'ctx', '失敗しました')
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
     expect(err.message).toContain('重複')
     expect(err.message).not.toContain('duplicate key')
     spy.mockRestore()
   })
 
-  it('見覚えのないコードは決まった一般のメッセージ', () => {
+  it('必須項目の不足（23502）は ToolUserError(400) でヒントを返す', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const err = hideDbErrorWithHint({ code: '23502', message: 'null value in column "x" violates not-null constraint' }, 'ctx', '失敗しました')
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 400 })
+    expect(err.message).toContain('必須')
+    spy.mockRestore()
+  })
+
+  it('つながりの不整合（23503）は ToolUserError(400) でヒントを返す', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const err = hideDbErrorWithHint({ code: '23503', message: 'insert or update on table "x" violates foreign key constraint' }, 'ctx', '失敗しました')
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 400 })
+    spy.mockRestore()
+  })
+
+  it('見覚えのないコードは決まった一般のメッセージ（ToolUserErrorにしない）', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const err = hideDbErrorWithHint({ code: '42501', message: 'permission denied' }, 'ctx', '失敗しました')
     expect(err.message).toBe('失敗しました')
+    expect(err).not.toMatchObject({ name: 'ToolUserError' })
     spy.mockRestore()
   })
 })

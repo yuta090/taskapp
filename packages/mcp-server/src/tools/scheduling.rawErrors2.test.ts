@@ -70,11 +70,12 @@ const createBase = {
 }
 
 describe('create_scheduling_proposal — 重複はヒント、それ以外は一般のエラー', () => {
-  it('提案の作成に失敗（重複=23505ならヒント）', async () => {
+  it('提案の作成に失敗（重複=23505ならヒント。ToolUserErrorなのでCLI経由でも届く）', async () => {
     tableConfig = { scheduling_proposals: { error: { code: '23505', message: 'duplicate key value violates unique constraint' } } }
 
     const err = await schedulingCreate(createBase).catch((e: unknown) => e)
 
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
     expect((err as Error).message).toContain('重複')
     expect((err as Error).message).not.toContain('duplicate key')
   })
