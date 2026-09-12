@@ -69,10 +69,10 @@ vi.mock('@/components/wiki/WikiFileLinkPicker', () => ({
 }))
 
 let capturedWikiPickerOnSelect: ((page: { id: string; title: string }) => void) | undefined
-vi.mock('@/components/meeting/MinutesWikiLinkPicker', () => ({
-  MinutesWikiLinkPicker: ({ onSelect }: { onSelect: (page: { id: string; title: string }) => void }) => {
+vi.mock('@/components/wiki/WikiPageLinkInsertPicker', () => ({
+  WikiPageLinkInsertPicker: ({ onSelect }: { onSelect: (page: { id: string; title: string }) => void }) => {
     capturedWikiPickerOnSelect = onSelect
-    return <div data-testid="minutes-wiki-link-picker" />
+    return <div data-testid="wiki-page-link-insert-picker" />
   },
 }))
 
@@ -127,7 +127,7 @@ describe('MinutesEditor 差し込みツールバー', () => {
   it('Wikiページを選ぶとリンクを挿入しパネルを閉じる', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     fireEvent.click(screen.getByText('Wikiページへのリンク'))
-    expect(screen.getByTestId('minutes-wiki-link-picker')).toBeInTheDocument()
+    expect(screen.getByTestId('wiki-page-link-insert-picker')).toBeInTheDocument()
 
     act(() => capturedWikiPickerOnSelect?.({ id: 'page-1', title: '議事録テンプレ' }))
 
@@ -138,7 +138,7 @@ describe('MinutesEditor 差し込みツールバー', () => {
         content: '議事録テンプレ',
       },
     ])
-    expect(screen.queryByTestId('minutes-wiki-link-picker')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-page-link-insert-picker')).not.toBeInTheDocument()
   })
 })
 

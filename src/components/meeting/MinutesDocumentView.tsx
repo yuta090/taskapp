@@ -9,7 +9,7 @@ import {
   useState,
   type FocusEvent as ReactFocusEvent,
 } from 'react'
-import { ArrowLeft, Info, Notebook, PencilSimple } from '@phosphor-icons/react'
+import { ArrowLeft, ArrowsIn, ArrowsOut, Info, Notebook, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
@@ -101,6 +101,15 @@ interface MinutesDocumentViewProps {
   onOpenInfo: () => void
   updateMinutes: (meetingId: string, minutesMd: string, baseUpdatedAt: string) => Promise<UpdateMinutesResult>
   fetchMeetingDetail: (meetingId: string) => Promise<Meeting | null>
+  /**
+   * 全画面表示（Wiki と同じ「全画面」）。状態は呼び出し側（MeetingsPageClient）が画面の枠
+   * （AppShell）から `useShellFullscreen` で借りて持つ。ここでは呼ばない —
+   * useShellFullscreen は AppShell の中でしか呼べない上、このコンポーネント自身を直接
+   * マウントする既存テストが複数あり（MinutesDocumentView.*.test.tsx）、部品を
+   * AppShell の context に縛り付けないため。両方揃っているときだけボタンを描く。
+   */
+  fullscreen?: boolean
+  onToggleFullscreen?: () => void
 }
 
 /** BlockNote が末尾に足す空段落・余分な空行を、比べる前・保存する前の両方で落とす */
@@ -165,6 +174,8 @@ interface MinutesDocumentBodyProps {
   meetingId: string
   canEdit: boolean
   forceReadOnly: boolean
+  /** 全画面表示中は編集領域を広く見せる（max-w-4xl → max-w-6xl） */
+  fullscreen?: boolean
   /** 開いたときに取り直した詳細の本文。マウント時にだけ使う（以後の変化は見ない） */
   initialMinutesMd: string
   /** 同じ詳細取得で届いた updated_at。保存の基準にする */
@@ -184,6 +195,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       meetingId,
       canEdit,
       forceReadOnly,
+      fullscreen = false,
       initialMinutesMd,
       initialUpdatedAt,
       updateMinutes,
@@ -576,7 +588,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         <div className="flex-1 overflow-y-auto">
           <div
             data-testid="minutes-editor-region"
-            className="max-w-4xl mx-auto py-6 px-4"
+            className={fullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}
             onFocus={handleEditorFocus}
             onBlur={handleEditorBlur}
           >
@@ -609,7 +621,19 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
 
 export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, MinutesDocumentViewProps>(
   function MinutesDocumentView(
-    { orgId, spaceId, meeting, canEdit, forceReadOnly = false, onBack, onOpenInfo, updateMinutes, fetchMeetingDetail },
+    {
+      orgId,
+      spaceId,
+      meeting,
+      canEdit,
+      forceReadOnly = false,
+      onBack,
+      onOpenInfo,
+      updateMinutes,
+      fetchMeetingDetail,
+      fullscreen,
+      onToggleFullscreen,
+    },
     ref
   ) {
     type Phase = 'loading' | 'loaded' | 'error'
@@ -715,19 +739,25 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
 
     const heldAtLabel = meeting.held_at ? new Date(meeting.held_at).toLocaleString('ja-JP') : '未設定'
     const bodyKey = detail ? `${detail.id}-${detail.updated_at}` : 'none'
+    // fullscreen/onToggleFullscreen が両方渡されているときだけ全画面ボタンを出す
+    // （MinutesDocumentView を直接マウントする既存テストでは渡されず、ボタンは出ない）
+    const showFullscreenControls = typeof fullscreen === 'boolean' && !!onToggleFullscreen
 
     return (
       <div data-testid="minutes-document-view" className="flex-1 flex flex-col min-h-0">
         {ConfirmDialog}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-surface flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <button
-              onClick={() => void handleBack()}
-              className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
-              aria-label="会議一覧へ戻る"
-            >
-              <ArrowLeft className="text-lg" />
-            </button>
+            {/* 全画面中は「戻る」を隠す（Wiki と同じ。閉じるには全画面を先に閉じる） */}
+            {!fullscreen && (
+              <button
+                onClick={() => void handleBack()}
+                className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
+                aria-label="会議一覧へ戻る"
+              >
+                <ArrowLeft className="text-lg" />
+              </button>
+            )}
             <div className="min-w-0">
               <h1 className="text-lg font-semibold text-gray-900 truncate">{meeting.title}</h1>
               <p className="text-xs text-gray-400">{heldAtLabel}</p>
@@ -741,14 +771,41 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
               </span>
             )}
             {saveState === 'saved' && <span className="text-xs text-green-500">保存済み</span>}
-            <button
-              type="button"
-              onClick={onOpenInfo}
-              className="md:hidden p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-              aria-label="会議情報"
-            >
-              <Info className="text-lg" />
-            </button>
+            {/* 全画面表示（デスクトップのみ）。Wiki(WikiPageClient.tsx)と同じ見た目・testid規則にそろえる */}
+            {showFullscreenControls && !fullscreen && (
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                aria-pressed={fullscreen}
+                data-testid="minutes-fullscreen-toggle"
+                className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <ArrowsOut className="text-base" />
+                全画面
+              </button>
+            )}
+            {showFullscreenControls && fullscreen && (
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                data-testid="minutes-fullscreen-close"
+                className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <ArrowsIn className="text-base" />
+                全画面を閉じる
+              </button>
+            )}
+            {/* 全画面中はモバイル用の情報ボタンも隠す（Wiki と同じ） */}
+            {!fullscreen && (
+              <button
+                type="button"
+                onClick={onOpenInfo}
+                className="md:hidden p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                aria-label="会議情報"
+              >
+                <Info className="text-lg" />
+              </button>
+            )}
             <div data-header-bell className="hidden md:block -my-1">
               <AnnouncementBell />
             </div>
@@ -774,6 +831,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
             meetingId={detail.id}
             canEdit={canEdit}
             forceReadOnly={forceReadOnly}
+            fullscreen={fullscreen}
             initialMinutesMd={detail.minutes_md ?? ''}
             initialUpdatedAt={detail.updated_at}
             updateMinutes={updateMinutes}

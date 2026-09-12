@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Notebook, CalendarCheck, Plus, CaretDown, FunnelSimple, CalendarBlank, X } from '@phosphor-icons/react'
-import { useInspector } from '@/components/layout'
+import { useInspector, useShellFullscreen } from '@/components/layout'
 import { toast } from 'sonner'
 import { Breadcrumb, ErrorRetry } from '@/components/shared'
 import { MeetingRow } from '@/components/meeting/MeetingRow'
@@ -52,6 +52,10 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const spaceName = useSpaceName(spaceId)
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
+  // 議事録の「全画面」表示（Wiki と同じ）。状態は画面の枠（AppShell）が持つ。呼ぶのはここ
+  // だけにして MinutesDocumentView には props で渡す — MinutesDocumentView は AppShell の
+  // 外（単体テスト）でも直接マウントされるため、あちら側では useShellFullscreen を呼べない。
+  const { fullscreen, setFullscreen } = useShellFullscreen()
   const isMobile = useIsMobile()
   const { canEdit } = useCanEditSpace(spaceId, orgId)
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false)
@@ -211,6 +215,27 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     }
   }, [setInspector])
 
+  // 全画面表示中はEscで抜ける（Wiki(WikiPageClient.tsx)と同じ。IME変換確定のEscでは抜けない）
+  useEffect(() => {
+    if (!fullscreen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [fullscreen, setFullscreen])
+
+  // 会議一覧の画面を離れたら全画面表示も解除する（次に開いた画面でLeftNavが消えたままにならないように）
+  useEffect(() => () => setFullscreen(false), [setFullscreen])
+
+
+  // AppShell が公開している setFullscreen は boolean だけを受ける形なので、
+  // 関数で反転する書き方はできない（今の値を見て渡す）。
+  const handleToggleFullscreen = useCallback(() => {
+    setFullscreen(!fullscreen)
+  }, [fullscreen, setFullscreen])
+
   // 表示速度: サーバーとの往復を避けるため router.replace ではなく history.replaceState で
   // URL だけを変える（手本: TasksPageClient.tsx の syncUrlWithState）。useSearchParams は
   // これに追従する。
@@ -233,20 +258,36 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     [projectBasePath, searchParams]
   )
 
+  // 議事録を閉じて一覧へ戻るときは全画面表示も必ず解除する
+  // （戻さないと、次に別の会議を開いたときも左メニューが消えたままになる）。
+  const closeMinutesDocument = useCallback(() => {
+    setFullscreen(false)
+    updateQuery({ meeting: null })
+  }, [setFullscreen, updateQuery])
+
   // MEDIUM-B: Inspector の×（一覧へ戻る）から離れるときは、保存されていない書きかけが
   // あれば確認してから戻る（文書ビュー自身の「戻る」ボタンは内部で同じ確認をしてから
   // onBack を呼ぶだけなので、ここでは Inspector 側からの離脱だけ確認を挟む）。
   const handleCloseFromInspector = useCallback(async () => {
     const ok = (await minutesViewRef.current?.confirmLeave()) ?? true
     if (!ok) return
-    updateQuery({ meeting: null })
-  }, [updateQuery])
+    closeMinutesDocument()
+  }, [closeMinutesDocument])
 
   // ---- Meeting inspector ----
   const selectedMeeting: Meeting | null = useMemo(() => {
     if (!selectedMeetingId) return null
     return meetings.find((meeting) => meeting.id === selectedMeetingId) ?? null
   }, [meetings, selectedMeetingId])
+
+  // 議事録の文書ビューが出ていないときは全画面を解除する（Wiki の WikiPageClient.tsx が
+  // 「ページが無くなったら解除」を持っているのと同じ保険）。全画面で書いている最中に、
+  // ほかの人がその会議を消す／日程調整に切り替わると、出るのは会議一覧なのに LeftNav が
+  // 消えたままになり、「全画面を閉じる」ボタンも議事録側にあるので出口が Esc だけになる。
+  const isMinutesDocumentOpen = !!selectedMeeting && !selectedProposalId
+  useEffect(() => {
+    if (!isMinutesDocumentOpen) setFullscreen(false)
+  }, [isMinutesDocumentOpen, setFullscreen])
 
   // 会議を切り替えたら、モバイルの情報シート表示は毎回閉じ直す
   // （前の会議で開いていた状態のまま次の会議に持ち越さない）
@@ -262,8 +303,10 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     }
 
     // モバイル: 文書ビューを開いても会議詳細は自動で出さず、情報ボタンで開いたときだけ表示する
-    // （Wiki の showInfo と同じ。オーバーレイ禁止のためモバイルはシート表示）
-    if (isMobile && !showInfo) {
+    // （Wiki の showInfo と同じ。オーバーレイ禁止のためモバイルはシート表示）。
+    // 全画面表示中も同様に閉じる（Wiki の isFullscreen と同じ。全画面は本文を広く使うためのもの
+    // なので、右側のインスペクターは出さない）。
+    if ((isMobile && !showInfo) || fullscreen) {
       setInspector(null)
       return
     }
@@ -387,6 +430,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     previewMinutes,
     isMobile,
     showInfo,
+    fullscreen,
     fetchMeetingDetail,
     canEdit,
     handleCloseFromInspector,
@@ -470,10 +514,12 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         meeting={selectedMeeting}
         canEdit={canEdit}
         forceReadOnly={isTaskifying}
-        onBack={() => updateQuery({ meeting: null })}
+        onBack={closeMinutesDocument}
         onOpenInfo={() => setShowInfo(true)}
         updateMinutes={updateMinutes}
         fetchMeetingDetail={fetchMeetingDetail}
+        fullscreen={fullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
       />
     )
   }
