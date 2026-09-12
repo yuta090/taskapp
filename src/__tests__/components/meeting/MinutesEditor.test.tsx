@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { MinutesEditor, TaskMarkerChip } from '@/components/meeting/MinutesEditor'
-import type { ProjectFile } from '@/lib/hooks/useFiles'
+import type { AppLink } from '@/lib/navigation/appLinks'
 
 const ORG_ID = 'org-1'
 const SPACE_ID = 'space-1'
@@ -60,85 +60,73 @@ vi.mock('@blocknote/mantine', () => ({
   ),
 }))
 
-let capturedFilePickerOnSelect: ((file: ProjectFile) => void) | undefined
-vi.mock('@/components/wiki/WikiFileLinkPicker', () => ({
-  WikiFileLinkPicker: ({ onSelect }: { onSelect: (file: ProjectFile) => void }) => {
-    capturedFilePickerOnSelect = onSelect
-    return <div data-testid="wiki-file-link-picker" />
+let capturedOnSelect: ((link: AppLink) => void) | undefined
+vi.mock('@/components/editor/AppLinkPicker', () => ({
+  AppLinkPicker: ({ onSelect }: { onSelect: (link: AppLink) => void }) => {
+    capturedOnSelect = onSelect
+    return <div data-testid="app-link-picker" />
   },
 }))
 
-let capturedWikiPickerOnSelect: ((page: { id: string; title: string }) => void) | undefined
-vi.mock('@/components/meeting/MinutesWikiLinkPicker', () => ({
-  MinutesWikiLinkPicker: ({ onSelect }: { onSelect: (page: { id: string; title: string }) => void }) => {
-    capturedWikiPickerOnSelect = onSelect
-    return <div data-testid="minutes-wiki-link-picker" />
-  },
-}))
-
-function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
-  return {
-    id: 'file-1',
-    name: '要件定義.pdf',
-    description: null,
-    mimeType: 'application/pdf',
-    sizeBytes: 2048,
-    origin: 'internal',
-    clientVisible: true,
-    uploadedBy: 'user-1',
-    uploaderName: 'Yuta',
-    createdAt: '2026-07-01T00:00:00',
-    ...overrides,
-  }
-}
-
-describe('MinutesEditor 差し込みツールバー', () => {
+/**
+ * リンクの差し込みは Wiki と議事録で同じ部品（AppLinkPicker）を使う。
+ * ここで見るのは「ボタンでパネルが開き、選んだリンクがカーソル位置に入るか」だけ。
+ * どんな候補が出るかは AppLinkPicker のテストが受け持つ。
+ */
+describe('MinutesEditor のリンク差し込み', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    capturedFilePickerOnSelect = undefined
-    capturedWikiPickerOnSelect = undefined
+    capturedOnSelect = undefined
   })
 
-  it('編集可能なら差し込みボタンを両方出す（絵文字は使わない）', () => {
+  it('編集できるときは「リンクを挿入」を出す（絵文字は使わない）', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
-    expect(screen.getByText('ファイルへのリンク')).toBeInTheDocument()
-    expect(screen.getByText('Wikiページへのリンク')).toBeInTheDocument()
+    expect(screen.getByText('リンクを挿入')).toBeInTheDocument()
   })
 
-  it('読み取り専用なら差し込みボタンを出さない', () => {
+  it('読み取り専用なら出さない', () => {
     render(<MinutesEditor minutesMd="" editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
-    expect(screen.queryByText('ファイルへのリンク')).not.toBeInTheDocument()
-    expect(screen.queryByText('Wikiページへのリンク')).not.toBeInTheDocument()
+    expect(screen.queryByText('リンクを挿入')).not.toBeInTheDocument()
   })
 
-  it('ファイルを選ぶとリンクを挿入する', () => {
+  it('ボタンを押すとパネルが開き、もう一度押すと閉じる', async () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
-    fireEvent.click(screen.getByText('ファイルへのリンク'))
-    expect(screen.getByTestId('wiki-file-link-picker')).toBeInTheDocument()
+    expect(screen.queryByTestId('app-link-picker')).not.toBeInTheDocument()
 
-    const file = makeFile({ id: 'file-42', name: '仕様書.pdf' })
-    act(() => capturedFilePickerOnSelect?.(file))
+    fireEvent.click(screen.getByText('リンクを挿入'))
+    // ピッカーは押したときに読み込む（next/dynamic）ので、出てくるのを待つ
+    expect(await screen.findByTestId('app-link-picker')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('リンクを挿入'))
+    expect(screen.queryByTestId('app-link-picker')).not.toBeInTheDocument()
+  })
+
+  it('選んだリンクをカーソル位置に入れて、パネルを閉じる', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    fireEvent.click(screen.getByText('リンクを挿入'))
+    await screen.findByTestId('app-link-picker')
+
+    act(() =>
+      capturedOnSelect?.({ href: `/${ORG_ID}/project/${SPACE_ID}/wiki?page=page-1`, label: '議事録テンプレ' })
+    )
+
+    expect(mockInsertInlineContent).toHaveBeenCalledWith([
+      { type: 'link', href: `/${ORG_ID}/project/${SPACE_ID}/wiki?page=page-1`, content: '議事録テンプレ' },
+    ])
+    expect(screen.queryByTestId('app-link-picker')).not.toBeInTheDocument()
+  })
+
+  it('ファイルを選んだときはパネルを開いたままにする（社内のみの注意を読めるように）', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    fireEvent.click(screen.getByText('リンクを挿入'))
+    await screen.findByTestId('app-link-picker')
+
+    act(() => capturedOnSelect?.({ href: '/api/files/file-42/download', label: '仕様書.pdf' }))
 
     expect(mockInsertInlineContent).toHaveBeenCalledWith([
       { type: 'link', href: '/api/files/file-42/download', content: '仕様書.pdf' },
     ])
-  })
-
-  it('Wikiページを選ぶとリンクを挿入しパネルを閉じる', () => {
-    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
-    fireEvent.click(screen.getByText('Wikiページへのリンク'))
-    expect(screen.getByTestId('minutes-wiki-link-picker')).toBeInTheDocument()
-
-    act(() => capturedWikiPickerOnSelect?.({ id: 'page-1', title: '議事録テンプレ' }))
-
-    expect(mockInsertInlineContent).toHaveBeenCalledWith([
-      {
-        type: 'link',
-        href: `/${ORG_ID}/project/${SPACE_ID}/wiki?page=page-1`,
-        content: '議事録テンプレ',
-      },
-    ])
-    expect(screen.queryByTestId('minutes-wiki-link-picker')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('app-link-picker')).toBeInTheDocument()
   })
 })
 
@@ -218,6 +206,7 @@ describe('MinutesEditor の「/」メニュー', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
     expect(items.map((item) => item.key)).toEqual([
+      'insert_app_link',
       'heading',
       'bullet_list',
       'check_list',

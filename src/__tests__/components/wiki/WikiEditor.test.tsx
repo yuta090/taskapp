@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { WikiEditor } from '@/components/wiki/WikiEditor'
-import type { ProjectFile } from '@/lib/hooks/useFiles'
+import type { AppLink } from '@/lib/navigation/appLinks'
 
 const ORG_ID = 'org-1'
 const SPACE_ID = 'space-1'
@@ -57,83 +57,77 @@ vi.mock('@blocknote/mantine', () => ({
   ),
 }))
 
-let capturedOnSelect: ((file: ProjectFile) => void) | undefined
+let capturedOnSelect: ((link: AppLink) => void) | undefined
 
-vi.mock('@/components/wiki/WikiFileLinkPicker', () => ({
-  WikiFileLinkPicker: ({ onSelect }: { onSelect: (file: ProjectFile) => void }) => {
+vi.mock('@/components/editor/AppLinkPicker', () => ({
+  AppLinkPicker: ({ onSelect }: { onSelect: (link: AppLink) => void }) => {
     capturedOnSelect = onSelect
-    return <div data-testid="wiki-file-link-picker" />
+    return <div data-testid="app-link-picker" />
   },
 }))
 
-function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
-  return {
-    id: 'file-1',
-    name: '要件定義.pdf',
-    description: null,
-    mimeType: 'application/pdf',
-    sizeBytes: 2048,
-    origin: 'internal',
-    clientVisible: true,
-    uploadedBy: 'user-1',
-    uploaderName: 'Yuta',
-    createdAt: '2026-07-01T00:00:00',
-    ...overrides,
-  }
-}
-
-describe('WikiEditor file link insertion', () => {
+/**
+ * リンクの差し込みは Wiki と議事録で同じ部品（AppLinkPicker）を使う。
+ * ここで見るのは「ボタンでパネルが開き、選んだリンクがカーソル位置に入るか」だけ。
+ * どんな候補が出るかは AppLinkPicker のテストが受け持つ。
+ */
+describe('WikiEditor のリンク差し込み', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     capturedOnSelect = undefined
   })
 
-  it('shows the file link button when editable', () => {
+  it('編集できるときは「リンクを挿入」を出す', () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
-    expect(screen.getByText('📎 ファイルリンクを挿入')).toBeInTheDocument()
+    expect(screen.getByText('リンクを挿入')).toBeInTheDocument()
   })
 
-  it('hides the file link button when not editable', () => {
+  it('読み取り専用のときは出さない', () => {
     render(<WikiEditor editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
-    expect(screen.queryByText('📎 ファイルリンクを挿入')).not.toBeInTheDocument()
+    expect(screen.queryByText('リンクを挿入')).not.toBeInTheDocument()
   })
 
-  it('toggles the file picker panel when clicking the button', () => {
-    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
-    expect(screen.queryByTestId('wiki-file-link-picker')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByText('📎 ファイルリンクを挿入'))
-    expect(screen.getByTestId('wiki-file-link-picker')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByText('📎 ファイルリンクを挿入'))
-    expect(screen.queryByTestId('wiki-file-link-picker')).not.toBeInTheDocument()
+  it('相手先ポータルのようにプロジェクトが分からないときは出さない', () => {
+    render(<WikiEditor editable />)
+    expect(screen.queryByText('リンクを挿入')).not.toBeInTheDocument()
   })
 
-  it('inserts a link block for the selected file and closes the panel', () => {
+  it('ボタンを押すとパネルが開き、もう一度押すと閉じる', async () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
-    fireEvent.click(screen.getByText('📎 ファイルリンクを挿入'))
-    expect(screen.getByTestId('wiki-file-link-picker')).toBeInTheDocument()
+    expect(screen.queryByTestId('app-link-picker')).not.toBeInTheDocument()
 
-    const file = makeFile({ id: 'file-42', name: '仕様書.pdf', clientVisible: true })
-    act(() => capturedOnSelect?.(file))
+    fireEvent.click(screen.getByText('リンクを挿入'))
+    // ピッカーは押したときに読み込む（next/dynamic）ので、出てくるのを待つ
+    expect(await screen.findByTestId('app-link-picker')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('リンクを挿入'))
+    expect(screen.queryByTestId('app-link-picker')).not.toBeInTheDocument()
+  })
+
+  it('選んだリンクをカーソル位置に入れて、パネルを閉じる', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    fireEvent.click(screen.getByText('リンクを挿入'))
+    await screen.findByTestId('app-link-picker')
+
+    act(() => capturedOnSelect?.({ href: '/org-1/project/space-1?task=t1', label: 'TP-42 直す' }))
 
     expect(mockInsertInlineContent).toHaveBeenCalledWith([
-      { type: 'link', href: '/api/files/file-42/download', content: '仕様書.pdf' },
+      { type: 'link', href: '/org-1/project/space-1?task=t1', content: 'TP-42 直す' },
     ])
-    expect(screen.queryByTestId('wiki-file-link-picker')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('app-link-picker')).not.toBeInTheDocument()
   })
 
-  it('keeps the panel open after selecting an internal-only file', () => {
+  it('ファイルを選んだときはパネルを開いたままにする（社内のみの注意を読めるように）', async () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
-    fireEvent.click(screen.getByText('📎 ファイルリンクを挿入'))
+    fireEvent.click(screen.getByText('リンクを挿入'))
+    await screen.findByTestId('app-link-picker')
 
-    const internalFile = makeFile({ id: 'file-99', name: '内部メモ.txt', clientVisible: false })
-    act(() => capturedOnSelect?.(internalFile))
+    act(() => capturedOnSelect?.({ href: '/api/files/file-99/download', label: '内部メモ.txt' }))
 
     expect(mockInsertInlineContent).toHaveBeenCalledWith([
       { type: 'link', href: '/api/files/file-99/download', content: '内部メモ.txt' },
     ])
-    expect(screen.getByTestId('wiki-file-link-picker')).toBeInTheDocument()
+    expect(await screen.findByTestId('app-link-picker')).toBeInTheDocument()
   })
 })
 
@@ -152,7 +146,10 @@ describe('WikiEditor slash menu and Japanese texts', () => {
   it('lists the default items except video and audio, which cannot play on this page', async () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
-    expect(items.map(item => item.key)).toEqual(['heading', 'bullet_list', 'image', 'file'])
+    // 先頭は自前の「リンクを挿入」。そのあとが BlockNote の既定（video/audio を除く）
+    expect(items.map(item => item.key)).toEqual([
+      'insert_app_link', 'heading', 'bullet_list', 'image', 'file',
+    ])
   })
 
   it('narrows the items by what is typed after "/"', async () => {
