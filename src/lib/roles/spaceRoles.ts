@@ -162,6 +162,19 @@ export function isReviewApproverRole(role: string | undefined | null): boolean {
   return (EDITABLE_SPACE_ROLES as readonly string[]).includes(role ?? '')
 }
 
+/**
+ * 秘書のタスク承認フロー（グループの「責任者」）の候補に選べる役割か。
+ * 今は isReviewApproverRole と同じ範囲（admin / editor）だが、これは別の
+ * 決まりがたまたま一致しているだけで、社内承認(レビュー)の rpc_review_open とは
+ * 無関係（こちらのサーバー側の実際の判定は isSpaceApproverEligible
+ * (src/lib/channels/store.ts) が space_memberships.role を直接見て
+ * admin/editor を確認しており、_digest_actor_can_approve が支える別の制約）。
+ * 将来どちらかだけ範囲を変えることがあるので、関数を分けておく。
+ */
+export function isSecretaryApproverRole(role: string | undefined | null): boolean {
+  return isReviewApproverRole(role)
+}
+
 const INTERNAL_ORG_SPACE_ROLES: SpaceRoleGuide['value'][] = ['admin', 'editor', 'viewer']
 
 /**

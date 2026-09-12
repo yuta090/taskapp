@@ -69,6 +69,29 @@ export function ApprovalSettings({ orgId, spaceId }: ApprovalSettingsProps) {
     [setDefaultReviewer]
   )
 
+  // 既定に選んだあとで viewer に下げられた・スペースを抜けた等で、候補外になった
+  // IDが spaces.default_reviewer_ids に残ることがある。ここに並ばず外せないままだと
+  // 気づけないので、見つけたら外すよう促す（TaskReviewSection側は
+  // resolveDefaultReviewerIdsで無視しているだけで、DBの値自体は残ったまま）
+  const staleDefaultIds = useMemo(
+    () => defaultReviewerIds.filter((id) => !approverCandidates.some((m) => m.id === id)),
+    [defaultReviewerIds, approverCandidates]
+  )
+  const staleDefaultNames = useMemo(
+    () =>
+      staleDefaultIds.map(
+        (id) => internalMembers.find((m) => m.id === id)?.displayName ?? '退出済みのメンバー'
+      ),
+    [staleDefaultIds, internalMembers]
+  )
+  const handleRemoveStale = useCallback(async () => {
+    try {
+      await Promise.all(staleDefaultIds.map((id) => setDefaultReviewer(id, false)))
+    } catch {
+      toast.error('既定の承認者を保存できませんでした')
+    }
+  }, [staleDefaultIds, setDefaultReviewer])
+
   if (loading || membersPending) {
     return (
       <div className="animate-pulse space-y-4">
@@ -86,6 +109,21 @@ export function ApprovalSettings({ orgId, spaceId }: ApprovalSettingsProps) {
         ここで選んだ人は、タスクで社内承認を依頼するときに最初から選ばれた状態になります。
         依頼するその場で足したり外したりできます。
       </p>
+
+      {canEdit && staleDefaultIds.length > 0 && (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="text-xs text-amber-800">
+            候補外の人（{staleDefaultNames.join('・')}）が既定に残っています
+          </p>
+          <button
+            type="button"
+            onClick={handleRemoveStale}
+            className="shrink-0 text-xs font-medium text-amber-800 underline hover:no-underline"
+          >
+            外す
+          </button>
+        </div>
+      )}
 
       <div className="divide-y divide-gray-100">
         {approverCandidates.map((member) => (

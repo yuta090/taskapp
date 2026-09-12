@@ -70,8 +70,18 @@ export function TaskReviewSection({
     () => resolveDefaultReviewerIds(defaultReviewerIds, selectableMembers.map((m) => m.id)),
     [defaultReviewerIds, selectableMembers]
   )
-  // 既定の読み込みが後から終わっても追随させたいので、state ではなく毎回ここで解決する
-  const selected = selectedReviewerIds ?? defaultSelection
+  // 既定の読み込みが後から終わっても追随させたいので、state ではなく毎回ここで解決する。
+  // 再依頼のプリセット等で候補外のID（viewerに下げられた・スペースを抜けた等）が
+  // 紛れ込んでいても、選べる候補と毎回突き合わせて落とす（見えないまま選ばれて
+  // 依頼だけ失敗する、という事態を防ぐ）
+  const selected = useMemo(
+    () =>
+      resolveDefaultReviewerIds(
+        selectedReviewerIds ?? defaultSelection,
+        selectableMembers.map((m) => m.id)
+      ),
+    [selectedReviewerIds, defaultSelection, selectableMembers]
+  )
 
   // Fetch review for this task.
   // Returns { ok: true, status } on success, { ok: false } on failure.
@@ -138,6 +148,7 @@ export function TaskReviewSection({
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to open review:', err)
+      toast.error('社内承認の依頼に失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -152,6 +163,7 @@ export function TaskReviewSection({
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to approve:', err)
+      toast.error('承認に失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -172,6 +184,7 @@ export function TaskReviewSection({
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to block:', err)
+      toast.error('差し戻しに失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -195,6 +208,7 @@ export function TaskReviewSection({
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to cancel review:', err)
+      toast.error('レビューの取り消しに失敗しました')
     } finally {
       setSubmitting(false)
     }

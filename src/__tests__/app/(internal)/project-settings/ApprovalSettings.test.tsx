@@ -137,3 +137,55 @@ describe('ApprovalSettings — 閲覧者・役割未確定には操作させな�
     expect(setDefaultReviewer).not.toHaveBeenCalled()
   })
 })
+
+// 既定の承認者(spaces.default_reviewer_ids)に、その後 viewer に下げられた・
+// スペースを抜けた等で候補外になった人のIDが残ることがある(TaskReviewSection側では
+// resolveDefaultReviewerIdsで無視しているだけで、DBの値自体は残ったまま)。
+// 見えない・外せないままだと気づけないので、外すよう促す
+describe('ApprovalSettings — 候補外になった既定の承認者', () => {
+  it('候補外のIDが既定に残っていると、外すよう促すバナーが出る', () => {
+    members = [
+      { id: 'u1', displayName: '自分', avatarUrl: null, role: 'admin' },
+      { id: 'i1', displayName: '田中', avatarUrl: null, role: 'editor' },
+      // v1 は前は承認者候補(editor)だったが、いまは viewer に下げられている
+      { id: 'v1', displayName: '鈴木（閲覧者）', avatarUrl: null, role: 'viewer' },
+    ]
+    defaultReviewerIds = ['i1', 'v1']
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
+
+    expect(screen.getByText(/候補外の人/)).toBeInTheDocument()
+    expect(screen.getByText(/鈴木（閲覧者）/)).toBeInTheDocument()
+  })
+
+  it('候補外のIDが無ければバナーは出ない', () => {
+    defaultReviewerIds = ['i1']
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
+
+    expect(screen.queryByText(/候補外の人/)).not.toBeInTheDocument()
+  })
+
+  it('「外す」を押すと、候補外のIDそれぞれについて既定から外す', async () => {
+    members = [
+      { id: 'u1', displayName: '自分', avatarUrl: null, role: 'admin' },
+      { id: 'v1', displayName: '鈴木（閲覧者）', avatarUrl: null, role: 'viewer' },
+    ]
+    defaultReviewerIds = ['v1']
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: '外す' }))
+
+    await waitFor(() => expect(setDefaultReviewer).toHaveBeenCalledWith('v1', false))
+  })
+
+  it('編集できない役割にはバナーの操作を出さない', () => {
+    mockCanEdit = false
+    members = [
+      { id: 'u1', displayName: '自分', avatarUrl: null, role: 'admin' },
+      { id: 'v1', displayName: '鈴木（閲覧者）', avatarUrl: null, role: 'viewer' },
+    ]
+    defaultReviewerIds = ['v1']
+    render(<ApprovalSettings orgId="o1" spaceId="s1" />)
+
+    expect(screen.queryByText(/候補外の人/)).not.toBeInTheDocument()
+  })
+})

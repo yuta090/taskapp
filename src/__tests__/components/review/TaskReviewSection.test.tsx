@@ -3,17 +3,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { TaskReviewSection } from '@/components/review/TaskReviewSection'
 
+const mockToastError = vi.fn()
+vi.mock('sonner', () => ({ toast: { error: (...args: unknown[]) => mockToastError(...args) } }))
+
 const mockFrom = vi.fn()
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({ from: (...args: unknown[]) => mockFrom(...args) }),
 }))
 
+const mockReviewOpen = vi.fn()
+const mockReviewApprove = vi.fn()
+const mockReviewBlock = vi.fn()
 const mockReviewCancel = vi.fn()
 vi.mock('@/lib/supabase/rpc', () => ({
   rpc: {
-    reviewOpen: vi.fn(),
-    reviewApprove: vi.fn(),
-    reviewBlock: vi.fn(),
+    reviewOpen: (...args: unknown[]) => mockReviewOpen(...args),
+    reviewApprove: (...args: unknown[]) => mockReviewApprove(...args),
+    reviewBlock: (...args: unknown[]) => mockReviewBlock(...args),
     reviewCancel: (...args: unknown[]) => mockReviewCancel(...args),
   },
 }))
@@ -421,5 +427,116 @@ describe('TaskReviewSection — 承認者候補は admin/editor だけ（viewer�
 
     expect(screen.getByRole('button', { name: /田中（社内）/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /鈴木（閲覧者）/ })).not.toBeInTheDocument()
+  })
+})
+
+// 前回の承認者が、その後 viewer に下げられている／スペースを抜けているケース。
+// 候補に出ないので選択を外せず、そのまま依頼すると DB(rpc_review_open)に断られる
+// (viewer/非メンバーは受け付けない)のに画面には何も出なかった。
+describe('TaskReviewSection — 再依頼は候補外の前回承認者を含めない', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDefaultReviewerIds = []
+    mockMembers = [
+      { id: 'u1', displayName: '自分', role: 'editor' },
+      { id: 'i1', displayName: '田中（社内）', role: 'editor' },
+      // v1 は前回の承認者だったが、いまは viewer に下げられている
+      { id: 'v1', displayName: '鈴木（閲覧者）', role: 'viewer' },
+    ]
+    mockReviewWith(
+      { id: 'r1', status: 'changes_requested', created_by: 'u1' },
+      [
+        { id: 'a1', reviewer_id: 'i1', state: 'approved' },
+        { id: 'a2', reviewer_id: 'v1', state: 'blocked', blocked_reason: 'なおして' },
+      ]
+    )
+  })
+
+  it('再依頼では、候補外になった前回承認者(v1)を選ばない（送るIDに入らない）', async () => {
+    mockReviewOpen.mockResolvedValue({ ok: true })
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('再依頼'))
+    fireEvent.click(screen.getByText('再依頼'))
+
+    // v1 は候補に出ない(既存の仕様どおり)。かつ i1 だけが選ばれた状態になっている
+    expect(screen.queryByRole('button', { name: /鈴木（閲覧者）/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /田中（社内）/ })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: '依頼する' }))
+
+    await waitFor(() => expect(mockReviewOpen).toHaveBeenCalled())
+    expect(mockReviewOpen).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reviewerIds: ['i1'] })
+    )
+  })
+})
+
+// 依頼・承認・差し戻し・取り消しが失敗しても、これまでは console.error だけで
+// 画面には何も出ていなかった（ユーザーは失敗に気づけない）
+describe('TaskReviewSection — 操作の失敗をtoastで知らせる', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDefaultReviewerIds = []
+    mockMembers = [
+      { id: 'u1', displayName: '自分', role: 'editor' },
+      { id: 'i1', displayName: '田中（社内）', role: 'editor' },
+    ]
+  })
+
+  it('依頼の失敗をtoastで知らせる', async () => {
+    mockNoReview()
+    mockReviewOpen.mockRejectedValue(new Error('rpc failure'))
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByRole('button', { name: /田中（社内）/ }))
+    fireEvent.click(screen.getByRole('button', { name: '依頼する' }))
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalled())
+  })
+
+  it('承認の失敗をtoastで知らせる', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'open', created_by: 'i1' },
+      [{ id: 'a1', reviewer_id: 'u1', state: 'pending' }]
+    )
+    mockReviewApprove.mockRejectedValue(new Error('rpc failure'))
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('承認'))
+    fireEvent.click(screen.getByText('承認'))
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalled())
+  })
+
+  it('差し戻しの失敗をtoastで知らせる', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'open', created_by: 'i1' },
+      [{ id: 'a1', reviewer_id: 'u1', state: 'pending' }]
+    )
+    mockReviewBlock.mockRejectedValue(new Error('rpc failure'))
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('差し戻し'))
+    fireEvent.click(screen.getByText('差し戻し'))
+    fireEvent.change(screen.getByPlaceholderText('差し戻し理由を入力...'), {
+      target: { value: 'なおして' },
+    })
+    fireEvent.click(screen.getByText('差し戻す'))
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalled())
+  })
+
+  it('取り消しの失敗をtoastで知らせる', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'open', created_by: 'u1' },
+      [{ id: 'a1', reviewer_id: 'i1', state: 'pending' }]
+    )
+    mockReviewCancel.mockRejectedValue(new Error('rpc failure'))
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('レビューを取り消す'))
+    fireEvent.click(screen.getByText('レビューを取り消す'))
+    fireEvent.click(await screen.findByRole('button', { name: '取り消す' }))
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalled())
   })
 })

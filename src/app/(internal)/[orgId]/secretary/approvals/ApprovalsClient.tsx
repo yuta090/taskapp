@@ -16,7 +16,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
-import { isReviewApproverRole } from '@/lib/roles/spaceRoles'
+import { isSecretaryApproverRole } from '@/lib/roles/spaceRoles'
 import {
   PICKUP_MODE_OPTIONS,
   resolvePickupOptionState,
@@ -62,7 +62,10 @@ export function GroupApproverRow({
   dualModeEntitled: boolean
 }) {
   const { internalMembers, loading } = useSpaceMembers(group.spaceId)
-  const eligible = internalMembers.filter((m) => isReviewApproverRole(m.role))
+  // 秘書の責任者候補は isSecretaryApproverRole（社内承認のレビュー候補とは別の決まり。
+  // 詳細はその定義のコメントを参照）で絞る。実際の保存可否はサーバー側の
+  // isSpaceApproverEligible（space_memberships.role を直接見る）が最終判定
+  const eligible = internalMembers.filter((m) => isSecretaryApproverRole(m.role))
   const [value, setValue] = useState(group.approverUserId ?? '')
   const [saving, setSaving] = useState(false)
 

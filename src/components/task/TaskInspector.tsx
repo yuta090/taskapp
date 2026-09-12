@@ -28,6 +28,7 @@ import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope, WikiPage } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatTaskNumber } from '@/lib/tasks/taskNumber'
+import { SPACE_ROLE_LABELS } from '@/lib/roles/spaceRoles'
 
 interface TaskInspectorProps {
   task: Task
@@ -1108,8 +1109,9 @@ export function TaskInspector({
                 const currentAssignee = members.find((m) => m.id === task.assignee_id)
                 if (!currentAssignee) return null
                 // vendor（協力会社）は internalMembers にも clientMembers にも含まれない
-                // 役割なので、ここに来る。「(不明)」ではなく役割の分かる表示にする
-                const label = currentAssignee.role === 'vendor' ? '協力会社' : '不明'
+                // 役割なので、ここに来る。「(不明)」ではなく役割の分かる表示にする。
+                // 呼び方は画面のほかの所（設定 > メンバー等）と同じ正本(spaceRoles.ts)から取る
+                const label = currentAssignee.role === 'vendor' ? SPACE_ROLE_LABELS.vendor : '不明'
                 return (
                   <option key={currentAssignee.id} value={currentAssignee.id}>
                     {currentAssignee.displayName} ({label})

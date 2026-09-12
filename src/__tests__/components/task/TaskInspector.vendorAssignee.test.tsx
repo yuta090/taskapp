@@ -7,8 +7,10 @@ import type { Task } from '@/types/database'
 
 /**
  * 担当者が協力会社(vendor)のタスクは、担当者欄の選択肢に「(不明)」ではなく
- * 「(協力会社)」と出す。vendor は internalMembers にも clientMembers にも
- * 含まれない役割なので、フォールバック表示が必要になる。
+ * 役割名（SPACE_ROLE_LABELS.vendor＝「ベンダー」）を出す。vendor は
+ * internalMembers にも clientMembers にも含まれない役割なので、フォール
+ * バック表示が必要になる。役割名は画面のほかの所（設定 > メンバー等）と
+ * 同じ言葉を正本(spaceRoles.ts)から使い、ここだけ独自の呼び方にしない。
  */
 
 function render(ui: React.ReactElement) {
@@ -108,12 +110,13 @@ describe('TaskInspector — 担当者が協力会社(vendor)のときの表示',
     vi.clearAllMocks()
   })
 
-  it('担当者の選択肢に「(協力会社)」と出す（「(不明)」にしない）', () => {
+  it('担当者の選択肢に、画面のほかの所と同じ役割名「(ベンダー)」と出す（「(不明)」にしない）', () => {
     render(
       <TaskInspector task={makeTask()} spaceId="s1" onClose={() => {}} onUpdate={vi.fn()} />
     )
 
-    expect(screen.getByText('協力会社の人 (協力会社)')).toBeInTheDocument()
+    expect(screen.getByText('協力会社の人 (ベンダー)')).toBeInTheDocument()
     expect(screen.queryByText('協力会社の人 (不明)')).not.toBeInTheDocument()
+    expect(screen.queryByText('協力会社の人 (協力会社)')).not.toBeInTheDocument()
   })
 })

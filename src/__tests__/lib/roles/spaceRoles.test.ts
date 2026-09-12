@@ -5,6 +5,7 @@ import {
   canEditSpaceMoney,
   allowedSpaceRolesFor,
   isReviewApproverRole,
+  isSecretaryApproverRole,
 } from '@/lib/roles/spaceRoles'
 
 // DB側の判定（app_can_write_space / app_is_org_internal, 20260911143112_space_role_boundary.sql）
@@ -121,6 +122,28 @@ describe('isReviewApproverRole', () => {
     expect(isReviewApproverRole(null)).toBe(false)
     expect(isReviewApproverRole(undefined)).toBe(false)
     expect(isReviewApproverRole('')).toBe(false)
+  })
+})
+
+// 秘書のタスク承認フロー（グループの「責任者」）用。社内承認(レビュー)の
+// isReviewApproverRoleとは別の決まりだが、今は同じ範囲(admin/editor)。
+// サーバー側の最終判定は isSpaceApproverEligible（src/lib/channels/store.ts）。
+describe('isSecretaryApproverRole', () => {
+  it('admin / editor は責任者候補', () => {
+    expect(isSecretaryApproverRole('admin')).toBe(true)
+    expect(isSecretaryApproverRole('editor')).toBe(true)
+  })
+
+  it('viewer / client / vendor は責任者候補ではない', () => {
+    expect(isSecretaryApproverRole('viewer')).toBe(false)
+    expect(isSecretaryApproverRole('client')).toBe(false)
+    expect(isSecretaryApproverRole('vendor')).toBe(false)
+  })
+
+  it('未取得・不明な役割は責任者候補ではない側に倒す', () => {
+    expect(isSecretaryApproverRole(null)).toBe(false)
+    expect(isSecretaryApproverRole(undefined)).toBe(false)
+    expect(isSecretaryApproverRole('')).toBe(false)
   })
 })
 
