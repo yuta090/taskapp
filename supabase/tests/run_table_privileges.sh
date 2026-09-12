@@ -9,8 +9,8 @@
 #   harness/supabase_function_default_acl.sql  本番と同じ関数の既定の実行権
 #   harness/supabase_table_default_acl.sql     本番と同じ表・ビュー・シーケンスの既定の付与（当てる前の形）
 # 本 migration の前に table_privileges_seed.sql（行と、当てる前の形の控え schema snap）を入れる。
-# 当てる前の anon / authenticated / PUBLIC の権限が、本番の棚卸し（2026-09-12・本番だけにある user_preferences を除く）と
-# 同じことを確かめてから（base_matches_production）、本 migration を2回適用し、複製で検証する:
+# 当てる前の anon / authenticated / PUBLIC の権限が、本番の棚卸し（2026-09-12）と同じことを確かめてから
+# （base_matches_production）、本 migration を2回適用し、複製で検証する:
 #   checks          table_privileges_assert.sql（権限の形・既定の付与・新しく作る物の権限・anon / authenticated / service_role の読み書き）
 # 続けて GREEN のときだけ:
 #   red_*           本 migration の前に、chg_* が全て FAIL・same_* が全て PASS
@@ -48,7 +48,7 @@ MIG="$REPO/supabase/migrations"
 SEED="$TST/table_privileges_seed.sql"
 ASSERT="$TST/table_privileges_assert.sql"
 RED="${RED:-0}"
-# 本番の棚卸し（2026-09-12）の anon / authenticated / PUBLIC の権限（本番だけにある user_preferences を除く）の md5
+# 本番の棚卸し（2026-09-12）の anon / authenticated / PUBLIC の権限の md5
 #   （表・ビュー・シーケンスごとに「名前:anon:authenticated:PUBLIC」を名前の順に | でつないだ物。権限の名前は , で名前の順）
 PROD_DIGEST='f5e7e508dbc187d067e3edf85670685d'
 # ロールバック節の数と、; で終わる行の数（節 1〜4）
