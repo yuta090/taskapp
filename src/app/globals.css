@@ -66,6 +66,11 @@
   --color-orange-600: #EA580C;
   --color-orange-700: #C2410C;
 
+  /* Orange ink — orange-50 の面(帯・警告)の上に置く文字色。indigo-ink と同じ理由で
+     text-orange-600/700 は .dark で反転できない(有彩色本体は色相維持のため)ので、
+     文字用の別トークンを立ててこちらだけ反転させる。 */
+  --color-orange-ink: #C2410C;
+
   /* Indigo (Primary) */
   --color-indigo-500: #6366F1;
   --color-indigo-600: #4F46E5;
@@ -161,6 +166,7 @@
   --color-orange-50:  #2A1B0C;
   --color-orange-100: #3A2510;
   --color-orange-200: #57381A;
+  --color-orange-ink: #FDBA74;
   --color-indigo-50:  #1E2140;
   --color-indigo-ink: #C7D2FE;
   --color-red-50:  #2E1416;

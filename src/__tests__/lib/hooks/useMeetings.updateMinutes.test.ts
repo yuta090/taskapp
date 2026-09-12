@@ -79,7 +79,7 @@ describe('useMeetings.updateMinutes', () => {
     mockUpdateEqUpdatedAt.mockReturnValue({ select: mockUpdateSelect })
   })
 
-  it('成功したらキャッシュの minutes_md・updated_at を差し替え、新しい updated_at を返す', async () => {
+  it('成功したらキャッシュの minutes_md・updated_at を差し替え、更新後の minutes_md と updated_at を返す', async () => {
     mockFetchMeetingsQuery.mockResolvedValue({
       meetings: [makeMeeting({ id: 'm1' })],
       participants: {},
@@ -95,9 +95,9 @@ describe('useMeetings.updateMinutes', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     await waitFor(() => expect(result.current.meetings).toHaveLength(1))
 
-    let returnedUpdatedAt = ''
+    let returned: { minutesMd: string | null; updatedAt: string } | null = null
     await act(async () => {
-      returnedUpdatedAt = await result.current.updateMinutes(
+      returned = await result.current.updateMinutes(
         'm1',
         '新しい本文',
         '2026-07-01T00:00:00.111111+00'
@@ -109,12 +109,37 @@ describe('useMeetings.updateMinutes', () => {
     // 基準の updated_at 文字列は加工せずそのまま渡す（new Date() を通すと1/1000秒に丸まりDBの
     // 1/1000000秒と一致しなくなるため）
     expect(mockUpdateEqUpdatedAt).toHaveBeenCalledWith('updated_at', '2026-07-01T00:00:00.111111+00')
-    expect(returnedUpdatedAt).toBe('2026-07-02T00:00:00.222222+00')
+    // 呼び出し側(文書ビュー)が「サーバーの生の本文」を追跡できるよう minutes_md も返す
+    expect(returned).toEqual({ minutesMd: '新しい本文', updatedAt: '2026-07-02T00:00:00.222222+00' })
 
     await waitFor(() =>
       expect(result.current.meetings[0].minutes_md).toBe('新しい本文')
     )
     expect(result.current.meetings[0].updated_at).toBe('2026-07-02T00:00:00.222222+00')
+  })
+
+  it('キャッシュがまだ無いとき（一覧を一度も取っていない）は空の一覧をでっち上げない', async () => {
+    // クエリが有効化されないよう spaceId を渡さず、['meetings', spaceId] のキャッシュを
+    // 一度も作らせない状態で updateMinutes だけを呼ぶ
+    mockUpdateSelect.mockResolvedValue({
+      data: [{ id: 'm1', minutes_md: '新しい本文', updated_at: '2026-07-02T00:00:00.222222+00' }],
+      error: null,
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { result } = renderHook(() => useMeetings({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: ({ children }) =>
+        React.createElement(QueryClientProvider, { client: queryClient }, children),
+    })
+
+    await act(async () => {
+      await result.current.updateMinutes('m1', '新しい本文', '2026-07-01T00:00:00.111111+00')
+    })
+
+    // ['meetings', 's1'] のキャッシュは (query 未解決のときの undefined のままか、
+    // 少なくとも) 空配列をでっち上げて上書きされていないこと
+    const cached = queryClient.getQueryData(['meetings', 's1'])
+    expect(cached).not.toEqual({ meetings: [], participants: {} })
   })
 
   it('0件（別の場所で更新済み）なら MinutesConflictError を投げ、キャッシュを変えない', async () => {

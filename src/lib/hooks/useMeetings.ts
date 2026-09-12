@@ -89,9 +89,15 @@ interface UseMeetingsReturn {
   /**
    * 議事録の Web 編集を保存する。開いたときの `updated_at`（baseUpdatedAt）と一致する
    * 行だけを書き換える楽観ロック。0 件なら別の場所（AI・コマンド・ほかの人）で更新済みと
-   * みなし MinutesConflictError を投げる。成功したら新しい updated_at を返す。
+   * みなし MinutesConflictError を投げる。成功したら更新後の minutes_md と updated_at を返す
+   * （呼び出し側が「サーバーの生の本文」を追跡し、開始/終了操作だけで updated_at が進んだ
+   * 見せかけの競合と、本当に本文が変わった競合を区別できるようにするため）。
    */
-  updateMinutes: (meetingId: string, minutesMd: string, baseUpdatedAt: string) => Promise<string>
+  updateMinutes: (
+    meetingId: string,
+    minutesMd: string,
+    baseUpdatedAt: string
+  ) => Promise<{ minutesMd: string | null; updatedAt: string }>
 }
 
 export function useMeetings({
@@ -470,7 +476,11 @@ export function useMeetings({
   // baseUpdatedAt は受け取った文字列をそのまま `.eq()` に渡す（`new Date()` を通すと
   // 1/1000秒に丸まり、DB は 1/1000000秒のため毎回一致しなくなる）。
   const updateMinutes = useCallback(
-    async (meetingId: string, minutesMd: string, baseUpdatedAt: string): Promise<string> => {
+    async (
+      meetingId: string,
+      minutesMd: string,
+      baseUpdatedAt: string
+    ): Promise<{ minutesMd: string | null; updatedAt: string }> => {
       const { data, error } = await (supabase as SupabaseClient)
         .from('meetings')
         .update({ minutes_md: minutesMd })
@@ -486,8 +496,11 @@ export function useMeetings({
       }
       const updated = rows[0]
 
+      // キャッシュが無い（一覧をまだ一度も取っていない）ときに空の一覧をでっち上げない。
+      // 呼び出し元の画面は詳細取得(fetchMeetingDetail)を別に持つため、ここで作った空配列が
+      // 「会議が0件」の一覧として誤って表示される事故を避ける。
       queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => {
-        if (!old) return { meetings: [], participants: {} }
+        if (!old) return old
         return {
           meetings: old.meetings.map((m) =>
             m.id === meetingId
@@ -498,7 +511,7 @@ export function useMeetings({
         }
       })
 
-      return updated.updated_at
+      return { minutesMd: updated.minutes_md, updatedAt: updated.updated_at }
     },
     [supabase, queryClient, spaceId]
   )
