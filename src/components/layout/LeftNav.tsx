@@ -836,7 +836,12 @@ export const LeftNav = memo(function LeftNav() {
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
 
   // 動的スペースリスト（アーカイブ含む）。hydration前はサーバーと同じ「空」にする
-  const { spaces: rawAllSpaces, isPending: spacesPending } = useUserSpaces({ includeArchived: true })
+  const {
+    spaces: rawAllSpaces,
+    isPending: spacesPending,
+    isLoadingError: spacesLoadingError,
+    refetch: refetchSpaces,
+  } = useUserSpaces({ includeArchived: true })
   const allSpaces = hydrated ? rawAllSpaces : EMPTY_SPACES
   // hydration前・読み込み中はどちらも allSpaces が空になるが、この2つを区別しないと
   // 読み込み中にも「プロジェクトがありません」が一瞬出てしまう。読み込み中は骨組みを
@@ -1273,27 +1278,29 @@ export const LeftNav = memo(function LeftNav() {
                   )}
                   {!isGroupCollapsed && (
                     <div className="space-y-0.5">
-                      {spacesInGroup.length === 0 && !collapsed ? (
+                      {/* キャッシュが無い最初の読み込みで、グループの取得がプロジェクト一覧
+                          より先に終わると、読み込み中でも一瞬「プロジェクトなし」が出てしまう
+                          ため、読み込み中は出さない（一覧側の骨組みで表現する） */}
+                      {spacesInGroup.length === 0 && !collapsed && !spacesLoading && (
                         <div className="px-4 py-1.5 text-[11px] text-gray-300 italic">
                           プロジェクトなし
                         </div>
-                      ) : (
-                        spacesInGroup.map((space) => (
-                          <SpaceNavItem
-                            key={space.id}
-                            space={space}
-                            orgId={orgId}
-                            isExpanded={space.id === spaceId}
-                            pathname={pathname}
-                            searchParams={searchParams}
-                            collapsed={collapsed}
-                            isActive={isActive}
-                            onNavigate={setPendingHref}
-                            groups={groups}
-                            onMoveToGroup={moveSpaceToGroup}
-                          />
-                        ))
                       )}
+                      {spacesInGroup.map((space) => (
+                        <SpaceNavItem
+                          key={space.id}
+                          space={space}
+                          orgId={orgId}
+                          isExpanded={space.id === spaceId}
+                          pathname={pathname}
+                          searchParams={searchParams}
+                          collapsed={collapsed}
+                          isActive={isActive}
+                          onNavigate={setPendingHref}
+                          groups={groups}
+                          onMoveToGroup={moveSpaceToGroup}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1375,7 +1382,23 @@ export const LeftNav = memo(function LeftNav() {
               </div>
             )}
 
-            {activeSpaces.length === 0 && !collapsed && !spacesLoading && (
+            {/* 一度も取得できないまま失敗した場合。0件と決め打ちして「プロジェクトを作成」を
+                出すと、実際にはあるプロジェクトを作り直させてしまう恐れがあるため、
+                失敗のときは0件表示より優先して再読み込みの案内を出す */}
+            {activeSpaces.length === 0 && !collapsed && !spacesLoading && spacesLoadingError && (
+              <div className="px-2 py-3 text-center">
+                <p className="text-xs text-gray-400 mb-2">プロジェクトを読み込めませんでした</p>
+                <button
+                  type="button"
+                  onClick={() => void refetchSpaces()}
+                  className="text-xs text-indigo-500 hover:text-indigo-700 transition-colors"
+                >
+                  再読み込み
+                </button>
+              </div>
+            )}
+
+            {activeSpaces.length === 0 && !collapsed && !spacesLoading && !spacesLoadingError && (
               <div className="px-2 py-3 text-center">
                 <p className="text-xs text-gray-400 mb-2">プロジェクトがありません</p>
                 <button
