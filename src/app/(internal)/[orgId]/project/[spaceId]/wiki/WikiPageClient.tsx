@@ -13,7 +13,7 @@ import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { EmptyState } from '@/components/shared'
-import { useWikiPages, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages'
+import { useWikiPages, WikiConflictError, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -44,6 +44,51 @@ const EMPTY_GROUPS: ReturnType<typeof groupWikiPagesByMilestone> = []
 // resolveWikiMilestones も同じ意図で EMPTY_MILESTONE_LIST を入れるので、通常はそちらが返る。
 const EMPTY_PAGE_MILESTONES: Milestone[] = EMPTY_MILESTONE_LIST
 
+// 議事録の競合帯(MinutesDocumentView.tsx)と同じ文面の作り。Wiki には掲示板のような
+// 自動合流・保存の直列化までは作らない（必要最小限）。
+const WIKI_CONFLICT_MESSAGE =
+  'このページは、ほかの人（またはAI）が先に書き換えました。あなたが書いた分はまだ保存されていません。' +
+  '「書きかけをコピー」で控えてから「最新を読み込む」を押してください（読み込むと、この画面の書きかけは消えます。' +
+  '控えはそのままでは元の見た目には貼り戻せない形式です）。'
+
+// 「最新を読み込む」で読み直したら、対象のページ自体が既に削除されていた場合の文面。
+// 帯は下ろさず（自動保存を止めたまま）、理由だけをこちらに切り替える。
+const WIKI_PAGE_DELETED_MESSAGE =
+  'このページは見つかりませんでした（削除された可能性があります）。自動保存は止まっています。'
+
+/**
+ * Wiki 本文(BlockNote の JSON文字列)を「開いただけでは保存しない」比較のために正規化する。
+ * DB 側で組み立てられた本文（rpc_set_spec_state の追記は jsonb を ::text にするため
+ * キー順・空白が変わる／generateDefaultWikiBody・SPEC_TEMPLATES・プリセット適用で
+ * 手組みされた本文）は、クライアントの JSON.stringify(editor.document) とキー順や
+ * 空白が一致しないことがある。単純な JSON.parse→JSON.stringify の往復では
+ * オブジェクトのキー順は元のまま保たれてしまう（並べ替わらない）ため、それだけでは
+ * 足りない。オブジェクトのキーをアルファベット順に並べ替えてから比較用の文字列に
+ * する（配列の並びは意味を持つため崩さない）。JSON として壊れている値は、正規化を
+ * あきらめて元の文字列のまま返す（＝そのケースは「別物」として保存される安全側に倒れる。
+ * 議事録の computeBaseline(MinutesDocumentView.tsx) と同じ「開いたときと同じなら
+ * 保存しない」という考え方を、Wiki の JSON 本文向けに実装したもの）。
+ */
+function canonicalizeWikiBody(value: string | null): string | null {
+  if (value === null) return null
+  try {
+    const sortKeysDeep = (input: unknown): unknown => {
+      if (Array.isArray(input)) return input.map(sortKeysDeep)
+      if (input !== null && typeof input === 'object') {
+        const sorted: Record<string, unknown> = {}
+        for (const key of Object.keys(input as Record<string, unknown>).sort()) {
+          sorted[key] = sortKeysDeep((input as Record<string, unknown>)[key])
+        }
+        return sorted
+      }
+      return input
+    }
+    return JSON.stringify(sortKeysDeep(JSON.parse(value)))
+  } catch {
+    return value
+  }
+}
+
 interface WikiPageClientProps {
   orgId: string
   spaceId: string
@@ -73,6 +118,44 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const pendingBodyRef = useRef<{ pageId: string; body: string } | null>(null)
   const savedTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [showPresetApplicator, setShowPresetApplicator] = useState(false)
+
+  // 保存の合言葉（楽観ロック）まわり。基準の updated_at と、サーバーにあると分かっている
+  // 本文を持つ。開いたとき(fetchPage)と、updatePage が成功した後（属性更新・版の復元を
+  // 含むすべての呼び出し）に必ず両方更新する（そうしないと本文保存が偽の競合を出す）。
+  const baseUpdatedAtRef = useRef<string | null>(null)
+  const knownServerBodyRef = useRef<string | null>(null)
+  // 今エディタに表示されている書きかけ（onChange の生値）。「書きかけをコピー」で使う。
+  const currentContentRef = useRef<string>('')
+  const [conflict, setConflict] = useState(false)
+  // conflict(state) と同じ値を常に持つ ref。setConflict は再描画を経てから effect/closure に
+  // 反映されるため、その間に発火する古い closure（タイマー・onChange）が「まだ競合していない」
+  // と誤判定してしまう。同期に読めるこちらを判定に使う。
+  const conflictRef = useRef(false)
+  // 帯を「見つかりません」表示に切り替えるための状態。conflict=true のまま維持し、
+  // 文面だけ変える（削除されたページは何度読み直しても null のままなので、帯を下ろさず
+  // 安定した終端状態にする＝「毎回帯が出ては消える」を防ぐ）。
+  const [pageDeleted, setPageDeleted] = useState(false)
+  // 本文保存が同時に2本走らないようにする。「次に送る内容」は pendingBodyRef が
+  // 一元的に持つ(二重管理を避ける)ので、ここでは「今まさに通信中か」だけを持つ。
+  const savingRef = useRef(false)
+  // savingRef が true の間に新しい編集が来たか。通信が終わったら、これが立っていた
+  // ときだけ続けて送る（保存に失敗して pendingBodyRef を「戻した」だけのケースまで
+  // 拾ってしまうと、同じ内容を無限に送り直しかねないため区別する）。
+  const pendingDuringSaveRef = useRef(false)
+  // ページを切り替えるたびに1つ進む「世代」。保存(savePendingBody)・最新を読み込む・
+  // 版の復元は開始時に世代を掴み、await の後(送信結果が返った後・見せかけの競合の確認後・
+  // 再送の後)ごとに pageEpochRef.current と一致するかを確かめてから共有の ref/state を書く。
+  // 一致しなければ「もう見ていないページの結果」として何も書かずに捨てる
+  // （保存の通信中にページを切り替えると、開いた先に前のページの基準・本文・競合状態が
+  // 書き込まれてしまう事故を防ぐ）。
+  const pageEpochRef = useRef(0)
+  // 「最新を読み込む」で1つ進める。エディタの key に含め、再マウントさせて
+  // initialContent を読み直させる（本体は onChange の度に作り直さない）。ページを
+  // 切り替えても 0 に戻さない: activePage.id が変わればどのみち key は変わるため
+  // リセットは不要で、逆に 0 へ戻すと「まだ前のページ(A)の本文のまま」の瞬間に key が
+  // (新ページB.id-0) に変わって A の本文で B のエディタが作り直され、B を開いた直後に
+  // A の本文で保存が走ってしまう（開いた直後の別ページに偽の競合帯が出る事故の元）。
+  const [editorReloadToken, setEditorReloadToken] = useState(0)
 
   // 閲覧者（viewer）・相手先には編集操作を出さない。組織の役割は URL の orgId で判定する
   const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
@@ -227,23 +310,131 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   /**
    * 待っている中身を今すぐ保存する。何も待っていなければ何もしない。
-   * 保存できなかったときは中身を戻して例外を投げる（呼び出し側が画面の移動を止める）
+   * 本文保存は基準(baseUpdatedAtRef)を渡す楽観ロック付き — 渡さないと、画面を移る直前の
+   * 保存(flushPendingSave経由)だけ楽観ロックを素通りしてしまう。0行(WikiConflictError)
+   * なら、まず見せかけの競合(本文は同じ・他の更新でupdated_atだけ進んだ)かどうかを確かめ、
+   * 見せかけなら基準を差し替えて1回だけ内部でやり直す。本当の競合・削除済みは帯を出し、
+   * 例外を投げて呼び出し側を止める。特に flushPendingSave 経由(本文中のリンクでの画面
+   * 移動)では、ここで例外を投げることで移動そのものを止める(useInAppLinkNavigation が
+   * catch して移動しない設計になっている)。移ってしまうと帯を見せられないまま書きかけが
+   * 失われるため、安全側に倒す。
+   * 保存できなかったとき（本当の競合以外の失敗）は中身を戻して例外を投げる。
+   * savingRef で同時に2本走らないようにする（同時に複数箇所から呼ばれても直列化する）。
+   * pageEpochRef で「もう見ていないページ」の結果を書かないようにする。
    */
-  const savePendingBody = useCallback(async () => {
+  const savePendingBody = useCallback(async (): Promise<void> => {
+    if (savingRef.current) {
+      // 既に別の保存が通信中。今まさに送るべき新しい書きかけ(pendingBodyRef)が実際に
+      // あるときだけ「通信が終わったら続けて送る」の印を立てる。ページ切り替え時の
+      // 「前のページ宛てに流し切る」呼び出しのように、送るものが無い(pendingBodyRef が
+      // 既に空)状態でここへ来ることもあるため、無条件に印を立てない
+      // （そうしないと、次のページの save が「新しい編集があった」と誤認して、
+      // 前のページの内容や基準を巻き込んだまま再送してしまう）。
+      if (pendingBodyRef.current) pendingDuringSaveRef.current = true
+      return
+    }
+    if (conflictRef.current) return
     const pending = pendingBodyRef.current
     if (!pending) return
     pendingBodyRef.current = null
+    const { pageId, body: content } = pending
+    const epoch = pageEpochRef.current
+    savingRef.current = true
+    setSaveStatus('saving')
+
     try {
-      await updatePage(pending.pageId, { body: pending.body })
-      setSaveStatus('saved')
-      savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
-    } catch (err) {
-      pendingBodyRef.current = pending
-      setSaveStatus('idle')
-      toast.error('保存できませんでした。通信の状態を確かめてください')
-      throw err
+      const base = baseUpdatedAtRef.current ?? undefined
+      try {
+        const result = await updatePage(pageId, { body: content }, base)
+        if (pageEpochRef.current !== epoch) return
+        if (result.updatedAt === null) {
+          // baseUpdatedAt を渡した保存で null が返ることは無いはずだが、型どおり有り得る
+          // ものとして扱う。基準(baseUpdatedAtRef)を null で壊すと、以後の保存が
+          // 楽観ロックの条件無しで送られてしまう（黙って上書き許可に戻る）ため、
+          // 基準には触れず異常として終える。
+          pendingBodyRef.current = pending
+          setSaveStatus('idle')
+          toast.error('保存できませんでした。通信の状態を確かめてください')
+          throw new Error('保存に失敗しました（基準を確認できませんでした）')
+        }
+        baseUpdatedAtRef.current = result.updatedAt
+        knownServerBodyRef.current = content
+        setSaveStatus('saved')
+        if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+        savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
+        return
+      } catch (err) {
+        if (pageEpochRef.current !== epoch) return
+        if (!(err instanceof WikiConflictError)) {
+          pendingBodyRef.current = pending
+          setSaveStatus('idle')
+          toast.error('保存できませんでした。通信の状態を確かめてください')
+          throw err
+        }
+        // WikiConflictError: 0行だった＝基準の updated_at がズレていた。まず見せかけの
+        // 競合（他の人がタイトル等だけ変え、本文は変わっていない）かどうかを確かめる。
+      }
+
+      const fresh = await fetchPage(pageId)
+      if (pageEpochRef.current !== epoch) return
+      if (fresh === null) {
+        // ページ自体が既に削除されていた（0行の原因は競合とは限らない）
+        conflictRef.current = true
+        setConflict(true)
+        setPageDeleted(true)
+        setSaveStatus('idle')
+        throw new WikiConflictError('このページは見つかりませんでした')
+      }
+      if (fresh.body !== knownServerBodyRef.current) {
+        // 本文が本当に違う（本当の競合）
+        conflictRef.current = true
+        setConflict(true)
+        setSaveStatus('idle')
+        throw new WikiConflictError()
+      }
+      // 本文は同じ → 基準だけ差し替えて1回だけ保存をやり直す
+      baseUpdatedAtRef.current = fresh.updated_at
+      // 読み直している間に競合が確定していないか、送る直前にもう一度確かめる
+      if (conflictRef.current) {
+        setSaveStatus('idle')
+        throw new WikiConflictError()
+      }
+      try {
+        const retryResult = await updatePage(pageId, { body: content }, fresh.updated_at)
+        if (pageEpochRef.current !== epoch) return
+        if (retryResult.updatedAt === null) {
+          pendingBodyRef.current = pending
+          setSaveStatus('idle')
+          toast.error('保存できませんでした。通信の状態を確かめてください')
+          throw new Error('保存に失敗しました（基準を確認できませんでした）')
+        }
+        baseUpdatedAtRef.current = retryResult.updatedAt
+        knownServerBodyRef.current = content
+        setSaveStatus('saved')
+        if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+        savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
+      } catch (retryErr) {
+        if (pageEpochRef.current !== epoch) return
+        if (retryErr instanceof WikiConflictError) {
+          conflictRef.current = true
+          setConflict(true)
+        }
+        setSaveStatus('idle')
+        throw retryErr
+      }
+    } finally {
+      savingRef.current = false
+      const hasNewEdit = pendingDuringSaveRef.current
+      pendingDuringSaveRef.current = false
+      // 通信中に新しい書きかけが来ていたら、その最新の内容で続けて送る（競合が確定して
+      // いなければ）。保存に失敗して pendingBodyRef を「戻した」だけのとき(hasNewEditが
+      // 立っていないとき)は、ここで送り直さない（同じ内容を無限に送り直さないため）。
+      if (hasNewEdit && !conflictRef.current) {
+        pendingBodyRef.current = { pageId, body: currentContentRef.current }
+        void savePendingBody()
+      }
     }
-  }, [updatePage])
+  }, [updatePage, fetchPage])
 
   /**
    * ページ切り替えの effect から最新の savePendingBody を呼ぶための入れ物。
@@ -255,9 +446,22 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     savePendingBodyRef.current = savePendingBody
   }, [savePendingBody])
 
+  /** いま開いているページ。切り替わったかどうかの判定に使う */
+  const openedPageIdRef = useRef<string | null>(null)
+
   // Load active page content when selected
   useEffect(() => {
     if (!selectedPageId) {
+      if (openedPageIdRef.current !== null) {
+        openedPageIdRef.current = null
+        if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+        if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
+        // 捨てると最後の一手が消えるので、前のページ宛てに保存しきる。世代はこの直後に
+        // 進めるので、この呼び出し自体は「まだ現役」の世代のうちに送信され、await の
+        // 先(基準・本文の書き込み)は世代のズレで自然に捨てられる(新しい画面を汚さない)。
+        void savePendingBodyRef.current().catch(() => {})
+        pageEpochRef.current += 1
+      }
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset state when no page selected
       setActivePage(null)
       setInspector(null)
@@ -270,12 +474,17 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     // この effect は依存の参照が変わっただけでも走るので、毎回やると1.5秒の待ちが台無しになる
     if (openedPageIdRef.current !== selectedPageId) {
       openedPageIdRef.current = selectedPageId
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = null
-      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-      // 捨てると最後の一手が消えるので、前のページ宛てに保存しきる
+      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+      if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
+      // 捨てると最後の一手が消えるので、前のページ宛てに保存しきる（世代を進める前に）
       void savePendingBodyRef.current().catch(() => {})
+      // ここで世代を進める。競合状態は前のページのものなので必ずリセットする
+      // （前のページの取り違えを防ぐ）
+      pageEpochRef.current += 1
       setSaveStatus('idle')
+      conflictRef.current = false
+      setConflict(false)
+      setPageDeleted(false)
     }
 
     setShowInfo(false)
@@ -287,6 +496,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       const page = await fetchPage(selectedPageId)
       if (!cancelled) {
         setActivePage(page) // null if not found — clears stale state
+        baseUpdatedAtRef.current = page?.updated_at ?? null
+        knownServerBodyRef.current = page?.body ?? null
+        currentContentRef.current = page?.body ?? ''
       }
     }
     load()
@@ -315,10 +527,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }
 
     const handleUpdate = async (updates: UpdateWikiPageInput) => {
+      // 属性更新は当面 baseUpdatedAt を渡さず無条件で上書きする（設計どおり）。
       await updatePage(activePage.id, updates)
       // Re-fetch page for fresh data
       const fresh = await fetchPage(activePage.id)
-      if (fresh) setActivePage(fresh)
+      if (fresh) {
+        setActivePage(fresh)
+        // 本文保存の基準もここで必ず差し替える。差し替えないと、この属性更新で
+        // 進んだ updated_at を知らないまま次の本文保存が古い基準で送られ、
+        // 偽の競合（WikiConflictError）を起こしてしまう。
+        baseUpdatedAtRef.current = fresh.updated_at
+        knownServerBodyRef.current = fresh.body ?? null
+      }
     }
 
     const handleDelete = async () => {
@@ -327,11 +547,51 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }
 
     const handleRestoreVersion = (version: WikiPageVersion) => {
-      // Update the page body with the version's body
-      updatePage(activePage.id, { body: version.body, title: version.title }).then(async () => {
-        const fresh = await fetchPage(activePage.id)
-        if (fresh) setActivePage(fresh)
-      })
+      const pageId = activePage.id
+      // savePendingBody と同じ世代ガード。updatePage → fetchPage の2往復のあいだにページを
+      // 切り替えられても気づけるようにする。切り替え後は書かない。
+      const epoch = pageEpochRef.current
+      // 保留中の本文の自動保存があれば必ず止める。止めないと、この後で基準を
+      // 復元後の値に差し替えたあとにその保存が発火し、復元前の古い書きかけが新しい基準で
+      // 保存に成功して「版の復元」自体が黙って取り消される。
+      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+      if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
+      pendingBodyRef.current = null
+
+      // 版の復元も基準(baseUpdatedAt)を渡す。復元は人の明示操作なので、競合したら
+      // 本文保存と同じ帯にそのまま乗せてよい（見せかけの競合の確認・自動やり直しまでは行わない）。
+      const base = baseUpdatedAtRef.current ?? undefined
+      updatePage(pageId, { body: version.body, title: version.title }, base)
+        .then(async () => {
+          // updatePage が返ってくるまでの間にページが切り替わっていたら、この続きの
+          // fetchPage も含めて何もしない（読み直した「前のページ」の内容が「今見ている
+          // 別のページ」の画面に書き込まれるのを防ぐ）。
+          if (pageEpochRef.current !== epoch) return
+          const fresh = await fetchPage(pageId)
+          // 読み直している間にも切り替わり得るので、書く直前でもう一度確かめる。
+          if (pageEpochRef.current !== epoch) return
+          if (fresh === null) {
+            // 復元しようとした直後にページ自体が無くなっていた（削除された）
+            conflictRef.current = true
+            setConflict(true)
+            setPageDeleted(true)
+            return
+          }
+          setActivePage(fresh)
+          baseUpdatedAtRef.current = fresh.updated_at
+          knownServerBodyRef.current = fresh.body ?? null
+          currentContentRef.current = fresh.body ?? ''
+          // エディタも作り直す。作り直さないと画面には戻す前の本文が残り、
+          // 次に1文字打った時点でその本文が保存されて復元が取り消されてしまう。
+          setEditorReloadToken(t => t + 1)
+        })
+        .catch((err) => {
+          if (pageEpochRef.current !== epoch) return
+          if (err instanceof WikiConflictError) {
+            conflictRef.current = true
+            setConflict(true)
+          }
+        })
     }
 
     setInspector(
@@ -398,13 +658,35 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   const handleEditorChange = useCallback((content: string) => {
     if (!activePage) return
+    // 「書きかけをコピー」が常に今の内容を返せるよう、保存の成否に関わらず先に控える
+    currentContentRef.current = content
+
+    // 競合中は新しい保存を投げない（編集自体は止めない・帯の「最新を読み込む」を待つ）。
+    // state(conflict) ではなく ref を見る — setConflict は再描画を経て closure に反映される
+    // ため、その間の古い closure から呼ばれた場合に「まだ競合していない」と誤判定する。
+    if (conflictRef.current) return
 
     // Clear existing timers
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
 
+    // 開いたとき（または直前の保存）と同じ内容なら、保存もタイマーも張らない。BlockNote は
+    // 初期表示直後に一度 onChange を呼ぶため、これが無いとページを開くだけで保存が走り、
+    // 版の履歴が無駄に増える（議事録の baselineRef 比較と同じ考え方）。生の文字列そのまま
+    // ではなく正規化(canonicalizeWikiBody)して比べる — DB側で組み立てられた本文は
+    // キー順・空白がクライアントの JSON.stringify と一致しないことがあるため。
+    if (canonicalizeWikiBody(content) === canonicalizeWikiBody(knownServerBodyRef.current)) {
+      pendingBodyRef.current = null
+      // 打った直後に元へ戻すと(Ctrl+Zなど)ここに来るが、直前に setSaveStatus('saving')
+      // 済みのことがあるため、ここで idle に戻さないと「保存中...」の表示が永久に残る。
+      setSaveStatus('idle')
+      return
+    }
+
     // 待ち時間のあいだに画面を移るときは、この中身を保存しきってから移る（flushPendingSave）
     pendingBodyRef.current = { pageId: activePage.id, body: content }
+    // 既に別の保存が通信中なら、その保存の finally が拾えるよう印を立てる
+    if (savingRef.current) pendingDuringSaveRef.current = true
     setSaveStatus('saving')
 
     saveTimerRef.current = setTimeout(() => {
@@ -414,12 +696,59 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }, 1500)
   }, [activePage, savePendingBody])
 
-  /** いま開いているページ。切り替わったかどうかの判定に使う */
-  const openedPageIdRef = useRef<string | null>(null)
+  const handleCopyDraft = useCallback(async () => {
+    try {
+      // 本文はもともと BlockNote の JSON 文字列（WikiEditor の onChange が
+      // JSON.stringify(editor.document) を渡す）。読みやすい Markdown 等へ変換すると
+      // 貼り戻せなくなるため、変換せずそのままクリップボードへ入れる
+      // （帯の文面で「そのままでは貼り戻せない形式」と断っている）。
+      await navigator.clipboard.writeText(currentContentRef.current)
+      toast.success('書きかけをコピーしました')
+    } catch {
+      toast.error('コピーできませんでした')
+    }
+  }, [])
+
+  const handleReloadLatest = useCallback(async () => {
+    if (!activePage) return
+    // savePendingBody と同じ世代ガード。fetchPage の間にページを切り替えられても
+    // 気づけるようにする。切り替え後は、読み直した「前のページ」の内容を「今見ている
+    // 別のページ」の画面(activePage・基準・本文・競合状態・エディタの作り直し)へ書かない。
+    const epoch = pageEpochRef.current
+    // 保留中の（まだ発火していない）自動保存があれば必ず止める。止めないと、
+    // この後で基準を最新に差し替えたあとにこのタイマーが発火し、読み込む前の古い
+    // 書きかけが新しい基準で保存に成功して相手の最新の内容を黙って上書きしてしまう。
+    // （すでに通信中の保存自体は取り消せない。楽観ロックが最後の砦になる）
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+    if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
+    pendingBodyRef.current = null
+
+    const fresh = await fetchPage(activePage.id)
+    if (pageEpochRef.current !== epoch) return
+    if (fresh === null) {
+      // 読み直した先でページ自体が無くなっていた（削除された）。帯は下ろさず
+      // 文面だけ切り替える。conflict はそのまま true のままにする（安定した終端状態にし、
+      // 「読み直すたびに帯が出ては消える」を防ぐ）。
+      setPageDeleted(true)
+      setSaveStatus('idle')
+      return
+    }
+    setActivePage(fresh)
+    baseUpdatedAtRef.current = fresh.updated_at
+    knownServerBodyRef.current = fresh.body ?? null
+    currentContentRef.current = fresh.body ?? ''
+    conflictRef.current = false
+    setConflict(false)
+    setPageDeleted(false)
+    setSaveStatus('idle')
+    // key に含めてエディタを作り直し、読み直した内容を initialContent として反映する
+    setEditorReloadToken(t => t + 1)
+  }, [activePage, fetchPage])
 
   /**
    * 本文中のリンクで画面を移る前に呼ばれる。1.5秒の待ちの途中で移ると最後の一手が
-   * 保存されないまま消えるので、ここで確定させる
+   * 保存されないまま消えるので、ここで確定させる。savePendingBody が例外を投げたら
+   * そのまま伝える（useInAppLinkNavigation 側が catch して画面を移らない）。
    */
   const flushPendingSave = useCallback(async () => {
     if (saveTimerRef.current) {
@@ -515,11 +844,47 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           </div>
         </div>
 
+        {/* 競合の帯（議事録の帯と同じ考え方）。モーダルにはしない。
+            pageDeleted のときは文面だけ「見つかりません」に切り替え、「最新を読み込む」は
+            出さない（読み直しても null のままなので無意味）。「書きかけをコピー」は
+            控えを残せるよう出したままにする。 */}
+        {conflict && (
+          <div data-testid="wiki-conflict-banner" className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
+            <p className="text-sm text-orange-ink">{pageDeleted ? WIKI_PAGE_DELETED_MESSAGE : WIKI_CONFLICT_MESSAGE}</p>
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleCopyDraft()}
+                className="text-xs font-medium text-orange-ink hover:underline underline"
+              >
+                書きかけをコピー
+              </button>
+              {pageDeleted ? (
+                <button
+                  type="button"
+                  onClick={handleBackToList}
+                  className="text-xs font-medium text-orange-ink hover:underline underline"
+                >
+                  一覧へ戻る
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleReloadLatest()}
+                  className="text-xs font-medium text-orange-ink hover:underline underline"
+                >
+                  最新を読み込む
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Editor */}
         <div className="flex-1 overflow-y-auto">
           <div className={isFullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}>
             <WikiEditorDynamic
-              key={activePage.id}
+              key={`${activePage.id}-${editorReloadToken}`}
               initialContent={activePage.body || undefined}
               onChange={handleEditorChange}
               onBeforeNavigate={flushPendingSave}
