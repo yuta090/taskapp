@@ -43,8 +43,9 @@ vi.mock('@/lib/auth/signOutClient', () => ({
   signOutAndLeave: mockSignOutAndLeave,
 }))
 
-vi.mock('@/lib/hooks/useUserSpaces', () => ({
-  useUserSpaces: () => ({
+const { mockUseUserSpaces, mockRefetchSpaces } = vi.hoisted(() => ({
+  mockRefetchSpaces: vi.fn(),
+  mockUseUserSpaces: vi.fn(() => ({
     spaces: [
       {
         id: 'space1',
@@ -57,18 +58,27 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
         sortOrder: 0,
       },
     ],
-  }),
+    isPending: false,
+    isLoadingError: false,
+    refetch: mockRefetchSpaces,
+  })),
+}))
+vi.mock('@/lib/hooks/useUserSpaces', () => ({
+  useUserSpaces: mockUseUserSpaces,
 }))
 
-vi.mock('@/lib/hooks/useSpaceGroups', () => ({
-  useSpaceGroups: () => ({
-    groups: [],
+const { mockUseSpaceGroups } = vi.hoisted(() => ({
+  mockUseSpaceGroups: vi.fn(() => ({
+    groups: [] as { id: string; name: string; sortOrder: number }[],
     createGroup: vi.fn(),
     renameGroup: vi.fn(),
     deleteGroup: vi.fn(),
     reorderGroups: vi.fn(),
     moveSpaceToGroup: vi.fn(),
-  }),
+  })),
+}))
+vi.mock('@/lib/hooks/useSpaceGroups', () => ({
+  useSpaceGroups: mockUseSpaceGroups,
 }))
 
 function renderWithOrg(value: Partial<ActiveOrgContextValue>) {
@@ -283,6 +293,32 @@ describe('LeftNav — hydration前はキャッシュ由来の表示をサーバ�
       error: null,
       refresh: vi.fn(),
     })
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [
+        {
+          id: 'space1',
+          name: 'テストプロジェクト',
+          orgId: 'org1',
+          orgName: 'テスト組織',
+          role: 'admin',
+          archivedAt: null,
+          groupId: null,
+          sortOrder: 0,
+        },
+      ],
+      isPending: false,
+      isLoadingError: false,
+      refetch: mockRefetchSpaces,
+    })
+    mockUseSpaceGroups.mockReturnValue({
+      groups: [],
+      createGroup: vi.fn(),
+      renameGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      reorderGroups: vi.fn(),
+      moveSpaceToGroup: vi.fn(),
+    })
+    mockRefetchSpaces.mockClear()
   })
 
   it('hydration前はユーザー欄をローディング表示のままにする（キャッシュに既にユーザーがいても）', () => {
@@ -292,11 +328,67 @@ describe('LeftNav — hydration前はキャッシュ由来の表示をサーバ�
     expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
-  it('hydration前はプロジェクト一覧をサーバーと同じ「プロジェクトがありません」表示にする（キャッシュに既にプロジェクトがあっても）', () => {
+  it('hydration前はプロジェクト一覧を骨組み表示にする（キャッシュに既にプロジェクトがあっても、「プロジェクトがありません」もまだ出さない）', () => {
     mockUseHydrated.mockReturnValue(false)
-    render(<LeftNav />)
+    const { container } = render(<LeftNav />)
     expect(screen.queryByText('テストプロジェクト')).not.toBeInTheDocument()
+    expect(screen.queryByText('プロジェクトがありません')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-testid="leftnav-spaces-skeleton"]')).toBeInTheDocument()
+  })
+
+  it('hydration後も読み込み中(isPending)の間は骨組み表示のままで、「プロジェクトがありません」は出さない', () => {
+    mockUseUserSpaces.mockReturnValue({ spaces: [], isPending: true, isLoadingError: false, refetch: mockRefetchSpaces })
+    const { container } = render(<LeftNav />)
+    expect(screen.queryByText('プロジェクトがありません')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-testid="leftnav-spaces-skeleton"]')).toBeInTheDocument()
+  })
+
+  it('読み込みが終わって本当に0件のときだけ「プロジェクトがありません」を表示する', () => {
+    mockUseUserSpaces.mockReturnValue({ spaces: [], isPending: false, isLoadingError: false, refetch: mockRefetchSpaces })
+    const { container } = render(<LeftNav />)
     expect(screen.getByText('プロジェクトがありません')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="leftnav-spaces-skeleton"]')).not.toBeInTheDocument()
+  })
+
+  it('一度も取得できないまま失敗したときは「プロジェクトがありません」ではなく再読み込みの案内を出す（本当はあるのに作り直させない。グループ内の「プロジェクトなし」も出さない）', () => {
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [],
+      isPending: false,
+      isLoadingError: true,
+      refetch: mockRefetchSpaces,
+    })
+    mockUseSpaceGroups.mockReturnValue({
+      groups: [{ id: 'group1', name: 'グループA', sortOrder: 0 }],
+      createGroup: vi.fn(),
+      renameGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      reorderGroups: vi.fn(),
+      moveSpaceToGroup: vi.fn(),
+    })
+    render(<LeftNav />)
+    expect(screen.getByText('グループA')).toBeInTheDocument()
+    expect(screen.queryByText('プロジェクトがありません')).not.toBeInTheDocument()
+    expect(screen.queryByText('プロジェクトなし')).not.toBeInTheDocument()
+    expect(screen.getByText('プロジェクトを読み込めませんでした')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('再読み込み'))
+    expect(mockRefetchSpaces).toHaveBeenCalledTimes(1)
+  })
+
+  it('グループの取得が一覧より先に終わっても、読み込み中はグループ内の「プロジェクトなし」を出さない', () => {
+    mockUseUserSpaces.mockReturnValue({ spaces: [], isPending: true, isLoadingError: false, refetch: mockRefetchSpaces })
+    mockUseSpaceGroups.mockReturnValue({
+      groups: [{ id: 'group1', name: 'グループA', sortOrder: 0 }],
+      createGroup: vi.fn(),
+      renameGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      reorderGroups: vi.fn(),
+      moveSpaceToGroup: vi.fn(),
+    })
+    const { container } = render(<LeftNav />)
+    expect(screen.getByText('グループA')).toBeInTheDocument()
+    expect(screen.queryByText('プロジェクトなし')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-testid="leftnav-spaces-skeleton"]')).toBeInTheDocument()
   })
 
   it('hydration前は未読バッジを出さない（キャッシュに既に未読があっても）', () => {
