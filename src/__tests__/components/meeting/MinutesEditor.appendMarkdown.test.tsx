@@ -6,6 +6,10 @@ import { MinutesEditor, type MinutesEditorApi } from '@/components/meeting/Minut
 // AI秘書の末尾追記との自動合流(MinutesDocumentView)が使う差し込み口。
 // 本体を作り直さず、生きているエディタの末尾に本物の BlockNote トランザクションを
 // 起こすことで、いつもの onChange→自動保存がそのまま走ることを確かめる。
+//
+// 'busy'（一時的。少し待てばできる）と 'failed'（恒久的）を区別する:
+// - 読み取り専用（タスク化中など）・日本語の変換(IME)中は 'busy'
+// - Markdown の解析・ブロックの挿入そのものが失敗したら 'failed'
 
 const ORG_ID = 'org-1'
 const SPACE_ID = 'space-1'
@@ -20,11 +24,17 @@ const mockInsertBlocks = vi.fn()
 // 呼ばれることを検査する。
 const mockLastBlock = { id: 'block-last', type: 'paragraph', content: [] }
 const mockDocument: unknown[] = [{ id: 'block-first', type: 'paragraph', content: [] }, mockLastBlock]
+// 日本語などの変換(IME)の途中かどうか。テストごとに書き換えて appendMarkdown の
+// composing 判定を検査する（getter にして、マウント後の書き換えも反映させる）。
+let mockComposing = false
 
 const mockUseCreateBlockNote = vi.fn((_opts: unknown) => ({
   document: mockDocument,
   insertInlineContent: mockInsertInlineContent,
   insertBlocks: mockInsertBlocks,
+  get prosemirrorView() {
+    return { composing: mockComposing }
+  },
 }))
 
 vi.mock('@blocknote/react', async (importOriginal) => {
@@ -47,14 +57,14 @@ vi.mock('@/components/meeting/MinutesWikiLinkPicker', () => ({
   MinutesWikiLinkPicker: () => <div data-testid="minutes-wiki-link-picker" />,
 }))
 
-function setup(props: { editable?: boolean } = {}) {
+function setup(props: { editable?: boolean; minutesMd?: string } = {}) {
   let capturedApi: MinutesEditorApi | null = null
   const registerApi = (api: MinutesEditorApi | null) => {
     capturedApi = api
   }
   const utils = render(
     <MinutesEditor
-      minutesMd="# 定例MTG\n\n決まったこと"
+      minutesMd={props.minutesMd ?? '# 定例MTG\n\n決まったこと'}
       editable={props.editable ?? true}
       orgId={ORG_ID}
       spaceId={SPACE_ID}
@@ -67,6 +77,7 @@ function setup(props: { editable?: boolean } = {}) {
 describe('MinutesEditor appendMarkdown（末尾差し込み口）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockComposing = false
   })
 
   it('マウントすると registerApi へ appendMarkdown を持つ api を渡す', () => {
@@ -88,14 +99,14 @@ describe('MinutesEditor appendMarkdown（末尾差し込み口）', () => {
     expect(lastCall).toBeNull()
   })
 
-  it('appendMarkdown: 今の文書の最後のブロックの後ろに insertBlocks を呼び、true を返す', () => {
+  it('appendMarkdown: 今の文書の最後のブロックの後ろに insertBlocks を呼び、"applied" を返す', () => {
     const { getApi } = setup()
-    let ok = false
+    let result: string = ''
     act(() => {
-      ok = getApi()!.appendMarkdown('AI秘書が追記した分')
+      result = getApi()!.appendMarkdown('AI秘書が追記した分')
     })
 
-    expect(ok).toBe(true)
+    expect(result).toBe('applied')
     expect(mockInsertBlocks).toHaveBeenCalledTimes(1)
     const [blocksArg, referenceBlockArg, placementArg] = mockInsertBlocks.mock.calls[0]
     expect(Array.isArray(blocksArg)).toBe(true)
@@ -104,25 +115,45 @@ describe('MinutesEditor appendMarkdown（末尾差し込み口）', () => {
     expect(placementArg).toBe('after')
   })
 
-  it('読み取り専用(editable=false)なら何もせず false を返す', () => {
+  it('読み取り専用(editable=false)なら何もせず"busy"を返す（一時的：タスク化中などは待てば戻る）', () => {
     const { getApi } = setup({ editable: false })
-    let ok = true
+    let result: string = ''
     act(() => {
-      ok = getApi()!.appendMarkdown('追記')
+      result = getApi()!.appendMarkdown('追記')
     })
-    expect(ok).toBe(false)
+    expect(result).toBe('busy')
     expect(mockInsertBlocks).not.toHaveBeenCalled()
   })
 
-  it('insertBlocks が例外を投げたら false を返す（文書を壊さない）', () => {
+  it('日本語などの変換(IME)の途中は差し込まず"busy"を返す。変換が終われば取り込まれる', () => {
+    mockComposing = true
+    const { getApi } = setup()
+    let result: string = ''
+    act(() => {
+      result = getApi()!.appendMarkdown('追記')
+    })
+    expect(result).toBe('busy')
+    expect(mockInsertBlocks).not.toHaveBeenCalled()
+
+    // 変換が終わった
+    mockComposing = false
+    act(() => {
+      result = getApi()!.appendMarkdown('追記')
+    })
+    expect(result).toBe('applied')
+    expect(mockInsertBlocks).toHaveBeenCalledTimes(1)
+  })
+
+  it('insertBlocks が例外を投げたら"failed"を返す（文書を壊さない・恒久的な失敗）', () => {
     mockInsertBlocks.mockImplementationOnce(() => {
       throw new Error('boom')
     })
     const { getApi } = setup()
-    let ok = true
+    let result: string = ''
     act(() => {
-      ok = getApi()!.appendMarkdown('追記')
+      result = getApi()!.appendMarkdown('追記')
     })
-    expect(ok).toBe(false)
+    expect(result).toBe('failed')
   })
+
 })

@@ -35,19 +35,23 @@
  *          （`base` を含まない）。そう判定できない・追記が空のときは null
  */
 export function appendOnlyAddition(base: string, theirs: string): string | null {
+  let addition: string
   if (base === '') {
     // rpc_minutes_append は base が空のときだけ \n\n を入れずに書く。theirs 自体が
     // 追記された内容そのものになる。
-    return theirs === '' ? null : theirs
+    if (theirs === '') return null
+    addition = theirs
+  } else {
+    // 本文が空でない場合、rpc_minutes_append は必ず base の直後に "\n\n" を挟んでから
+    // 追記する。この区切りが無い（＝base の直後に別の文字が続いている）ものは、
+    // 末尾に何か足されたように見えても「末尾への追記」とは言い切れない
+    // （上のコメント参照: タスク化による目印付与などで前方一致だけが偶然成立しうる）。
+    const marker = `${base}\n\n`
+    if (!theirs.startsWith(marker)) return null
+    addition = theirs.slice(marker.length)
   }
 
-  // 本文が空でない場合、rpc_minutes_append は必ず base の直後に "\n\n" を挟んでから
-  // 追記する。この区切りが無い（＝base の直後に別の文字が続いている）ものは、
-  // 末尾に何か足されたように見えても「末尾への追記」とは言い切れない
-  // （上のコメント参照: タスク化による目印付与などで前方一致だけが偶然成立しうる）。
-  const marker = `${base}\n\n`
-  if (!theirs.startsWith(marker)) return null
-
-  const addition = theirs.slice(marker.length)
-  return addition === '' ? null : addition
+  // 低3: 追記が空白・改行だけなら、エディタに何も見えるものを足さない意味の無い
+  // 差し込みになる。挿し込み処理自体を起こす価値が無いので null にする。
+  return addition.trim() === '' ? null : addition
 }

@@ -52,6 +52,14 @@ describe('appendOnlyAddition', () => {
     expect(appendOnlyAddition('', '')).toBeNull()
   })
 
+  it('低3: 追記が空白だけなら null（意味の無い差し込みをしない）', () => {
+    const base = '# 定例MTG\n\n決まったこと'
+    expect(appendOnlyAddition(base, `${base}\n\n   `)).toBeNull()
+    expect(appendOnlyAddition(base, `${base}\n\n\n`)).toBeNull()
+    // base が空のときも同様
+    expect(appendOnlyAddition('', '   ')).toBeNull()
+  })
+
   it('追記の中のSPEC行と目印は変わらず残る(合流はMarkdown片を返すだけで書き換えない)', () => {
     const base = '# 定例MTG\n\n決まったこと'
     const specLine = '- [ ] SPEC(仕様書名): 内容 <!--task:11111111-1111-1111-1111-111111111111-->'

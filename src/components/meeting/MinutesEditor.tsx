@@ -21,13 +21,23 @@ import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '
 import type { ProjectFile } from '@/lib/hooks/useFiles'
 
 /**
+ * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
+ * 「待っても直らない」恒久的な事情を区別する（MinutesDocumentView 側がここを見て、
+ * 一時的なら帯を出さずにやり直し、恒久的なら帯を出す）。
+ * - 'applied': 差し込めた。
+ * - 'busy': 一時的に差し込めない（タスク化中などの読み取り専用・日本語の変換(IME)中）。
+ * - 'failed': 恒久的に差し込めない（Markdown の解析・ブロックの挿入そのものが失敗した）。
+ */
+export type MinutesEditorAppendResult = 'applied' | 'busy' | 'failed'
+
+/**
  * AI秘書の末尾追記との自動合流（MinutesDocumentView）のための差し込み口。
  * appendMarkdown は Markdown を今の文書の最後のブロックの後ろに挿し込む。本物の
  * BlockNote トランザクションが起きるので、呼び出し側の onChange（＝自動保存）が
- * いつもどおり走る。成功したら true、読み取り専用・解析/挿入に失敗したら false。
+ * いつもどおり走る。
  */
 export interface MinutesEditorApi {
-  appendMarkdown: (markdown: string) => boolean
+  appendMarkdown: (markdown: string) => MinutesEditorAppendResult
 }
 
 interface MinutesEditorProps {
@@ -254,19 +264,35 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
    * insertBlocks で挿す。ここで本物の BlockNote トランザクションが起きるので、
    * 下の onChange がいつもどおり呼ばれ、呼び出し側の自動保存がそのまま走る
    * （合流のために保存を別立てで組み立てる必要が無い）。
+   *
+   * 'busy'（一時的）と 'failed'（恒久的）を区別する:
+   * - 議事録の形式が壊れていて読み取り専用に倒している最中（parseFailedRef）は、
+   *   待っても直らないので 'failed'。
+   * - それ以外の読み取り専用（タスク化中などの forceReadOnly・canEdit=false）は、
+   *   少し待てば編集可能に戻るので 'busy'。
+   * - 日本語などの変換(IME)の途中でトランザクションを起こすと、ブラウザによっては
+   *   変換が強制的に打ち切られることがある。会議中は日本語を打ち続ける画面なので、
+   *   ここも「今は無理だが少し待てばできる」一時的な 'busy' として扱う。
    */
   const appendMarkdown = useCallback(
-    (markdown: string): boolean => {
-      if (!effectiveEditable) return false
+    (markdown: string): MinutesEditorAppendResult => {
+      if (parseFailedRef.current) return 'failed'
+      if (!effectiveEditable) return 'busy'
+      if (editor.prosemirrorView?.composing) return 'busy'
+      let blocks: unknown
       try {
-        const blocks = parseMinutesMarkdown(markdown) as never
+        blocks = parseMinutesMarkdown(markdown) as never
+      } catch {
+        return 'failed'
+      }
+      try {
         const doc = editor.document
         const lastBlock = doc[doc.length - 1]
-        if (!lastBlock) return false
-        editor.insertBlocks(blocks, lastBlock, 'after')
-        return true
+        if (!lastBlock) return 'failed'
+        editor.insertBlocks(blocks as never, lastBlock, 'after')
+        return 'applied'
       } catch {
-        return false
+        return 'failed'
       }
     },
     [editor, effectiveEditable]

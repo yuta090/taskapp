@@ -25,6 +25,13 @@ import type { Meeting } from '@/types/database'
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500
 const SAVED_BADGE_MS = 2000
+/**
+ * AI秘書の末尾追記との合流が「一時的な事情（'busy'）」で取り込めなかったとき、
+ * 帯を出さずにやり直す間隔。要素数がそのままやり直す回数（この配列を使い切ったら
+ * 帯を出す）。タスク化中の読み取り専用は数秒で終わる想定、日本語の変換(IME)中は
+ * もっと短く終わる想定だが、両方をまとめて「少し待って2回まで試す」にしている。
+ */
+const APPEND_RETRY_DELAYS_MS = [1_500, 3_000]
 
 const CONFLICT_MESSAGE =
   'AI秘書やほかの人が、この議事録を先に書き換えました。あなたが書いた分はまだ保存されていません。' +
@@ -222,6 +229,19 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const registerEditorApi = useCallback((api: MinutesEditorApi | null) => {
       editorApiRef.current = api
     }, [])
+    // 末尾追記の合流が一時的な事情('busy')でやり直した回数。APPEND_RETRY_DELAYS_MS を
+    // 使い切ったら帯を出す。合流が成功('applied')したら 0 に戻す。
+    const appendRetryCountRef = useRef(0)
+    // 合流の差し込み中だけ立てる（低2）。差し込みは自分がキーボードで書いた変更では
+    // ないので、この間だけ handleEditorChange の setEditing(true) を抑える
+    // （立てたままだと、席を外していても他の人に最大60秒「〇〇さんが書いています」
+    // と出てしまう）。
+    const isApplyingRemoteRef = useRef(false)
+    // scheduleSave は runSave に依存する（下で定義）ため、runSave 自身の中から
+    // 呼びたい（busy のやり直しタイマー）場合は素直に依存配列へ足せない
+    // （相互再帰になり、かつ scheduleSave はまだ宣言されていない）。ref 経由で
+    // 呼ぶことで、この循環を避ける（下の「アンマウント時のクリーンアップ」と同じ形）。
+    const scheduleSaveRef = useRef<((content: string) => Promise<void>) | null>(null)
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const savedBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const conflictRef = useRef(false)
@@ -337,22 +357,63 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
                 // 差し込む（本体は作り直さない）。ここで本物の BlockNote
                 // トランザクションが起きるので、この直後の onChange から
                 // いつもどおりの自動保存が走る（保存をここで自前に組み立てない）。
-                // データを失わない方に倒す: 差し込み口が無い・挿入に失敗したら、
-                // 黙って進めず今までどおり競合の帯を出す。
-                const inserted = editorApiRef.current?.appendMarkdown(outcome.addition) ?? false
-                if (!inserted) {
+                // 差し込み口が無い（editorApiRef.current が無い＝エディタがまだ
+                // 載っていないだけ）ときも、一時的な 'busy' と同じ扱いにする。
+                isApplyingRemoteRef.current = true
+                const applyResult = editorApiRef.current?.appendMarkdown(outcome.addition) ?? 'busy'
+                isApplyingRemoteRef.current = false
+
+                if (applyResult === 'applied') {
+                  appendRetryCountRef.current = 0
+                  // baselineRef はあえて触らない: エディタの中身（追記が挿し込まれた後）と
+                  // 基準がここで食い違う状態にすることで、直後の onChange が「開いたときと
+                  // 同じ内容」の早期returnに吸収されず、自動保存の道に必ず乗る。
+                  knownServerRawRef.current = outcome.serverRaw
+                  baseUpdatedAtRef.current = outcome.updatedAt
+                  // 低1: 差し込みの onChange（上のappendMarkdown呼び出しの中で同期的に
+                  // 発火する）が張った通常のデバウンスタイマーはここで畳む。savingRef は
+                  // まだ真の間にその onChange が来ているので、handleEditorChange が
+                  // pendingContentRef に必ず積んでおり、この runSave 終了後の連鎖保存で
+                  // 確実に送られる（取りこぼさない）。放置すると同じ内容の保存が
+                  // もう1回余分に走ってしまう。
+                  if (saveTimerRef.current) {
+                    clearTimeout(saveTimerRef.current)
+                    saveTimerRef.current = null
+                  }
+                  toast.success('ほかから追記された分を取り込みました')
+                  setSaveState('idle')
+                  break
+                }
+
+                if (applyResult === 'busy') {
+                  // 一時的な事情（タスク化中の読み取り専用・日本語の変換中）。帯は
+                  // 立てず、決めた回数だけ間を置いてやり直す。本文は currentContentRef
+                  // に残っているので、ここで pendingContentRef を空にしても
+                  // 取りこぼさない（すぐ走る連鎖保存で回数を一気に使い切らないため）。
+                  const attemptIndex = appendRetryCountRef.current
+                  if (attemptIndex < APPEND_RETRY_DELAYS_MS.length) {
+                    appendRetryCountRef.current = attemptIndex + 1
+                    pendingContentRef.current = null
+                    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+                    saveTimerRef.current = setTimeout(() => {
+                      saveTimerRef.current = null
+                      void scheduleSaveRef.current?.(currentContentRef.current)
+                    }, APPEND_RETRY_DELAYS_MS[attemptIndex])
+                    setSaveState('idle')
+                    break
+                  }
+                  // 回数を使い切った → 今までどおり帯を出す
                   conflictRef.current = true
                   setConflict(true)
                   lastSaveFailedRef.current = true
                   setSaveState('idle')
                   break
                 }
-                // baselineRef はあえて触らない: エディタの中身（追記が挿し込まれた後）と
-                // 基準がここで食い違う状態にすることで、直後の onChange が「開いたときと
-                // 同じ内容」の早期returnに吸収されず、自動保存の道に必ず乗る。
-                knownServerRawRef.current = outcome.serverRaw
-                baseUpdatedAtRef.current = outcome.updatedAt
-                toast.success('ほかから追記された分を取り込みました')
+
+                // 'failed': 恒久的に取り込めない。待っても直らないので帯を出す。
+                conflictRef.current = true
+                setConflict(true)
+                lastSaveFailedRef.current = true
                 setSaveState('idle')
                 break
               }
@@ -404,8 +465,8 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       [runSave]
     )
 
-    // アンマウント時のクリーンアップから常に最新の scheduleSave を呼べるようにする
-    const scheduleSaveRef = useRef(scheduleSave)
+    // アンマウント時のクリーンアップ・runSave内部(busyのやり直し)から常に最新の
+    // scheduleSave を呼べるようにする（宣言は上の方に前出し済み）
     scheduleSaveRef.current = scheduleSave
 
     const handleEditorChange = useCallback(
@@ -414,8 +475,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
 
         const trimmed = trimTrailingBlank(content)
         // 本文が実際に動いたときだけ「書いています」にする。BlockNote が初期表示直後に
-        // 同じ内容で呼んでくるぶんでは立てない。
-        if (trimmed !== currentContentRef.current) setEditing(true)
+        // 同じ内容で呼んでくるぶんでは立てない。合流の差し込み中（isApplyingRemoteRef）も
+        // 自分がキーボードで書いたわけではないので立てない（低2）。
+        if (trimmed !== currentContentRef.current && !isApplyingRemoteRef.current) setEditing(true)
         currentContentRef.current = trimmed
 
         if (saveTimerRef.current) {
@@ -492,7 +554,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           isDirty &&
           !isBlank
         ) {
-          void scheduleSaveRef.current(currentContentRef.current)
+          void scheduleSaveRef.current?.(currentContentRef.current)
         }
       }
     }, [])
