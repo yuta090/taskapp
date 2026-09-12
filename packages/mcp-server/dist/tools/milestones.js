@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
+import { ToolUserError } from '../errors.js';
+/** .single() が0件（PGRST116）で断ったときだけ、見つからない旨のToolUserErrorにする */
+function notFoundOr(error, context, fallbackMessage) {
+    if (error.code === 'PGRST116')
+        return new ToolUserError('マイルストーンが見つかりません', 404);
+    // それ以外のDBの理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
+    console.error(`${context} failed:`, error.code, error.message);
+    return new Error(fallbackMessage);
+}
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
@@ -52,8 +61,10 @@ export async function milestoneCreate(params) {
     })
         .select('*')
         .single();
-    if (error)
-        throw new Error('マイルストーンの作成に失敗しました: ' + error.message);
+    if (error) {
+        console.error('milestone_create failed:', error.code, error.message);
+        throw new Error('マイルストーンの作成に失敗しました');
+    }
     return data;
 }
 export async function milestoneUpdate(params) {
@@ -81,7 +92,7 @@ export async function milestoneUpdate(params) {
         .select('*')
         .single();
     if (error)
-        throw new Error('マイルストーンの更新に失敗しました: ' + error.message);
+        throw notFoundOr(error, 'milestone_update', 'マイルストーンの更新に失敗しました');
     return data;
 }
 export async function milestoneList(params) {
@@ -94,8 +105,10 @@ export async function milestoneList(params) {
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId)
         .order('order_key', { ascending: true });
-    if (error)
-        throw new Error('マイルストーン一覧の取得に失敗しました: ' + error.message);
+    if (error) {
+        console.error('milestone_list failed:', error.code, error.message);
+        throw new Error('マイルストーン一覧の取得に失敗しました');
+    }
     return (data || []);
 }
 export async function milestoneGet(params) {
@@ -110,7 +123,7 @@ export async function milestoneGet(params) {
         .eq('space_id', params.spaceId)
         .single();
     if (error)
-        throw new Error('マイルストーンが見つかりません: ' + error.message);
+        throw notFoundOr(error, 'milestone_get', 'マイルストーンの取得に失敗しました');
     return data;
 }
 export async function milestoneDelete(params) {
@@ -123,8 +136,10 @@ export async function milestoneDelete(params) {
         .eq('id', params.milestoneId)
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId);
-    if (error)
-        throw new Error('マイルストーンの削除に失敗しました: ' + error.message);
+    if (error) {
+        console.error('milestone_delete failed:', error.code, error.message);
+        throw new Error('マイルストーンの削除に失敗しました');
+    }
     return { success: true, milestoneId: params.milestoneId };
 }
 // Tool definitions for MCP

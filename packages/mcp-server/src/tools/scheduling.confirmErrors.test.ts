@@ -60,7 +60,7 @@ describe('confirm_proposal_slot — RPCの断りの理由を決まった日本�
     expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
   })
 
-  it('proposal_not_open は ToolUserError(409) で現在の状態を含める', async () => {
+  it('proposal_not_open は ToolUserError(409) で現在の状態を日本語で含める', async () => {
     rpcResult = { data: { ok: false, error: 'proposal_not_open', current_status: 'cancelled' }, error: null }
 
     const err = await schedulingConfirm({ spaceId: SPACE, proposalId: PROPOSAL, slotId: SLOT }).catch(
@@ -68,7 +68,7 @@ describe('confirm_proposal_slot — RPCの断りの理由を決まった日本�
     )
 
     expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
-    expect((err as Error).message).toContain('cancelled')
+    expect((err as Error).message).toContain('キャンセル済み')
   })
 
   it('not_authorized は ToolUserError(403)', async () => {
