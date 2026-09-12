@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
@@ -21,6 +21,26 @@ import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import { buildTaskHref, type AppLink } from '@/lib/navigation/appLinks'
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
 
+/**
+ * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
+ * 「待っても直らない」恒久的な事情を区別する（MinutesDocumentView 側がここを見て、
+ * 一時的なら帯を出さずにやり直し、恒久的なら帯を出す）。
+ * - 'applied': 差し込めた。
+ * - 'busy': 一時的に差し込めない（タスク化中などの読み取り専用・日本語の変換(IME)中）。
+ * - 'failed': 恒久的に差し込めない（Markdown の解析・ブロックの挿入そのものが失敗した）。
+ */
+export type MinutesEditorAppendResult = 'applied' | 'busy' | 'failed'
+
+/**
+ * AI秘書の末尾追記との自動合流（MinutesDocumentView）のための差し込み口。
+ * appendMarkdown は Markdown を今の文書の最後のブロックの後ろに挿し込む。本物の
+ * BlockNote トランザクションが起きるので、呼び出し側の onChange（＝自動保存）が
+ * いつもどおり走る。
+ */
+export interface MinutesEditorApi {
+  appendMarkdown: (markdown: string) => MinutesEditorAppendResult
+}
+
 interface MinutesEditorProps {
   /** 保存されている議事録 Markdown。マウント時の初期表示にのみ使う（変更後の再パースはしない） */
   minutesMd: string
@@ -30,6 +50,12 @@ interface MinutesEditorProps {
   spaceId: string
   /** 本文中のリンクで画面を移る前に呼ぶ。待ち時間中の自動保存を確定させて書きかけを落とさない */
   onBeforeNavigate?: () => void | Promise<void>
+  /**
+   * 差し込み口を親へ渡すコールバック。ref は next/dynamic（MinutesEditorDynamic）越しに
+   * 通らないため、関数 props にする。マウント/更新のたびに最新の api を渡し、
+   * アンマウント時は null を渡して外す。
+   */
+  registerApi?: (api: MinutesEditorApi | null) => void
 }
 
 interface TaskMarkerChipProps {
@@ -178,7 +204,15 @@ function useMinutesSchema(orgId: string, spaceId: string) {
  * 再レンダーのたびに BlockNoteView を描き直さないため。渡す props はすべて
  * プリミティブか安定した参照（onChange は呼び出し側で useCallback 済み）にすること。
  */
-function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceId, onBeforeNavigate }: MinutesEditorProps) {
+function MinutesEditorImpl({
+  minutesMd,
+  onChange,
+  editable = true,
+  orgId,
+  spaceId,
+  onBeforeNavigate,
+  registerApi,
+}: MinutesEditorProps) {
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
   const [isLinkPickerOpen, setIsLinkPickerOpen] = useState(false)
   const schema = useMinutesSchema(orgId, spaceId)
@@ -232,6 +266,50 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
       setIsLinkPickerOpen(false)
     }
   }
+
+  /**
+   * AI秘書の末尾追記との自動合流用。Markdown を今の文書の最後のブロックの後ろに
+   * insertBlocks で挿す。ここで本物の BlockNote トランザクションが起きるので、
+   * 下の onChange がいつもどおり呼ばれ、呼び出し側の自動保存がそのまま走る
+   * （合流のために保存を別立てで組み立てる必要が無い）。
+   *
+   * 'busy'（一時的）と 'failed'（恒久的）を区別する:
+   * - 議事録の形式が壊れていて読み取り専用に倒している最中（parseFailedRef）は、
+   *   待っても直らないので 'failed'。
+   * - それ以外の読み取り専用（タスク化中などの forceReadOnly・canEdit=false）は、
+   *   少し待てば編集可能に戻るので 'busy'。
+   * - 日本語などの変換(IME)の途中でトランザクションを起こすと、ブラウザによっては
+   *   変換が強制的に打ち切られることがある。会議中は日本語を打ち続ける画面なので、
+   *   ここも「今は無理だが少し待てばできる」一時的な 'busy' として扱う。
+   */
+  const appendMarkdown = useCallback(
+    (markdown: string): MinutesEditorAppendResult => {
+      if (parseFailedRef.current) return 'failed'
+      if (!effectiveEditable) return 'busy'
+      if (editor.prosemirrorView?.composing) return 'busy'
+      let blocks: unknown
+      try {
+        blocks = parseMinutesMarkdown(markdown) as never
+      } catch {
+        return 'failed'
+      }
+      try {
+        const doc = editor.document
+        const lastBlock = doc[doc.length - 1]
+        if (!lastBlock) return 'failed'
+        editor.insertBlocks(blocks as never, lastBlock, 'after')
+        return 'applied'
+      } catch {
+        return 'failed'
+      }
+    },
+    [editor, effectiveEditable]
+  )
+
+  useEffect(() => {
+    registerApi?.({ appendMarkdown })
+    return () => registerApi?.(null)
+  }, [registerApi, appendMarkdown])
 
   return (
     <div className="minutes-editor" data-testid="minutes-editor" ref={editorContainerRef}>
