@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { toast } from 'sonner'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { BookOpen, Plus, ArrowLeft, Sparkle, Info, ArrowsOut, ArrowsIn } from '@phosphor-icons/react'
 import { useInspector, useShellFullscreen } from '@/components/layout'
@@ -64,6 +65,12 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const [activePage, setActivePage] = useState<WikiPage | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
+  /**
+   * まだ保存していない本文。**どのページのものか**まで覚える。
+   * ページを切り替えたあとに確定させると、前のページの本文で次のページを
+   * 丸ごと上書きしてしまうため（ページIDを持たないと防げない）
+   */
+  const pendingBodyRef = useRef<{ pageId: string; body: string } | null>(null)
   const savedTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [showPresetApplicator, setShowPresetApplicator] = useState(false)
 
@@ -218,6 +225,36 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }
   }, [setInspector])
 
+  /**
+   * 待っている中身を今すぐ保存する。何も待っていなければ何もしない。
+   * 保存できなかったときは中身を戻して例外を投げる（呼び出し側が画面の移動を止める）
+   */
+  const savePendingBody = useCallback(async () => {
+    const pending = pendingBodyRef.current
+    if (!pending) return
+    pendingBodyRef.current = null
+    try {
+      await updatePage(pending.pageId, { body: pending.body })
+      setSaveStatus('saved')
+      savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
+    } catch (err) {
+      pendingBodyRef.current = pending
+      setSaveStatus('idle')
+      toast.error('保存できませんでした。通信の状態を確かめてください')
+      throw err
+    }
+  }, [updatePage])
+
+  /**
+   * ページ切り替えの effect から最新の savePendingBody を呼ぶための入れ物。
+   * 依存に直接入れると、updatePage の参照が変わるだけで切り替えの effect が走り直り、
+   * 全画面表示などがリセットされてしまう
+   */
+  const savePendingBodyRef = useRef(savePendingBody)
+  useEffect(() => {
+    savePendingBodyRef.current = savePendingBody
+  }, [savePendingBody])
+
   // Load active page content when selected
   useEffect(() => {
     if (!selectedPageId) {
@@ -229,10 +266,17 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       return
     }
 
-    // Clear timers from previous page
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-    setSaveStatus('idle')
+    // 開いているページが本当に変わったときだけ、前のページの保存を確定させる。
+    // この effect は依存の参照が変わっただけでも走るので、毎回やると1.5秒の待ちが台無しになる
+    if (openedPageIdRef.current !== selectedPageId) {
+      openedPageIdRef.current = selectedPageId
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+      // 捨てると最後の一手が消えるので、前のページ宛てに保存しきる
+      void savePendingBodyRef.current().catch(() => {})
+      setSaveStatus('idle')
+    }
 
     setShowInfo(false)
     // ページを切り替えたら全画面表示は必ず解除する
@@ -359,18 +403,31 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
 
+    // 待ち時間のあいだに画面を移るときは、この中身を保存しきってから移る（flushPendingSave）
+    pendingBodyRef.current = { pageId: activePage.id, body: content }
     setSaveStatus('saving')
 
-    saveTimerRef.current = setTimeout(async () => {
-      try {
-        await updatePage(activePage.id, { body: content })
-        setSaveStatus('saved')
-        savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
-      } catch {
-        setSaveStatus('idle')
-      }
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      // 自動保存の失敗は savePendingBody がトーストで知らせる
+      void savePendingBodyRef.current().catch(() => {})
     }, 1500)
-  }, [activePage, updatePage])
+  }, [activePage, savePendingBody])
+
+  /** いま開いているページ。切り替わったかどうかの判定に使う */
+  const openedPageIdRef = useRef<string | null>(null)
+
+  /**
+   * 本文中のリンクで画面を移る前に呼ばれる。1.5秒の待ちの途中で移ると最後の一手が
+   * 保存されないまま消えるので、ここで確定させる
+   */
+  const flushPendingSave = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    await savePendingBody()
+  }, [savePendingBody])
 
   // Cleanup timers
   useEffect(() => {
@@ -465,6 +522,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               key={activePage.id}
               initialContent={activePage.body || undefined}
               onChange={handleEditorChange}
+              onBeforeNavigate={flushPendingSave}
               editable={canEdit}
               orgId={orgId}
               spaceId={spaceId}

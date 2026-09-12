@@ -28,6 +28,7 @@
 | **Scheduling** | `spec/SCHEDULING_SPEC.md` | 日程調整・ビデオ会議・Google Calendar連携 (Phase 1-4) |
 | **Project Presets** | `spec/PRESET_SYSTEM_SPEC.md` | ジャンル別プリセット（Wiki+マイルストーン自動生成） |
 | **Internal Ops** | `spec/INTERNAL_OPS_SPEC.md` | クライアント不在時の内部運用対応（レビューUI・ラベル抽象化） |
+| **Doc Links (Wiki/議事録)** | `spec/DOC_LINK_SPEC.md` | 本文からファイル・Wiki・議事録・タスクへリンクを貼る v1.0（画面と CLI/API で同じ形・同じタブで開いて戻れる） |
 | **Data Table View** | `spec/DATA_TABLE_VIEW_SPEC.md` | ファイル(CSV/TSV)→表ビュー v0.1（読み取り専用）＋リッチ編集 v1.0 方針 |
 | **Burndown Chart** | `spec/BURNDOWN_SPEC.md` | バーンダウンチャート & マイルストーン開始日（Phase 1-2.5） |
 | **Design System** | `design/DESIGN_SYSTEM.md` | デザイントークン・ステータス色・コンポーネントパターン |

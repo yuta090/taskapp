@@ -8,6 +8,7 @@ import { ToolUserError } from '../errors.js';
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js';
 import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace } from '../auth/scope.js';
 import { hideDbError } from '../lib/dbErrors.js';
+import { buildTaskLink, withTrailingLink } from '../lib/appLinks.js';
 // 画面の担当者選択肢と同じ範囲: 相手先側は client/vendor、社内側は admin/editor/viewer
 const CLIENT_OWNER_ROLES = ['client', 'vendor'];
 const INTERNAL_OWNER_ROLES = ['admin', 'editor', 'viewer'];
@@ -399,7 +400,8 @@ export async function taskList(params) {
     const { data, error } = await query;
     if (error)
         throw new Error('タスク一覧の取得に失敗しました');
-    return (data || []).map((t) => withTaskNumber(flattenTaskInternalMetrics(t)));
+    // link はそのまま Wiki・議事録の本文に貼れる（画面側の「リンクを挿入」と同じ形）
+    return (data || []).map((t) => withTrailingLink(withTaskNumber(flattenTaskInternalMetrics(t)), buildTaskLink(t.org_id, params.spaceId, t.id)));
 }
 export async function taskGet(params) {
     // 権限チェック（read権限が必要）
@@ -421,7 +423,7 @@ export async function taskGet(params) {
     if (ownersError)
         throw new Error('担当者の取得に失敗しました');
     return {
-        task: withTaskNumber(flattenTaskInternalMetrics(task)),
+        task: withTrailingLink(withTaskNumber(flattenTaskInternalMetrics(task)), buildTaskLink(task.org_id, params.spaceId, params.taskId)),
         owners: (owners || []),
     };
 }
