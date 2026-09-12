@@ -55,8 +55,19 @@ vi.mock('../supabase/client.js', () => ({
   }),
 }))
 
-const { assertInSpace, assertUsersInSpaceOrg, assertUsersAreSpaceMembers, assertInvitesAreInSpace } =
-  await import('./scope.js')
+let authContextUserId: string | null = 'user-1'
+
+vi.mock('../config.js', () => ({
+  getAuthContext: () => ({ userId: authContextUserId }),
+}))
+
+const {
+  assertInSpace,
+  assertUsersInSpaceOrg,
+  assertUsersAreSpaceMembers,
+  assertInvitesAreInSpace,
+  requireActorUserId,
+} = await import('./scope.js')
 
 const SPACE = '00000000-0000-0000-0000-000000000010'
 const OTHER_SPACE = '00000000-0000-0000-0000-000000000099'
@@ -69,6 +80,7 @@ beforeEach(() => {
   membershipsResponse = { data: [], error: null }
   spaceMembershipsResponse = { data: [], error: null }
   invitesResponse = { data: [], error: null }
+  authContextUserId = 'user-1'
 })
 
 describe('assertInSpace', () => {
@@ -203,5 +215,21 @@ describe('assertInvitesAreInSpace', () => {
     expect(call?.eq).toContainEqual(['space_id', SPACE])
     expect(call?.eq).toContainEqual(['accepted_at', null])
     expect(call?.eq[2]?.[0]).toBe('expires_at')
+  })
+})
+
+describe('requireActorUserId', () => {
+  it('鍵に利用者が紐づいていれば、その user_id を返す', () => {
+    authContextUserId = 'user-1'
+
+    expect(requireActorUserId()).toBe('user-1')
+  })
+
+  it('鍵に利用者が紐づいていなければ ToolUserError(400) を投げる', () => {
+    authContextUserId = null
+
+    expect(() => requireActorUserId()).toThrow(
+      expect.objectContaining({ name: 'ToolUserError', status: 400 })
+    )
   })
 })

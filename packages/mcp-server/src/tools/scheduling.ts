@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { config, getAuthContext } from '../config.js'
 import { authorizeAndLog, type ActionType } from '../auth/index.js'
-import { assertUsersAreSpaceMembers } from '../auth/scope.js'
+import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js'
 
 // Schemas
 export const schedulingListSchema = z.object({
@@ -271,8 +271,13 @@ export async function schedulingConfirm(params: z.infer<typeof schedulingConfirm
 
   const supabase = getSupabaseClient()
 
+  // 確定した人（meetings.created_by・scheduling_proposals.confirmed_by）は、
+  // 鍵に紐づく利用者から取る
+  const actor = requireActorUserId()
+
   // Call the RPC function
-  const { data, error } = await supabase.rpc('rpc_confirm_proposal_slot', {
+  const { data, error } = await supabase.rpc('rpc_confirm_proposal_slot_as', {
+    p_actor: actor,
     p_proposal_id: params.proposalId,
     p_slot_id: params.slotId,
   })

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
-import { assertUsersAreSpaceMembers } from '../auth/scope.js';
+import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js';
 // Schemas
 export const schedulingListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -226,8 +226,12 @@ export async function schedulingRespond(params) {
 export async function schedulingConfirm(params) {
     await checkAuth(params.spaceId, 'write', 'confirm_proposal_slot', params.proposalId);
     const supabase = getSupabaseClient();
+    // 確定した人（meetings.created_by・scheduling_proposals.confirmed_by）は、
+    // 鍵に紐づく利用者から取る
+    const actor = requireActorUserId();
     // Call the RPC function
-    const { data, error } = await supabase.rpc('rpc_confirm_proposal_slot', {
+    const { data, error } = await supabase.rpc('rpc_confirm_proposal_slot_as', {
+        p_actor: actor,
         p_proposal_id: params.proposalId,
         p_slot_id: params.slotId,
     });
