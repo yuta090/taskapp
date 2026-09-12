@@ -19,6 +19,25 @@ const mockUseCreateBlockNote = vi.fn((_opts: unknown) => ({
   insertInlineContent: mockInsertInlineContent,
 }))
 
+/**
+ * 「/」メニューに出る既定の項目。BlockNote は editor のスキーマに無いブロックの項目を
+ * そもそも作らないので、ここでは議事録のスキーマに有るもの＋無いもの（divider・image）を
+ * 混ぜて、議事録側が Markdown で往復できるものだけに絞れているかを見る
+ */
+const DEFAULT_SLASH_ITEMS = [
+  { key: 'heading', title: '見出し１', aliases: ['h1'], group: '見出し', onItemClick: () => {} },
+  { key: 'bullet_list', title: '箇条書き', aliases: ['ul'], group: '基本ブロック', onItemClick: () => {} },
+  { key: 'check_list', title: 'チェックリスト', aliases: ['todo'], group: '基本ブロック', onItemClick: () => {} },
+  { key: 'table', title: '表', aliases: ['table'], group: '高度なブロック', onItemClick: () => {} },
+  { key: 'code_block', title: 'コードブロック', aliases: ['code'], group: '基本ブロック', onItemClick: () => {} },
+  { key: 'divider', title: '区切り', aliases: ['hr'], group: '基本ブロック', onItemClick: () => {} },
+  { key: 'image', title: '画像', aliases: ['image'], group: 'メディア', onItemClick: () => {} },
+]
+
+let capturedSlashMenuProps:
+  | { triggerCharacter: string; getItems?: (query: string) => Promise<Array<{ key: string }>> }
+  | undefined
+
 // BlockNote mounts a real ProseMirror editor which is heavy/unstable in jsdom.
 // Mock the hook and view so this test focuses on the toolbar wiring instead
 // (同じ理由で WikiEditor.test.tsx も同じやり方をしている)。
@@ -27,11 +46,18 @@ vi.mock('@blocknote/react', async (importOriginal) => {
   return {
     ...actual,
     useCreateBlockNote: (opts: unknown) => mockUseCreateBlockNote(opts),
+    getDefaultReactSlashMenuItems: () => DEFAULT_SLASH_ITEMS,
+    SuggestionMenuController: (props: NonNullable<typeof capturedSlashMenuProps>) => {
+      capturedSlashMenuProps = props
+      return null
+    },
   }
 })
 
 vi.mock('@blocknote/mantine', () => ({
-  BlockNoteView: () => <div data-testid="blocknote-view" />,
+  BlockNoteView: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="blocknote-view">{children}</div>
+  ),
 }))
 
 let capturedFilePickerOnSelect: ((file: ProjectFile) => void) | undefined
@@ -158,7 +184,7 @@ describe('MinutesEditor 日本語の案内・E2E目印', () => {
     expect(screen.getByTestId('minutes-editor')).toBeInTheDocument()
   })
 
-  it('BlockNote へ日本語辞書を渡し、スラッシュメニューの案内文言を含めない', () => {
+  it('BlockNote へ日本語辞書を渡し、空の文書の案内は文書ビューに任せる', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
 
     const opts = mockUseCreateBlockNote.mock.calls.at(-1)?.[0] as {
@@ -167,9 +193,47 @@ describe('MinutesEditor 日本語の案内・E2E目印', () => {
     // 「ここに議事録を書きます」は文書ビュー側の案内文が1つ出すので、エディタの薄い文字
     // (プレースホルダー)は空にして2重表示にしない
     expect(opts?.dictionary?.placeholders?.emptyDocument).toBe('')
-    expect(opts?.dictionary?.placeholders?.default).toBe('')
-    // スラッシュメニューは無効(slashMenu={false})なので「/」の案内文言を残さない
-    expect(opts?.dictionary?.placeholders?.default).not.toMatch(/\//)
-    expect(opts?.dictionary?.placeholders?.emptyDocument).not.toMatch(/\//)
+    // フォーカスした空行では「/」が使えると伝える（Wiki と同じ文言）
+    expect(opts?.dictionary?.placeholders?.default).toBe('文字を入力、または「/」でメニューを開く')
+  })
+})
+
+/**
+ * 議事録は Markdown が正本なので、往復できないブロック（区切り線・画像など）を
+ * 入れられてはいけない。スキーマで既に絞っているが、メニュー側でも同じ線を引く。
+ */
+describe('MinutesEditor の「/」メニュー', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedSlashMenuProps = undefined
+  })
+
+  // 行の左の「＋」も、BlockNote の中でこの「/」メニューを開く（AddBlockButton → openSuggestionMenu('/')）
+  it('「/」でメニューが開く（行の左の「＋」も同じメニューを開く）', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(capturedSlashMenuProps?.triggerCharacter).toBe('/')
+  })
+
+  it('Markdown で往復できるものだけ出す（区切り線・画像は出さない）', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = await capturedSlashMenuProps!.getItems!('')
+    expect(items.map((item) => item.key)).toEqual([
+      'heading',
+      'bullet_list',
+      'check_list',
+      'table',
+      'code_block',
+    ])
+  })
+
+  it('「/」のあとに打った文字で絞り込む', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = await capturedSlashMenuProps!.getItems!('見出し')
+    expect(items.map((item) => item.key)).toEqual(['heading'])
+  })
+
+  it('読み取り専用のときはメニューを出さない', () => {
+    render(<MinutesEditor minutesMd="" editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(capturedSlashMenuProps).toBeUndefined()
   })
 })

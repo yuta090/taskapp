@@ -1,12 +1,18 @@
 'use client'
 
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
-import { useCreateBlockNote, createReactInlineContentSpec } from '@blocknote/react'
+import {
+  useCreateBlockNote,
+  createReactInlineContentSpec,
+  getDefaultReactSlashMenuItems,
+  SuggestionMenuController,
+} from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
+import { filterSuggestionItems } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { LinkSimple, FileText, CheckCircle } from '@phosphor-icons/react'
 import { WikiFileLinkPicker } from '@/components/wiki/WikiFileLinkPicker'
@@ -88,20 +94,41 @@ export function TaskMarkerChip({ taskId, orgId, spaceId }: TaskMarkerChipProps) 
  */
 /**
  * BlockNote の日本語辞書（`@blocknote/core/locales` の `ja`）をもとにした議事録用の辞書。
- * スラッシュメニューは無効（`slashMenu={false}`）なので、行の案内から「/」の話を消す:
  * - `emptyDocument`（文書全体が空の唯一のブロックのときだけ出る案内）: 空にする。
  *   呼び出し側(MinutesDocumentView)が本文の外側に同じ趣旨の案内文を1つだけ出すため、
  *   ここで出すと「ここに議事録を書きます」が2回表示されてしまう。
- * - `default`（フォーカスした空行に出る案内）: 空にする（行ごとに毎回文言が出ると煩わしいため）
+ * - `default`（フォーカスした空行に出る案内）: Wiki と同じ文言。「/」でメニューが開くと伝える
  */
 const MINUTES_DICTIONARY = {
   ...jaLocale,
   placeholders: {
     ...jaLocale.placeholders,
-    default: '',
+    default: '文字を入力、または「/」でメニューを開く',
     emptyDocument: '',
   },
 }
+
+/**
+ * 「/」メニューに出さない項目。議事録は Markdown が正本で、`serializeMinutesBlocks` が
+ * 書き出せないブロックを入れられると保存で消える。スキーマ（`useMinutesSchema`）に
+ * 無いブロックの項目は BlockNote がそもそも作らないが、あとでスキーマを広げたときに
+ * 素通りしないよう、ここでも同じ線を引いておく。
+ */
+const ALLOWED_SLASH_MENU_ITEMS = new Set([
+  'heading',
+  'heading_2',
+  'heading_3',
+  'heading_4',
+  'heading_5',
+  'heading_6',
+  'bullet_list',
+  'numbered_list',
+  'check_list',
+  'paragraph',
+  'table',
+  'code_block',
+  'emoji',
+])
 
 function useMinutesSchema(orgId: string, spaceId: string) {
   return useMemo(() => {
@@ -178,6 +205,18 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
     dictionary: MINUTES_DICTIONARY,
   })
 
+  const getSlashMenuItems = useCallback(
+    async (query: string) =>
+      filterSuggestionItems(
+        // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
+        getDefaultReactSlashMenuItems(editor).filter((item) =>
+          ALLOWED_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
+        ),
+        query
+      ),
+    [editor]
+  )
+
   const handleSelectFile = (file: ProjectFile) => {
     editor.insertInlineContent([
       { type: 'link', href: `/api/files/${file.id}/download`, content: file.name },
@@ -204,7 +243,14 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
         }}
         theme="light"
         slashMenu={false}
-      />
+      >
+        {/* 既定のメニューの代わりに、Markdown で往復できる項目だけに絞ったメニューを置く。
+            行の左の「＋」もこのメニューを開くので、これを外すと「＋」も押して何も起きなくなる。
+            読み取り専用のときは差し込めないので置かない */}
+        {effectiveEditable && (
+          <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
+        )}
+      </BlockNoteView>
       {effectiveEditable && (
         <div className="flex items-center gap-2 mt-2 px-1">
           <div className="relative">
