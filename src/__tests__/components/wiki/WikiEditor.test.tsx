@@ -66,6 +66,17 @@ vi.mock('@/components/wiki/WikiFileLinkPicker', () => ({
   },
 }))
 
+let capturedWikiPageLinkProps:
+  | { onSelect: (page: { id: string; title: string }) => void; excludePageId?: string }
+  | undefined
+
+vi.mock('@/components/wiki/WikiPageLinkInsertPicker', () => ({
+  WikiPageLinkInsertPicker: (props: NonNullable<typeof capturedWikiPageLinkProps>) => {
+    capturedWikiPageLinkProps = props
+    return <div data-testid="wiki-page-link-insert-picker" />
+  },
+}))
+
 function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
   return {
     id: 'file-1',
@@ -86,6 +97,7 @@ describe('WikiEditor file link insertion', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     capturedOnSelect = undefined
+    capturedWikiPageLinkProps = undefined
   })
 
   it('shows the file link button when editable', () => {
@@ -165,5 +177,73 @@ describe('WikiEditor slash menu and Japanese texts', () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     expect(capturedEditorOptions?.dictionary?.placeholders.default).toBe('文字を入力、または「/」でメニューを開く')
     expect(capturedEditorOptions?.dictionary?.slash_menu.heading.title).toBe('見出し１')
+  })
+})
+
+describe('WikiEditor Wiki page link insertion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedOnSelect = undefined
+    capturedWikiPageLinkProps = undefined
+  })
+
+  it('shows the wiki page link button when editable and both orgId/spaceId are given', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByText('🔗 Wikiページへのリンク')).toBeInTheDocument()
+  })
+
+  it('hides the wiki page link button when not editable', () => {
+    render(<WikiEditor editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.queryByText('🔗 Wikiページへのリンク')).not.toBeInTheDocument()
+  })
+
+  it('hides the wiki page link button when orgId or spaceId is missing (read-only portal view)', () => {
+    render(<WikiEditor editable />)
+    expect(screen.queryByText('🔗 Wikiページへのリンク')).not.toBeInTheDocument()
+  })
+
+  it('toggles the wiki page link picker panel when clicking the button', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.queryByTestId('wiki-page-link-insert-picker')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('🔗 Wikiページへのリンク'))
+    expect(screen.getByTestId('wiki-page-link-insert-picker')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('🔗 Wikiページへのリンク'))
+    expect(screen.queryByTestId('wiki-page-link-insert-picker')).not.toBeInTheDocument()
+  })
+
+  it('inserts a link for the selected page and closes the panel', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    fireEvent.click(screen.getByText('🔗 Wikiページへのリンク'))
+
+    act(() => capturedWikiPageLinkProps?.onSelect({ id: 'page-1', title: '仕様メモ' }))
+
+    expect(mockInsertInlineContent).toHaveBeenCalledTimes(1)
+    expect(mockInsertInlineContent).toHaveBeenCalledWith([
+      { type: 'link', href: `/${ORG_ID}/project/${SPACE_ID}/wiki?page=page-1`, content: '仕様メモ' },
+    ])
+    expect(screen.queryByTestId('wiki-page-link-insert-picker')).not.toBeInTheDocument()
+  })
+
+  it('passes currentPageId through as excludePageId so the open page is not offered as a link target', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} currentPageId="page-self" />)
+    fireEvent.click(screen.getByText('🔗 Wikiページへのリンク'))
+    expect(capturedWikiPageLinkProps?.excludePageId).toBe('page-self')
+  })
+
+  it('closes the file link picker when opening the wiki page link picker, and vice versa', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+    fireEvent.click(screen.getByText('📎 ファイルリンクを挿入'))
+    expect(screen.getByTestId('wiki-file-link-picker')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('🔗 Wikiページへのリンク'))
+    expect(screen.getByTestId('wiki-page-link-insert-picker')).toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-file-link-picker')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('📎 ファイルリンクを挿入'))
+    expect(screen.getByTestId('wiki-file-link-picker')).toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-page-link-insert-picker')).not.toBeInTheDocument()
   })
 })

@@ -14,6 +14,8 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/components/layout', () => ({
   useInspector: () => ({ setInspector: mockSetInspector }),
+  // このファイルは全画面表示自体を検査しないので、常にoffの固定スタブでよい
+  useShellFullscreen: () => ({ fullscreen: false, setFullscreen: vi.fn() }),
 }))
 
 vi.mock('@/lib/hooks/useMeetings', () => ({

@@ -468,6 +468,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               editable={canEdit}
               orgId={orgId}
               spaceId={spaceId}
+              currentPageId={activePage.id}
             />
           </div>
         </div>
