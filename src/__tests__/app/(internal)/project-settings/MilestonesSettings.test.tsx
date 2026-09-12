@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MilestonesSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/MilestonesSettings'
 
 // マイルストーンの作成・編集・削除は milestones の RLS（app_can_write_space と同じ規則）。
@@ -21,6 +21,7 @@ let mockMilestones: Array<{
 }> = []
 let mockLoading = false
 let mockError: Error | null = null
+let mockIsLoadingError = false
 
 const createMilestoneMock = vi.fn()
 const updateMilestoneMock = vi.fn()
@@ -32,6 +33,7 @@ vi.mock('@/lib/hooks/useMilestones', () => ({
     milestones: mockMilestones,
     loading: mockLoading,
     error: mockError,
+    isLoadingError: mockIsLoadingError,
     fetchMilestones: fetchMilestonesMock,
     createMilestone: createMilestoneMock,
     updateMilestone: updateMilestoneMock,
@@ -56,6 +58,7 @@ beforeEach(() => {
   ]
   mockLoading = false
   mockError = null
+  mockIsLoadingError = false
   createMilestoneMock.mockClear().mockResolvedValue(undefined)
   updateMilestoneMock.mockClear().mockResolvedValue(undefined)
   deleteMilestoneMock.mockClear().mockResolvedValue(undefined)
@@ -77,11 +80,23 @@ describe('MilestonesSettings — 前回データ（キャッシュ）をその�
     expect(screen.getByText('読み込み中...')).toBeInTheDocument()
   })
 
-  it('取得に失敗したら理由を出す', () => {
+  it('一度も取れないまま失敗したら理由を出す（isLoadingError:true）', () => {
     mockError = new Error('boom')
+    mockIsLoadingError = true
+    mockMilestones = []
     renderSettings()
     expect(screen.getByText(/マイルストーンの取得に失敗しました/)).toBeInTheDocument()
     expect(screen.getByText(/boom/)).toBeInTheDocument()
+  })
+
+  it('前回分がある状態で裏の取り直しだけ失敗しても（isLoadingError:false）、一覧を出したままにする', () => {
+    // 回帰: error だけを見てエラー画面に切り替えると、キャッシュ済みデータがあるのに
+    // 一瞬の裏の取り直し失敗のたびに一覧が消えてしまう
+    mockError = new Error('background refetch failed')
+    mockIsLoadingError = false
+    renderSettings()
+    expect(screen.queryByText(/マイルストーンの取得に失敗しました/)).not.toBeInTheDocument()
+    expect(screen.getByText('既存マイルストーン')).toBeInTheDocument()
   })
 })
 
@@ -108,10 +123,7 @@ describe('MilestonesSettings — 編集できる人には従来どおり操作�
     const nameInput = screen.getByDisplayValue('既存マイルストーン')
     fireEvent.change(nameInput, { target: { value: '改名後' } })
 
-    // 編集行の保存(Check)/キャンセル(X)ボタンはアイコンのみでアクセシブルな名前が無いため、
-    // 行のコンテナに絞って先頭（保存）を取る
-    const editRow = nameInput.closest('div')!.parentElement!
-    fireEvent.click(within(editRow).getAllByRole('button')[0])
+    fireEvent.click(screen.getByRole('button', { name: '既存マイルストーンの変更を保存' }))
 
     await waitFor(() =>
       expect(updateMilestoneMock).toHaveBeenCalledWith('m1', {
@@ -120,6 +132,19 @@ describe('MilestonesSettings — 編集できる人には従来どおり操作�
         dueDate: null,
       })
     )
+  })
+
+  it('編集中に「編集をやめる」を押すと更新せず編集モードを抜ける', () => {
+    renderSettings()
+
+    fireEvent.click(screen.getByRole('button', { name: /を編集/ }))
+    fireEvent.change(screen.getByDisplayValue('既存マイルストーン'), { target: { value: '改名後' } })
+
+    fireEvent.click(screen.getByRole('button', { name: '編集をやめる' }))
+
+    expect(updateMilestoneMock).not.toHaveBeenCalled()
+    expect(screen.queryByDisplayValue('改名後')).not.toBeInTheDocument()
+    expect(screen.getByText('既存マイルストーン')).toBeInTheDocument()
   })
 
   it('既存行を削除できる（確認ダイアログで確定後に useMilestones.deleteMilestone を呼ぶ）', async () => {

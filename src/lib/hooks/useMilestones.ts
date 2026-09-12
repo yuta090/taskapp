@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchMilestonesQuery } from '@/lib/supabase/queries'
+import type { TasksQueryData } from '@/lib/supabase/queries'
 import type { Milestone } from '@/types/database'
 
 interface UseMilestonesOptions {
@@ -28,6 +29,13 @@ interface UseMilestonesReturn {
   milestones: Milestone[]
   loading: boolean
   error: Error | null
+  /**
+   * 一度も取得できていないまま失敗した場合だけ true（react-query の isLoadingError）。
+   * 前回分のデータがある状態で裏の取り直しだけ失敗した場合は false のままなので、
+   * 呼び出し側はこのフラグでエラー画面に切り替えるかどうかを判断する
+   * （useCanEditSpace と同じ考え方: isError は背後の再取得失敗でも true のまま残るため使わない）
+   */
+  isLoadingError: boolean
   fetchMilestones: () => Promise<void>
   createMilestone: (input: CreateMilestoneInput) => Promise<Milestone>
   updateMilestone: (id: string, input: UpdateMilestoneInput) => Promise<void>
@@ -47,7 +55,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
 
   const queryKey = ['milestones', spaceId] as const
 
-  const { data, isPending, error: queryError } = useQuery<Milestone[]>({
+  const { data, isPending, isLoadingError, error: queryError } = useQuery<Milestone[]>({
     queryKey,
     queryFn: () => fetchMilestonesQuery(supabase as SupabaseClient, spaceId),
     enabled: !!spaceId,
@@ -103,6 +111,8 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
         queryClient.setQueryData<Milestone[]>(['milestones', spaceId], (old) =>
           (old ?? []).map((m) => (m.id === tempId ? createdMilestone : m))
         )
+        // 設定タブの件数表示（「テンプレートを適用」の出し分け等）が古いままにならないよう促す
+        void queryClient.invalidateQueries({ queryKey: ['spaceContentCounts', spaceId] })
 
         return createdMilestone
       } catch (err) {
@@ -178,6 +188,25 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
           .eq('id' as never, id as never)
 
         if (err) throw err
+
+        // DB は ON DELETE SET NULL でタスク側の milestone_id を外すが、タスク一覧
+        // （['tasks', orgId, spaceId]）のキャッシュは取り直すまで古い milestone_id を
+        // 持ったまま。一覧・ガントは既知のマイルストーンか null のタスクしかグループに
+        // しないため、取り直しが終わるまでタスクが消えて見えてしまう。ここで直接書き換える
+        queryClient.setQueriesData<TasksQueryData>(
+          { predicate: (query) => query.queryKey[0] === 'tasks' && query.queryKey[2] === spaceId },
+          (old) =>
+            old
+              ? {
+                  ...old,
+                  tasks: old.tasks.map((t) =>
+                    t.milestone_id === id ? { ...t, milestone_id: null } : t
+                  ),
+                }
+              : old
+        )
+        // 設定タブの件数表示が古いままにならないよう促す
+        void queryClient.invalidateQueries({ queryKey: ['spaceContentCounts', spaceId] })
       } catch (err) {
         // Revert optimistic update
         if (previousData) {
@@ -193,6 +222,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
     milestones,
     loading: isPending && !data,
     error: queryError,
+    isLoadingError,
     fetchMilestones,
     createMilestone,
     updateMilestone,

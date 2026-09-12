@@ -23,7 +23,7 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
   // 以前は useState + useEffect の手書き取得で、開くたびに必ず「読み込み中」が出ていたが、
   // react-query の永続キャッシュ（IndexedDB）に前回分があればそれをすぐ表示できる。
   // 作成・更新・削除も useMilestones 側の楽観的更新（保存ボタン無しの方針どおり）にそろえる
-  const { milestones, loading, error, createMilestone, updateMilestone, deleteMilestone } =
+  const { milestones, loading, error, isLoadingError, createMilestone, updateMilestone, deleteMilestone } =
     useMilestones({ spaceId })
 
   // New milestone form
@@ -131,10 +131,12 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
     )
   }
 
-  if (error) {
+  // 一度も取れないまま失敗した場合だけエラー画面にする。前回分のデータがある状態で
+  // 裏の取り直しだけ失敗した場合（isLoadingError:false）は一覧を出したままにする
+  if (isLoadingError) {
     return (
       <div className="p-4 text-sm text-red-600">
-        マイルストーンの取得に失敗しました: {error.message}
+        マイルストーンの取得に失敗しました: {error?.message}
       </div>
     )
   }
@@ -188,12 +190,14 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
                     />
                     <button
                       onClick={saveEdit}
+                      aria-label={`${ms.name}の変更を保存`}
                       className="p-1 text-green-600 hover:bg-green-50 rounded"
                     >
                       <Check className="text-sm" />
                     </button>
                     <button
                       onClick={cancelEdit}
+                      aria-label="編集をやめる"
                       className="p-1 text-gray-500 hover:bg-gray-100 rounded"
                     >
                       <X className="text-sm" />
