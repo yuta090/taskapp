@@ -24,6 +24,14 @@ import { NextRequest } from 'next/server'
  * 以前は存在しない仮 ID（全部ゼロの UUID）を入れていたため insert が必ず失敗し、
  * GitHub 側ではインストール済みなのに AgentPM には保存されない状態になっていた
  * （組織設定に「連携する」ボタンが出続ける）。
+ *
+ * code が無い戻り（手順6）: GitHub は「既にインストール済みのアプリの設定画面で
+ * 保存した」ときの戻りに code を付けてこない（installation_id + state だけ）。
+ * このときは、installation_id が既に同じ組織に結び付いている場合に限り、
+ * リポジトリ一覧・許可範囲だけを再取り込みする（GitHub 側での本人確認はしない。
+ * 既に同じ組織に結び付いていること自体が、その組織の owner による確認済みの証拠）。
+ * それ以外（未接続・別組織）は一律 oauth_required とし、持ち主確認前にその
+ * installation_id がどこかに結び付いているかどうかは漏らさない。
  */
 
 const ORG_ID = '322a219f-1a73-4935-b061-08b8a5e97334'
@@ -294,26 +302,101 @@ describe('GET /api/github/callback', () => {
     expect(location.searchParams.get('github')).toBe('forbidden')
   })
 
-  it('code が無ければ保存しない（新規インストール）', async () => {
+  it('code が無く、同じ installation_id の紐づけ自体が無ければ保存しない', async () => {
     const { GET, createSignedState } = await load()
     const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
     const res = await GET(req({ state, code: null }))
 
     expect(insertMock).not.toHaveBeenCalled()
     expect(exchangeCodeForUserTokenMock).not.toHaveBeenCalled()
+    expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
     expect(location.searchParams.get('github')).toBe('oauth_required')
   })
 
-  it('code が無ければ保存しない（既存インストールの更新でも同じ検査を通す）', async () => {
+  it('code が無く、installation_id の紐づけが別の組織のものなら oauth_required で戻す（already_linked は返さない）', async () => {
+    existingInstallRow = { id: 'install-row-1', org_id: OTHER_ORG_ID }
+    const { GET, createSignedState } = await load()
+    const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
+    const res = await GET(req({ state, code: null }))
+
+    expect(insertMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
+    expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('github')).toBe('oauth_required')
+  })
+
+  it('code が無くても、同じ組織に既に結び付いた installation なら再取り込みで保存する（GitHub の設定画面での保存の戻り）', async () => {
     existingInstallRow = { id: 'install-row-1', org_id: ORG_ID }
     const { GET, createSignedState } = await load()
     const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
     const res = await GET(req({ state, code: null }))
 
+    // GitHub 側での本人確認（code の交換・持ち主照合）はしない。既に同じ組織に
+    // 結び付いていること自体が、その組織の owner による確認済みの証拠になる
+    expect(exchangeCodeForUserTokenMock).not.toHaveBeenCalled()
+    expect(findUserInstallationMock).not.toHaveBeenCalled()
+    expect(insertMock).not.toHaveBeenCalled()
+    expect(getInstallationRepositoriesMock).toHaveBeenCalledWith(INSTALLATION_ID)
+    expect(upsertMock).toHaveBeenCalledTimes(1)
+    // account_login / account_type は、持ち主確認をしていないので触らない
+    expect(updateCalls.some((c) => 'account_login' in c.patch || 'account_type' in c.patch)).toBe(false)
+    const updatedAtUpdate = updateCalls.find((c) => 'updated_at' in c.patch && !('permissions' in c.patch))
+    expect(updatedAtUpdate?.eqs).toContainEqual(['id', 'install-row-1'])
+
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('github')).toBe('connected')
+    expect(location.searchParams.get('repos')).toBe('1')
+  })
+
+  it('code が無いときの再取り込みは setup_action の値では分岐しない（install でも同じ結果）', async () => {
+    existingInstallRow = { id: 'install-row-1', org_id: ORG_ID }
+    const { GET, createSignedState } = await load()
+    const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
+    const res = await GET(req({ state, code: null, setupAction: 'install' }))
+
+    expect(getInstallationRepositoriesMock).toHaveBeenCalledWith(INSTALLATION_ID)
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('github')).toBe('connected')
+  })
+
+  it('code が無く、同じ組織に結び付いていても owner でなければ再取り込みしない', async () => {
+    existingInstallRow = { id: 'install-row-1', org_id: ORG_ID }
+    membershipRole = 'member'
+    const { GET, createSignedState } = await load()
+    const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
+    const res = await GET(req({ state, code: null }))
+
+    expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
+    expect(insertMock).not.toHaveBeenCalled()
     expect(updateMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('github')).toBe('oauth_required')
+    expect(location.searchParams.get('github')).toBe('forbidden')
+  })
+
+  it('code が無く、再取り込み対象のリポジトリが0件なら no_repositories で戻す', async () => {
+    existingInstallRow = { id: 'install-row-1', org_id: ORG_ID }
+    getInstallationRepositoriesMock.mockResolvedValueOnce([])
+    const { GET, createSignedState } = await load()
+    const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
+    const res = await GET(req({ state, code: null }))
+
+    expect(updateMock).not.toHaveBeenCalled()
+    expect(upsertMock).not.toHaveBeenCalled()
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('github')).toBe('no_repositories')
+  })
+
+  it('code が無い経路で紐づけの検索に失敗したら api_error で戻す', async () => {
+    existingInstallError = { message: 'connection error' }
+    const { GET, createSignedState } = await load()
+    const state = createSignedState(ORG_ID, '/settings/org-integrations', USER_ID)
+    const res = await GET(req({ state, code: null }))
+
+    expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('github')).toBe('api_error')
   })
 
   it('code をトークンに交換できなければ保存しない', async () => {

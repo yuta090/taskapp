@@ -33,6 +33,55 @@ function getSupabaseAdmin(): SupabaseClient {
   return _supabaseAdmin
 }
 
+// その時点の許可範囲を記録する（GITHUB_ISSUES_LINK_SPEC.md §5・§7.6）。
+// permissions / permissions_updated_at 列は本番マイグレーション適用前にこのコードが
+// 先に出ても壊れないよう、失敗してもログのみで処理は止めない。
+async function saveInstallationPermissions(orgId: string, installationIdNum: number): Promise<void> {
+  try {
+    const permissions = await getInstallationPermissions(installationIdNum)
+    if (permissions) {
+      const { error } = await getSupabaseAdmin()
+        .from('github_installations')
+        .update({
+          permissions,
+          permissions_updated_at: new Date().toISOString(),
+        })
+        .eq('org_id', orgId)
+        .eq('installation_id', installationIdNum)
+
+      if (error) {
+        console.error('Failed to save installation permissions:', error)
+      }
+    }
+  } catch (permErr) {
+    console.error('Failed to fetch installation permissions:', permErr)
+  }
+}
+
+async function saveRepositories(
+  orgId: string,
+  installationIdNum: number,
+  repositories: Awaited<ReturnType<typeof getInstallationRepositories>>,
+): Promise<void> {
+  const repoRecords = repositories.map(repo => ({
+    org_id: orgId,
+    installation_id: installationIdNum,
+    repo_id: repo.id,
+    owner_login: repo.owner.login,
+    repo_name: repo.name,
+    default_branch: repo.default_branch || 'main',
+    is_private: repo.private,
+  }))
+
+  const { error } = await getSupabaseAdmin()
+    .from('github_repositories')
+    .upsert(repoRecords, { onConflict: 'org_id,repo_id' })
+
+  if (error) {
+    console.error('Failed to save repositories:', error)
+  }
+}
+
 /**
  * GitHub App インストール後のコールバック
  * GitHub からリダイレクトされてくる
@@ -44,15 +93,22 @@ function getSupabaseAdmin(): SupabaseClient {
  *   3. 二要素認証
  *   4. ログイン中の利用者と state の利用者 ID が一致するか
  *   5. その組織の owner か
- *   6. code（GitHub App の「Request user authorization」で付与される）があるか
- *   7. code を user-to-server トークンに交換
- *   8. そのトークンで GET /user/installations を引き、installation_id が含まれるか。
+ *   6. installation_id に対応する既存の紐づけを引く（この後の判定・保存で使うため1回だけ）
+ *   7. code（GitHub App の「Request user authorization」で付与される）が無ければ、
+ *      GitHub 側で本人確認をやり直さず、6 で引いた行が「同じ組織に既に結び付いている」
+ *      場合に限りリポジトリ一覧・許可範囲だけを再取り込みする。GitHub は「既に
+ *      インストール済みのアプリの設定画面で保存した」戻りに code を付けてこないため
+ *      （installation_id + state のみ）、この経路が無いと設定変更のたびに繋ぎ直しが必要になる。
+ *      それ以外（行が無い・別の組織）は一律 oauth_required とし、持ち主確認前にその
+ *      installation_id がどこかに結び付いているかどうかは漏らさない
+ *   8. code を user-to-server トークンに交換
+ *   9. そのトークンで GET /user/installations を引き、installation_id が含まれるか。
  *      含まれていても「一覧に載る」だけでは持ち主とは限らないため、さらに
  *      個人アカウントならログイン中の GitHub アカウントと同じ ID か、
  *      組織アカウントならその組織の管理者（admin）かを確認する
- *   9. 確認済みのトークンは破棄する
- *   10. 既存の紐づけが別の組織であれば付け替えない
- *   11. 保存
+ *   10. 確認済みのトークンは破棄する
+ *   11. 6 で引いた行が別の組織であれば付け替えない
+ *   12. 保存
  */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -131,15 +187,67 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  // 6. GitHub App の「Request user authorization (OAuth) during installation」により
-  // 付与される code。新規インストール・既存インストールの更新のどちらでも必須にする
-  if (!code) {
+  // 6. installation_id に対応する既存の紐づけを引く（この後の判定・保存で使うため1回だけ）
+  // （installation_id は組織をまたいで一意。webhook が installation_id から組織を
+  //   1つに逆引きしているため、1インストール = 1組織を保つ）
+  // 行が無いのは正常（新規インストール）なので maybeSingle を使う
+  const { data: existingInstall, error: existingInstallError } = await getSupabaseAdmin()
+    .from('github_installations')
+    .select('id, org_id')
+    .eq('installation_id', installationIdNum)
+    .maybeSingle()
+
+  if (existingInstallError) {
+    console.error('Failed to look up existing GitHub installation:', existingInstallError)
     return NextResponse.redirect(
-      new URL(`${redirectUri}?github=oauth_required`, request.url)
+      new URL(`${redirectUri}?github=api_error`, request.url)
     )
   }
 
-  // 7. code を user-to-server トークンに交換
+  // 7. GitHub App の「Request user authorization (OAuth) during installation」により
+  // 付与される code。GitHub は「既にインストール済みのアプリの設定画面で保存した」
+  // ときの戻りに code を付けてこない（installation_id + state のみ）ため、そのときは
+  // GitHub 側での本人確認をやり直さず、6 で引いた行が「同じ組織に既に結び付いている」
+  // 場合に限りリポジトリ一覧・許可範囲だけを再取り込みする。それ以外（行が無い・別の
+  // 組織）は一律 oauth_required とし、持ち主確認前にその installation_id が
+  // どこかに結び付いているかどうかは漏らさない
+  if (!code) {
+    if (!existingInstall || existingInstall.org_id !== orgId) {
+      return NextResponse.redirect(
+        new URL(`${redirectUri}?github=oauth_required`, request.url)
+      )
+    }
+
+    try {
+      const repositories = await getInstallationRepositories(installationIdNum)
+
+      if (repositories.length === 0) {
+        return NextResponse.redirect(
+          new URL(`${redirectUri}?github=no_repositories`, request.url)
+        )
+      }
+
+      await saveInstallationPermissions(orgId, installationIdNum)
+      await saveRepositories(orgId, installationIdNum, repositories)
+
+      // 持ち主確認をしていないため、account_login / account_type は触らない
+      await getSupabaseAdmin()
+        .from('github_installations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', existingInstall.id)
+
+      return NextResponse.redirect(
+        new URL(`${redirectUri}?github=connected&repos=${repositories.length}`, request.url)
+      )
+    } catch (err) {
+      console.error('GitHub callback error (reimport):', err)
+      return NextResponse.redirect(
+        new URL(`${redirectUri}?github=api_error`, request.url)
+      )
+    }
+  }
+
+  // 8. code を user-to-server トークンに交換
   const userToken = await exchangeCodeForUserToken(code)
   if (!userToken) {
     return NextResponse.redirect(
@@ -147,7 +255,7 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  // 8. そのトークンで、利用者本人がこのインストールの持ち主であることを確認する。
+  // 9. そのトークンで、利用者本人がこのインストールの持ち主であることを確認する。
   // 一覧（GET /user/installations）に載るのは「アクセスできる」というだけで持ち主とは
   // 限らないため、個人アカウントならログイン中の GitHub アカウントと同じ ID か、
   // 組織アカウントならその組織の管理者（admin）かをさらに確認する
@@ -173,7 +281,7 @@ export async function GET(request: NextRequest) {
         }
       }
     } finally {
-      // 9. 確認が済んだトークンは残さない（失敗してもログのみ・処理は止めない）
+      // 10. 確認が済んだトークンは残さない（失敗してもログのみ・処理は止めない）
       try {
         await revokeUserToken(userToken)
       } catch (revokeErr) {
@@ -200,31 +308,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // 10. 既存の紐づけが別の組織であれば付け替えない
-    // （installation_id は組織をまたいで一意。webhook が installation_id から組織を
-    //   1つに逆引きしているため、1インストール = 1組織を保つ）
-    // 行が無いのは正常（新規インストール）なので maybeSingle を使う。DB エラーはここで
-    // 打ち切り、App の資格情報でのリポジトリ取得（getInstallationRepositories 以降）には進まない
-    const { data: existingInstall, error: existingInstallError } = await getSupabaseAdmin()
-      .from('github_installations')
-      .select('id, org_id')
-      .eq('installation_id', installationIdNum)
-      .maybeSingle()
-
-    if (existingInstallError) {
-      console.error('Failed to look up existing GitHub installation:', existingInstallError)
-      return NextResponse.redirect(
-        new URL(`${redirectUri}?github=api_error`, request.url)
-      )
-    }
-
+    // 11. 6 で引いた既存の紐づけが別の組織であれば付け替えない
     if (existingInstall && existingInstall.org_id !== orgId) {
       return NextResponse.redirect(
         new URL(`${redirectUri}?github=already_linked`, request.url)
       )
     }
 
-    // 11. 保存
+    // 12. 保存
     // GitHub API からインストール情報を取得
     const repositories = await getInstallationRepositories(installationIdNum)
 
@@ -234,7 +325,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // アカウント情報は、手順8で確認済みのインストール項目から取る
+    // アカウント情報は、手順9で確認済みのインストール項目から取る
     // （firstRepo.owner ではなく、持ち主確認に使った account をそのまま使う）
     const accountLogin = matchedInstallation.account.login
     const accountType = matchedInstallation.account.type as 'Organization' | 'User'
@@ -268,47 +359,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // その時点の許可範囲を記録する（GITHUB_ISSUES_LINK_SPEC.md §5・§7.6）。
-    // permissions / permissions_updated_at 列は本番マイグレーション適用前にこのコードが
-    // 先に出ても壊れないよう、失敗してもログのみでインストール自体は止めない。
-    try {
-      const permissions = await getInstallationPermissions(installationIdNum)
-      if (permissions) {
-        const { error: permissionsError } = await getSupabaseAdmin()
-          .from('github_installations')
-          .update({
-            permissions,
-            permissions_updated_at: new Date().toISOString(),
-          })
-          .eq('org_id', orgId)
-          .eq('installation_id', installationIdNum)
-
-        if (permissionsError) {
-          console.error('Failed to save installation permissions:', permissionsError)
-        }
-      }
-    } catch (permErr) {
-      console.error('Failed to fetch installation permissions:', permErr)
-    }
-
-    // リポジトリ情報を保存
-    const repoRecords = repositories.map(repo => ({
-      org_id: orgId,
-      installation_id: installationIdNum,
-      repo_id: repo.id,
-      owner_login: repo.owner.login,
-      repo_name: repo.name,
-      default_branch: repo.default_branch || 'main',
-      is_private: repo.private,
-    }))
-
-    const { error: repoError } = await getSupabaseAdmin()
-      .from('github_repositories')
-      .upsert(repoRecords, { onConflict: 'org_id,repo_id' })
-
-    if (repoError) {
-      console.error('Failed to save repositories:', repoError)
-    }
+    await saveInstallationPermissions(orgId, installationIdNum)
+    await saveRepositories(orgId, installationIdNum, repositories)
 
     // 成功時はリダイレクト
     return NextResponse.redirect(
