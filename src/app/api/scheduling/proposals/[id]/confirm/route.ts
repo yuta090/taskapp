@@ -90,38 +90,52 @@ export async function POST(
 
       if (provider && provider.isConfigured()) {
         try {
-          // 参加者情報を取得（respondents → profiles join）。profilesにemail列は無いため、
-          // 名前はprofilesから、メールはサーバーの管理用の鍵(admin.auth.admin)で解決する
+          // 参加者情報を取得。proposal_respondents→profilesの外部キーは無いため
+          // 埋め込みは使えず、respondentsとprofilesを別々に引いて突き合わせる。
+          // メールはサーバーの管理用の鍵(admin.auth.admin)で解決する
           const { data: respondents, error: respondentsError } = await (supabase as SupabaseClient)
             .from('proposal_respondents')
-            .select('user_id, profiles!inner(display_name)')
+            .select('user_id')
             .eq('proposal_id', proposalId)
 
           if (respondentsError) {
             console.error('Failed to fetch respondents (non-blocking):', respondentsError)
           }
 
-          type RespondentRow = { user_id: string; profiles: { display_name: string | null }[] | { display_name: string | null } }
+          type RespondentRow = { user_id: string }
           const respondentRows = (respondents as RespondentRow[]) || []
+          const respondentUserIds = respondentRows.map((r) => r.user_id)
 
           const admin = createAdminClient()
-          const respondentEmails = await mapWithConcurrency(
-            respondentRows.map((r) => r.user_id),
-            EMAIL_LOOKUP_CONCURRENCY,
-            async (userId): Promise<[string, string | null]> => {
-              const { data } = await admin.auth.admin.getUserById(userId)
-              return [userId, data.user?.email ?? null]
-            },
-          )
+          const [respondentEmails, profilesResult] = await Promise.all([
+            mapWithConcurrency(
+              respondentUserIds,
+              EMAIL_LOOKUP_CONCURRENCY,
+              async (userId): Promise<[string, string | null]> => {
+                const { data } = await admin.auth.admin.getUserById(userId)
+                return [userId, data.user?.email ?? null]
+              },
+            ),
+            respondentUserIds.length > 0
+              ? (supabase as SupabaseClient)
+                  .from('profiles')
+                  .select('id, display_name')
+                  .in('id', respondentUserIds)
+              : Promise.resolve({ data: [] as { id: string; display_name: string | null }[] }),
+          ])
           const emailByUserId = new Map<string, string>(
             respondentEmails.filter((e): e is [string, string] => !!e[1]),
           )
+          const displayNameByUserId = new Map<string, string | null>(
+            (profilesResult.data || []).map((p) => [p.id, p.display_name]),
+          )
 
+          // profilesを読める範囲(一緒に仕事をしている人だけ)は招待メールの対象とは
+          // 無関係。名前が引けなくてもメールがあれば会議には招待する(名前は空欄)
           const participants = respondentRows
             .map((r) => {
-              const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
               const email = emailByUserId.get(r.user_id)
-              return email ? { email, name: profile?.display_name || '' } : null
+              return email ? { email, name: displayNameByUserId.get(r.user_id) || '' } : null
             })
             .filter((p): p is { email: string; name: string } => p !== null)
 

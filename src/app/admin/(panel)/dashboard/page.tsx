@@ -79,14 +79,13 @@ async function fetchStats() {
   }
 }
 
-async function fetchRecentActivity(): Promise<AuditLogRow[]> {
+export async function fetchRecentActivity(): Promise<AuditLogRow[]> {
   const admin = createAdminClient()
   const nowMs = Date.now()
 
-  // profilesにemail列は無いため、埋め込み(actor_profile)にはdisplay_nameだけを含める
   const { data, error } = await admin
     .from('audit_logs')
-    .select('id, event_type, summary, occurred_at, actor_id, actor_profile:profiles!audit_logs_actor_id_fkey(display_name)')
+    .select('id, event_type, summary, occurred_at, actor_id')
     .order('occurred_at', { ascending: false })
     .limit(8)
 
@@ -101,16 +100,25 @@ async function fetchRecentActivity(): Promise<AuditLogRow[]> {
     summary: string | null
     occurred_at: string
     actor_id: string | null
-    actor_profile: { display_name: string | null } | null
   }
 
   const rows = ((data as unknown) as RawRow[] | null) ?? []
+
+  // audit_logs→profilesの外部キーは無いため埋め込みは使えない。表示名は別問い合わせで
+  // まとめて引く(adminはservice roleなので全員分読める)
+  const actorIds = [...new Set(rows.map((row) => row.actor_id).filter((id): id is string => !!id))]
+  const { data: actorProfiles } = actorIds.length > 0
+    ? await admin.from('profiles').select('id, display_name').in('id', actorIds)
+    : { data: [] as { id: string; display_name: string | null }[] }
+  const displayNameByActorId = new Map<string, string | null>(
+    (actorProfiles || []).map((p) => [p.id, p.display_name]),
+  )
 
   // 表示名が無い行だけ、メールを管理用の鍵(admin.auth.admin)で補う
   const missingActorIds = [
     ...new Set(
       rows
-        .filter((row) => row.actor_id && !row.actor_profile?.display_name)
+        .filter((row) => row.actor_id && !displayNameByActorId.get(row.actor_id))
         .map((row) => row.actor_id as string)
     ),
   ]
@@ -133,7 +141,7 @@ async function fetchRecentActivity(): Promise<AuditLogRow[]> {
     occurred_at: row.occurred_at,
     actor_id: row.actor_id,
     actorName: resolveActorName(
-      row.actor_profile?.display_name,
+      row.actor_id ? displayNameByActorId.get(row.actor_id) : undefined,
       row.actor_id ? emailByActorId.get(row.actor_id) : undefined,
     ),
     relativeTime: computeRelativeTime(row.occurred_at, nowMs),

@@ -40,26 +40,17 @@ export default async function PortalWikiPage({ searchParams }: PageProps) {
     redirect('/portal')
   }
 
-  // wikiPages と actionCount を並列取得
-  const [wikiResult, actionCountResult] = await Promise.all([
-     
+  // wiki_page_publicationsとmilestone_publicationsの間には外部キーが無い(どちらも
+  // milestones/organizationsを指すだけ)ため、埋め込みでは絞れない。先に公開中の
+  // マイルストーンIDを引いてから、それでwiki_page_publications側を絞る。
+  // actionCountはこれらと依存しないので並べて読む
+  const [milestonePubsResult, actionCountResult] = await Promise.all([
     (supabase as SupabaseClient)
-      .from('wiki_page_publications')
-      .select(`
-        id,
-        org_id,
-        published_title,
-        published_body,
-        published_at,
-        source_page_id,
-        wiki_pages!inner ( space_id ),
-        milestone_publications!inner ( is_published )
-      `)
+      .from('milestone_publications')
+      .select('milestone_id')
       .eq('org_id', currentProject.orgId)
-      .eq('milestone_publications.is_published', true)
-      .in('wiki_pages.space_id', clientSpaceIds)
-      .order('published_at', { ascending: false }),
-     
+      .eq('is_published', true),
+
     (supabase as SupabaseClient)
       .from('tasks')
       .select('id', { count: 'exact', head: true })
@@ -69,8 +60,30 @@ export default async function PortalWikiPage({ searchParams }: PageProps) {
   ])
 
   // エラーログ（graceful degradation: 空データで続行）
-  if (wikiResult.error) console.error('[Portal Wiki] wiki query error:', wikiResult.error)
+  if (milestonePubsResult.error) console.error('[Portal Wiki] milestone_publications query error:', milestonePubsResult.error)
   if (actionCountResult.error) console.error('[Portal Wiki] actionCount query error:', actionCountResult.error)
+
+  const publishedMilestoneIds = (milestonePubsResult.data || []).map((m) => m.milestone_id)
+
+  const wikiResult = publishedMilestoneIds.length === 0
+    ? { data: [] as unknown[], error: null }
+    : await (supabase as SupabaseClient)
+        .from('wiki_page_publications')
+        .select(`
+          id,
+          org_id,
+          published_title,
+          published_body,
+          published_at,
+          source_page_id,
+          wiki_pages!inner ( space_id )
+        `)
+        .eq('org_id', currentProject.orgId)
+        .in('milestone_id', publishedMilestoneIds)
+        .in('wiki_pages.space_id', clientSpaceIds)
+        .order('published_at', { ascending: false })
+
+  if (wikiResult.error) console.error('[Portal Wiki] wiki query error:', wikiResult.error)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const serializedPages = (wikiResult.data || []).map((p: any) => ({
