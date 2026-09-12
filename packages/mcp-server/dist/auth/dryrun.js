@@ -4,6 +4,7 @@
  * 破壊的操作の2段階確認を提供
  */
 import { getSupabaseClient } from '../supabase/client.js';
+import { translateDryRunBusinessError } from '../lib/rpcErrors.js';
 /**
  * 削除のdry runを実行
  * 実際には削除せず、影響件数と確認トークンを返す
@@ -40,7 +41,7 @@ export async function dryRunDelete(params) {
         confirmToken: data.confirm_token,
         expiresInSeconds: data.expires_in_seconds,
         message: data.message,
-        error: data.error,
+        error: translateDryRunBusinessError(data.error),
     };
 }
 /**
@@ -64,7 +65,7 @@ export async function confirmDelete(params) {
         success: data.success,
         deletedCount: data.deleted_count,
         resourceType: data.resource_type,
-        error: data.error,
+        error: translateDryRunBusinessError(data.error),
     };
 }
 //# sourceMappingURL=dryrun.js.map

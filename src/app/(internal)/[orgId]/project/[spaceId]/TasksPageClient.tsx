@@ -50,12 +50,20 @@ interface TasksPageClientProps {
 }
 
 type FilterKey = 'all' | 'active' | 'backlog' | 'client_wait' | 'client_origin'
+
+/** 何も指定がないときの絞り込み。既定なので URL には付けない（付けるのは他を選んだときだけ） */
+const DEFAULT_FILTER: FilterKey = 'active'
 type SortKey = 'milestone' | 'due_date' | 'created_at' | 'assignee' | 'status'
 
 interface TaskGroup {
   milestone: Milestone | null
   tasks: Task[]
   label?: string
+  /**
+   * 見出しに出す件数と完了数。マイルストーンでまとめたときだけ入り、絞り込みで隠れた分も数える
+   * （進捗バーはマイルストーン全体の進み具合の話なので、いま見えている行数で変わってはいけない）
+   */
+  totals?: { count: number; done: number }
 }
 
 type VirtualRow =
@@ -278,7 +286,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     if (filterParam === 'all' || filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait' || filterParam === 'client_origin') {
       return filterParam
     }
-    return 'all'
+    // 既定は「アクティブ」。開いた直後に完了・未着手まで並ぶと、いま動いているタスクが埋もれる
+    return DEFAULT_FILTER
   }, [searchParams])
 
   // useQuery auto-fetches tasks, milestones, and the space row — no manual useEffect needed
@@ -303,7 +312,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       if (task) {
         params.set('task', task)
       }
-      if (filter !== 'all') {
+      if (filter !== DEFAULT_FILTER) {
         params.set('filter', filter)
       }
       const query = params.toString()
@@ -368,6 +377,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     return result
   }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters, searchQuery])
 
+  // タスク自体はあるのに、既定の「アクティブ」だけが理由で0件になっている状態。空のときの案内を出し分ける
+  const onlyDefaultFilterHides =
+    filteredTasks.length === 0 &&
+    activeFilter === DEFAULT_FILTER &&
+    !hasAdvancedFilters &&
+    tasks.length > 0
+
   const STATUS_LABELS: Record<string, string> = {
     backlog: '未着手', todo: '着手予定', in_progress: '進行中',
     in_review: '社内承認中', considering: '検討中', done: '完了',
@@ -418,15 +434,29 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     // 削除済みなど、一覧に無いマイルストーンを指すタスクは「未設定」扱いにする
     // （タスク側キャッシュの取り直しが終わるまでの一瞬、タスクが消えて見えるのを防ぐ）
     const knownMilestoneIds = new Set(milestones.map((m) => m.id))
+    const milestoneKeyOf = (task: Task): string | null =>
+      task.milestone_id && knownMilestoneIds.has(task.milestone_id) ? task.milestone_id : null
     const tasksByMilestone = new Map<string | null, Task[]>()
 
     filteredTasks.forEach((task) => {
-      const key = task.milestone_id && knownMilestoneIds.has(task.milestone_id) ? task.milestone_id : null
+      const key = milestoneKeyOf(task)
       if (!tasksByMilestone.has(key)) {
         tasksByMilestone.set(key, [])
       }
       tasksByMilestone.get(key)!.push(task)
     })
+
+    // 見出しの件数・進捗は絞り込み前の全タスクから数える（既定の「アクティブ」で完了が隠れても
+    // 進捗バーが0%にならないように）。一覧の全件を1回なめるだけ
+    const totalsByMilestone = new Map<string | null, { count: number; done: number }>()
+    tasks.forEach((task) => {
+      const key = milestoneKeyOf(task)
+      const totals = totalsByMilestone.get(key) ?? { count: 0, done: 0 }
+      totals.count += 1
+      if (task.status === 'done') totals.done += 1
+      totalsByMilestone.set(key, totals)
+    })
+    const totalsOf = (key: string | null) => totalsByMilestone.get(key) ?? { count: 0, done: 0 }
 
     // Sort tasks within each group by due_date
     tasksByMilestone.forEach((groupTasks) => {
@@ -445,18 +475,18 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     sortedMilestones.forEach((milestone) => {
       const groupTasks = tasksByMilestone.get(milestone.id) || []
       if (groupTasks.length > 0) {
-        groups.push({ milestone, tasks: groupTasks })
+        groups.push({ milestone, tasks: groupTasks, totals: totalsOf(milestone.id) })
       }
     })
 
     // Add tasks without milestone
     const noMilestoneTasks = tasksByMilestone.get(null) || []
     if (noMilestoneTasks.length > 0) {
-      groups.push({ milestone: null, tasks: noMilestoneTasks })
+      groups.push({ milestone: null, tasks: noMilestoneTasks, totals: totalsOf(null) })
     }
 
     return groups
-  }, [filteredTasks, milestones, sortKey, assigneeLabelById, getMemberName])
+  }, [tasks, filteredTasks, milestones, sortKey, assigneeLabelById, getMemberName])
 
   const selectedTask: Task | null = useMemo(() => {
     if (!selectedTaskId) return null
@@ -1236,7 +1266,15 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           <div className="content-wrap py-4" data-walkthrough="task-create">
             <EmptyState
               icon={searchQuery ? <MagnifyingGlass /> : <Copy />}
-              message={searchQuery ? `「${searchQuery}」に一致するタスクはありません` : 'タスクはありません'}
+              message={
+                searchQuery
+                  ? `「${searchQuery}」に一致するタスクはありません`
+                  : onlyDefaultFilterHides
+                    // 既定が「アクティブ」なので、完了・未着手しか残っていないだけの状態を
+                    // 「1件も無い」と誤解させない
+                    ? '動いているタスクはありません。完了・未着手は「すべて」で見られます。'
+                    : 'タスクはありません'
+              }
               action={searchQuery ? (
                 <button
                   type="button"
@@ -1244,6 +1282,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   className="text-xs text-blue-600 hover:text-blue-700"
                 >
                   検索をクリア
+                </button>
+              ) : onlyDefaultFilterHides ? (
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange('all')}
+                  className="text-xs text-blue-600 hover:text-blue-700"
+                >
+                  すべて表示
                 </button>
               ) : canEdit ? (
                 <button
@@ -1270,8 +1316,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                 content = (
                   <MilestoneGroupHeader
                     milestone={row.group.milestone}
-                    taskCount={row.group.tasks.length}
-                    doneCount={row.group.tasks.filter((t) => t.status === 'done').length}
+                    taskCount={row.group.totals?.count ?? row.group.tasks.length}
+                    doneCount={row.group.totals?.done ?? row.group.tasks.filter((t) => t.status === 'done').length}
                     isCollapsed={collapsedGroups.has(row.groupKey)}
                     onToggle={() => handleToggleGroup(row.group.milestone?.id || row.group.label || null)}
                     label={row.group.label}
