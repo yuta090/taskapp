@@ -22,6 +22,7 @@ const PAGES_WITH_OWN_HEADER = [
   'src/app/(internal)/[orgId]/project/[spaceId]/files/FilesPageClient.tsx',
   'src/app/(internal)/[orgId]/project/[spaceId]/files/[fileId]/FileTablePageClient.tsx',
   'src/app/(internal)/[orgId]/project/[spaceId]/meetings/MeetingsPageClient.tsx',
+  'src/components/meeting/MinutesDocumentView.tsx',
   'src/app/(internal)/[orgId]/project/[spaceId]/settings/SettingsHeader.tsx',
   'src/app/(internal)/[orgId]/project/[spaceId]/views/gantt/GanttPageClient.tsx',
   'src/app/(internal)/[orgId]/project/[spaceId]/views/burndown/BurndownPageClient.tsx',

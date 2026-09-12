@@ -28,13 +28,18 @@ interface MeetingInspectorProps {
   onEnd?: () => void
   /** C2: 会議と議事録を削除する。日程調整に紐づく場合は失敗する */
   onDelete?: () => Promise<void>
-  /** AT-005/#87: 議事録から SPEC 行のタスク化候補をプレビュー（生成はしない） */
-  onPreviewMinutes?: (meetingId: string, minutesMd: string) => Promise<MinutesPreviewResult>
-  /** AT-005/#87: 議事録の未処理 SPEC 行をタスク化して結果を返す */
-  onCreateTasks?: (meetingId: string, minutesMd: string) => Promise<ParseMinutesResult>
+  /**
+   * AT-005/#87: 議事録から SPEC 行のタスク化候補をプレビュー（生成はしない）。
+   * 本文は渡さない — ページ側(文書ビューの「サーバーにあると分かっている生の本文」)が
+   * 用意する。一覧のキャッシュ(meeting.minutes_md)は2分で古くなり得るため、ここでは
+   * 頼らない（HIGH-N3）。
+   */
+  onPreviewMinutes?: (meetingId: string) => Promise<MinutesPreviewResult>
+  /** AT-005/#87: 議事録の未処理 SPEC 行をタスク化して結果を返す。本文は渡さない（同上） */
+  onCreateTasks?: (meetingId: string) => Promise<ParseMinutesResult>
 }
 
-type Tab = 'info' | 'minutes' | 'decisions'
+type Tab = 'info' | 'taskify' | 'decisions'
 
 export function MeetingInspector({
   meeting,
@@ -72,6 +77,9 @@ export function MeetingInspector({
 
   // 会議ごとに一度だけプレビューを走らせるためのキー（自前 setState での再実行を防ぐ）
   const previewKeyRef = useRef<string | null>(null)
+  // M3: 保存の確定後に議事録が変わっている可能性があるので、「もう一度確認」で
+  // 手動でも取り直せるようにする（このカウンタを増やすと下の effect が再実行される）
+  const [refreshToken, setRefreshToken] = useState(0)
 
   // 別会議に切り替わったらタスク化の状態をリセット
   useEffect(() => {
@@ -81,16 +89,18 @@ export function MeetingInspector({
     setTaskError(null)
   }, [meeting.id])
 
-  // 議事録タブを開いたときに一度だけタスク化候補をプレビュー
+  // 議事録タブを開いたときに一度だけタスク化候補をプレビュー。議事録の有無
+  // (meeting.minutes_md)では止めない — 一覧のキャッシュが古くなっていても、
+  // 本文の用意はページ側(onPreviewMinutes の実装)に任せる（HIGH-N3）。
   useEffect(() => {
-    if (activeTab !== 'minutes') return
-    if (!meeting.minutes_md || !onPreviewMinutes) return
+    if (activeTab !== 'taskify') return
+    if (!onPreviewMinutes) return
     if (createResult) return
     if (previewKeyRef.current === meeting.id) return
     previewKeyRef.current = meeting.id
     let cancelled = false
     setPreviewLoading(true)
-    onPreviewMinutes(meeting.id, meeting.minutes_md)
+    onPreviewMinutes(meeting.id)
       .then((result) => {
         if (!cancelled) setPreview(result)
       })
@@ -103,7 +113,18 @@ export function MeetingInspector({
     return () => {
       cancelled = true
     }
-  }, [activeTab, meeting.id, meeting.minutes_md, onPreviewMinutes, createResult])
+  }, [activeTab, meeting.id, onPreviewMinutes, createResult, refreshToken])
+
+  // M3: 文書ビューで書いた本文が保存された後は、開いたときの候補が古いままになりうる。
+  // 手動で取り直す。タスク化を1回した後も再確認できるよう createResult も消す
+  // （消さないと、下の effect が「作成済み」のガードで再取得をスキップしてしまう）
+  const handleRefreshPreview = () => {
+    previewKeyRef.current = null
+    setPreview(null)
+    setCreateResult(null)
+    setTaskError(null)
+    setRefreshToken((t) => t + 1)
+  }
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -123,11 +144,12 @@ export function MeetingInspector({
   }
 
   const handleTaskify = async () => {
-    if (!onCreateTasks || !meeting.minutes_md) return
+    // 議事録の有無(meeting.minutes_md)では止めない（HIGH-N3。一覧キャッシュに頼らない）
+    if (!onCreateTasks) return
     setCreating(true)
     setTaskError(null)
     try {
-      const result = await onCreateTasks(meeting.id, meeting.minutes_md)
+      const result = await onCreateTasks(meeting.id)
       setCreateResult(result)
       setPreview(null)
     } catch {
@@ -172,7 +194,7 @@ export function MeetingInspector({
       <div className="flex border-b border-gray-100 px-4">
         {[
           { id: 'info' as Tab, label: '概要', icon: <FileText /> },
-          { id: 'minutes' as Tab, label: '議事録', icon: <ListChecks /> },
+          { id: 'taskify' as Tab, label: 'タスク化', icon: <ListChecks /> },
           { id: 'decisions' as Tab, label: '決定事項', icon: <ArrowRight /> },
         ].map((tab) => (
           <button
@@ -316,118 +338,121 @@ export function MeetingInspector({
           </div>
         )}
 
-        {activeTab === 'minutes' && (
+        {activeTab === 'taskify' && (
           <div className="space-y-4">
-            {meeting.minutes_md ? (
-              <>
-                {/* #87: 議事録→タスク化パネル */}
-                {onPreviewMinutes && (
-                  <div
-                    data-testid="minutes-task-panel"
-                    className="rounded-lg border border-gray-200 p-3 space-y-3"
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
-                      <ListChecks className="text-sm" />
-                      決定事項のタスク化
-                    </div>
-
-                    {taskError && (
-                      <p className="text-xs text-red-600" role="alert">
-                        {taskError}
-                      </p>
-                    )}
-
-                    {createResult ? (
-                      // 作成結果
-                      <div data-testid="minutes-task-result" className="space-y-2">
-                        <div className="flex items-center gap-1.5 text-sm text-green-700">
-                          <CheckCircle weight="fill" className="text-base" />
-                          {createResult.createdCount}件のタスクを作成しました
-                        </div>
-                        <ul className="space-y-1">
-                          {createResult.createdTasks.map((t) => (
-                            <li
-                              key={t.taskId}
-                              className="text-xs text-gray-600 flex items-center gap-1"
-                            >
-                              <ArrowSquareOut className="text-gray-400 flex-shrink-0" />
-                              <span className="truncate">{t.title}</span>
-                              {t.dueDate && (
-                                <span className="text-gray-400">（{t.dueDate}）</span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : previewLoading ? (
-                      <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                        <CircleNotch className="animate-spin" />
-                        候補を確認中…
-                      </div>
-                    ) : preview && preview.newSpecCount > 0 ? (
-                      <>
-                        <ul className="space-y-1.5">
-                          {preview.newSpecs.map((s) => (
-                            <li
-                              key={s.lineNumber}
-                              data-testid="minutes-task-candidate"
-                              className="flex items-start gap-1.5 text-sm text-gray-700"
-                            >
-                              <span className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-900" />
-                              <div className="min-w-0">
-                                <div className="truncate">{s.title}</div>
-                                <div className="truncate text-xs text-gray-400">
-                                  {s.specPath}
-                                </div>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                        {preview.existingSpecCount > 0 && (
-                          <p
-                            data-testid="minutes-task-existing"
-                            className="text-xs text-gray-400"
-                          >
-                            作成済み {preview.existingSpecCount}件はスキップします
-                          </p>
-                        )}
-                        <button
-                          onClick={handleTaskify}
-                          disabled={creating || !onCreateTasks}
-                          data-testid="minutes-taskify-button"
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-gray-100 text-sm font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {creating ? (
-                            <CircleNotch className="animate-spin" />
-                          ) : (
-                            <ListChecks weight="fill" />
-                          )}
-                          {creating
-                            ? '作成中…'
-                            : `${preview.newSpecCount}件をタスク化`}
-                        </button>
-                      </>
-                    ) : preview ? (
-                      <p
-                        data-testid="minutes-task-empty"
-                        className="text-xs text-gray-400"
-                      >
-                        タスク化できる決定事項はありません
-                      </p>
-                    ) : null}
+            {/* #87: 議事録→タスク化パネル。プレビュー・作成は文書ビューの今の本文で行う */}
+            {onPreviewMinutes && (
+              <div
+                data-testid="minutes-task-panel"
+                className="rounded-lg border border-gray-200 p-3 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                    <ListChecks className="text-sm" />
+                    決定事項のタスク化
                   </div>
+                  {!previewLoading && (
+                    <button
+                      type="button"
+                      onClick={handleRefreshPreview}
+                      data-testid="minutes-task-refresh"
+                      className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      もう一度確認
+                    </button>
+                  )}
+                </div>
+
+                {taskError && (
+                  <p className="text-xs text-red-600" role="alert">
+                    {taskError}
+                  </p>
                 )}
 
-                <div className="prose prose-sm max-w-none">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
-                    {meeting.minutes_md}
-                  </pre>
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-10 text-gray-400">
-                <FileText className="text-4xl mx-auto mb-2 opacity-50" />
-                <p className="text-sm">議事録はまだありません。会議終了後にここに表示されます。</p>
+                {createResult ? (
+                  // 作成結果
+                  <div data-testid="minutes-task-result" className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-sm text-green-700">
+                      <CheckCircle weight="fill" className="text-base" />
+                      {createResult.createdCount}件のタスクを作成しました
+                    </div>
+                    <ul className="space-y-1">
+                      {createResult.createdTasks.map((t) => (
+                        <li
+                          key={t.taskId}
+                          className="text-xs text-gray-600 flex items-center gap-1"
+                        >
+                          <ArrowSquareOut className="text-gray-400 flex-shrink-0" />
+                          <span className="truncate">{t.title}</span>
+                          {t.dueDate && (
+                            <span className="text-gray-400">（{t.dueDate}）</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : previewLoading ? (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <CircleNotch className="animate-spin" />
+                    候補を確認中…
+                  </div>
+                ) : preview && preview.newSpecCount > 0 ? (
+                  <>
+                    <ul className="space-y-1.5">
+                      {preview.newSpecs.map((s) => (
+                        <li
+                          key={s.lineNumber}
+                          data-testid="minutes-task-candidate"
+                          className="flex items-start gap-1.5 text-sm text-gray-700"
+                        >
+                          <span className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-900" />
+                          <div className="min-w-0">
+                            <div className="truncate">{s.title}</div>
+                            <div className="truncate text-xs text-gray-400">
+                              {s.specPath}
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    {preview.existingSpecCount > 0 && (
+                      <p
+                        data-testid="minutes-task-existing"
+                        className="text-xs text-gray-400"
+                      >
+                        作成済み {preview.existingSpecCount}件はスキップします
+                      </p>
+                    )}
+                    <button
+                      onClick={handleTaskify}
+                      disabled={creating || !onCreateTasks}
+                      data-testid="minutes-taskify-button"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-gray-100 text-sm font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {creating ? (
+                        <CircleNotch className="animate-spin" />
+                      ) : (
+                        <ListChecks weight="fill" />
+                      )}
+                      {creating
+                        ? '作成中…'
+                        : `${preview.newSpecCount}件をタスク化`}
+                    </button>
+                  </>
+                ) : preview && preview.newSpecCount === 0 ? (
+                  // 候補がまだ取れていないとき(preview===null: 議事録が無い等)や取得に
+                  // 失敗したとき(taskError)は、ここでは何も出さない（taskError の文言だけで足りる）
+                  <div data-testid="minutes-task-empty" className="text-xs text-gray-400 space-y-1">
+                    <p>タスク化できる決定事項はありません</p>
+                    <p>
+                      議事録に「
+                      <code className="px-1 py-0.5 bg-gray-100 rounded text-gray-600">
+                        - [ ] SPEC(資料の場所): やること
+                      </code>
+                      」と書くと、ここでタスクにできます。
+                    </p>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

@@ -137,10 +137,24 @@ describe('MeetingInspector 会議削除 (C2)', () => {
   })
 })
 
-describe('MeetingInspector 議事録なしの空状態 (C3)', () => {
-  it('次の行動が分かる案内文を表示する', () => {
-    render(<MeetingInspector meeting={makeMeeting({ minutes_md: null })} onClose={vi.fn()} />)
-    fireEvent.click(screen.getByTestId('meeting-inspector-tab-minutes'))
-    expect(screen.getByText('議事録はまだありません。会議終了後にここに表示されます。')).toBeTruthy()
+describe('MeetingInspector タスク化タブ', () => {
+  it('議事録が無くても例外を出さずタスク化タブを開ける（本文はページ側が用意するのでプレビューは呼ぶ）', () => {
+    const onPreviewMinutes = vi.fn().mockResolvedValue({
+      newSpecCount: 0,
+      existingSpecCount: 0,
+      newSpecs: [],
+      existingSpecs: [],
+    })
+    expect(() =>
+      render(
+        <MeetingInspector
+          meeting={makeMeeting({ minutes_md: null })}
+          onClose={vi.fn()}
+          onPreviewMinutes={onPreviewMinutes}
+        />
+      )
+    ).not.toThrow()
+    expect(() => fireEvent.click(screen.getByTestId('meeting-inspector-tab-taskify'))).not.toThrow()
+    expect(onPreviewMinutes).toHaveBeenCalledWith('m1')
   })
 })

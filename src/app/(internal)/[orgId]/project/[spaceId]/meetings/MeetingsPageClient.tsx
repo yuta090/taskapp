@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Notebook, CalendarCheck, Plus, CaretDown, FunnelSimple, CalendarBlank, X } from '@phosphor-icons/react'
 import { useInspector } from '@/components/layout'
 import { toast } from 'sonner'
@@ -9,9 +9,12 @@ import { Breadcrumb, ErrorRetry } from '@/components/shared'
 import { MeetingRow } from '@/components/meeting/MeetingRow'
 import { MeetingInspector } from '@/components/meeting/MeetingInspector'
 import { MeetingCreateSheet, type MeetingCreateData } from '@/components/meeting'
+import { MinutesDocumentView, type MinutesDocumentViewHandle } from '@/components/meeting/MinutesDocumentView'
 import { ProposalRow, ProposalInspector, ProposalCreateSheet } from '@/components/scheduling'
 import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { useSchedulingProposals, type ProposalDetail, type ProposalWithDetails } from '@/lib/hooks/useSchedulingProposals'
 import type { Meeting } from '@/types/database'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
@@ -45,14 +48,24 @@ const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
 
 export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) {
   const spaceName = useSpaceName(spaceId)
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
+  const isMobile = useIsMobile()
+  const { canEdit } = useCanEditSpace(spaceId, orgId)
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false)
   const [isProposalCreateOpen, setIsProposalCreateOpen] = useState(false)
   const [proposalDetail, setProposalDetail] = useState<ProposalDetail | null>(null)
   const [showCreateMenu, setShowCreateMenu] = useState(false)
   const createMenuRef = useRef<HTMLDivElement>(null)
+  // モバイルでは文書ビューを開いても会議詳細(Inspector)は自動で出さず、情報ボタンで開く
+  // （Wiki の showInfo と同じ考え方。オーバーレイ禁止のためモバイルはシート表示）
+  const [showInfo, setShowInfo] = useState(false)
+  // 議事録の文書ビュー。タスク化直後に「詳細を取り直して基準を更新→エディタを作り直す」ため、
+  // key に含めて丸ごと再マウントする（目印がチップになった最新の本文で作り直す）
+  const [minutesReloadToken, setMinutesReloadToken] = useState(0)
+  const minutesViewRef = useRef<MinutesDocumentViewHandle>(null)
+  // HIGH-1: タスク化している間はエディタを読み取り専用にする
+  const [isTaskifying, setIsTaskifying] = useState(false)
 
   // Filter state
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
@@ -75,6 +88,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     endMeeting,
     parseMinutes,
     previewMinutes,
+    updateMinutes,
   } = useMeetings({ orgId, spaceId })
 
   const {
@@ -195,6 +209,9 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     }
   }, [setInspector])
 
+  // 表示速度: サーバーとの往復を避けるため router.replace ではなく history.replaceState で
+  // URL だけを変える（手本: TasksPageClient.tsx の syncUrlWithState）。useSearchParams は
+  // これに追従する。
   const updateQuery = useCallback(
     (updates: Record<string, string | null>) => {
       const params = new URLSearchParams(searchParams.toString())
@@ -208,10 +225,20 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         }
       })
       const query = params.toString()
-      router.replace(query ? `${projectBasePath}?${query}` : projectBasePath)
+      const newUrl = query ? `${projectBasePath}?${query}` : projectBasePath
+      window.history.replaceState(null, '', newUrl)
     },
-    [router, projectBasePath, searchParams]
+    [projectBasePath, searchParams]
   )
+
+  // MEDIUM-B: Inspector の×（一覧へ戻る）から離れるときは、保存されていない書きかけが
+  // あれば確認してから戻る（文書ビュー自身の「戻る」ボタンは内部で同じ確認をしてから
+  // onBack を呼ぶだけなので、ここでは Inspector 側からの離脱だけ確認を挟む）。
+  const handleCloseFromInspector = useCallback(async () => {
+    const ok = (await minutesViewRef.current?.confirmLeave()) ?? true
+    if (!ok) return
+    updateQuery({ meeting: null })
+  }, [updateQuery])
 
   // ---- Meeting inspector ----
   const selectedMeeting: Meeting | null = useMemo(() => {
@@ -219,11 +246,11 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     return meetings.find((meeting) => meeting.id === selectedMeetingId) ?? null
   }, [meetings, selectedMeetingId])
 
+  // 会議を切り替えたら、モバイルの情報シート表示は毎回閉じ直す
+  // （前の会議で開いていた状態のまま次の会議に持ち越さない）
   useEffect(() => {
-    if (selectedMeeting && selectedMeeting.minutes_md === undefined) {
-      void fetchMeetingDetail(selectedMeeting.id)
-    }
-  }, [selectedMeeting, fetchMeetingDetail])
+    setShowInfo(false)
+  }, [selectedMeetingId])
 
   useEffect(() => {
     // Mutual exclusivity: proposal takes priority if both params exist
@@ -232,11 +259,18 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       return
     }
 
+    // モバイル: 文書ビューを開いても会議詳細は自動で出さず、情報ボタンで開いたときだけ表示する
+    // （Wiki の showInfo と同じ。オーバーレイ禁止のためモバイルはシート表示）
+    if (isMobile && !showInfo) {
+      setInspector(null)
+      return
+    }
+
     setInspector(
       <MeetingInspector
         meeting={selectedMeeting}
         participants={participants[selectedMeeting.id] || []}
-        onClose={() => updateQuery({ meeting: null })}
+        onClose={() => (isMobile ? setShowInfo(false) : void handleCloseFromInspector())}
         onStart={async () => {
           try {
             await startMeeting(selectedMeeting.id)
@@ -260,26 +294,94 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
             throw err
           }
         }}
-        onPreviewMinutes={previewMinutes}
-        onCreateTasks={async (meetingId, minutesMd) => {
-          const result = await parseMinutes(meetingId, minutesMd)
-          if (result.createdCount > 0) {
-            toast.success(`${result.createdCount}件のタスクを作成しました`)
-          } else {
-            toast.info('タスク化できる決定事項はありませんでした')
-          }
-          return result
+        // HIGH-N3: 本文は文書ビューの「サーバーにあると分かっている生の本文」から渡す。
+        // 一覧のキャッシュ(selectedMeeting.minutes_md)は2分で古くなり得るため、それには
+        // 頼らない（届いていなければキャッシュへフォールバックする）。
+        onPreviewMinutes={(meetingId) => {
+          const minutesMd = minutesViewRef.current?.getKnownRaw() ?? selectedMeeting.minutes_md ?? ''
+          return previewMinutes(meetingId, minutesMd)
         }}
+        // HIGH-1: 書けない人にはタスク化を渡さない
+        onCreateTasks={
+          canEdit
+            ? async (meetingId) => {
+                setIsTaskifying(true)
+                try {
+                  // タスク化の直前に、文書ビューの保留中の保存（デバウンス待ち）を即座に流す。
+                  // 競合中・保存失敗・通信中なら例外になる（確定していない本文を渡さないため）。
+                  let flushedContent: string
+                  try {
+                    flushedContent = await minutesViewRef.current!.flushPendingSave()
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : '議事録を保存できませんでした'
+                    toast.error(message)
+                    throw err
+                  }
+
+                  // RPCを呼ぶ直前にもう一度サーバーの状態を確かめる（flush確定〜RPC呼び出しの
+                  // 一瞬に、別の場所で書き換えられていないか）。判定は保存(0行)のときと同じ:
+                  // updated_atが同じ、または本文自体が変わっていなければ基準を差し替えて通す。
+                  // 本文が本当に違えば競合の帯を出して止める（HIGH-A）。
+                  try {
+                    await minutesViewRef.current!.ensureUpToDate()
+                  } catch (err) {
+                    const message =
+                      err instanceof Error
+                        ? err.message
+                        : '議事録が別の場所で更新されたため、タスク化を中止しました'
+                    toast.error(message)
+                    throw err
+                  }
+
+                  const result = await parseMinutes(meetingId, flushedContent)
+
+                  // 議事録は rpc_parse_meeting_minutes がサーバー側で書き換える（行末に目印を
+                  // 足す）ため、詳細を取り直して文書ビューを作り直す。取り直しは別に try する
+                  // （タスクはできたのに「失敗しました」と出さないため）。
+                  try {
+                    await fetchMeetingDetail(meetingId)
+                  } catch {
+                    // 無視。次に開いたときの取り直しに委ねる
+                  }
+                  setMinutesReloadToken((t) => t + 1)
+
+                  if (result.createdCount > 0) {
+                    toast.success(`${result.createdCount}件のタスクを作成しました`)
+                  } else {
+                    toast.info('タスク化できる決定事項はありませんでした')
+                  }
+                  return result
+                } finally {
+                  setIsTaskifying(false)
+                }
+              }
+            : undefined
+        }
       />
     )
-  }, [endMeeting, deleteMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery, parseMinutes, previewMinutes])
+  }, [
+    endMeeting,
+    deleteMeeting,
+    participants,
+    selectedMeeting,
+    selectedProposalId,
+    setInspector,
+    startMeeting,
+    updateQuery,
+    parseMinutes,
+    previewMinutes,
+    isMobile,
+    showInfo,
+    fetchMeetingDetail,
+    canEdit,
+    handleCloseFromInspector,
+  ])
 
   // ---- Proposal inspector ----
   // Reset detail when switching proposals (prevents stale data flash)
   const prevProposalIdRef = useRef(selectedProposalId)
   useEffect(() => {
     if (selectedProposalId !== prevProposalIdRef.current) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProposalDetail(null)
       prevProposalIdRef.current = selectedProposalId
     }
@@ -288,7 +390,6 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   useEffect(() => {
     if (!selectedProposalId) {
       if (!selectedMeetingId) setInspector(null)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProposalDetail(null)
       return
     }
@@ -341,6 +442,26 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     { label: spaceName || 'プロジェクト', href: `/${orgId}/project/${spaceId}` },
     { label: '議事録' },
   ]
+
+  // 議事録の文書ビュー（Wiki のエディタビューと同じ考え方: 選んだら一覧を丸ごと
+  // 差し替える。日程調整（proposal）は文書ビューを持たないため対象外のまま今の表示に留まる）
+  if (selectedMeeting && !selectedProposalId) {
+    return (
+      <MinutesDocumentView
+        key={`${selectedMeeting.id}-${minutesReloadToken}`}
+        ref={minutesViewRef}
+        orgId={orgId}
+        spaceId={spaceId}
+        meeting={selectedMeeting}
+        canEdit={canEdit}
+        forceReadOnly={isTaskifying}
+        onBack={() => updateQuery({ meeting: null })}
+        onOpenInfo={() => setShowInfo(true)}
+        updateMinutes={updateMinutes}
+        fetchMeetingDetail={fetchMeetingDetail}
+      />
+    )
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
