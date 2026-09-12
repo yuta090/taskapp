@@ -1,11 +1,21 @@
 'use client'
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { ArrowLeft, Info, Notebook } from '@phosphor-icons/react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type FocusEvent as ReactFocusEvent,
+} from 'react'
+import { ArrowLeft, Info, Notebook, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
 import { MinutesConflictError } from '@/lib/hooks/useMeetings'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useMinutesPresence, type MinutesPresencePeer } from '@/lib/hooks/useMinutesPresence'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { ErrorRetry, useConfirmDialog } from '@/components/shared'
 import { SAVING } from '@/lib/design/tokens'
@@ -96,6 +106,19 @@ interface Baseline {
   normalized: string
   /** parseMinutesMarkdown/serializeMinutesBlocks が例外を出したか。出たら読み取り専用に倒す */
   broken: boolean
+}
+
+/** 「〇〇さんが書いています」「〇〇さん、△△さんが書いています」 */
+function formatEditingMessage(peers: MinutesPresencePeer[]): string {
+  return `${peers.map((peer) => `${peer.name}さん`).join('、')}が書いています`
+}
+
+/** 表示に使う自分の名前。取れなければ「メンバー」（在席の既定と揃える） */
+function displayNameOf(user: { email?: string | null; user_metadata?: Record<string, unknown> } | null): string {
+  const metaName = user?.user_metadata?.name
+  if (typeof metaName === 'string' && metaName.trim()) return metaName.trim()
+  const localPart = user?.email?.split('@')[0]
+  return localPart || 'メンバー'
 }
 
 /** 例外が出ないはずのところへの念のための守り。変換が失敗しても画面を壊さず読み取り専用にする */
@@ -191,6 +214,32 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
 
     const onSaveStateChangeRef = useRef(onSaveStateChange)
     onSaveStateChangeRef.current = onSaveStateChange
+
+    // 「いま誰が書いているか」。書ける人だけが送り合う（閲覧だけの人・相手先は購読しない）。
+    // 本体がマウントされている＝詳細を読み込み終えているので、ここで始めてよい。
+    const { user } = useCurrentUser()
+    const selfUserId = user?.id ?? ''
+    const selfName = displayNameOf(user)
+    const { others, setEditing } = useMinutesPresence({
+      meetingId,
+      enabled: canEdit && !!selfUserId,
+      self: { userId: selfUserId, name: selfName },
+    })
+    const editingPeers = others.filter((peer) => peer.editing)
+
+    /** エディタ領域の外へカーソルが出たときだけ「書いています」を下ろす */
+    const handleEditorBlur = useCallback(
+      (e: ReactFocusEvent<HTMLDivElement>) => {
+        const next = e.relatedTarget as Node | null
+        if (next && e.currentTarget.contains(next)) return
+        setEditing(false)
+      },
+      [setEditing]
+    )
+
+    const handleEditorFocus = useCallback(() => {
+      setEditing(true)
+    }, [setEditing])
 
     // アンマウント時のクリーンアップ（deps=[]で1回だけ作られる）から常に最新の値・関数を
     // 読めるよう、ref に都度反映する（MEDIUM-A: 最初 canEdit=false だった場合の漏れ防止）
@@ -306,6 +355,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         if (!canEdit || forceReadOnly || parseBrokenRef.current) return
 
         const trimmed = trimTrailingBlank(content)
+        // 本文が実際に動いたときだけ「書いています」にする。BlockNote が初期表示直後に
+        // 同じ内容で呼んでくるぶんでは立てない。
+        if (trimmed !== currentContentRef.current) setEditing(true)
         currentContentRef.current = trimmed
 
         if (saveTimerRef.current) {
@@ -343,7 +395,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           void scheduleSave(trimmed)
         }, AUTO_SAVE_DEBOUNCE_MS)
       },
-      [canEdit, forceReadOnly, scheduleSave]
+      [canEdit, forceReadOnly, scheduleSave, setEditing]
     )
 
     const handleCopyDraft = useCallback(async () => {
@@ -490,8 +542,26 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           </div>
         )}
 
+        {/* 知らせるだけの帯。編集は止めない（同時に書けてしまったときの砦は保存の楽観ロック） */}
+        {editingPeers.length > 0 && (
+          <div
+            data-testid="minutes-presence-banner"
+            className="px-6 py-2 bg-indigo-50 border-b border-gray-100 flex-shrink-0"
+          >
+            <p className="text-xs text-indigo-ink flex items-center gap-1.5">
+              <PencilSimple className="text-sm flex-shrink-0" />
+              {formatEditingMessage(editingPeers)}
+            </p>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-4xl mx-auto py-6 px-4">
+          <div
+            data-testid="minutes-editor-region"
+            className="max-w-4xl mx-auto py-6 px-4"
+            onFocus={handleEditorFocus}
+            onBlur={handleEditorBlur}
+          >
             {!initialMinutesMd && (
               <div className="mb-4 flex items-start gap-2 text-sm text-gray-400">
                 <Notebook className="text-base mt-0.5 flex-shrink-0" />
