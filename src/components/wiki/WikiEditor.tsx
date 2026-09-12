@@ -10,6 +10,7 @@ import { filterSuggestionItems } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
 import { WikiFileLinkPicker } from './WikiFileLinkPicker'
+import { WikiPageLinkInsertPicker, type WikiPageInsertOption } from './WikiPageLinkInsertPicker'
 import type { ProjectFile } from '@/lib/hooks/useFiles'
 
 interface WikiEditorProps {
@@ -18,6 +19,8 @@ interface WikiEditorProps {
   editable?: boolean
   orgId?: string
   spaceId?: string
+  /** いま開いている Wiki ページの id。Wiki ページへのリンク挿入で自分自身を候補から外すために使う */
+  currentPageId?: string
 }
 
 // Custom schema with meetings block
@@ -41,17 +44,28 @@ const WIKI_DICTIONARY = {
 // 外部の URL を再生できず、エディタからアップロードする先も無いため
 const HIDDEN_SLASH_MENU_ITEMS = new Set(['video', 'audio'])
 
-export function WikiEditor({ initialContent, onChange, editable = true, orgId, spaceId }: WikiEditorProps) {
+export function WikiEditor({
+  initialContent,
+  onChange,
+  editable = true,
+  orgId,
+  spaceId,
+  currentPageId,
+}: WikiEditorProps) {
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false)
+  const [isWikiPageLinkPickerOpen, setIsWikiPageLinkPickerOpen] = useState(false)
+  // 本文の JSON を読み直すのは最初の1回だけ。`useCreateBlockNote` は初回しか
+  // initialContent を見ないので、描き直しのたびに parse すると丸ごと捨てる仕事になる
+  // （挿入パネルの開閉で描き直しが増えたため、ここで1回に絞る）。
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let parsedContent: any[] | undefined
-  if (initialContent) {
+  const [parsedContent] = useState<any[] | undefined>(() => {
+    if (!initialContent) return undefined
     try {
-      parsedContent = JSON.parse(initialContent)
+      return JSON.parse(initialContent)
     } catch {
-      parsedContent = undefined
+      return undefined
     }
-  }
+  })
 
   const editor = useCreateBlockNote({
     schema,
@@ -96,6 +110,15 @@ export function WikiEditor({ initialContent, onChange, editable = true, orgId, s
     }
   }
 
+  // 議事録エディタ(MinutesEditor)と同じ形でリンクを挿入する。`?page=<id>` のクエリ形は
+  // アプリ全体の Wiki ページの参照形式なので、ここで独自の形を作らない
+  const handleSelectWikiPage = (page: WikiPageInsertOption) => {
+    editor.insertInlineContent([
+      { type: 'link', href: `/${orgId}/project/${spaceId}/wiki?page=${page.id}`, content: page.title || '（無題）' },
+    ] as Parameters<typeof editor.insertInlineContent>[0])
+    setIsWikiPageLinkPickerOpen(false)
+  }
+
   return (
     <div className="wiki-editor">
       <BlockNoteView
@@ -125,17 +148,45 @@ export function WikiEditor({ initialContent, onChange, editable = true, orgId, s
           <div className="relative">
             <button
               type="button"
-              onClick={() => setIsFilePickerOpen(prev => !prev)}
+              onClick={() => {
+                setIsFilePickerOpen(prev => !prev)
+                setIsWikiPageLinkPickerOpen(false)
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
             >
               📎 ファイルリンクを挿入
             </button>
             {isFilePickerOpen && (
-              <div className="absolute bottom-full left-0 mb-2 z-10">
+              <div className="absolute bottom-full right-0 md:right-auto md:left-0 mb-2 z-10">
                 <WikiFileLinkPicker spaceId={spaceId} onSelect={handleSelectFile} />
               </div>
             )}
           </div>
+          {/* orgId/spaceId が無いとき（例: ポータルの読み取り専用表示）はリンク先が組み立てられないので出さない */}
+          {orgId && spaceId && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsWikiPageLinkPickerOpen(prev => !prev)
+                  setIsFilePickerOpen(false)
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+              >
+                🔗 Wikiページへのリンク
+              </button>
+              {isWikiPageLinkPickerOpen && (
+                <div className="absolute bottom-full right-0 md:right-auto md:left-0 mb-2 z-10">
+                  <WikiPageLinkInsertPicker
+                    orgId={orgId}
+                    spaceId={spaceId}
+                    onSelect={handleSelectWikiPage}
+                    excludePageId={currentPageId}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
