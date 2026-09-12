@@ -5,6 +5,7 @@ import { checkAuth } from '../auth/helpers.js'
 import { toWikiBlocksJson, type WikiBodyFormat } from '../lib/wikiBody.js'
 import { assertInSpace } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
+import { buildWikiPageLink, withLink } from '../lib/appLinks.js'
 
 const bodyFormatSchema = z
   .enum(['markdown', 'html', 'blocks'])
@@ -91,7 +92,10 @@ export async function wikiList(params: z.infer<typeof wikiListSchema>): Promise<
     .limit(params.limit)
 
   if (error) throw new Error('Wikiページ一覧の取得に失敗しました')
-  return (data || []) as WikiPage[]
+  // link はそのまま Wiki・議事録の本文に貼れる（画面側の「リンクを挿入」と同じ形）
+  return ((data || []) as WikiPage[]).map((page) =>
+    withLink(page, buildWikiPageLink(orgId, params.spaceId, page.id))
+  ) as WikiPage[]
 }
 
 export async function wikiGet(params: z.infer<typeof wikiGetSchema>): Promise<WikiPage> {
@@ -108,7 +112,7 @@ export async function wikiGet(params: z.infer<typeof wikiGetSchema>): Promise<Wi
     .single()
 
   if (error) throw new Error('Wikiページが見つかりません')
-  return data as WikiPage
+  return withLink(data as WikiPage, buildWikiPageLink(orgId, params.spaceId, params.pageId)) as WikiPage
 }
 
 export async function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Promise<WikiPage> {
