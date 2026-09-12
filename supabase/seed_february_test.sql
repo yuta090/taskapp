@@ -55,15 +55,15 @@ BEGIN
   -- ==========================================================================
   -- 5. マイルストーン
   -- ==========================================================================
-  INSERT INTO milestones (id, org_id, space_id, name, status, due_date, order_key, created_at)
+  INSERT INTO milestones (id, org_id, space_id, name, due_date, order_key, created_at)
   VALUES
     ('bbbbbbbb-0001-0000-0000-000000000001', v_org_id, v_space_id,
-     '要件定義完了', 'done', '2026-01-15', 1, v_now - interval '60 days'),
+     '要件定義完了', '2026-01-15', 1, v_now - interval '60 days'),
     ('bbbbbbbb-0002-0000-0000-000000000001', v_org_id, v_space_id,
-     'UI/UXデザイン完了', 'in_progress', '2026-02-15', 2, v_now - interval '30 days'),
+     'UI/UXデザイン完了', '2026-02-15', 2, v_now - interval '30 days'),
     ('bbbbbbbb-0003-0000-0000-000000000001', v_org_id, v_space_id,
-     'フロントエンド実装', 'backlog', '2026-03-01', 3, v_now - interval '30 days')
-  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, due_date = EXCLUDED.due_date;
+     'フロントエンド実装', '2026-03-01', 3, v_now - interval '30 days')
+  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, due_date = EXCLUDED.due_date;
 
   -- ==========================================================================
   -- 既存タスクを削除（cccccccc-002x/003x系のみ）

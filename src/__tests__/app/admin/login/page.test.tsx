@@ -158,7 +158,9 @@ describe('AdminLoginPage — パスワードログイン後の運営判定（rpc
     expect(signOutMock).not.toHaveBeenCalled()
   })
 
-  it('42501でもmessageがmfa_requiredでなければサインアウトし、確認できなかった旨を出す', async () => {
+  // 一時的な失敗（例: 42501だが二要素の途中とは別の理由）はサインアウトしない。
+  // メール・パスワードを入力し直させず、そのまま再試行できるようにする
+  it('42501でもmessageがmfa_requiredでなければ、サインアウトせず確認できなかった旨を出す（再試行できる）', async () => {
     signInResponse = { data: { user: { id: 'admin-1' } }, error: null }
     rpcResponse = { data: null, error: { code: '42501', message: 'permission denied for function rpc_is_superadmin' } }
 
@@ -167,8 +169,11 @@ describe('AdminLoginPage — パスワードログイン後の運営判定（rpc
     fireEvent.change(screen.getByPlaceholderText('パスワードを入力'), { target: { value: 'password123' } })
     fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
 
-    await waitFor(() => expect(signOutMock).toHaveBeenCalled())
-    expect(screen.getByText('確認できませんでした。もう一度お試しください。')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('確認できませんでした。もう一度お試しください。')).toBeInTheDocument()
+    })
+    expect(signOutMock).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'ログイン' })).not.toBeDisabled()
   })
 
   // window.location.assign() は遷移を予約するだけですぐ返るため、成功直後に loading を解除すると

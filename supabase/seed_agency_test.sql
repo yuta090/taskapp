@@ -99,18 +99,18 @@ BEGIN
   -- ==========================================================================
   DELETE FROM milestones WHERE space_id = v_space_id;
 
-  INSERT INTO milestones (id, org_id, space_id, name, status, due_date, order_key, created_at) VALUES
+  INSERT INTO milestones (id, org_id, space_id, name, due_date, order_key, created_at) VALUES
     ('eeeeeeee-0001-0000-0000-000000000001', v_org_id, v_space_id,
-     'プリプロダクション', 'done',
+     'プリプロダクション',
      (v_now - interval '14 days')::date, 1, v_now - interval '30 days'),
     ('eeeeeeee-0002-0000-0000-000000000001', v_org_id, v_space_id,
-     '撮影・制作', 'in_progress',
+     '撮影・制作',
      (v_now + interval '14 days')::date, 2, v_now - interval '20 days'),
     ('eeeeeeee-0003-0000-0000-000000000001', v_org_id, v_space_id,
-     'ポストプロダクション', 'backlog',
+     'ポストプロダクション',
      (v_now + interval '30 days')::date, 3, v_now - interval '20 days'),
     ('eeeeeeee-0004-0000-0000-000000000001', v_org_id, v_space_id,
-     '納品・検収', 'backlog',
+     '納品・検収',
      (v_now + interval '45 days')::date, 4, v_now - interval '20 days');
 
   -- ==========================================================================

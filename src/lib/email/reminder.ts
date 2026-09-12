@@ -12,6 +12,7 @@ import { buildEmailCopy } from './templates/core'
 import { reminderKeyFor, reminderVarsByName } from './templates/reminder'
 import { loadEmailTemplate } from './templates/loadEmailTemplate'
 import type { ReminderTaskRef } from '@/lib/reminders/computeClientReminders'
+import { sendEmailWithRetry } from './sendWithRetry'
 
 // 遅延初期化でビルド時エラーを回避
 let resendClient: Resend | null = null
@@ -90,7 +91,7 @@ export async function sendReminderEmail(params: SendReminderEmailParams) {
 
   try {
     const resend = getResendClient()
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await sendEmailWithRetry(resend, {
       // 相手先には「{事務所名} (AgentPM)」の名前で届き、返信は操作した担当者へ
       from: buildFrom({ orgName: senderOrgName }),
       replyTo: sanitizeReplyTo(replyTo),

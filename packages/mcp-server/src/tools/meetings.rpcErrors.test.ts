@@ -44,13 +44,13 @@ vi.mock('../config.js', () => ({ getAuthContext: () => ({ userId: ACTOR }) }))
 const { meetingStart, meetingEnd } = await import('./meetings.js')
 
 describe('meeting_start / meeting_end — RPCの断りの理由を決まった日本語にする', () => {
-  it('meeting_end: 進行中でない会議を終了しようとすると409で現在の状態を含める', async () => {
+  it('meeting_end: 進行中でない会議を終了しようとすると409で現在の状態を日本語で含める', async () => {
     rpcError = { message: 'Meeting can only end from in_progress status, current: planned' }
 
     const err = await meetingEnd({ spaceId: SPACE, meetingId: MEETING }).catch((e: unknown) => e)
 
     expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
-    expect((err as Error).message).toContain('planned')
+    expect((err as Error).message).toContain('開始前')
   })
 
   it('meeting_start: 権限が無い場合は ToolUserError(403)', async () => {

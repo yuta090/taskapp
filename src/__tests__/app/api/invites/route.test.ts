@@ -16,7 +16,10 @@ let spaceMembershipResponse: { data: { role: string } | null }
 let organizationResponse: { data: { name: string } | null }
 let spaceResponse: { data: { name: string } | null }
 let profileResponse: { data: { display_name: string } | null }
-let rpcResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
+let rpcResponse: {
+  data: Record<string, unknown> | null
+  error: { message: string; code?: string; details?: string } | null
+}
 let setTemplateResponse: { data: null; error: { message: string } | null }
 
 const sendInviteEmailMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true, messageId: 'msg-1' }))
@@ -196,14 +199,58 @@ describe('POST /api/invites', () => {
     expect(data.error).not.toMatch(/Organization has reached/)
   })
 
-  it('人数枠以外のRPCエラーは従来どおり400でメッセージを返す', async () => {
+  // 理由を利用者に説明できない例外は、DB の生の文言を画面に出さない（サーバーログにだけ残す）
+  it('人数枠以外のRPCエラーは、生の文言を返さず日本語の一律案内＋400にする', async () => {
     rpcResponse = { data: null, error: { message: 'something else went wrong' } }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     const response = await callPost(baseBody)
     const data = await response.json()
 
     expect(response.status).toBe(400)
-    expect(data.error).toBe('something else went wrong')
+    expect(data.error).toBe('招待の作成に失敗しました。時間をおいてもう一度お試しください。')
+    expect(data.error).not.toMatch(/something else/)
+    expect(errorSpy).toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  // 組織の役割と招待の種類が合わないときは、DB が決まった符号で断る（20260912151932_invite_role_consistency.sql）。
+  // 画面には「次にできること」が分かる日本語＋409 を返す
+  it('IRC01（すでに社内メンバーとして参加）は409＋日本語で返す', async () => {
+    rpcResponse = {
+      data: null,
+      error: { message: 'invite_org_role_conflict', code: 'IRC01', details: 'org_role=member invite_role=client' },
+    }
+
+    const response = await callPost({ ...baseBody, role: 'client' })
+    const data = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(data.error).toContain('社内メンバーとして参加している')
+    expect(data.error).not.toMatch(/invite_org_role_conflict/)
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('IRC02（種類の違う承諾待ちがある）は409＋取り消しの案内を返す', async () => {
+    rpcResponse = { data: null, error: { message: 'invite_pending_kind_conflict', code: 'IRC02' } }
+
+    const response = await callPost(baseBody)
+    const data = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(data.error).toContain('先にその招待を取り消してください')
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('IRC03（協力会社は代理店モードだけ）は409＋日本語で返す', async () => {
+    rpcResponse = { data: null, error: { message: 'invite_vendor_requires_agency_mode', code: 'IRC03' } }
+
+    const response = await callPost(baseBody)
+    const data = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(data.error).toContain('代理店モード')
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
   })
 
   it('returns 409 with a Japanese message when the invitee is already a member (RPC dedup guard)', async () => {

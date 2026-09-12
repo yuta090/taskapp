@@ -7,6 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
 import { seatLimitFromRpcError } from '@/lib/billing/seatLimitMessage'
+import { inviteRoleConflictMessage } from '@/lib/invites/roleConflictMessage'
 import { INVITE_PLACEHOLDERS } from '@/lib/email/templates/invite'
 import { isTemplateEdited, validateTemplateOverride } from '@/lib/email/templates/inviteOverride'
 import { resolveEmailTemplate } from '@/lib/email/templates/orgEmailTemplate'
@@ -179,8 +180,17 @@ export async function POST(request: NextRequest) {
           { status: seat.status }
         )
       }
+      // 組織の役割と招待の種類が合わない（DB の決まり・IRC01 / IRC02 / IRC03）は、
+      // 次にできることが分かる日本語＋409 に畳む
+      const conflict = inviteRoleConflictMessage(error)
+      if (conflict) {
+        return NextResponse.json({ error: conflict }, { status: 409 })
+      }
+      // それ以外は理由を利用者に説明できないため、DB の文言はサーバーログにだけ残し、
+      // 画面には一律の日本語だけを返す（承諾API と同じ扱い）
+      console.error('rpc_create_invite failed:', error.message)
       return NextResponse.json(
-        { error: error.message },
+        { error: '招待の作成に失敗しました。時間をおいてもう一度お試しください。' },
         { status: 400 }
       )
     }
