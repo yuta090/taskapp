@@ -39,7 +39,7 @@ vi.mock('@/lib/supabase/admin', () => ({
   })),
 }))
 
-const { fetchRecentActivity } = await import('@/app/admin/(panel)/dashboard/page')
+const { fetchRecentActivity } = await import('@/lib/admin/recentActivity')
 
 describe('fetchRecentActivity', () => {
   beforeEach(() => {
