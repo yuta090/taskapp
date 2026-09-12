@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
+import { hideDbError } from '../lib/dbErrors.js';
 import { parseTaskImportCsv, planTaskImport, } from '../lib/taskImportPlan.js';
 /**
  * task_import — CSV からタスクを一括作成する（`agentpm task import` の実体）。
@@ -38,10 +39,9 @@ function chunk(arr, size) {
 /**
  * スペース内の既存タスクを「タイトル → id」で全件引く（重複スキップと parent 解決に使う）。
  *
- * ⚠ 以前は CSV のタイトル群を `.in('title', [...])` で問い合わせていたが、日本語タイトルは
- *   URL エンコードで3倍に膨らみ、200件で URL 長の上限を超えて fetch 自体が失敗した
- *   （本番で 500・ローカルで "fetch failed"）。タイトルを URL に載せず、スペースのタスクを
- *   ページングで全件取ってメモリ上で突き合わせる。1スペースのタスク数は有限（上限 20 ページ×1000）。
+ * タイトルは URL に載せず、スペースのタスクをページングで全件取ってメモリ上で突き合わせる
+ * （日本語タイトルを `.in('title', [...])` で問い合わせるとURLエンコードで長さが膨らむため）。
+ * 1スペースのタスク数は有限（上限 20 ページ×1000）。
  */
 async function loadExistingTasks(spaceId) {
     const supabase = getSupabaseClient();
@@ -55,7 +55,7 @@ async function loadExistingTasks(spaceId) {
             .order('created_at', { ascending: true })
             .range(from, from + EXISTING_PAGE_SIZE - 1);
         if (error)
-            throw new Error(`既存タスクの確認に失敗しました: ${error.message}`);
+            throw hideDbError(error, 'task_import (existing tasks)', '既存タスクの確認に失敗しました');
         const rows = (data ?? []);
         for (const row of rows) {
             if (!map.has(row.title))
@@ -105,7 +105,7 @@ async function loadUserDirectory(spaceId, needEmails) {
         for (let page = 1; page <= LIST_USERS_MAX_PAGES; page++) {
             const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: LIST_USERS_PER_PAGE });
             if (error)
-                throw new Error(`ユーザー情報の取得に失敗しました: ${error.message}`);
+                throw hideDbError(error, 'task_import (listUsers)', 'ユーザー情報の取得に失敗しました');
             const users = data?.users ?? [];
             for (const u of users) {
                 if (u.email && memberIds.has(u.id))
@@ -124,7 +124,7 @@ async function loadMilestones(spaceId) {
         .select('id, name')
         .eq('space_id', spaceId);
     if (error)
-        throw new Error(`マイルストーンの取得に失敗しました: ${error.message}`);
+        throw hideDbError(error, 'task_import (milestones)', 'マイルストーンの取得に失敗しました');
     const map = new Map();
     for (const m of (data ?? [])) {
         if (!map.has(m.name))

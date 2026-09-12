@@ -5,6 +5,7 @@ import { authorizeAndLog, type ActionType } from '../auth/index.js'
 import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js'
 import { mapRaiseExceptionError, mapConfirmProposalError } from '../lib/rpcErrors.js'
 import { proposalStatusLabel } from '../lib/statusLabels.js'
+import { hideDbError } from '../lib/dbErrors.js'
 
 // Schemas
 export const schedulingListSchema = z.object({
@@ -111,7 +112,7 @@ export async function schedulingList(params: z.infer<typeof schedulingListSchema
 
   const { data, error } = await query
 
-  if (error) throw new Error(`日程調整一覧の取得に失敗しました: ${error.message}`)
+  if (error) throw hideDbError(error, 'list_scheduling_proposals', '日程調整一覧の取得に失敗しました')
 
   return {
     proposals: (data || []).map((p: { id: string; proposal_respondents?: Array<unknown>; proposal_slots?: Array<unknown> } & Record<string, unknown>) => ({
@@ -336,7 +337,7 @@ export async function schedulingCancel(params: z.infer<typeof schedulingCancelSc
       .eq('status', 'open')
       .select('id')
 
-    if (error) throw new Error(`キャンセルに失敗しました: ${error.message}`)
+    if (error) throw hideDbError(error, 'cancel_scheduling_proposal', 'キャンセルに失敗しました')
     if (!updated || updated.length === 0) {
       throw new Error('提案は既に変更されています（別の操作が先に実行された可能性があります）')
     }
@@ -362,7 +363,7 @@ export async function schedulingCancel(params: z.infer<typeof schedulingCancelSc
     .eq('status', 'open')
     .select('id')
 
-  if (error) throw new Error(`期限延長に失敗しました: ${error.message}`)
+  if (error) throw hideDbError(error, 'cancel_scheduling_proposal (extend)', '期限延長に失敗しました')
   if (!updated || updated.length === 0) {
     throw new Error('提案は既に変更されています（別の操作が先に実行された可能性があります）')
   }

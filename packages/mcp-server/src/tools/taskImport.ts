@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { config, getAuthContext } from '../config.js'
 import { authorizeAndLog } from '../auth/index.js'
+import { hideDbError } from '../lib/dbErrors.js'
 import {
   parseTaskImportCsv,
   planTaskImport,
@@ -71,10 +72,9 @@ function chunk<T>(arr: T[], size: number): T[][] {
 /**
  * スペース内の既存タスクを「タイトル → id」で全件引く（重複スキップと parent 解決に使う）。
  *
- * ⚠ 以前は CSV のタイトル群を `.in('title', [...])` で問い合わせていたが、日本語タイトルは
- *   URL エンコードで3倍に膨らみ、200件で URL 長の上限を超えて fetch 自体が失敗した
- *   （本番で 500・ローカルで "fetch failed"）。タイトルを URL に載せず、スペースのタスクを
- *   ページングで全件取ってメモリ上で突き合わせる。1スペースのタスク数は有限（上限 20 ページ×1000）。
+ * タイトルは URL に載せず、スペースのタスクをページングで全件取ってメモリ上で突き合わせる
+ * （日本語タイトルを `.in('title', [...])` で問い合わせるとURLエンコードで長さが膨らむため）。
+ * 1スペースのタスク数は有限（上限 20 ページ×1000）。
  */
 async function loadExistingTasks(spaceId: string): Promise<Map<string, string>> {
   const supabase = getSupabaseClient()
@@ -87,7 +87,7 @@ async function loadExistingTasks(spaceId: string): Promise<Map<string, string>> 
       .eq('space_id', spaceId)
       .order('created_at', { ascending: true })
       .range(from, from + EXISTING_PAGE_SIZE - 1)
-    if (error) throw new Error(`既存タスクの確認に失敗しました: ${error.message}`)
+    if (error) throw hideDbError(error, 'task_import (existing tasks)', '既存タスクの確認に失敗しました')
     const rows = (data ?? []) as { id: string; title: string }[]
     for (const row of rows) {
       if (!map.has(row.title)) map.set(row.title, row.id)
@@ -134,7 +134,7 @@ async function loadUserDirectory(spaceId: string, needEmails: boolean): Promise<
   if (needEmails) {
     for (let page = 1; page <= LIST_USERS_MAX_PAGES; page++) {
       const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: LIST_USERS_PER_PAGE })
-      if (error) throw new Error(`ユーザー情報の取得に失敗しました: ${error.message}`)
+      if (error) throw hideDbError(error, 'task_import (listUsers)', 'ユーザー情報の取得に失敗しました')
       const users = data?.users ?? []
       for (const u of users) {
         if (u.email && memberIds.has(u.id)) byEmail.set(u.email.toLowerCase(), u.id)
@@ -152,7 +152,7 @@ async function loadMilestones(spaceId: string): Promise<Map<string, string>> {
     .from('milestones')
     .select('id, name')
     .eq('space_id', spaceId)
-  if (error) throw new Error(`マイルストーンの取得に失敗しました: ${error.message}`)
+  if (error) throw hideDbError(error, 'task_import (milestones)', 'マイルストーンの取得に失敗しました')
   const map = new Map<string, string>()
   for (const m of (data ?? []) as { id: string; name: string }[]) {
     if (!map.has(m.name)) map.set(m.name, m.id)
