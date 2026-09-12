@@ -294,7 +294,13 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
             throw err
           }
         }}
-        onPreviewMinutes={previewMinutes}
+        // HIGH-N3: 本文は文書ビューの「サーバーにあると分かっている生の本文」から渡す。
+        // 一覧のキャッシュ(selectedMeeting.minutes_md)は2分で古くなり得るため、それには
+        // 頼らない（届いていなければキャッシュへフォールバックする）。
+        onPreviewMinutes={(meetingId) => {
+          const minutesMd = minutesViewRef.current?.getKnownRaw() ?? selectedMeeting.minutes_md ?? ''
+          return previewMinutes(meetingId, minutesMd)
+        }}
         // HIGH-1: 書けない人にはタスク化を渡さない
         onCreateTasks={
           canEdit

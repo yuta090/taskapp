@@ -57,6 +57,7 @@ function makeMeeting(overrides: Partial<Meeting> = {}): Meeting {
 const mockParseMinutes = vi.fn()
 const mockFetchMeetingDetail = vi.fn()
 const mockUpdateMinutes = vi.fn()
+const mockPreviewMinutes = vi.fn()
 
 vi.mock('@/lib/hooks/useMeetings', () => ({
   useMeetings: () => ({
@@ -71,7 +72,7 @@ vi.mock('@/lib/hooks/useMeetings', () => ({
     startMeeting: vi.fn(),
     endMeeting: vi.fn(),
     parseMinutes: mockParseMinutes,
-    previewMinutes: vi.fn(),
+    previewMinutes: mockPreviewMinutes,
     updateMinutes: mockUpdateMinutes,
   }),
 }))
@@ -95,12 +96,14 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
 const mockFlushPendingSave = vi.fn().mockResolvedValue('flushed-content')
 const mockEnsureUpToDate = vi.fn().mockResolvedValue(undefined)
 const mockGetBaseUpdatedAt = vi.fn().mockReturnValue('2026-09-01T00:00:00.111111+00')
+const mockGetKnownRaw = vi.fn().mockReturnValue('flushed-content')
 const mockConfirmLeave = vi.fn().mockResolvedValue(true)
 
 interface FakeHandle {
   flushPendingSave: () => Promise<string>
   ensureUpToDate: () => Promise<void>
   getBaseUpdatedAt: () => string | null
+  getKnownRaw: () => string | null
   confirmLeave: () => Promise<boolean>
 }
 
@@ -113,6 +116,7 @@ vi.mock('@/components/meeting/MinutesDocumentView', () => ({
       flushPendingSave: mockFlushPendingSave,
       ensureUpToDate: mockEnsureUpToDate,
       getBaseUpdatedAt: mockGetBaseUpdatedAt,
+      getKnownRaw: mockGetKnownRaw,
       confirmLeave: mockConfirmLeave,
     }))
     return (
@@ -140,9 +144,11 @@ beforeEach(() => {
   searchParamsValue = 'meeting=m1'
   mockFlushPendingSave.mockResolvedValue('flushed-content')
   mockEnsureUpToDate.mockResolvedValue(undefined)
+  mockGetKnownRaw.mockReturnValue('flushed-content')
   mockConfirmLeave.mockResolvedValue(true)
   mockFetchMeetingDetail.mockResolvedValue(makeMeeting())
   mockParseMinutes.mockResolvedValue({ createdCount: 1, createdTasks: [], updatedMinutes: 'flushed-content' })
+  mockPreviewMinutes.mockResolvedValue({ newSpecCount: 0, existingSpecCount: 0, newSpecs: [], existingSpecs: [] })
   historyReplaceSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
 })
 
@@ -206,6 +212,20 @@ describe('MeetingsPageClient 議事録の文書ビュー', () => {
     // flush 確定後、RPC を呼ぶ前にもう一度サーバーの状態を確かめる(HIGH-1/HIGH-A)
     expect(mockEnsureUpToDate).toHaveBeenCalledTimes(1)
     expect(mockParseMinutes).toHaveBeenCalledWith('m1', 'flushed-content')
+  })
+
+  it('HIGH-N3: 一覧のキャッシュ(minutes_md)が古くても、文書ビューのgetKnownRawの本文でプレビューする', async () => {
+    // 一覧のキャッシュが minutes_md 無しの行に置き換わった状態を模す
+    mockGetKnownRaw.mockReturnValue('文書ビューの生の本文')
+    renderPage()
+    await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
+    const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
+
+    await act(async () => {
+      await lastInspectorElement.props.onPreviewMinutes('m1')
+    })
+
+    expect(mockPreviewMinutes).toHaveBeenCalledWith('m1', '文書ビューの生の本文')
   })
 
   it('HIGH-A: ensureUpToDate が例外を投げたらタスク化を中止する（会議終了直後などの見せかけの競合は自己修復されて通る）', async () => {

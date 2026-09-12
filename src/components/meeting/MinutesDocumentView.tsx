@@ -58,6 +58,13 @@ export interface MinutesDocumentViewHandle {
   /** 今わかっている保存の基準(updated_at)。詳細をまだ読み込めていなければ null */
   getBaseUpdatedAt: () => string | null
   /**
+   * 今わかっている「サーバーにあると分かっている生の本文」。詳細をまだ読み込めて
+   * いなければ null。一覧のキャッシュ(minutes_md)に頼らず候補確認・タスク化の本文を
+   * 用意したい呼び出し側（MeetingsPageClient → MeetingInspector）のために公開する
+   * （HIGH-N3）。副作用は無い（同期・通信しない）。
+   */
+  getKnownRaw: () => string | null
+  /**
    * 保存されていない書きかけがあれば確認してから離れてよいか判定する（MEDIUM-B）。
    * true を返したときだけ呼び出し側は実際に画面を離れる。
    */
@@ -113,8 +120,11 @@ interface MinutesDocumentBodyHandle {
   flushPendingSave: () => Promise<string>
   ensureUpToDate: () => Promise<void>
   getBaseUpdatedAt: () => string
+  getKnownRaw: () => string
   /** 保存されていない書きかけ(未確定)があるか */
   hasUnconfirmedDraft: () => boolean
+  /** 「捨てて戻る」が選ばれた印を立てる。以後アンマウント時の後始末で送らない（N4） */
+  discardDraft: () => void
 }
 
 interface MinutesDocumentBodyProps {
@@ -176,6 +186,8 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const pendingContentRef = useRef<string | null>(null)
     const lastSaveFailedRef = useRef(false)
     const saveChainRef = useRef<Promise<void> | null>(null)
+    // 「捨てて戻る」が選ばれた印（N4）。立っている間はアンマウント時の後始末で送らない
+    const discardedRef = useRef(false)
 
     const onSaveStateChangeRef = useRef(onSaveStateChange)
     onSaveStateChangeRef.current = onSaveStateChange
@@ -301,10 +313,14 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           saveTimerRef.current = null
         }
 
+        const isBlank = trimmed.trim() === ''
+
         // 保存が通信中なら、保留中に積む本文は常に「今の本文」に上書きする。基準と
         // 一致するかどうかに関わらず行う（LOW/R10: 戻し入力で古い内容が送られないように）。
+        // ただし空になった場合は積まない(null にする) — 通信中に全部消しても、確定した
+        // 本文が空で上書きされないように（HIGH-N2）。
         if (savingRef.current) {
-          pendingContentRef.current = trimmed
+          pendingContentRef.current = isBlank ? null : trimmed
         }
 
         // 開いたときと同じ内容（正規化済み比較）なら保存しない。BlockNote が初期表示
@@ -314,7 +330,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           return
         }
 
-        if (trimmed.trim() === '') {
+        if (isBlank) {
           setIsEmpty(true)
           return
         }
@@ -343,6 +359,10 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     // 本文を scheduleSave 経由で送る（保存と全く同じ道: 通信中なら次に回し、0行なら基準を
     // 差し替える）。state を新たに作らずrefだけで完結させ、常に最新のcanEdit/scheduleSaveを
     // 見る（MEDIUM-A）。
+    // N6（既知の限界）: ブラウザの戻る・左メニューでの離脱はコンポーネントの同期的な
+    // アンマウントとして届くため、ここで確認ダイアログを挟むことはできない（Next.js
+    // App Router の制約）。保留中の本文はここで送るが、競合中・保存失敗中の書きかけは
+    // （確認する間が無いため）そのまま消える。
     useEffect(() => {
       return () => {
         if (savedBadgeTimerRef.current) clearTimeout(savedBadgeTimerRef.current)
@@ -351,7 +371,17 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           saveTimerRef.current = null
         }
         const isDirty = currentContentRef.current !== baselineRef.current
-        if (canEditRef.current && !conflictRef.current && !parseBrokenRef.current && isDirty) {
+        // 空にしてから離れても保存しない（CRITICAL-N1: 消したことがそのまま確定して
+        // 議事録が空で上書きされないように）。「捨てて戻る」が選ばれていた場合も送らない（N4）。
+        const isBlank = currentContentRef.current.trim() === ''
+        if (
+          canEditRef.current &&
+          !conflictRef.current &&
+          !parseBrokenRef.current &&
+          !discardedRef.current &&
+          isDirty &&
+          !isBlank
+        ) {
           void scheduleSaveRef.current(currentContentRef.current)
         }
       }
@@ -397,6 +427,8 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           return knownServerRawRef.current
         },
         ensureUpToDate: async () => {
+          // N5: 詳細は1回だけ読む(この結果をそのまま使う。tryRebaseFromServerは呼ばない
+          // ——呼ぶと同じ詳細をもう1回読みに行ってしまう)。
           let fresh: Meeting | null = null
           try {
             fresh = await fetchMeetingDetail(meetingId)
@@ -405,16 +437,25 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           }
           if (!fresh) throw new Error('議事録の状態を確かめられませんでした。もう一度お試しください')
           if (fresh.updated_at === baseUpdatedAtRef.current) return
-          if (await tryRebaseFromServer()) return
+          const freshRaw = fresh.minutes_md ?? ''
+          if (freshRaw === knownServerRawRef.current) {
+            // 本文は変わっていない(開始/終了などでupdated_atだけ進んだ) → 基準だけ差し替える
+            baseUpdatedAtRef.current = fresh.updated_at
+            return
+          }
           // 本文が本当に違う（本当の競合）→ 帯を出す（「最新を読み込む」も押せるように）
           conflictRef.current = true
           setConflict(true)
           throw new MinutesConflictError('この議事録は、別の場所で更新されています。保存できていません')
         },
         getBaseUpdatedAt: () => baseUpdatedAtRef.current,
+        getKnownRaw: () => knownServerRawRef.current,
         hasUnconfirmedDraft: () => currentContentRef.current !== baselineRef.current,
+        discardDraft: () => {
+          discardedRef.current = true
+        },
       }),
-      [canEdit, scheduleSave, fetchMeetingDetail, meetingId, tryRebaseFromServer]
+      [canEdit, scheduleSave, fetchMeetingDetail, meetingId]
     )
 
     const effectiveEditable = canEdit && !forceReadOnly && !parseBrokenRef.current
@@ -544,12 +585,16 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
           return true
         }
         if (err instanceof MinutesConflictError || err instanceof MinutesSaveFailedError) {
-          return confirm({
+          const ok = await confirm({
             title: '保存されていない書きかけがあります',
             message: '保存されていない書きかけを捨てて戻りますか？',
             confirmLabel: '捨てて戻る',
             variant: 'danger',
           })
+          // N4: 「捨てて戻る」を選んだら印を立てる。以後アンマウント時の後始末で
+          // この書きかけを送らない（送ってしまうと「捨てた」ことにならないため）。
+          if (ok) bodyRef.current?.discardDraft()
+          return ok
         }
         return true
       }
@@ -573,6 +618,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
           return bodyRef.current.ensureUpToDate()
         },
         getBaseUpdatedAt: () => bodyRef.current?.getBaseUpdatedAt() ?? null,
+        getKnownRaw: () => bodyRef.current?.getKnownRaw() ?? null,
         confirmLeave,
       }),
       [confirmLeave]

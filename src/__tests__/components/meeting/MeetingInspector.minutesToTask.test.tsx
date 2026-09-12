@@ -85,7 +85,7 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     openMinutesTab()
 
     await waitFor(() => {
-      expect(onPreviewMinutes).toHaveBeenCalledWith('m1', MINUTES)
+      expect(onPreviewMinutes).toHaveBeenCalledWith('m1')
     })
 
     // 新規候補が2件表示される
@@ -116,7 +116,7 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     fireEvent.click(button)
 
     await waitFor(() => {
-      expect(onCreateTasks).toHaveBeenCalledWith('m1', MINUTES)
+      expect(onCreateTasks).toHaveBeenCalledWith('m1')
     })
 
     // 作成結果（2件）が表示され、候補ボタンは消える
@@ -147,8 +147,13 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     expect(screen.queryByTestId('minutes-taskify-button')).toBeNull()
   })
 
-  it('議事録が無い会議ではプレビューを呼ばない', () => {
-    const onPreviewMinutes = vi.fn()
+  it('HIGH-N3: 一覧キャッシュ上は議事録が無くても(meeting.minutes_md=null)プレビューは呼ぶ（本文はページ側が用意する）', () => {
+    const onPreviewMinutes = vi.fn().mockResolvedValue({
+      newSpecCount: 0,
+      existingSpecCount: 0,
+      newSpecs: [],
+      existingSpecs: [],
+    })
     render(
       <MeetingInspector
         meeting={makeMeeting({ minutes_md: null })}
@@ -158,7 +163,7 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
       />
     )
     openMinutesTab()
-    expect(onPreviewMinutes).not.toHaveBeenCalled()
+    expect(onPreviewMinutes).toHaveBeenCalledWith('m1')
   })
 
   it('コールバック未提供でもタブは開けタスク化パネルは出さない（後方互換）', () => {
@@ -197,8 +202,9 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(2))
   })
 
-  it('LOW: 議事録が無く候補がまだ取れていないときは「ありません」を出さない', () => {
-    const onPreviewMinutes = vi.fn()
+  it('LOW: 候補がまだ取れていない(プレビューが未解決の)ときは「ありません」を出さない', () => {
+    // 解決しない Promise → previewLoading のまま。まだ preview===null のはず
+    const onPreviewMinutes = vi.fn().mockReturnValue(new Promise(() => {}))
     render(
       <MeetingInspector
         meeting={makeMeeting({ minutes_md: null })}

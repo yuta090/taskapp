@@ -28,10 +28,15 @@ interface MeetingInspectorProps {
   onEnd?: () => void
   /** C2: 会議と議事録を削除する。日程調整に紐づく場合は失敗する */
   onDelete?: () => Promise<void>
-  /** AT-005/#87: 議事録から SPEC 行のタスク化候補をプレビュー（生成はしない） */
-  onPreviewMinutes?: (meetingId: string, minutesMd: string) => Promise<MinutesPreviewResult>
-  /** AT-005/#87: 議事録の未処理 SPEC 行をタスク化して結果を返す */
-  onCreateTasks?: (meetingId: string, minutesMd: string) => Promise<ParseMinutesResult>
+  /**
+   * AT-005/#87: 議事録から SPEC 行のタスク化候補をプレビュー（生成はしない）。
+   * 本文は渡さない — ページ側(文書ビューの「サーバーにあると分かっている生の本文」)が
+   * 用意する。一覧のキャッシュ(meeting.minutes_md)は2分で古くなり得るため、ここでは
+   * 頼らない（HIGH-N3）。
+   */
+  onPreviewMinutes?: (meetingId: string) => Promise<MinutesPreviewResult>
+  /** AT-005/#87: 議事録の未処理 SPEC 行をタスク化して結果を返す。本文は渡さない（同上） */
+  onCreateTasks?: (meetingId: string) => Promise<ParseMinutesResult>
 }
 
 type Tab = 'info' | 'taskify' | 'decisions'
@@ -84,16 +89,18 @@ export function MeetingInspector({
     setTaskError(null)
   }, [meeting.id])
 
-  // 議事録タブを開いたときに一度だけタスク化候補をプレビュー
+  // 議事録タブを開いたときに一度だけタスク化候補をプレビュー。議事録の有無
+  // (meeting.minutes_md)では止めない — 一覧のキャッシュが古くなっていても、
+  // 本文の用意はページ側(onPreviewMinutes の実装)に任せる（HIGH-N3）。
   useEffect(() => {
     if (activeTab !== 'taskify') return
-    if (!meeting.minutes_md || !onPreviewMinutes) return
+    if (!onPreviewMinutes) return
     if (createResult) return
     if (previewKeyRef.current === meeting.id) return
     previewKeyRef.current = meeting.id
     let cancelled = false
     setPreviewLoading(true)
-    onPreviewMinutes(meeting.id, meeting.minutes_md)
+    onPreviewMinutes(meeting.id)
       .then((result) => {
         if (!cancelled) setPreview(result)
       })
@@ -106,7 +113,7 @@ export function MeetingInspector({
     return () => {
       cancelled = true
     }
-  }, [activeTab, meeting.id, meeting.minutes_md, onPreviewMinutes, createResult, refreshToken])
+  }, [activeTab, meeting.id, onPreviewMinutes, createResult, refreshToken])
 
   // M3: 文書ビューで書いた本文が保存された後は、開いたときの候補が古いままになりうる。
   // 手動で取り直す。タスク化を1回した後も再確認できるよう createResult も消す
@@ -137,11 +144,12 @@ export function MeetingInspector({
   }
 
   const handleTaskify = async () => {
-    if (!onCreateTasks || !meeting.minutes_md) return
+    // 議事録の有無(meeting.minutes_md)では止めない（HIGH-N3。一覧キャッシュに頼らない）
+    if (!onCreateTasks) return
     setCreating(true)
     setTaskError(null)
     try {
-      const result = await onCreateTasks(meeting.id, meeting.minutes_md)
+      const result = await onCreateTasks(meeting.id)
       setCreateResult(result)
       setPreview(null)
     } catch {
