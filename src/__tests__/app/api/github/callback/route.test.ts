@@ -562,7 +562,8 @@ describe('GET /api/github/callback', () => {
   // サイト外へは絶対にリダイレクトしない。
   it('state の戻り先がサイト内パスでなければ既定の戻り先にする', async () => {
     const { GET, createSignedState } = await load()
-    const res = await GET(req('159612227', createSignedState(ORG_ID, 'https://evil.example/x')))
+    const state = createSignedState(ORG_ID, 'https://evil.example/x', USER_ID)
+    const res = await GET(req({ state }))
 
     expect(res.status).toBe(307)
     const location = new URL(res.headers.get('location')!)
@@ -572,7 +573,8 @@ describe('GET /api/github/callback', () => {
 
   it('state の戻り先に制御文字が入っていれば既定の戻り先にする', async () => {
     const { GET, createSignedState } = await load()
-    const res = await GET(req('159612227', createSignedState(ORG_ID, '/\t/evil.example')))
+    const state = createSignedState(ORG_ID, '/\t/evil.example', USER_ID)
+    const res = await GET(req({ state }))
 
     expect(res.status).toBe(307)
     const location = new URL(res.headers.get('location')!)
