@@ -10,6 +10,7 @@ import { buildFrom, getAppName } from './from'
 import { render } from '@react-email/components'
 import NotificationDigestEmail, { type NotificationDigestVariant } from './templates/NotificationDigestEmail'
 import type { DigestSection, PendingInvitesSummary } from '@/lib/notifications/digest'
+import { sendEmailWithRetry } from './sendWithRetry'
 
 // 遅延初期化でビルド時エラーを回避
 let resendClient: Resend | null = null
@@ -72,7 +73,7 @@ export async function sendNotificationDigestEmail(params: SendNotificationDigest
 
   try {
     const resend = getResendClient()
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await sendEmailWithRetry(resend, {
       from: buildFrom(),
       to,
       subject,

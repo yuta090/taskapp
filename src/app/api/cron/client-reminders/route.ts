@@ -9,6 +9,8 @@ import {
   type ReminderRecipient,
   type SentLogEntry,
 } from '@/lib/reminders/computeClientReminders'
+import { mapWithRateLimit } from '@/lib/concurrency/rateLimitedMap'
+import { EMAIL_SEND_RATE_LIMIT } from '@/lib/email/sendRateLimit'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
@@ -252,8 +254,9 @@ export async function POST(request: NextRequest) {
     const errors: string[] = []
     const successfulLogEntries: SentLogEntry[] = []
 
-    await Promise.allSettled(
-      result.digests.map(async (digest) => {
+    await mapWithRateLimit(
+      result.digests,
+      async (digest) => {
         try {
           await sendReminderEmail({
             to: recipientOverride || digest.email,
@@ -270,7 +273,8 @@ export async function POST(request: NextRequest) {
           console.error(`[client-reminders] Failed to send to ${digest.email}:`, err)
           errors.push(`${digest.email}: ${err instanceof Error ? err.message : 'unknown error'}`)
         }
-      })
+      },
+      EMAIL_SEND_RATE_LIMIT,
     )
 
     if (successfulLogEntries.length > 0) {

@@ -10,6 +10,8 @@ import {
 } from '@/lib/notifications/digest'
 import { EMAIL_IMMEDIATE_TYPES, isQuietHours } from '@/lib/notifications/delivery'
 import { jstNow } from '@/lib/datetime/jstNow'
+import { mapWithRateLimit } from '@/lib/concurrency/rateLimitedMap'
+import { EMAIL_SEND_RATE_LIMIT } from '@/lib/email/sendRateLimit'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
@@ -145,8 +147,9 @@ export async function POST(request: NextRequest) {
     const plan: Array<{ userId: string; totalCount: number }> = []
     const sentNotificationIds: string[] = []
 
-    await Promise.allSettled(
-      candidateIds.map(async (userId) => {
+    await mapWithRateLimit(
+      candidateIds,
+      async (userId) => {
         try {
           const prefs = prefsFor(userId)
           const rows = notifsByUser.get(userId) || []
@@ -185,7 +188,8 @@ export async function POST(request: NextRequest) {
           console.error(`[notification-immediate] Failed for ${userId}:`, err)
           errors.push(`${userId}: ${err instanceof Error ? err.message : 'unknown error'}`)
         }
-      }),
+      },
+      EMAIL_SEND_RATE_LIMIT,
     )
 
     // 送れたものにだけ印を付ける。「送る予定だった」ではなく「送った」で記録するので、

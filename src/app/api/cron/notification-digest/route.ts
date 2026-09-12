@@ -11,6 +11,8 @@ import {
 } from '@/lib/notifications/digest'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
+import { mapWithRateLimit } from '@/lib/concurrency/rateLimitedMap'
+import { EMAIL_SEND_RATE_LIMIT } from '@/lib/email/sendRateLimit'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
@@ -260,8 +262,9 @@ export async function POST(request: NextRequest) {
     const plan: Array<{ userId: string; totalCount: number }> = []
     const sentUserIds: string[] = []
 
-    await Promise.allSettled(
-      eligible.map(async (pref) => {
+    await mapWithRateLimit(
+      eligible,
+      async (pref) => {
         try {
           const windowMs = pref.digest_frequency === 'weekly' ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
           const since = pref.last_digest_sent_at
@@ -303,7 +306,8 @@ export async function POST(request: NextRequest) {
           console.error(`[notification-digest] Failed for ${pref.user_id}:`, err)
           errors.push(`${pref.user_id}: ${err instanceof Error ? err.message : 'unknown error'}`)
         }
-      }),
+      },
+      EMAIL_SEND_RATE_LIMIT,
     )
 
     // 送信成功したユーザーの last_digest_sent_at を更新（二重送信防止）
