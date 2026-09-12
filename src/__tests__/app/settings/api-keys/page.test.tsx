@@ -153,9 +153,9 @@ describe('ApiKeysSettingsPage — プロジェクト選択は組織ごとに分�
     expect([...body.allowedSpaceIds].sort()).toEqual(['space-a1', 'space-a2'])
   })
 
-  // #808 レビューの残課題: 開いている間に一覧が取り直され、選んでいた space が
-  // 選択肢から消えたとき（役割が変わった・space から外れた）は、選択からも外す。
-  // 消えていない残りの選択はそのまま（足さずに置き換えるだけ＝purelyフィルタ）。
+  // #808 レビューの残課題: 開いている間に一覧が取り直され、選んでいたプロジェクトが
+  // 選択肢から消えたとき（役割が変わった・プロジェクトから外れた）は、選択からも外す。
+  // 消えていない残りの選択はそのまま（足すのではなく、絞り込むだけ）。
   it('一覧が取り直されて選んでいたプロジェクトが選択肢から消えたら、選択からも外れる', async () => {
     const { rerender, queryClient } = renderPage()
     openCreateForm()
@@ -238,6 +238,33 @@ describe('ApiKeysSettingsPage — プロジェクト選択は組織ごとに分�
     )
     const body = JSON.parse(String((postCall?.[1] as RequestInit | undefined)?.body))
     expect(body.allowedSpaceIds).toEqual(['space-a1'])
+  })
+
+  // 「組織が分からない・空のときは置き換える」分岐だけを切り出して確かめる。
+  // 2つとも組織IDが空なので、別の組織を選んだ場合(targetOrgId !== currentOrgId)ではなく
+  // 「今の選択の組織が分からない」こと自体で置き換わることを確かめる
+  it('組織IDが空のプロジェクトを2つ置いたとき、2つ目を選ぶと1つ目と置き換わる', async () => {
+    mockSpaces = [
+      { id: 'space-unknown-1', name: 'プロジェクト不明1', orgId: '', orgName: '', role: 'admin', archivedAt: null, groupId: null, sortOrder: 0 },
+      { id: 'space-unknown-2', name: 'プロジェクト不明2', orgId: '', orgName: '', role: 'admin', archivedAt: null, groupId: null, sortOrder: 1 },
+    ]
+    renderPage()
+    openCreateForm()
+
+    await waitFor(() => expect(screen.getByText('プロジェクト不明1')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('プロジェクト不明1'))
+    fireEvent.click(screen.getByText('プロジェクト不明2'))
+
+    postResponse = { ok: true, json: () => Promise.resolve({ key: 'tsk_dummy', data: {} }) }
+    fireEvent.change(screen.getByPlaceholderText('例: Claude Code用'), { target: { value: 'テストキー' } })
+    fireEvent.click(screen.getByText('APIキーを発行'))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/keys/user', expect.anything()))
+    const postCall = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'POST'
+    )
+    const body = JSON.parse(String((postCall?.[1] as RequestInit | undefined)?.body))
+    expect(body.allowedSpaceIds).toEqual(['space-unknown-2'])
   })
 })
 

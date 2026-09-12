@@ -35,6 +35,14 @@ describe('describeKeySpaces', () => {
     expect(describeKeySpaces({ scope: 'user', space_id: null, allowed_space_ids: null }, spaces)).toBe('全スペース')
   })
 
+  it('「全スペース」は件数ではなく中身で比べる（件数がたまたま揃っただけでは出さない）', () => {
+    // s4は一覧に無いID。件数(3)だけを比べると spaces.length(3) と一致してしまうが、
+    // 実際には s3 を含んでおらず s4 という一覧に無いIDを含むため「全スペース」ではない
+    expect(
+      describeKeySpaces({ scope: 'user', space_id: 's1', allowed_space_ids: ['s1', 's2', 's4'] }, spaces),
+    ).toBe('サンプル商事, 新規事業 他1件')
+  })
+
   it('2件までは名前、それより多ければ件数で出す', () => {
     expect(describeKeySpaces({ scope: 'user', space_id: 's1', allowed_space_ids: ['s1'] }, spaces)).toBe('サンプル商事')
     expect(
