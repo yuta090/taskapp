@@ -124,6 +124,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
 
+      // ツールが「呼んだ人に見せてよい」と決めた理由（承認前で完了できない・鍵の種類違い・会議の作成者が無い等）。
+      // 文言は決まったもので秘密を含まない。以前は 500 に化けて CLI / AI に理由が見えなかった（2026-09-12）
+      if (error.name === 'ToolUserError') {
+        const status = (error as Error & { status?: unknown }).status
+        const code = typeof status === 'number' && status >= 400 && status < 500 ? status : 400
+        return NextResponse.json({ error: error.message }, { status: code })
+      }
+
       // Zod validation errors
       if (error.name === 'ZodError') {
         return NextResponse.json(

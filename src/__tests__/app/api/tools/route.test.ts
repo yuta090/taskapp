@@ -23,6 +23,16 @@ class MockZodError extends Error {
   }
 }
 
+class MockToolUserError extends Error {
+  constructor(
+    message: string,
+    public status?: number,
+  ) {
+    super(message)
+    this.name = 'ToolUserError'
+  }
+}
+
 let dispatchImpl: (apiKey: string, tool: string, params: Record<string, unknown>) => Promise<unknown>
 
 const dispatchToolMock = vi.fn(
@@ -168,6 +178,26 @@ describe('POST /api/tools', () => {
 
     expect(response.status).toBe(403)
     expect(data.error).toBe('権限エラー: User is not a member of this space')
+  })
+
+  // 利用者に見せてよい理由（承認前で完了できない・鍵の種類違い・会議の作成者が無い等）が
+  // 500 に化けて CLI / AI に見えなかった（2026-09-12）。ツールが決めたステータスと文言で返す
+  it('returns the status and message carried by ToolUserError', async () => {
+    dispatchImpl = () => Promise.reject(new MockToolUserError('レビューの承認が済んでいないため、完了にできません', 409))
+
+    const response = await callTools({ tool: 'task_update' })
+    const data = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(data.error).toBe('レビューの承認が済んでいないため、完了にできません')
+  })
+
+  it('falls back to 400 when ToolUserError carries no 4xx status', async () => {
+    dispatchImpl = () => Promise.reject(new MockToolUserError('理由', 500))
+
+    const response = await callTools({ tool: 'task_update' })
+
+    expect(response.status).toBe(400)
   })
 
   it('returns a generic 500 without leaking the error message or stack trace', async () => {
