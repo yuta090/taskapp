@@ -80,7 +80,7 @@ vi.mock('@/lib/email/notificationDigest', () => ({
   sendNotificationDigestEmail: (params: Record<string, unknown>) => sendDigestEmailMock(params),
 }))
 
-const { POST } = await import('@/app/api/cron/notification-immediate/route')
+const { POST, maxDuration } = await import('@/app/api/cron/notification-immediate/route')
 
 function callPost(body: Record<string, unknown> = {}, auth = `Bearer ${CRON_SECRET}`) {
   const request = new NextRequest(new URL('/api/cron/notification-immediate', 'http://localhost:3000'), {
@@ -272,5 +272,11 @@ describe('POST /api/cron/notification-immediate', () => {
     expect(json.plan).toEqual([{ userId: USER_A, totalCount: 2 }])
     expect(sendDigestEmailMock).not.toHaveBeenCalled()
     expect(markedIds).toEqual([])
+  })
+})
+
+describe('実行時間の上限', () => {
+  it('既定より長い間隔を空けた送信でも打ち切られないよう300秒にしている', () => {
+    expect(maxDuration).toBe(300)
   })
 })

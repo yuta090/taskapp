@@ -15,6 +15,9 @@ import { mapWithRateLimit } from '@/lib/concurrency/rateLimitedMap'
 import { EMAIL_SEND_RATE_LIMIT } from '@/lib/email/sendRateLimit'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// 対象者が多いと、間隔を空けた送信で既定の実行時間を超えることがある。上限を明示する
+export const maxDuration = 300
+
 /**
  * POST /api/cron/notification-digest
  *
@@ -260,9 +263,13 @@ export async function POST(request: NextRequest) {
     let emailsSent = 0
     const errors: string[] = []
     const plan: Array<{ userId: string; totalCount: number }> = []
-    const sentUserIds: string[] = []
 
-    await mapWithRateLimit(
+    interface DigestOutcome {
+      userId: string
+      sent: boolean
+    }
+
+    await mapWithRateLimit<NotificationEmailPrefs & { user_id: string; last_digest_sent_at: string | null }, DigestOutcome>(
       eligible,
       async (pref) => {
         try {
@@ -281,17 +288,17 @@ export async function POST(request: NextRequest) {
             }))
 
           const digest = buildDigest(userNotifs, pref)
-          if (!digest) return
+          if (!digest) return { userId: pref.user_id, sent: false }
 
           const pendingInvites = pendingInvitesByUser.get(pref.user_id)
           if (pendingInvites) digest.pendingInvites = pendingInvites
 
           plan.push({ userId: pref.user_id, totalCount: digest.totalCount })
-          if (dryRun) return
+          if (dryRun) return { userId: pref.user_id, sent: false }
 
           const { data: authData } = await admin.auth.admin.getUserById(pref.user_id)
           const email = authData.user?.email
-          if (!email) return
+          if (!email) return { userId: pref.user_id, sent: false }
 
           await sendNotificationDigestEmail({
             to: recipientOverride || email,
@@ -301,30 +308,39 @@ export async function POST(request: NextRequest) {
             pendingInvites: digest.pendingInvites,
           })
           emailsSent += 1
-          if (!recipientOverride) sentUserIds.push(pref.user_id)
+          return { userId: pref.user_id, sent: !recipientOverride }
         } catch (err) {
           console.error(`[notification-digest] Failed for ${pref.user_id}:`, err)
           errors.push(`${pref.user_id}: ${err instanceof Error ? err.message : 'unknown error'}`)
+          return { userId: pref.user_id, sent: false }
         }
       },
-      EMAIL_SEND_RATE_LIMIT,
-    )
+      {
+        ...EMAIL_SEND_RATE_LIMIT,
+        // かたまりの送信が終わるたびに last_digest_sent_at を保存する。全部終わってから
+        // まとめて保存すると、途中で関数が打ち切られたときに「送ったのに印が付かない」
+        // 人が残り、次の実行で同じ内容をもう一度送ってしまう
+        onChunkSettled: async (chunkResults) => {
+          const sentIds = chunkResults
+            .filter((r): r is PromiseFulfilledResult<DigestOutcome> => r.status === 'fulfilled' && r.value.sent)
+            .map((r) => r.value.userId)
+          if (sentIds.length === 0) return
 
-    // 送信成功したユーザーの last_digest_sent_at を更新（二重送信防止）
-    if (sentUserIds.length > 0) {
-      const sentAt = nowReal.toISOString()
-      // update ではなく upsert。設定を保存したことがない人は行が無く、update だと
-      // 記録できずに毎回「前回送信なし」に戻ってしまう（同じ通知を繰り返し送る）。
-      const { error: updateError } = await admin
-        .from('notification_email_prefs')
-        .upsert(
-          sentUserIds.map((userId) => ({ user_id: userId, last_digest_sent_at: sentAt })),
-          { onConflict: 'user_id' },
-        )
-      if (updateError) {
-        console.error('[notification-digest] Failed to update last_digest_sent_at:', updateError)
-      }
-    }
+          const sentAt = nowReal.toISOString()
+          // update ではなく upsert。設定を保存したことがない人は行が無く、update だと
+          // 記録できずに毎回「前回送信なし」に戻ってしまう（同じ通知を繰り返し送る）。
+          const { error: updateError } = await admin
+            .from('notification_email_prefs')
+            .upsert(
+              sentIds.map((userId) => ({ user_id: userId, last_digest_sent_at: sentAt })),
+              { onConflict: 'user_id' },
+            )
+          if (updateError) {
+            console.error('[notification-digest] Failed to update last_digest_sent_at:', updateError)
+          }
+        },
+      },
+    )
 
     return NextResponse.json({
       candidateCount: eligible.length,

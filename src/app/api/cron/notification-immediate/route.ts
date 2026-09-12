@@ -14,6 +14,9 @@ import { mapWithRateLimit } from '@/lib/concurrency/rateLimitedMap'
 import { EMAIL_SEND_RATE_LIMIT } from '@/lib/email/sendRateLimit'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// 対象者が多いと、間隔を空けた送信で既定の実行時間を超えることがある。上限を明示する
+export const maxDuration = 300
+
 /**
  * POST /api/cron/notification-immediate
  *
@@ -145,9 +148,12 @@ export async function POST(request: NextRequest) {
     let emailsSent = 0
     const errors: string[] = []
     const plan: Array<{ userId: string; totalCount: number }> = []
-    const sentNotificationIds: string[] = []
 
-    await mapWithRateLimit(
+    interface ImmediateOutcome {
+      sentNotificationIds: string[]
+    }
+
+    await mapWithRateLimit<string, ImmediateOutcome>(
       candidateIds,
       async (userId) => {
         try {
@@ -156,7 +162,7 @@ export async function POST(request: NextRequest) {
           // 実際にメールへ載る通知だけに印を付けたいので、ここで先に絞る。
           // 載らなかったぶんは印を付けずに残し、毎朝のまとめ側の判断に委ねる。
           const included = rows.filter((n) => isIncludedInEmail(n.type, prefs))
-          if (included.length === 0) return
+          if (included.length === 0) return { sentNotificationIds: [] }
 
           const items: DigestNotification[] = included.map((n) => ({
             type: n.type,
@@ -166,14 +172,14 @@ export async function POST(request: NextRequest) {
           }))
 
           const digest = buildDigest(items, prefs)
-          if (!digest) return
+          if (!digest) return { sentNotificationIds: [] }
 
           plan.push({ userId, totalCount: digest.totalCount })
-          if (dryRun) return
+          if (dryRun) return { sentNotificationIds: [] }
 
           const { data: authData } = await admin.auth.admin.getUserById(userId)
           const email = authData.user?.email
-          if (!email) return
+          if (!email) return { sentNotificationIds: [] }
 
           await sendNotificationDigestEmail({
             to: recipientOverride || email,
@@ -183,26 +189,36 @@ export async function POST(request: NextRequest) {
             variant: 'immediate',
           })
           emailsSent += 1
-          if (!recipientOverride) sentNotificationIds.push(...included.map((n) => n.id))
+          return { sentNotificationIds: recipientOverride ? [] : included.map((n) => n.id) }
         } catch (err) {
           console.error(`[notification-immediate] Failed for ${userId}:`, err)
           errors.push(`${userId}: ${err instanceof Error ? err.message : 'unknown error'}`)
+          return { sentNotificationIds: [] }
         }
       },
-      EMAIL_SEND_RATE_LIMIT,
-    )
+      {
+        ...EMAIL_SEND_RATE_LIMIT,
+        // かたまりの送信が終わるたびに印を付ける。全部終わってからまとめて付けると、
+        // 途中で関数が打ち切られたときに「送ったのに印が付かない」通知が残り、
+        // 次の実行で同じ内容をもう一度送ってしまう
+        onChunkSettled: async (chunkResults) => {
+          const sentNotificationIds = chunkResults
+            .filter((r): r is PromiseFulfilledResult<ImmediateOutcome> => r.status === 'fulfilled')
+            .flatMap((r) => r.value.sentNotificationIds)
+          if (sentNotificationIds.length === 0) return
 
-    // 送れたものにだけ印を付ける。「送る予定だった」ではなく「送った」で記録するので、
-    // 途中で失敗したぶんは印が付かず、毎朝のまとめが拾ってくれる
-    if (sentNotificationIds.length > 0) {
-      const { error: markError } = await admin
-        .from('notifications')
-        .update({ immediate_email_sent_at: nowReal.toISOString() })
-        .in('id', sentNotificationIds)
-      if (markError) {
-        console.error('[notification-immediate] Failed to mark notifications as sent:', markError)
-      }
-    }
+          // 送れたものにだけ印を付ける。「送る予定だった」ではなく「送った」で記録するので、
+          // 途中で失敗したぶんは印が付かず、毎朝のまとめが拾ってくれる
+          const { error: markError } = await admin
+            .from('notifications')
+            .update({ immediate_email_sent_at: nowReal.toISOString() })
+            .in('id', sentNotificationIds)
+          if (markError) {
+            console.error('[notification-immediate] Failed to mark notifications as sent:', markError)
+          }
+        },
+      },
+    )
 
     return NextResponse.json({
       candidateCount: candidateIds.length,

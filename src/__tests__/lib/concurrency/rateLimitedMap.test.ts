@@ -83,4 +83,38 @@ describe('mapWithRateLimit', () => {
     })
     expect(results).toEqual([])
   })
+
+  it('onChunkSettledは、かたまりの送信が終わるたびに（次のかたまりを待たずに）呼ばれる', async () => {
+    const chunks: number[][] = []
+    const promise = mapWithRateLimit(
+      [1, 2, 3],
+      async (n) => n,
+      {
+        concurrency: 2,
+        intervalMs: 1000,
+        onChunkSettled: async (results) => {
+          chunks.push(results.map((r) => (r.status === 'fulfilled' ? r.value : -1)))
+        },
+      }
+    )
+
+    // 1かたまり目（2件）が終わった時点で、2かたまり目（間隔待ち中）を待たずに呼ばれている
+    await vi.advanceTimersByTimeAsync(0)
+    expect(chunks).toEqual([[1, 2]])
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(chunks).toEqual([[1, 2], [3]])
+
+    await promise
+  })
+
+  it('onChunkSettledを渡さなくても、これまでどおり動く', async () => {
+    const promise = mapWithRateLimit([1, 2], async (n) => n, { concurrency: 2, intervalMs: 1000 })
+    await vi.runAllTimersAsync()
+    const results = await promise
+    expect(results).toEqual([
+      { status: 'fulfilled', value: 1 },
+      { status: 'fulfilled', value: 2 },
+    ])
+  })
 })

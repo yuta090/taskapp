@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import { EMAIL_SEND_RATE_LIMIT } from '@/lib/email/sendRateLimit'
 
 /**
  * POST /api/cron/notification-digest は、対象者が多くても Resend の送信回数の上限
@@ -8,6 +9,8 @@ import { NextRequest } from 'next/server'
 
 const CRON_SECRET = 'test-secret'
 process.env.CRON_SECRET = CRON_SECRET
+
+const { concurrency } = EMAIL_SEND_RATE_LIMIT
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function chain(response: any) {
@@ -22,7 +25,8 @@ function chain(response: any) {
   return builder
 }
 
-const USERS = ['user-a', 'user-b', 'user-c', 'user-d', 'user-e', 'user-f']
+// concurrency件を最初のかたまりで使い切り、+1人ぶんを次のかたまりに残す
+const USERS = Array.from({ length: concurrency + 1 }, (_, i) => `user-${i}`)
 
 function basePrefRow(userId: string) {
   return {
@@ -38,13 +42,18 @@ function basePrefRow(userId: string) {
   }
 }
 
+const prefsUpsertCalls: unknown[][] = []
+
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({
     from: vi.fn((table: string) => {
       if (table === 'notification_email_prefs') {
         const builder = chain({ data: USERS.map(basePrefRow), error: null })
         builder.update = vi.fn(() => chain({ data: null, error: null }))
-        builder.upsert = vi.fn(() => chain({ data: null, error: null }))
+        builder.upsert = vi.fn((rows: unknown[]) => {
+          prefsUpsertCalls.push(rows)
+          return chain({ data: null, error: null })
+        })
         return builder
       }
       if (table === 'notifications') {
@@ -94,25 +103,42 @@ function callPost() {
 describe('POST /api/cron/notification-digest — 送信は一斉に投げず間隔を空ける', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    prefsUpsertCalls.length = 0
     vi.useFakeTimers()
   })
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it('6人いても、最初は5人ぶんだけ送り、残り1人は間隔を空けてから送る', async () => {
+  it(`${USERS.length}人いても、最初はconcurrency(${concurrency})人ぶんだけ送り、残りは間隔を空けてから送る`, async () => {
     const promise = callPost()
 
     // 最初のひとかたまり（concurrency件）が捌けるまで進める
     await vi.advanceTimersByTimeAsync(0)
-    expect(sendDigestEmailMock).toHaveBeenCalledTimes(5)
+    expect(sendDigestEmailMock).toHaveBeenCalledTimes(concurrency)
 
     // 間隔ぶん進めると、残りも送られる
     await vi.advanceTimersByTimeAsync(2000)
-    expect(sendDigestEmailMock).toHaveBeenCalledTimes(6)
+    expect(sendDigestEmailMock).toHaveBeenCalledTimes(USERS.length)
 
     const res = await promise
     const json = await res.json()
-    expect(json.emailsSent).toBe(6)
+    expect(json.emailsSent).toBe(USERS.length)
+  })
+
+  it('「送った印」はかたまりが終わるたびに保存する（全部終わるまで待たない）', async () => {
+    const promise = callPost()
+
+    // 最初のかたまり（concurrency件）が終わった時点で、まだ間隔待ち中でも保存されている
+    await vi.advanceTimersByTimeAsync(0)
+    expect(prefsUpsertCalls).toHaveLength(1)
+    expect(prefsUpsertCalls[0]).toHaveLength(concurrency)
+
+    // 残りのかたまりが終わると、そのぶんも別に保存される
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(prefsUpsertCalls).toHaveLength(2)
+    expect(prefsUpsertCalls[1]).toHaveLength(USERS.length - concurrency)
+
+    await promise
   })
 })

@@ -113,7 +113,7 @@ vi.mock('@/lib/email/notificationDigest', () => ({
   sendNotificationDigestEmail: (params: Record<string, unknown>) => sendDigestEmailMock(params),
 }))
 
-const { POST } = await import('@/app/api/cron/notification-digest/route')
+const { POST, maxDuration } = await import('@/app/api/cron/notification-digest/route')
 
 function callPost(body: Record<string, unknown> = {}) {
   const request = new NextRequest(new URL('/api/cron/notification-digest', 'http://localhost:3000'), {
@@ -418,5 +418,11 @@ describe('POST /api/cron/notification-digest — 即時メールとの二重送�
     await callPost()
 
     expect(notificationsQueryCalls.is).toEqual([['immediate_email_sent_at', null]])
+  })
+})
+
+describe('実行時間の上限', () => {
+  it('既定より長い間隔を空けた送信でも打ち切られないよう300秒にしている', () => {
+    expect(maxDuration).toBe(300)
   })
 })

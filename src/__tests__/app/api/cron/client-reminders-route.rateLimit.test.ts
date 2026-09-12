@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import { EMAIL_SEND_RATE_LIMIT } from '@/lib/email/sendRateLimit'
 
 /**
  * POST /api/cron/client-reminders も、他のメール一斉送信cronと同じく
@@ -9,7 +10,9 @@ import { NextRequest } from 'next/server'
 const CRON_SECRET = 'test-secret'
 process.env.CRON_SECRET = CRON_SECRET
 
-const USERS = ['user-a', 'user-b', 'user-c', 'user-d', 'user-e', 'user-f']
+const { concurrency } = EMAIL_SEND_RATE_LIMIT
+// concurrency件を最初のかたまりで使い切り、+1人ぶんを次のかたまりに残す
+const USERS = Array.from({ length: concurrency + 1 }, (_, i) => `user-${i}`)
 const NOW = new Date('2026-09-09T03:00:00.000Z') // 水 12:00 JST
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,6 +33,8 @@ const TASKS = USERS.map((u, i) => ({
   due_date: '2020-01-01', // 十分に過去＝overdue確定（スロットに関係なく送る）
   updated_at: NOW.toISOString(),
 }))
+
+const logUpsertCalls: unknown[][] = []
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({
@@ -52,7 +57,10 @@ vi.mock('@/lib/supabase/admin', () => ({
       }
       if (table === 'client_reminder_log') {
         const builder = chain({ data: [], error: null })
-        builder.upsert = vi.fn(() => Promise.resolve({ error: null }))
+        builder.upsert = vi.fn((rows: unknown[]) => {
+          logUpsertCalls.push(rows)
+          return Promise.resolve({ error: null })
+        })
         return builder
       }
       throw new Error(`Unexpected admin table: ${table}`)
@@ -84,6 +92,7 @@ function callPost() {
 describe('POST /api/cron/client-reminders — 送信は一斉に投げず間隔を空ける', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    logUpsertCalls.length = 0
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
   })
@@ -91,17 +100,31 @@ describe('POST /api/cron/client-reminders — 送信は一斉に投げず間隔�
     vi.useRealTimers()
   })
 
-  it('6人いても、最初は5人ぶんだけ送り、残り1人は間隔を空けてから送る', async () => {
+  it(`${USERS.length}人いても、最初はconcurrency(${concurrency})人ぶんだけ送り、残りは間隔を空けてから送る`, async () => {
     const promise = callPost()
 
     await vi.advanceTimersByTimeAsync(0)
-    expect(sendReminderEmailMock).toHaveBeenCalledTimes(5)
+    expect(sendReminderEmailMock).toHaveBeenCalledTimes(concurrency)
 
     await vi.advanceTimersByTimeAsync(2000)
-    expect(sendReminderEmailMock).toHaveBeenCalledTimes(6)
+    expect(sendReminderEmailMock).toHaveBeenCalledTimes(USERS.length)
 
     const res = await promise
     const json = await res.json()
-    expect(json.emailsSent).toBe(6)
+    expect(json.emailsSent).toBe(USERS.length)
+  })
+
+  it('「送った印」はかたまりが終わるたびに保存する（全部終わるまで待たない）', async () => {
+    const promise = callPost()
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(logUpsertCalls).toHaveLength(1)
+    expect(logUpsertCalls[0]).toHaveLength(concurrency)
+
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(logUpsertCalls).toHaveLength(2)
+    expect(logUpsertCalls[1]).toHaveLength(USERS.length - concurrency)
+
+    await promise
   })
 })
