@@ -491,7 +491,10 @@ export default function MembersSettingsPage() {
                         )}
                       </div>
                       <div className="text-xs text-gray-500 truncate">
-                        {member.email || ''}
+                        {/* メールは、DB 側で「一緒に仕事をしている人」に絞る変更が入ると
+                            owner 以外には null で返る想定。null のときは何も出さない
+                            （「オーナーのみ表示」のような注記も出さない） */}
+                        {member.email && member.email}
                         {member.joined_at && (
                           <span className="ml-2">
                             参加: {new Date(member.joined_at).toLocaleDateString('ja-JP')}

@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js';
 import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
 import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js';
+import { mapRaiseExceptionError, mapConfirmProposalError } from '../lib/rpcErrors.js';
 // Schemas
 export const schedulingListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -238,10 +239,10 @@ export async function schedulingConfirm(params) {
         p_slot_id: params.slotId,
     });
     if (error) {
-        throw new Error(`確定に失敗しました: ${error.message}`);
+        throw mapRaiseExceptionError(error.message, '確定に失敗しました');
     }
     if (!data?.ok) {
-        throw new Error(data?.error || '確定に失敗しました');
+        throw mapConfirmProposalError(data);
     }
     return {
         ok: true,

@@ -13,6 +13,13 @@
 #       2) 実行権（proacl）が null の public の関数が無い（トリガー関数・拡張の関数は除く）
 #       3) anon が実行できる SECURITY DEFINER の関数が、許容リスト（supabase/tests/allowlist/anon_definer_functions.txt）の中だけ
 #     関数の実行権は本番の Supabase と同じ既定（supabase/tests/harness/supabase_function_default_acl.sql）の上で見る。
+#   - 表・ビュー・シーケンスの権限（*_table_privileges.sql）:
+#       4) security_invoker でない public のビュー（実体化ビューを含む）に、anon / authenticated / PUBLIC の権限が無い
+#       5) RLS が無効な public の表に、anon / authenticated / PUBLIC の書き込みの権限（insert / update / delete / truncate）が無い
+#       6) anon と PUBLIC は、public の表・ビュー・シーケンスの権限（列ごとの付与も）を持たない
+#       7) authenticated は、public の表・ビューで truncate / references / trigger / maintain を持たない
+#     表の権限は本番の Supabase と同じ既定の付与（supabase/tests/harness/supabase_table_default_acl.sql）の上で見る
+#     （_local_bootstrap.sql には入れない。代役を自分で選ぶハーネスの前提を変えないため）。
 #
 # 前提: PostgreSQL 17 が入っていること（本番と同じメジャーバージョン）
 #   brew install postgresql@17
@@ -52,6 +59,8 @@ psql -h "$HOST" -p "$PORT" -U postgres -q -c "create database \"$DB\";"
 psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q -f supabase/tests/_local_bootstrap.sql
 # 本番の Supabase と同じ「関数の既定の実行権」（無いと下の関数の実行権の検査が確かめにならない）
 psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q -f supabase/tests/harness/supabase_function_default_acl.sql
+# 本番の Supabase と同じ「表・ビュー・シーケンスの既定の付与」（無いと下の表の権限の検査が確かめにならない）
+psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q -f supabase/tests/harness/supabase_table_default_acl.sql
 
 applied=0
 for f in $(ls supabase/migrations/*.sql | sort); do
@@ -126,5 +135,46 @@ if [ "$fn_failed" -ne 0 ]; then
   exit 1
 fi
 
+# 表・ビュー・シーケンスの権限（*_table_privileges.sql）。4つとも見てから落とす
+#   本番と同じ既定の付与（supabase_table_default_acl.sql）の上で見るので、本番で付いてしまう物がここでも付く
+grant_failed=0
+
+# 4) security_invoker でないビュー（実体化ビューを含む）は、作った役割の権限で元の表を読む（RLS を通らない）。
+#    anon / authenticated / PUBLIC の権限を持たせない
+bad_views=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select string_agg(c.relname, ', ' order by c.relname) from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind in ('v', 'm') and not coalesce(c.reloptions @> array['security_invoker=true'], false) and exists (select 1 from aclexplode(c.relacl) a where a.grantee in (0, 'anon'::regrole, 'authenticated'::regrole))")
+if [ -n "$bad_views" ]; then
+  echo "❌ security_invoker でないビューに anon / authenticated / PUBLIC の権限があります: ${bad_views}"
+  echo "   → ビューは with (security_invoker = true) で作り、作った migration で anon / authenticated の権限を明示で決めてください"
+  grant_failed=1
+fi
+
+# 5) RLS が無効な表は、行を絞れない。anon / authenticated / PUBLIC に書き込みの権限（insert / update / delete / truncate・列ごとも）を持たせない
+rls_off_writes=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select string_agg(distinct g.relname, ', ' order by g.relname) from (select c.relname, a.grantee, a.privilege_type from pg_class c, aclexplode(c.relacl) a where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and not c.relrowsecurity union all select c.relname, x.grantee, x.privilege_type from pg_attribute at join pg_class c on c.oid = at.attrelid, aclexplode(at.attacl) x where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and not c.relrowsecurity and at.attnum > 0 and not at.attisdropped) g where g.grantee in (0, 'anon'::regrole, 'authenticated'::regrole) and g.privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')")
+if [ -n "$rls_off_writes" ]; then
+  echo "❌ RLS が無効な表に、anon / authenticated / PUBLIC の書き込みの権限があります: ${rls_off_writes}"
+  echo "   → RLS を有効にしてポリシーを書くか、書き込みの権限を revoke してください"
+  grant_failed=1
+fi
+
+# 6) anon（未ログイン）と PUBLIC は、public の表・ビュー・シーケンスの権限を持たない（列ごとの付与も）
+anon_rels=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select string_agg(distinct g.relname, ', ' order by g.relname) from (select c.relname, a.grantee from pg_class c, aclexplode(c.relacl) a where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p', 'v', 'm', 'f', 'S') union all select c.relname, x.grantee from pg_attribute at join pg_class c on c.oid = at.attrelid, aclexplode(at.attacl) x where c.relnamespace = 'public'::regnamespace and at.attnum > 0 and not at.attisdropped) g where g.grantee in (0, 'anon'::regrole)")
+if [ -n "$anon_rels" ]; then
+  echo "❌ anon（未ログイン）か PUBLIC が権限を持つ表・ビュー・シーケンスがあります: ${anon_rels}"
+  echo "   → 作った migration で revoke all … from public, anon を足してください（未ログインで読む物はサーバーの鍵か SECURITY DEFINER の関数で）"
+  grant_failed=1
+fi
+
+# 7) authenticated は、public の表・ビューで truncate / references / trigger / maintain を持たない（列ごとの references も）
+auth_extra=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select string_agg(distinct g.relname, ', ' order by g.relname) from (select c.relname, a.grantee, a.privilege_type from pg_class c, aclexplode(c.relacl) a where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p', 'v', 'm', 'f') union all select c.relname, x.grantee, x.privilege_type from pg_attribute at join pg_class c on c.oid = at.attrelid, aclexplode(at.attacl) x where c.relnamespace = 'public'::regnamespace and at.attnum > 0 and not at.attisdropped) g where g.grantee = 'authenticated'::regrole and g.privilege_type in ('TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN')")
+if [ -n "$auth_extra" ]; then
+  echo "❌ authenticated が truncate / references / trigger / maintain を持つ表・ビューがあります: ${auth_extra}"
+  echo "   → authenticated には select / insert / update / delete のうち要る物だけを付けてください"
+  grant_failed=1
+fi
+
+if [ "$grant_failed" -ne 0 ]; then
+  exit 1
+fi
+
 finished=1
-echo "✅ 空DBから ${applied} 件の migration を適用できました（二要素認証ポリシーの漏れなし・pre-request 設定あり・関数の実行権の検査を通過）"
+echo "✅ 空DBから ${applied} 件の migration を適用できました（二要素認証ポリシーの漏れなし・pre-request 設定あり・関数の実行権と表の権限の検査を通過）"

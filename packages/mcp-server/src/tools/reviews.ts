@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
 import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js'
+import { mapRaiseExceptionError } from '../lib/rpcErrors.js'
 
 // 画面の承認者候補と同じ役割の範囲（社内のadmin/editorだけ。rpc_review_open_asも同じ規則）
 const REVIEW_APPROVER_ROLES = ['admin', 'editor'] as const
@@ -97,7 +98,7 @@ export async function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Prom
     p_meeting_id: null,
   })
 
-  if (error) throw new Error('レビューの開始に失敗しました')
+  if (error) throw mapRaiseExceptionError(error.message, 'レビューの開始に失敗しました')
 
   const { data: review, error: reviewError } = await supabase
     .from('reviews')
@@ -138,7 +139,7 @@ export async function reviewApprove(params: z.infer<typeof reviewApproveSchema>)
     p_meeting_id: null,
   })
 
-  if (error) throw new Error('レビューの承認に失敗しました')
+  if (error) throw mapRaiseExceptionError(error.message, 'レビューの承認に失敗しました')
 
   return {
     ok: true,
@@ -173,7 +174,7 @@ export async function reviewBlock(params: z.infer<typeof reviewBlockSchema>): Pr
     p_meeting_id: null,
   })
 
-  if (error) throw new Error('レビューのブロックに失敗しました')
+  if (error) throw mapRaiseExceptionError(error.message, 'レビューのブロックに失敗しました')
 
   return { ok: true }
 }

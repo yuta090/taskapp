@@ -26,3 +26,10 @@ export function getBallLabel(ball: BallSide): string {
 export function getBallStatusLabel(ball: BallSide): string {
   return BALL_STATUS_LABELS[ball]
 }
+
+/**
+ * 他の人のプロフィール（表示名・アバター）が権限の都合で読めなかったときに出す一語。
+ * DB 側で「一緒に仕事をしている人」の範囲に profiles の閲覧を絞る変更が入っても、
+ * この画面はこのまま正しく動く（生の ID の一部を出したり、空欄のままにしない）。
+ */
+export const UNKNOWN_PROFILE_LABEL = '（メンバー外）'

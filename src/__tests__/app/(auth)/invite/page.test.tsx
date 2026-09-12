@@ -241,6 +241,8 @@ describe('InviteAcceptPage — 受諾動線', () => {
     })
     expect(screen.queryByText('Invalid login credentials')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'ログイン画面へ' })).toHaveAttribute('href', '/login')
+    // 押し直すと招待は使用済みで「無効な招待」になり、/login への案内リンクも消える
+    expect(screen.getByRole('button', { name: 'アカウントを作成して参加' })).toBeDisabled()
   })
 
   // 回帰: パスワード入力欄への1文字ごとの入力が招待読み込み(getSession/rpc_validate_invite)を

@@ -24,6 +24,7 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
 
 const mockMaybeSingle = vi.fn()
 const mockUpsert = vi.fn()
+const mockUpsertSelect = vi.fn()
 const mockFrom = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
@@ -50,10 +51,11 @@ describe('AccountSettingsPage due reminder opt-out toggle', () => {
 
     mockUseCurrentUser.mockReturnValue({ user: USER, loading: false })
 
+    mockUpsertSelect.mockReturnValue({
+      single: () => Promise.resolve({ data: { id: 'user-1' }, error: null }),
+    })
     mockUpsert.mockReturnValue({
-      select: () => ({
-        single: () => Promise.resolve({ data: { id: 'user-1' }, error: null }),
-      }),
+      select: mockUpsertSelect,
     })
 
     mockFrom.mockImplementation(() => ({
@@ -124,5 +126,49 @@ describe('AccountSettingsPage due reminder opt-out toggle', () => {
     expect(
       screen.getByText(/オフにすると、期限が近いタスクの自動リマインドが届かなくなります/),
     ).toBeInTheDocument()
+  })
+})
+
+// DB 側で、ログイン中の人が profiles の一部の列（運営の印など）を読めない形にする
+// 変更が入っても、この画面は影響を受けないこと（読み返す列を必要なものだけに絞る）
+describe('AccountSettingsPage — 表示名の保存で読み返す列', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    mockUseCurrentUser.mockReturnValue({ user: USER, loading: false })
+
+    mockMaybeSingle.mockResolvedValue({
+      data: { display_name: '太郎', avatar_url: null, due_reminder_enabled: true },
+      error: null,
+    })
+
+    mockUpsertSelect.mockReturnValue({
+      single: () => Promise.resolve({ data: { id: 'user-1' }, error: null }),
+    })
+    mockUpsert.mockReturnValue({
+      select: mockUpsertSelect,
+    })
+
+    mockFrom.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: mockMaybeSingle,
+        }),
+      }),
+      upsert: mockUpsert,
+    }))
+  })
+
+  it('保存時に読み返す列を、必要な列(id)だけに絞る', async () => {
+    render(<AccountSettingsPage />)
+
+    const input = await screen.findByPlaceholderText('表示名を入力')
+    fireEvent.change(input, { target: { value: '次郎' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => {
+      expect(mockUpsert).toHaveBeenCalledWith({ id: 'user-1', display_name: '次郎' })
+      expect(mockUpsertSelect).toHaveBeenCalledWith('id')
+    })
   })
 })

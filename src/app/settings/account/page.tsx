@@ -81,14 +81,17 @@ function AccountSettingsInner() {
     setMessage(null)
 
     try {
-      // Use upsert to handle both new and existing profiles
+      // Use upsert to handle both new and existing profiles。読み返す列は
+      // 行が保存できたことを確かめる id だけ（display_name は入力欄の値をそのまま使う
+      // ので読み返した値は使わない）。列を指定しない select() は、他の人のプロフィールを
+      // 読める範囲を絞る DB 側の変更（運営の印などの列を外す）が入っても影響を受けない
       const { data, error } = await (supabase as SupabaseClient)
         .from('profiles')
         .upsert({
           id: user.id,
           display_name: displayName.trim(),
         })
-        .select()
+        .select('id')
         .single()
 
       if (error) throw error
