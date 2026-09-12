@@ -304,8 +304,15 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
   // page's lifetime (login/logout/user-switch without a reload).
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // Always invalidate auth cache on ANY auth state change
-      invalidateCachedUser()
+      // INITIAL_SESSION は起動直後に自然に届く。restoreClient が getSession() で
+      // 先に同じユーザーを確立済みなら、ここで消す理由が無い（消すと、起動時の
+      // ユーザー確認がもう1往復増えて認証サーバーへの往復が2回に割れる）。
+      // それ以外（ユーザーが変わった・ログアウト等）はこれまでどおり必ず消す
+      const isSameUserInitialSession =
+        event === 'INITIAL_SESSION' && (session?.user?.id ?? null) === currentUserIdRef.current
+      if (!isSameUserInitialSession) {
+        invalidateCachedUser()
+      }
 
       if (event === 'SIGNED_OUT') {
         // Stop the persister first: it must never write another snapshot
