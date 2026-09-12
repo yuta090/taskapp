@@ -107,18 +107,45 @@ const BARE_URL_RE = /^https?:\/\/[A-Za-z0-9\-._:/?#@!$&'+,;=%]+/
 /** 素のURLの末尾に付きがちな文の区切り記号は URL に含めない(例: 「…を参照。」の直前)。 */
 const BARE_URL_TRAILING_PUNCT_RE = /[.,:;!?]+$/
 
+/** `英字:` の形の scheme(RFC 3986 と同じ字種)。判定は正規化した文字列に対して行う。 */
+const HREF_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/
+/** リンクにしてよい scheme。これ以外の scheme が付いていたらリンクにしない。 */
+const SAFE_HREF_SCHEMES = new Set(['http:', 'https:', 'mailto:'])
 /**
- * `[text](href)` の href として受け付ける安全な形だけを通す。
+ * HTML の文字参照(`&#58;` `&#x3A;` `&colon;` `&Tab;` など)。href にこれが入って
+ * いたらリンクにしない。属性値として DOM に直接入れる限りは文字のままだが、
+ * 同じ minutes_md をメールや相手先ポータルで HTML に組み立てて出す経路があると
+ * `javascript&#58;alert(1)` が `javascript:` に戻ってしまう。議事録のリンクに
+ * 文字参照を書く必要はまず無いので、まとめて拒否して文字として残す。
+ */
+const HREF_CHAR_REFERENCE_RE = /&#?[a-z0-9]+;/
+/** 先頭2文字がスラッシュ/バックスラッシュの組み合わせか(ブラウザは `//` と同じに解釈する)。 */
+const SLASHY = new Set(['/', '\\'])
+
+/**
+ * `[text](href)` の href として受け付ける形だけを通す。
+ *
  * AI/CLI が書いた議事録を BlockNote で開くため、`javascript:` `data:` 等を
- * リンクにしてしまうとクリック時にスクリプトが動く恐れがある。大文字小文字・
- * 前後の空白・タブ/改行等の制御文字で偽装した scheme(`JaVaScRiPt:`・`\tjavascript:`)
- * も弾けるよう、判定だけ制御文字/空白を除いた正規化した文字列で行う。
+ * リンクにしてしまうとクリック時にスクリプトが動く恐れがある。一方で
+ * `docs/a.md` `./x` `?q=1` のような相対リンクは議事録で普通に書かれるので、
+ * 「許可リストに無ければ拒否」だと本文が文字に化けてしまう。そこで
+ * **scheme が付いていたら http/https/mailto だけ許し、scheme が無ければ
+ * 相対リンクとして許す**という形にする。大文字小文字・前後の空白・
+ * タブ/改行等の制御文字で偽装した scheme(`JaVaScRiPt:`・`\tjavascript:`)も
+ * 弾けるよう、判定だけ制御文字/空白を除いた正規化した文字列で行う。
  */
 function isSafeLinkHref(href: string): boolean {
   const normalized = href.replace(/[\x00-\x1f\x7f\s]+/g, '').toLowerCase()
-  if (normalized.startsWith('http:') || normalized.startsWith('https:') || normalized.startsWith('mailto:')) return true
-  if (normalized.startsWith('/') || normalized.startsWith('#')) return true
-  return false
+  // 飛び先の無いリンクは作らない(読み込み/書き出しの両方で文字として残す)
+  if (normalized === '') return false
+  // HTML の文字参照で scheme を偽装したものは拒否(上の定数の説明を参照)
+  if (HREF_CHAR_REFERENCE_RE.test(normalized)) return false
+  const scheme = HREF_SCHEME_RE.exec(normalized)
+  if (scheme) return SAFE_HREF_SCHEMES.has(scheme[0])
+  // scheme 無し = 相対リンク。ただし先頭が `//` `/\` `\/` `\\` のものは
+  // ブラウザが「プロトコル相対」として外部サイトへ飛ばすので拒否する。
+  if (SLASHY.has(normalized[0]) && SLASHY.has(normalized[1])) return false
+  return true
 }
 
 /**
@@ -187,41 +214,76 @@ function stripIndent(line: string, chars: number): string {
 // ---- inline 文字エスケープ ----
 
 const ESCAPABLE_INLINE_CHARS = new Set(['\\', '*', '`', '~'])
+/**
+ * リンクの表示文字(`[...]` の中)では `]` も逃がせる。でないと `[参考] 資料`
+ * のように表示文字に `]` を含むリンク(議事録でよくある書き方)が、最初の `]` で
+ * 切れてリンクにならず、href が本文に丸ごと出てしまう。
+ */
+const LINK_TEXT_ESCAPABLE_CHARS = new Set([...ESCAPABLE_INLINE_CHARS, ']'])
 
 /**
- * 文字としての `*` `` ` `` はどこにあっても逃がす(単独でも将来の再解析で
- * 区切りと誤読されうるため)。`~` は `~~`(取り消し線)になる連続だけ逃がし、
- * 単独の `~`(例: `10:00~11:00`)は逃がさない。`\` は直後が `\` `*` `` ` `` `~`
- * のとき(読み込み側がエスケープとして外す組み合わせ)だけ逃がす。それ以外
- * (`C:\Users\taro` 等)はそのまま書く。ただし文字列の**末尾**の `\` は、次に
- * 続く実際の文字(このトークンの外、太字/斜体などの閉じ記号かもしれない)を
- * ここでは知りようがないため、安全側に倒して常に逃がす(実際に `*~(\` を
- * 斜体にした際、閉じの `*` が `\*` と誤読され構造が壊れる不具合があった)。
+ * 1行分の inline を組み立てる器。
+ *
+ * 「文字(ユーザーが書いた本文)」と「区切り記号(`**` `*` `~~` やリンクの記号)」を
+ * 1文字ずつ分けて溜め、**すべて並べ終えてから**逃がし(`\`)を決める。逃がすか
+ * どうかは「隣にどの文字が来るか」で決まるので、トークン(スタイルの切れ目)ごとに
+ * 判断すると答えがずれる — 読み込むとスタイルが同じ隣のトークンは1つにまとまり、
+ * リンクも許可外 href なら文字に変わるため、同じ本文なのに「トークンの端かどうか」
+ * が変わってしまい、書き直すたびに `\~` と `~` が入れ替わる不具合があった。
  */
-function escapeText(text: string): string {
+interface InlineBuf {
+  /** 1文字ずつ(絵文字などのサロゲートペアは1要素)。 */
+  chars: string[]
+  /** 同じ位置の文字が「ユーザーの本文」か(true なら逃がしの対象)。 */
+  literal: boolean[]
+}
+
+function newInlineBuf(): InlineBuf {
+  return { chars: [], literal: [] }
+}
+
+function pushChars(buf: InlineBuf, text: string, literal: boolean): void {
+  for (const ch of text) {
+    buf.chars.push(ch)
+    buf.literal.push(literal)
+  }
+}
+
+/**
+ * 溜めた文字を1本の文字列にする。逃がしの規則:
+ * - 文字としての `*` `` ` `` はどこにあっても逃がす(単独でも区切りと誤読されうる)
+ * - `~` は隣にもう1つ `~` が来て `~~`(取り消し線)になるときだけ逃がす。単独の
+ *   `~`(例: `10:00~11:00`)はそのまま書く(読みやすさのため)
+ * - `\` は**次の文字**が `\` `*` `` ` `` `~` のとき(読み込み側がエスケープとして
+ *   食べてしまう並び)だけ逃がす。行末や `C:\Users\taro` はそのまま書く
+ */
+function finishInlineBuf(buf: InlineBuf, inLinkText = false): string {
+  const escapable = inLinkText ? LINK_TEXT_ESCAPABLE_CHARS : ESCAPABLE_INLINE_CHARS
   let out = ''
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]
-    if (ch === '\\') {
-      // 末尾と同様、埋め込み改行の直前も「この行の見た目上の末尾」になるので
-      // 安全側に倒して逃がす(段落やリスト項目の複数行テキストで、この行が
-      // 別の行と結合されて閉じ記号に化ける可能性がある)。
-      const next = text[i + 1]
-      out += i === text.length - 1 || next === '\n' || ESCAPABLE_INLINE_CHARS.has(next) ? '\\\\' : '\\'
+  for (let i = 0; i < buf.chars.length; i++) {
+    const ch = buf.chars[i]
+    if (!buf.literal[i]) {
+      out += ch
       continue
     }
     if (ch === '*' || ch === '`') {
       out += '\\' + ch
       continue
     }
-    // `~` はトークンの先頭・末尾にあるときも逃がす。取り消し線の `~~` で
-    // 挟まれた際、隣の閉じ/開き記号と連結して `~~~` 以上の曖昧な連続になり
-    // うるため(このトークン単体では判断できない、上の `\` と同じ理由)。
-    if (
-      ch === '~' &&
-      (i === 0 || i === text.length - 1 || text[i - 1] === '~' || text[i + 1] === '~' || text[i - 1] === '\n' || text[i + 1] === '\n')
-    ) {
+    // リンクの表示文字の中では、文字としての `]` を逃がして閉じと区別する
+    if (ch === ']' && inLinkText) {
+      out += '\\]'
+      continue
+    }
+    if (ch === '~' && (buf.chars[i - 1] === '~' || buf.chars[i + 1] === '~')) {
       out += '\\~'
+      continue
+    }
+    // 次の文字が `*`/`` ` ``/`~`/`\` なら、それが文字として逃がされて `\` で
+    // 始まっても、区切り記号としてそのまま出ても、どちらでも読み込み側の
+    // エスケープに食べられる並びになる。そこだけ逃がせばよい。
+    if (ch === '\\' && i + 1 < buf.chars.length && escapable.has(buf.chars[i + 1])) {
+      out += '\\\\'
       continue
     }
     out += ch
@@ -236,23 +298,6 @@ function escapeText(text: string): string {
  * 頼らずに済む。ソースに見えない文字を直接書かないよう \u200B のエスケープで書く。
  */
 const ZERO_WIDTH_GUARD = '\u200B'
-const ZERO_WIDTH_BETWEEN_STARS_RUN_RE = /(\*+)(\u200B+)(?=\*)/g
-
-/**
- * `*` と `*` の間の幅ゼロ文字は、本文の内容ではないので読み込み時に捨てて
- * モデルに残さない(HIGH-3参照)。ただし、挟まれている `*` を合わせて消したときの
- * 連続本数がちょうど2になる(安全な太字ひとつ分になる)場合だけ捨てる。3本
- * (`***` = 太字+斜体をまとめて開閉する記号と区別が付かない)や4本以上(文字
- * 扱いになり構造が壊れる)になる組み合わせでは、曖昧さを避けるため幅ゼロ文字を
- * 残す。
- */
-function stripZeroWidthBetweenStars(raw: string): string {
-  return raw.replace(ZERO_WIDTH_BETWEEN_STARS_RUN_RE, (whole, stars: string, zws: string, offset: number) => {
-    const afterMatch = /^\*+/.exec(raw.slice(offset + whole.length))
-    const mergedLength = stars.length + (afterMatch ? afterMatch[0].length : 0)
-    return mergedLength === 2 ? stars : whole
-  })
-}
 
 function findUnescapedSeq(raw: string, from: number, seq: string): number {
   let k = from
@@ -262,6 +307,34 @@ function findUnescapedSeq(raw: string, from: number, seq: string): number {
       continue
     }
     if (raw.startsWith(seq, k)) return k
+    k++
+  }
+  return -1
+}
+
+/**
+ * リンクの表示文字(`[...]`)の閉じ `]` を探す。文字としての `]` は書き出し側が
+ * `\]` にするので飛ばす。コード表記(`` `...` ``)の中は逃がしが効かない
+ * (CommonMark と同じくコード内にエスケープは無い)ので、その区間ごと飛ばす。
+ * そうしないと `[`a]b`](href)` のようにコードの中の `]` で切れてしまう。
+ */
+function findLinkTextEnd(raw: string, from: number): number {
+  let k = from
+  while (k < raw.length) {
+    const ch = raw[k]
+    if (ch === '\\') {
+      k += 2
+      continue
+    }
+    if (ch === '`') {
+      // 空のコード表記(``)は文字として扱う(読み込み側と同じ判定)ので飛ばさない
+      const close = raw.indexOf('`', k + 1)
+      if (close !== -1 && close > k + 1) {
+        k = close + 1
+        continue
+      }
+    }
+    if (ch === ']') return k
     k++
   }
   return -1
@@ -297,10 +370,10 @@ function addStyle(item: MinutesInlineContent, style: keyof MinutesInlineStyles):
  * `_` の強調・CommonMark の flanking 規則は扱わない。日本語に隣接した `**…**` も太字として読む。
  */
 function tokenizeInline(rawInput: string, noLinks = false): MinutesInlineContent[] {
-  // 太字+斜体を同時に開閉する境目でだけ挟む幅ゼロ文字(U+200B)は、本文の
-  // 内容ではない。`*` に挟まれた分だけ読み込み時に捨て、モデルに残さない。
+  // `*` と `*` に挟まれた幅ゼロ文字(U+200B)は本文の内容ではない。区切りとして
+  // だけ使い、下のメインループでバッファへ足さずに読み飛ばす(モデルに残さない)。
   // こうすることで、選択範囲へのスタイル付け外しを繰り返しても増え続けない。
-  const raw = rawInput.includes(ZERO_WIDTH_GUARD) ? stripZeroWidthBetweenStars(rawInput) : rawInput
+  const raw = rawInput
   const out: MinutesInlineContent[] = []
   let buf = ''
   let i = 0
@@ -314,7 +387,8 @@ function tokenizeInline(rawInput: string, noLinks = false): MinutesInlineContent
   while (i < raw.length) {
     const ch = raw[i]
 
-    if (ch === '\\' && i + 1 < raw.length && ESCAPABLE_INLINE_CHARS.has(raw[i + 1])) {
+    // noLinks = 「リンクの表示文字の中を読んでいる」。そこだけ `\]` も外す。
+    if (ch === '\\' && i + 1 < raw.length && (noLinks ? LINK_TEXT_ESCAPABLE_CHARS : ESCAPABLE_INLINE_CHARS).has(raw[i + 1])) {
       buf += raw[i + 1]
       i += 2
       continue
@@ -325,14 +399,12 @@ function tokenizeInline(rawInput: string, noLinks = false): MinutesInlineContent
       // なし)。findUnescapedChar だと `\`` を「エスケープされた閉じ」と誤読して
       // 本来の閉じ `` ` `` を素通りしてしまうため、単純な indexOf で次の ` を探す。
       const close = raw.indexOf('`', i + 1)
-      if (close !== -1) {
-        // 空コード(` `` `)は文字を持たないので要素を作らない(BlockNote 実機でも
-        // 空の inline content は捨てられ表示されない)。
-        const codeText = raw.slice(i + 1, close)
-        if (codeText) {
-          flush()
-          out.push({ type: 'text', text: codeText, styles: { code: true } })
-        }
+      const codeText = close !== -1 ? raw.slice(i + 1, close) : ''
+      // 空のコード表記(` `` `)はコードにせず、2つのバッククォートを文字として
+      // 残す(要素を作らずに読み飛ばすと、その2文字が本文から消えてしまう)。
+      if (close !== -1 && codeText) {
+        flush()
+        out.push({ type: 'text', text: codeText, styles: { code: true } })
         i = close + 1
         continue
       }
@@ -391,26 +463,33 @@ function tokenizeInline(rawInput: string, noLinks = false): MinutesInlineContent
       }
     }
 
-    if (ch === '[' && !noLinks) {
-      const textMatch = /^\[([^\]]*)\]\(/.exec(raw.slice(i))
-      const hrefScan = textMatch ? scanBalancedHref(raw, i + textMatch[0].length) : null
+    // 画像 `![alt](src)` はリンクにしない(文字として残す)。href の規則を
+    // 相対パスまで許したため、`!` を除いた部分が普通のリンクとして成立して
+    // しまい、画像がリンクに化ける。文字のまま残せば読み書きで形も変わらない。
+    if (ch === '[' && !noLinks && raw[i - 1] !== '!') {
+      // 閉じの `]` は「逃がされておらず、コード表記の中でもない最初の `]`」。
+      // 表示文字に含まれる `]` は書き出し側が `\]` にする(コードの中は飛ばす)ので、
+      // ここで同じ規則で飛ばせばリンクとして読める。
+      const closeBracket = findLinkTextEnd(raw, i + 1)
+      const linkText = closeBracket !== -1 ? raw.slice(i + 1, closeBracket) : null
+      const hrefScan = linkText !== null && raw[closeBracket + 1] === '(' ? scanBalancedHref(raw, closeBracket + 2) : null
       // href・リンクテキストに改行を含むものはリンクとして扱わない。この関数は
       // 1論理行(複数の生テキスト行を\nで連結したもの)を処理しており、リンクの
       // 構成要素に生の改行が混じると、行分割の前提が崩れて安定した往復ができない。
-      // href が安全な形(http/https/mailto/相対パス/フラグメント)でないものは
+      // href が許可した形(http/https/mailto/相対パス)でないものは
       // リンクにせず、`[text](href)` をそのまま文字として残す(内容は落とさない)。
-      if (textMatch && !textMatch[1].includes('\n') && hrefScan && isSafeLinkHref(hrefScan.href)) {
-        flush()
+      if (linkText !== null && !linkText.includes('\n') && hrefScan && isSafeLinkHref(hrefScan.href)) {
         // リンク文字の中では素のURL自動認識を切る(でないと `[https://a](https://b)` の
         // ような入力で文字側が内側リンクに化け、外側リンクの表示文字が失われる)。
-        const linkTextTokens = tokenizeInline(textMatch[1], true).filter((t): t is MinutesTextInline => t.type === 'text')
-        out.push({
-          type: 'link',
-          href: hrefScan.href,
-          content: linkTextTokens.length ? linkTextTokens : [{ type: 'text', text: hrefScan.href, styles: {} }],
-        })
-        i = hrefScan.end + 1
-        continue
+        const linkTextTokens = tokenizeInline(linkText, true).filter((t): t is MinutesTextInline => t.type === 'text')
+        // 表示文字が無い `[](href)` はリンクにしない。href を表示文字に流用すると
+        // 書き出し→読み込みのたびに本文の文字が増えてしまう。文字として残す。
+        if (linkTextTokens.length) {
+          flush()
+          out.push({ type: 'link', href: hrefScan.href, content: linkTextTokens })
+          i = hrefScan.end + 1
+          continue
+        }
       }
     }
 
@@ -421,6 +500,24 @@ function tokenizeInline(rawInput: string, noLinks = false): MinutesInlineContent
         flush()
         out.push({ type: 'link', href: trimmed, content: [{ type: 'text', text: trimmed, styles: {} }] })
         i += trimmed.length
+        continue
+      }
+    }
+
+    // `*` と `*` に挟まれた幅ゼロ文字は区切りとしてだけ使い、文字として拾わない
+    // (HIGH-2)。両隣が実際に `*` かどうかは生の文字列だけを見て判定するので、
+    // 何本連続していても・エスケープと混ざっていても安全に読み飛ばせる。
+    // この関数は `*` で囲まれた中身を再帰的に読むため、強調の中身の端に来た
+    // 幅ゼロ文字は「反対側の `*`」が切り出した文字列の外にある。その場合は
+    // 文字列の端であること自体を `*` の代わりとみなす(でないと本文に残り、
+    // スタイルを付け外しするたびに増えていく)。
+    if (ch === ZERO_WIDTH_GUARD) {
+      const prevIsStar = raw[i - 1] === '*'
+      const nextIsStar = raw[i + 1] === '*'
+      const leftOk = prevIsStar || (i === 0 && nextIsStar)
+      const rightOk = nextIsStar || (i === raw.length - 1 && prevIsStar)
+      if (leftOk && rightOk) {
+        i += 1
         continue
       }
     }
@@ -495,10 +592,28 @@ function splitTableRow(line: string): string[] {
 
 /** 書き出し側が表のセル改行に使う `<br>`(大小文字・`<br/>`も許容)。 */
 const BR_TAG_RE = /<br\s*\/?>/gi
+/** 文字として書かれた `<br>` を逃がした形(`<\br>`・`<\\br>` …)。 */
+const ESCAPED_BR_TAG_RE = /<\\(\\*)(br\s*\/?)>/gi
+
+/**
+ * 表のセルは1行に収める必要があるため改行を `<br>` で書く。すると本文に文字と
+ * して書かれた `<br>` が読み込みで改行に化けてしまうので、書き出す時に `<` と
+ * `br` の間へ `\` を1つ足して逃がす。すでに逃がされている `<\br>` にはさらに
+ * 1つ足すので、何度書き直しても情報が混ざらない(読み込み側で1つ外す)。
+ */
+function escapeLiteralBrTags(text: string): string {
+  return text.replace(/<(\\*)(br\s*\/?)>/gi, (_m, slashes: string, tag: string) => `<\\${slashes}${tag}>`)
+}
+
+function unescapeLiteralBrTags(text: string): string {
+  return text.replace(ESCAPED_BR_TAG_RE, (_m, slashes: string, tag: string) => `<${slashes}${tag}>`)
+}
 
 function buildTableBlock(rowLines: string[]): MinutesBlock {
   const rows: MinutesTableRow[] = rowLines.map((line) => ({
-    cells: splitTableRow(line).map((cellText) => tokenizeInline(cellText.replace(BR_TAG_RE, '\n'))),
+    // 先に本物の `<br>` を改行へ戻し(逃がした `<\br>` には一致しない)、
+    // そのあとで逃がしを1つ外す。この順でないと文字の `<br>` も改行に化ける。
+    cells: splitTableRow(line).map((cellText) => tokenizeInline(unescapeLiteralBrTags(cellText.replace(BR_TAG_RE, '\n')))),
   }))
   return {
     type: 'table',
@@ -743,45 +858,68 @@ function extractPlainText(node: unknown): string {
   return ''
 }
 
+/** inline トークン列のどれかに強調/コードが付いているか。 */
+function hasAnyStyle(items: readonly unknown[]): boolean {
+  return items.some((it) => {
+    const o = it && typeof it === 'object' ? (it as Record<string, unknown>) : null
+    const styles = o && o.styles && typeof o.styles === 'object' ? (o.styles as Record<string, unknown>) : null
+    return !!styles && Object.values(styles).some(Boolean)
+  })
+}
+
 type MergeableStyle = 'strike' | 'bold' | 'italic'
 
 /** 外側→内側の適用順。隣り合うトークンのスタイル差分だけを開閉し、無駄な区切り記号の連続を避ける。 */
 const STYLE_DELIM: Record<MergeableStyle, string> = { strike: '~~', bold: '**', italic: '*' }
 const STYLE_ORDER: MergeableStyle[] = ['strike', 'bold', 'italic']
 
-function inlineItemToText(item: unknown): string {
-  if (item == null) return ''
-  if (typeof item === 'string') return escapeText(item)
-  if (typeof item !== 'object') return ''
-  const o = item as Record<string, unknown>
-
-  if (o.type === 'text') {
-    const text = typeof o.text === 'string' ? o.text : ''
-    const styles = o.styles && typeof o.styles === 'object' ? (o.styles as Record<string, unknown>) : {}
-    if (styles.code) {
-      return text.includes('`') ? escapeText(text) : '`' + text + '`'
-    }
-    let s = escapeText(text)
-    if (styles.strike) s = `~~${s}~~`
-    if (styles.bold) s = `**${s}**`
-    if (styles.italic) s = `*${s}*`
-    return s
+/**
+ * link・未知の inline 種別を器へ積む。リンクの記号(`[` `](href)`)は区切り記号
+ * として、表示文字は文字として積むので、逃がしの判断が隣の文字と噛み合う。
+ */
+function pushInlineItem(buf: InlineBuf, item: unknown): void {
+  if (item == null) return
+  if (typeof item === 'string') {
+    pushChars(buf, item, true)
+    return
   }
+  if (typeof item !== 'object') return
+  const o = item as Record<string, unknown>
 
   if (o.type === 'link') {
     const href = typeof o.href === 'string' ? o.href : ''
     const contentArr = Array.isArray(o.content) ? o.content : []
+    const plain = extractPlainText(contentArr)
+    // 読み込み側が弾く href(許可外 scheme・飛び先なし)と、表示文字が無いリンクは
+    // `[text](href)` の形で書かず、その文字列を**文字として**積む。読み書きの規則を
+    // そろえないと、書いた形が読み込みで文字に化けてそのたびに形が変わる。
+    if (!isSafeLinkHref(href) || plain === '') {
+      pushChars(buf, `[${plain}](${href})`, true)
+      return
+    }
     // 素のURLとして書けるのは、再解析時に自動リンクとして拾える http(s) URL の形をした
     // href のときだけ。それ以外(任意の文字列)を裸で埋め込むと、`~~`等の記号や行頭に
     // 化ける文字がそのまま段落に混じり、再解析のたびに構造が変わって不安定になる。
+    // 強調が付いている場合も裸では書けない(裸のURLに強調は載せられず、書くと消える)。
     const urlMatch = BARE_URL_RE.exec(href)
     const looksLikeUrl = !!urlMatch && urlMatch[0] === href
-    if (looksLikeUrl && extractPlainText(contentArr) === href) return href
-    return `[${renderTextRunList(contentArr)}](${href})`
+    if (looksLikeUrl && plain === href && !hasAnyStyle(contentArr)) {
+      pushChars(buf, href, false)
+      return
+    }
+    // リンクは表示文字の中だけ `]` の逃がし規則が変わるので、別の器で組み立てて
+    // 出来上がった文字列を「区切り記号」として親の器へ積む(読み込み側も
+    // `[...]` の中だけ `\]` を外すので、規則が一致する)。
+    const linkBuf = newInlineBuf()
+    pushChars(linkBuf, '[', false)
+    renderInlineInto(linkBuf, contentArr)
+    pushChars(linkBuf, `](${href})`, false)
+    pushChars(buf, finishInlineBuf(linkBuf, true), false)
+    return
   }
 
   // 未知の inline 種別 → 例外を出さず、見つかった文字をそのまま残す
-  return escapeText(extractPlainText(item))
+  pushChars(buf, extractPlainText(item), true)
 }
 
 /**
@@ -795,17 +933,54 @@ interface StyleStackEntry {
   delim: string
 }
 
-function renderTextRunList(items: readonly unknown[]): string {
-  let out = ''
+/**
+ * 強調(`**` `*` `~~`)の内側の端にある半角空白/タブを、強調の外側の素の文字へ
+ * 出す(MEDIUM-1)。`* 重要*` のように空白を内側に抱えると、その強調が行頭に来た
+ * ときに箇条書き(`* `)と見分けが付かず、行の逃がし `\` と inline の逃がし `\*`
+ * がぶつかって読み書きのたびに形が変わる。埋め込み改行も「行の端」になるので、
+ * 改行ごとに区切って端の空白を外へ出す。コード表記(`` ` ``)は中の空白がその
+ * まま見た目に出るので対象にしない。
+ */
+function liftEdgeWhitespace(items: readonly unknown[]): unknown[] {
+  const out: unknown[] = []
+  const pushPlain = (text: string) => {
+    if (text) out.push({ type: 'text', text, styles: {} })
+  }
+  for (const raw of items) {
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+    const styles = o && o.styles && typeof o.styles === 'object' ? (o.styles as Record<string, unknown>) : null
+    const text = o && typeof o.text === 'string' ? o.text : null
+    if (!o || o.type !== 'text' || text === null || !styles || styles.code || !STYLE_ORDER.some((s) => styles[s])) {
+      out.push(raw)
+      continue
+    }
+    const segments = text.split('\n')
+    segments.forEach((segment, idx) => {
+      if (idx > 0) pushPlain('\n')
+      const m = /^([ \t]*)([\s\S]*?)([ \t]*)$/.exec(segment) as RegExpExecArray
+      pushPlain(m[1])
+      // 中身が空白だけなら強調は消えるが、空白の文字としては残るので内容は落ちない
+      if (m[2]) out.push({ ...o, text: m[2] })
+      pushPlain(m[3])
+    })
+  }
+  return out
+}
+
+function renderInlineInto(buf: InlineBuf, itemsRaw: readonly unknown[]): void {
+  const items = liftEdgeWhitespace(itemsRaw)
   const openStack: StyleStackEntry[] = []
 
   // `*` の区切り記号どうしが素朴に連結すると、再解析時に単独の `*`(斜体)と
   // `**`(太字)の境界があいまいになる。最後の保険として、直前が `*` で終わり
   // これから書く区切りも `*` から始まる場合だけ、幅ゼロ文字を1つ挟む
-  // (通常は下の「太字+斜体をまとめて `***` にする」処理でここに来ない)。
+  // (通常は下の「太字+斜体をまとめて `***` にする」処理でここに来ない)。ただし
+  // 直前の `*` が**文字としての** `*`(書き出しで `\*` に逃がされる)なら、
+  // 閉じ/開きと結合してもあいまいにならないので幅ゼロ文字を入れない。
   const append = (delim: string) => {
-    if (delim.startsWith('*') && out.endsWith('*')) out += ZERO_WIDTH_GUARD
-    out += delim
+    const last = buf.chars.length - 1
+    if (delim.startsWith('*') && buf.chars[last] === '*' && !buf.literal[last]) pushChars(buf, ZERO_WIDTH_GUARD, false)
+    pushChars(buf, delim, false)
   }
   const closeTo = (entryCount: number) => {
     while (openStack.length > entryCount) {
@@ -820,7 +995,13 @@ function renderTextRunList(items: readonly unknown[]): string {
       const text = typeof o.text === 'string' ? o.text : ''
       if (styles.code) {
         closeTo(0)
-        out += text.includes('`') ? escapeText(text) : '`' + text + '`'
+        // 中身にバッククォートがあるとコード表記で囲めないので、文字として積む
+        if (text.includes('`')) pushChars(buf, text, true)
+        else {
+          pushChars(buf, '`', false)
+          pushChars(buf, text, false)
+          pushChars(buf, '`', false)
+        }
         continue
       }
       const wanted = STYLE_ORDER.filter((s) => styles[s])
@@ -855,16 +1036,21 @@ function renderTextRunList(items: readonly unknown[]): string {
         openStack.push({ styles: [wanted[k]], delim: STYLE_DELIM[wanted[k]] })
         k += 1
       }
-      out += escapeText(text)
+      pushChars(buf, text, true)
       continue
     }
     // link・未知の inline 種別はスタイルを持ち越さない(閉じてから単独で書く)
     closeTo(0)
-    out += inlineItemToText(raw)
+    pushInlineItem(buf, raw)
   }
 
   closeTo(0)
-  return out
+}
+
+function renderTextRunList(items: readonly unknown[]): string {
+  const buf = newInlineBuf()
+  renderInlineInto(buf, items)
+  return finishInlineBuf(buf)
 }
 
 function contentArrayToText(contentRaw: unknown): string {
@@ -914,10 +1100,14 @@ function tableToLines(contentRaw: unknown): string[] {
     // (読み込み側で `\n` に戻す)。生の改行のままだと行が割れて表そのものが壊れる。
     // セルの前後の空白は読み込み側で必ず trim される(splitTableRow)ため、
     // 書き出す時点で先に落としておかないと2回目の変換で消えて不安定になる。
-    return cells.map((cell) => {
-      const rendered = contentArrayToText(dropTaskMarkers(getCellContent(cell))).replace(/\n/g, '<br>').replace(/\|/g, '\\|')
-      return fixEscapeBoundaryAfterTrim(rendered, rendered.trim())
-    })
+    return cells.map((cell) =>
+      // 文字として書かれた `<br>` を先に逃がしてから、本物の改行を `<br>` にする
+      // (順番が逆だと、逃がしが本物の改行にも掛かって改行が文字に化ける)。
+      escapeLiteralBrTags(contentArrayToText(dropTaskMarkers(getCellContent(cell))))
+        .replace(/\n/g, '<br>')
+        .replace(/\|/g, '\\|')
+        .trim(),
+    )
   })
   if (rowTexts.length === 0) return []
   const colCount = rowTexts[0].length
@@ -930,52 +1120,27 @@ function tableToLines(contentRaw: unknown): string[] {
   return lines
 }
 
+/**
+ * 別のブロックに化ける形の行に、行の逃がし `\` を足す。
+ *
+ * すでに文字としての `\` で始まり、その後ろがブロックの形をしている行
+ * (`\- x` `\   ` 等)にも足す。そのまま書くと読み込み側が先頭の `\` を
+ * 「行の逃がし」として外してしまい、本文の `\` が消える(読み直すたびに
+ * 形が変わる)。`\` を足して `\\- x` と書けば、読み込み側は inline の
+ * エスケープとして `\` を1つ外し、元の文字に戻る。
+ */
 function escapeLineStart(line: string): string {
-  return matchesBlockTrigger(line) ? '\\' + line : line
+  return matchesBlockTrigger(line) || isEscapedTriggerLine(line) ? '\\' + line : line
 }
 
 /**
  * マーカー/見出しの `#`/リストの `- ` などの直後にある先頭の空白は、再解析の
- * 貪欲な区切り([ \t]+)に飲み込まれ区別が付かないため先に落とす(見出し・
- * リスト項目の共通処理)。ここで初めて `~` が文字列の先頭に来ることがあり、
- * `escapeText` は元の(空白込みの)位置で判断済みなので、先頭に来た `~` を
- * ここで改めて逃がす(`*`/`` ` `` は位置によらず常に逃がすのでこの問題はない)。
+ * 貪欲な区切り(`[ \t]+`)に飲み込まれ区別が付かないため先に落とす(見出し・
+ * リスト項目の共通処理)。逃がしは `finishInlineBuf` が「隣の文字」だけを見て
+ * 決めており、前後の空白を落としても答えは変わらないので追加の手当ては要らない。
  */
-/**
- * `text` の前後にある空白を落とした後、新たに先頭/末尾の境界に出てきた
- * 単独の `~` や `\` を逃がす。`escapeText` はエスケープ時点での位置で
- * 判断済みなので、後から空白を落として境界に来ても気づけない(この関数を
- * 呼ぶ側が trim している)。本物の取り消し線の開閉 `~~` や、すでに逃がして
- * ある `\\` はここでは触らない(空白を落としても状態が変わっていない=
- * もともと境界にあった、とみなせるため対象外)。
- */
-function fixEscapeBoundaryAfterTrim(original: string, trimmed: string): string {
-  if (trimmed === original) return trimmed
-  let s = trimmed
-  const leadingTrimmed = original.length - original.replace(/^\s+/, '').length > 0
-  const trailingTrimmed = original.length - original.replace(/\s+$/, '').length > 0
-  if (leadingTrimmed) {
-    if (s.startsWith('~') && s[1] !== '~' && !s.startsWith('\\~')) s = '\\' + s
-    // 先頭の `\` は元の位置では常に(次の文字次第で)判断済みなので、ここで
-    // 新たに先頭に来ても直後の文字との関係は変わらず、追加のエスケープは不要。
-  }
-  if (trailingTrimmed) {
-    if (s.endsWith('~') && s[s.length - 2] !== '~' && s[s.length - 2] !== '\\') s = s.slice(0, -1) + '\\~'
-    // 末尾の単独 `\`(直後が改行/末尾でなかったため元は逃がされなかったもの)は、
-    // 空白を落として初めて「見た目上の末尾」になるのでここで逃がす。
-    else if (countTrailingBackslashes(s) % 2 === 1) s += '\\'
-  }
-  return s
-}
-
-function countTrailingBackslashes(s: string): number {
-  let n = 0
-  for (let i = s.length - 1; i >= 0 && s[i] === '\\'; i--) n++
-  return n
-}
-
 function trimLeadingSeparatorWhitespace(text: string): string {
-  return fixEscapeBoundaryAfterTrim(text, text.replace(/^[ \t]+/, ''))
+  return text.replace(/^[ \t]+/, '')
 }
 
 /**
@@ -995,7 +1160,12 @@ function collapseEmbeddedBlankLines(text: string): string {
 }
 
 function textToLines(text: string): string[] {
-  return collapseEmbeddedBlankLines(text).split('\n').map(escapeLineStart)
+  // 空白だけの段落(スペースやタブを打っただけの行)は空段落と同じに正規化する。
+  // そのまま書くとブロック間の空行と見分けが付かず、読み込みで消えてしまい
+  // 書き直すたびに行数が変わる(下の isEmptyParagraph と同じ判断)。
+  const collapsed = collapseEmbeddedBlankLines(text)
+  if (collapsed.trim() === '') return ['']
+  return collapsed.split('\n').map(escapeLineStart)
 }
 
 function itemLines(marker: string, text: string): string[] {
@@ -1101,24 +1271,49 @@ interface FlatEntry {
  */
 function flattenBlocks(blocks: readonly unknown[], indent: number, out: FlatEntry[]): void {
   for (const raw of blocks) {
-    const block = normalizeBlock(raw)
-    const isSpec = isSpecCheckItem(block)
-    const effectiveIndent = isSpec ? 0 : indent
-    out.push({ block, indent: effectiveIndent })
-
-    if (block.children.length === 0) continue
-    const parentIsIndentableList = isListItemBlockType(block.type) && !isSpec
-    for (const childRaw of block.children) {
-      const childBlock = normalizeBlock(childRaw)
-      const childIndent = parentIsIndentableList && isListItemBlockType(childBlock.type) ? effectiveIndent + 1 : effectiveIndent
-      flattenBlocks([childRaw], childIndent, out)
-    }
+    pushBlockAndChildren(normalizeBlock(raw), indent, out)
   }
 }
 
-/** 空の paragraph か(SPEC 判定用の contentArrayToText 呼び出しと共有できるよう独立させる)。 */
+/**
+ * 1ブロックと、その子を「実際に書き出す段」で out に積む。
+ *
+ * 子の並びの中で一度でも「理想の1段深い位置」に置けない子(SPEC・非リスト種別・
+ * 既に浅い段へ落ちた後続)が出たら、それ以降の兄弟(とその子)も同じ浅い段へ
+ * 道連れにする(HIGH-3)。そうしないと、浅い段に出した子より後ろの兄弟だけが
+ * 元の深い段のまま残り、読み戻すと直前の(浅い段の)兄弟の子に誤って吸い込まれる
+ * (`\  - 補足B` に化ける・2回目の保存で形が変わる、という不具合があった)。
+ * 「浅い段」は固定の親の段ではなく、直前の兄弟が実際に置かれた段を引き継ぐ
+ * (入れ子の項目の下の見出し/コードは、その項目と同じ段に出す)。
+ */
+function pushBlockAndChildren(block: NormalizedBlockView, indent: number, out: FlatEntry[]): void {
+  const isSpec = isSpecCheckItem(block)
+  const effectiveIndent = isSpec ? 0 : indent
+  out.push({ block, indent: effectiveIndent })
+
+  if (block.children.length === 0) return
+
+  const parentIsIndentableList = isListItemBlockType(block.type) && !isSpec
+  let broken = !parentIsIndentableList
+  let lastIndent = effectiveIndent
+
+  for (const childRaw of block.children) {
+    const childBlock = normalizeBlock(childRaw)
+    const childIsSpec = isSpecCheckItem(childBlock)
+    const childIndent = childIsSpec ? 0 : !broken && isListItemBlockType(childBlock.type) ? effectiveIndent + 1 : lastIndent
+    if (childIndent !== effectiveIndent + 1) broken = true
+    lastIndent = childIndent
+    pushBlockAndChildren(childBlock, childIndent, out)
+  }
+}
+
+/**
+ * 空(または空白だけ)の paragraph か。空白だけの段落も「空行」としか書けず、
+ * 読み込みで消えてしまうので同じ扱いにする(SPEC 判定用の contentArrayToText
+ * 呼び出しと共有できるよう独立させる)。
+ */
 function isEmptyParagraph(block: NormalizedBlockView): boolean {
-  return block.type === 'paragraph' && contentArrayToText(block.content) === ''
+  return block.type === 'paragraph' && contentArrayToText(block.content).trim() === ''
 }
 
 function serializeBlockList(blocks: unknown[]): string[] {
@@ -1132,10 +1327,11 @@ function serializeBlockList(blocks: unknown[]): string[] {
 
   const out: string[] = []
   let prevWasListItem = false
-  let prevIndent = -1
-  let numCounter = 0
-  let numPrevWasNumbered = false
   let isFirst = true
+  // 連番は「段(字下げ)ごと」に数える。深い段の行(子)が間に挟まっても、
+  // その段の map エントリには触れないので同じ段の連番は途切れない(HIGH-4)。
+  const lastTypeByIndent = new Map<number, string>()
+  const counterByIndent = new Map<number, number>()
 
   for (const { block, indent } of normalized) {
     const isListItem = isListItemBlockType(block.type)
@@ -1145,23 +1341,19 @@ function serializeBlockList(blocks: unknown[]): string[] {
 
     let computedNumber: number | null = null
     if (block.type === 'numberedListItem') {
-      // BlockNote は「直前も numberedListItem」なら途中の start を無視して連番の
-      // まま数える(実機で確認)。start が効くのは連番の先頭アイテムだけ。
+      // BlockNote は「直前(同じ段)も numberedListItem」なら途中の start を無視して
+      // 連番のまま数える(実機で確認)。start が効くのは連番の先頭アイテムだけ。
       const explicitStart = typeof block.props.start === 'number' ? block.props.start : null
-      const continuesRun = numPrevWasNumbered && prevIndent === indent
-      computedNumber = continuesRun ? numCounter + 1 : (explicitStart ?? 1)
-      numCounter = computedNumber
-      numPrevWasNumbered = true
-    } else {
-      numPrevWasNumbered = false
-      numCounter = 0
+      const continuesRun = lastTypeByIndent.get(indent) === 'numberedListItem'
+      computedNumber = continuesRun ? (counterByIndent.get(indent) ?? 0) + 1 : (explicitStart ?? 1)
+      counterByIndent.set(indent, computedNumber)
     }
+    lastTypeByIndent.set(indent, block.type)
 
     const prefix = '  '.repeat(indent)
     out.push(...blockToLines(block, computedNumber).map((l) => prefix + l))
 
     prevWasListItem = isListItem
-    prevIndent = indent
   }
 
   return out

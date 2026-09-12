@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'fs'
+import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import {
   parseMinutesMarkdown,
@@ -22,6 +22,26 @@ function extractSqlPattern(sql: string, label: string): string {
   const m = re.exec(sql)
   if (!m) throw new Error(`${label} のパターンが見つかりません`)
   return m[1]
+}
+
+/**
+ * 議事録→タスク化 RPC の**最新の定義**が入っているマイグレーションを探して読む。
+ * ファイル名を決め打ちすると、あとから RPC を作り直す(create or replace)
+ * マイグレーションが増えたときに古い定義と突き合わせてしまい、SQL と TS の
+ * ずれを見逃す。マイグレーションは名前順=適用順なので、名前順で最後に
+ * `rpc_parse_meeting_minutes` を定義しているファイルを正本として扱う。
+ */
+function readLatestMinutesRpcMigration(): { file: string; sql: string } {
+  const dir = join(__dirname, '../../../../supabase/migrations')
+  const defines = /create\s+or\s+replace\s+function\s+(?:public\.)?rpc_parse_meeting_minutes/i
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+  for (let i = files.length - 1; i >= 0; i--) {
+    const sql = readFileSync(join(dir, files[i]), 'utf-8')
+    if (defines.test(sql)) return { file: files[i], sql }
+  }
+  throw new Error('rpc_parse_meeting_minutes を定義するマイグレーションが見つかりません')
 }
 
 describe('parseMinutesMarkdown: 空入力', () => {
@@ -362,7 +382,8 @@ describe('不変条件5: どんな入力でも例外を出さない', () => {
 
 describe('不変条件6: SQL(最新マイグレーション)の正規表現とTS側の定数が一致する', () => {
   it('rpc_parse_meeting_minutes の SPEC_LINE_REGEX / TASK_MARKER_REGEX と文字列一致する', () => {
-    const sql = readFileSync(join(__dirname, '../../../../supabase/migrations/20260911143112_space_role_boundary.sql'), 'utf-8')
+    const { file, sql } = readLatestMinutesRpcMigration()
+    expect(file).toMatch(/\.sql$/)
     const specPattern = extractSqlPattern(sql, 'v_line')
     expect(specPattern).toBe(SPEC_LINE_REGEX.source)
     // 目印の取り出し(substring)は「末尾アンカー無し」でTS側の捕捉グループ部分と一致する
@@ -663,6 +684,205 @@ describe('MEDIUM-12: 番号付きstartの正規化・空段落の正規化', () 
   })
 })
 
+// ---- レビュー指摘 HIGH-4: 番号付きの連番は「段」ごとに数える ----
+
+describe('HIGH-4: 番号付きリストの途中に子があっても番号が1に戻らない', () => {
+  it('子の箇条書きを挟んでも次の番号は2になる(往復する)', () => {
+    const md = '1. 手順\n  - 補足\n2. 次の手順\n3. 最後'
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+  })
+
+  it('子が番号付きでも、親の段と子の段で別々に数える', () => {
+    const md = '1. 親A\n  1. 子A\n  2. 子B\n2. 親B'
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+  })
+
+  it('先頭が1以外のときも子を挟んで連番が続く', () => {
+    const md = '3. さん\n  - 補足\n4. よん'
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+  })
+
+  it('子のブロック木からも段ごとに数える(children 指定のブロックを直接渡す)', () => {
+    const out = serializeMinutesBlocks([
+      { type: 'numberedListItem', content: [t('手順1')], children: [{ type: 'bulletListItem', content: [t('補足')] }] },
+      { type: 'numberedListItem', content: [t('手順2')] },
+    ])
+    expect(out).toBe('1. 手順1\n  - 補足\n2. 手順2')
+  })
+})
+
+// ---- レビュー指摘 MEDIUM-1: 強調の前後の空白は強調の外に出す ----
+
+describe('MEDIUM-1: 強調(** * ~~)の前後の半角空白/タブは強調の外へ出す', () => {
+  it('段落先頭の斜体「 重要」が箇条書きに見える行にならず安定する', () => {
+    const s1 = serializeMinutesBlocks([{ type: 'paragraph', content: [t(' 重要', { italic: true }), t('な点')] }])
+    expect(s1).toBe('\\ *重要*な点')
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+    expect(parseMinutesMarkdown(s1)[0].content).toEqual([
+      { type: 'text', text: ' ', styles: {} },
+      { type: 'text', text: '重要', styles: { italic: true } },
+      { type: 'text', text: 'な点', styles: {} },
+    ])
+  })
+
+  it('太字・取り消し線でも同じように外へ出す', () => {
+    expect(serializeMinutesBlocks([{ type: 'paragraph', content: [t('重要 ', { bold: true }), t('だ')] }])).toBe('**重要** だ')
+    expect(serializeMinutesBlocks([{ type: 'paragraph', content: [t(' 済 ', { strike: true })] }])).toBe('\\ ~~済~~ ')
+  })
+
+  it('タブも外へ出す(タブ始まりの行は字下げと誤読されないので逃がしは不要)', () => {
+    const s1 = serializeMinutesBlocks([{ type: 'paragraph', content: [t('\t重要', { italic: true })] }])
+    expect(s1).toBe('\t*重要*')
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+  })
+
+  it('コード表記の前後の空白は動かさない(見た目が変わるため)', () => {
+    expect(serializeMinutesBlocks([{ type: 'paragraph', content: [t(' x ', { code: true })] }])).toBe('` x `')
+  })
+
+  it('埋め込み改行をまたぐ強調は行ごとに空白を外へ出す', () => {
+    const s1 = serializeMinutesBlocks([{ type: 'paragraph', content: [t('前の行\n 重要', { italic: true })] }])
+    expect(s1).toBe('*前の行*\n\\ *重要*')
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+  })
+
+  it('空白だけの強調は空白の文字として書く(文字は落とさない)', () => {
+    const s1 = serializeMinutesBlocks([{ type: 'paragraph', content: [t('a'), t('  ', { bold: true }), t('b')] }])
+    expect(s1).toBe('a  b')
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+  })
+})
+
+// ---- レビュー指摘 MEDIUM-3: href はスキームで判定する(相対リンクは許す) ----
+
+describe('MEDIUM-3: href はスキームで判定し、相対リンクは文字に化けない', () => {
+  const relative: string[] = ['docs/a.md', './x', '../x', '?q=1', 'x.md', 'a/b/c', '#frag', '/abs/path']
+  for (const href of relative) {
+    it(`相対リンク ${href} はリンクになり往復する`, () => {
+      const md = `[資料](${href})`
+      expect(parseMinutesMarkdown(md)[0].content).toEqual([
+        { type: 'link', href, content: [{ type: 'text', text: '資料', styles: {} }] },
+      ])
+      expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+    })
+  }
+
+  const rejected: string[] = [
+    'javascript:alert(1)',
+    'JaVaScRiPt:alert(1)',
+    'data:text/html,x',
+    'vbscript:x',
+    'file:///etc/passwd',
+    'C:\\Users\\taro',
+    // 先頭の2文字がスラッシュ/バックスラッシュの組み合わせは、ブラウザが
+    // `//`(プロトコル相対)と同じに解釈して外部サイトへ飛ぶ
+    '//evil.example/x',
+    '/\\evil.example/x',
+    '\\/evil.example/x',
+    '\\\\evil.example/x',
+    '/\t/evil.example',
+    // HTML の文字参照で scheme を偽装したもの(HTML に流し込まれた時に `:` に戻る)
+    'javascript&#58;alert(1)',
+    'javascript&#x3A;alert(1)',
+    'javascript&colon;alert(1)',
+    '&#106;avascript:alert(1)',
+    'java&Tab;script:alert(1)',
+    '',
+  ]
+  for (const href of rejected) {
+    it(`許可しない href ${JSON.stringify(href)} はリンクにならない`, () => {
+      const content = parseMinutesMarkdown(`[x](${href})`)[0].content as unknown as Array<Record<string, unknown>>
+      expect(content.some((c) => c.type === 'link')).toBe(false)
+    })
+  }
+
+  it('書き出しも同じ規則: 許可しない href のリンクは文字として書き、読み書きで形が変わらない', () => {
+    const s1 = serializeMinutesBlocks([
+      { type: 'paragraph', content: [{ type: 'link', href: 'javascript:a*b', content: [t('押して')] } as never] },
+    ])
+    expect(parseMinutesMarkdown(s1)[0].content).toEqual([{ type: 'text', text: '[押して](javascript:a*b)', styles: {} }])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+  })
+
+  it('リンク文字が空のものはリンクにせず文字として残す(href が表示文字に化けない)', () => {
+    const s1 = serializeMinutesBlocks([
+      { type: 'paragraph', content: [{ type: 'link', href: 'https://example.com/a', content: [] } as never] },
+    ])
+    expect(s1).toBe('[](https://example.com/a)')
+    // `[](…)` はリンクにならない。中の素のURLは自動リンクとして拾われるが、
+    // 文字は1つも増えず、読み書きを繰り返しても形が変わらない。
+    expect(parseMinutesMarkdown(s1)[0].content).toEqual([
+      { type: 'text', text: '[](', styles: {} },
+      { type: 'link', href: 'https://example.com/a', content: [{ type: 'text', text: 'https://example.com/a', styles: {} }] },
+      { type: 'text', text: ')', styles: {} },
+    ])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+  })
+})
+
+// ---- レビュー指摘 LOW: 逃がしの揺れ・空コード・表セルの <br> ----
+
+describe('LOW: 文字としての \\ で始まる行が読み直しで変わらない', () => {
+  const texts = ['\\- 見た目は箇条書き', '\\   空白3つ', '\\# 見出しに見える', '\\| 表に見える']
+  for (const text of texts) {
+    it(`${JSON.stringify(text)} が往復する`, () => {
+      const s1 = serializeMinutesBlocks([{ type: 'paragraph', content: [t(text)] }])
+      expect(parseMinutesMarkdown(s1)[0].content).toEqual([{ type: 'text', text, styles: {} }])
+      expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+    })
+  }
+
+  it('段落の続き行が文字としての \\ で始まっても往復する', () => {
+    const text = '1行目\n\\- 2行目'
+    const s1 = serializeMinutesBlocks([{ type: 'paragraph', content: [t(text)] }])
+    expect(parseMinutesMarkdown(s1)[0].content).toEqual([{ type: 'text', text, styles: {} }])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+  })
+})
+
+describe('LOW: 素のURLに強調が付いていたら素のURLの形で書かない', () => {
+  it('斜体の付いた素URLは [text](href) で書き、強調が消えない', () => {
+    const s1 = serializeMinutesBlocks([
+      {
+        type: 'paragraph',
+        content: [{ type: 'link', href: 'https://a.example.com/c', content: [t('https://a.example.com/c', { italic: true })] } as never],
+      },
+    ])
+    expect(s1).toBe('[*https://a.example.com/c*](https://a.example.com/c)')
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+  })
+})
+
+describe('LOW: 表のセルに文字として書いた <br> が改行に化けない', () => {
+  const cell = (text: string): MinutesBlock => ({
+    type: 'table',
+    content: {
+      type: 'tableContent',
+      columnWidths: [],
+      headerRows: 1,
+      rows: [{ cells: [[t('見出し')]] }, { cells: [[t(text)]] }],
+    },
+  })
+
+  for (const text of ['改行タグは <br> と書く', '<BR/> も同じ', '<\\br> も文字のまま']) {
+    it(`${JSON.stringify(text)} が文字のまま往復する`, () => {
+      const s1 = serializeMinutesBlocks([cell(text)])
+      const back = parseMinutesMarkdown(s1)
+      const cellContent = (back[0].content as unknown as { rows: Array<{ cells: unknown[][] }> }).rows[1].cells[0]
+      expect(cellContent).toEqual([{ type: 'text', text, styles: {} }])
+      expect(serializeMinutesBlocks(back)).toBe(s1)
+    })
+  }
+
+  it('本物の改行は <br> で書き、文字の <br> と混ざらない', () => {
+    const s1 = serializeMinutesBlocks([cell('1行目\n<br>を含む2行目')])
+    expect(s1).toContain('1行目<br>')
+    const back = parseMinutesMarkdown(s1)
+    const cellContent = (back[0].content as unknown as { rows: Array<{ cells: unknown[][] }> }).rows[1].cells[0]
+    expect(cellContent).toEqual([{ type: 'text', text: '1行目\n<br>を含む2行目', styles: {} }])
+  })
+})
+
 describe('LOW: 4個以上連続する*は文字として扱い、深い再帰で落ちない', () => {
   it('*が数千個連続しても RangeError にならない', () => {
     expect(() => serializeMinutesBlocks(parseMinutesMarkdown('*'.repeat(20000)))).not.toThrow()
@@ -675,11 +895,17 @@ describe('LOW: 4個以上連続する*は文字として扱い、深い再帰で
   })
 })
 
-describe('LOW: 空のコード・空のリンクは空の文字要素を作らない', () => {
-  it('空コード(``)と[]()は要素を増やさない', () => {
+describe('LOW: 空のコード表記・空のリンクは文字のまま残す', () => {
+  it('空コード(``)は文字として残り、[]()もリンクにならない', () => {
     const blocks = parseMinutesMarkdown('a `` b\n\n[]()')
-    expect(blocks[0].content).toEqual([{ type: 'text', text: 'a  b', styles: {} }])
+    expect(blocks[0].content).toEqual([{ type: 'text', text: 'a `` b', styles: {} }])
     expect(blocks[1].content).toEqual([{ type: 'text', text: '[]()', styles: {} }])
+  })
+
+  it('空コード表記を含む行は読み書きで形が変わらない', () => {
+    const s1 = serializeMinutesBlocks([{ type: 'paragraph', content: [t('a `` b')] }])
+    expect(parseMinutesMarkdown(s1)[0].content).toEqual([{ type: 'text', text: 'a `` b', styles: {} }])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
   })
 })
 
@@ -695,9 +921,18 @@ describe('LOW: [ ] で始まる普通の箇条書きがチェック項目に化�
 // ---- 必須の性質テスト: エディタが作りうる形のブロックをランダムに作って確認する ----
 
 describe('性質テスト: エディタが作りうる形のランダムなブロックで S(P(S(b))) === S(b)', () => {
-  // シードは固定(再現性のため)。入れ子・改行(codeBlock)・start・空段落・
-  // スタイルの重なり(太字/斜体/取り消し線)・taskMarker・表のセル改行を混ぜる。
-  function makeGenerator(seedInit: number) {
+  // seed を 1 つに固定すると「その seed でだけ通る」状態を見逃す(実際に見逃した)。
+  // 複数 seed で回し、落ちた seed を番号付きで表示して再現できるようにする。
+  // 生成器に入れるもの: 入れ子・文中の改行・表セルの改行・スタイルの重ね掛け・
+  // コード表記・リンク(相対/絶対/括弧入り)・段落の子・空段落・start・taskMarker・
+  // `SPEC(` で始まる文字。
+  /**
+   * `unsafeHref`: 許可しない scheme の href を混ぜるか。許可外 href のリンクは
+   * 安全のため `[text](href)` を**文字として**書くので、読み戻すと href が
+   * 表示文字になり `[` `]` `(` `)` の4文字だけ増える(下のテストで内訳を検査)。
+   * その分を切り分けるため、混ぜない生成器も用意する。
+   */
+  function makeGenerator(seedInit: number, { unsafeHref = true }: { unsafeHref?: boolean } = {}) {
     let seed = seedInit
     const rand = () => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff
@@ -705,26 +940,42 @@ describe('性質テスト: エディタが作りうる形のランダムなブ�
     }
     const pick = <T,>(a: T[]): T => a[Math.floor(rand() * a.length)]
     const mkText = (text: string, styles: Record<string, boolean> = {}) => ({ type: 'text' as const, text, styles })
-    const inlineAlpha = ['あ', 'a', ' ', '*', '~', '`', '\\', '#', '-', '1.', 'x']
+    // `SPEC(` で始まる文字・文中の改行・記号を混ぜる。記号は行頭/inline の
+    // 区切りと衝突しうるものを意図的に入れる。
+    const inlineAlpha = ['あ', 'a', ' ', '\t', '*', '~', '`', '\\', '#', '-', '1.', 'x', '|', '[', ']', '(', ')', '<br>', '\n', 'SPEC(/spec/a.md#x): ']
     const rText = () => {
       let s = ''
-      const n = 1 + Math.floor(rand() * 3)
+      const n = 1 + Math.floor(rand() * 4)
       for (let i = 0; i < n; i++) s += pick(inlineAlpha)
       return s
     }
+    // スタイルは重ね掛けもする(太字斜体・取り消し線+太字など)。code は他と
+    // 混ざらない(BlockNote も code は単独で持つ)ので分けて抽選する。
     const rStyles = (): Record<string, boolean> => {
-      const r = rand()
-      if (r < 0.15) return { bold: true }
-      if (r < 0.28) return { italic: true }
-      if (r < 0.36) return { strike: true }
-      return {}
+      if (rand() < 0.12) return { code: true }
+      const s: Record<string, boolean> = {}
+      if (rand() < 0.25) s.bold = true
+      if (rand() < 0.25) s.italic = true
+      if (rand() < 0.12) s.strike = true
+      return s
     }
     const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-    const rInline = (allowMarker: boolean) => {
+    const safeHrefs = ['https://x.example.com/a', 'https://x.example.com/(a)', 'docs/a.md', './rel', '#frag', 'mailto:a@b.example']
+    const rLink = () => ({
+      type: 'link' as const,
+      href: pick(unsafeHref ? [...safeHrefs, 'javascript:alert(1)', 'data:text/html,x'] : safeHrefs),
+      content: [mkText(rText().replace(/\n/g, '') || 'l', rStyles())],
+    })
+    const rInline = (allowMarker: boolean, allowNewline: boolean) => {
       const out: Array<Record<string, unknown>> = []
-      const n = 1 + Math.floor(rand() * 2)
+      const n = 1 + Math.floor(rand() * 3)
       for (let i = 0; i < n; i++) {
-        const tk = mkText(rText(), rStyles())
+        if (rand() < 0.12) {
+          out.push(rLink())
+          continue
+        }
+        const raw = rText()
+        const tk = mkText(allowNewline ? raw : raw.replace(/\n/g, ' '), rStyles())
         const last = out[out.length - 1]
         if (last && last.type === 'text' && same(last.styles, tk.styles)) (last as { text: string }).text += tk.text
         else out.push(tk)
@@ -733,10 +984,15 @@ describe('性質テスト: エディタが作りうる形のランダムなブ�
       return out
     }
     const listKinds = ['bulletListItem', 'checkListItem', 'numberedListItem']
+    const childKinds = [...listKinds, 'paragraph', 'heading', 'codeBlock']
     const topKinds = ['paragraph', 'heading', ...listKinds, 'codeBlock', 'table']
     const rBlock = (kind: string, depth: number): MinutesBlock => {
-      const childKind = depth < 1 && listKinds.includes(kind) && rand() < 0.25 ? pick(listKinds) : null
-      const children = childKind ? [rBlock(childKind, depth + 1)] : []
+      // 子は「リスト項目の子リスト」だけでなく、段落/見出し/コードの子も作る
+      // (エディタで Tab / Backspace を押すと実際にこの形になる)。
+      const children =
+        depth < 2 && listKinds.includes(kind) && rand() < 0.3
+          ? Array.from({ length: 1 + Math.floor(rand() * 2) }, () => rBlock(pick(childKinds), depth + 1))
+          : []
       if (kind === 'codeBlock') return { type: 'codeBlock', props: { language: '' }, content: [mkText(rText() + (rand() < 0.3 ? '\n' + rText() : ''))], children: [] }
       if (kind === 'table') {
         return {
@@ -746,7 +1002,8 @@ describe('性質テスト: エディタが作りうる形のランダムなブ�
             type: 'tableContent',
             columnWidths: [],
             headerRows: 1,
-            rows: [0, 1].map(() => ({ cells: [0, 1].map(() => rInline(false)) })),
+            // 表のセルにも改行を入れる(書き出しは <br>、読み込みで改行に戻る)
+            rows: [0, 1].map(() => ({ cells: [0, 1].map(() => rInline(false, true)) })),
           } as unknown as MinutesBlock['content'],
           children: [],
         }
@@ -759,52 +1016,166 @@ describe('性質テスト: エディタが作りうる形のランダムなブ�
             : kind === 'numberedListItem' && rand() < 0.2
               ? { start: 2 + Math.floor(rand() * 8) }
               : {}
-      const content = kind === 'paragraph' && rand() < 0.12 ? [] : (rInline(kind === 'checkListItem') as unknown as MinutesBlock['content'])
+      const content =
+        kind === 'paragraph' && rand() < 0.12
+          ? []
+          : (rInline(kind === 'checkListItem', kind !== 'heading') as unknown as MinutesBlock['content'])
       return { type: kind, props, content, children }
     }
     return () => Array.from({ length: 1 + Math.floor(rand() * 3) }, () => rBlock(pick(topKinds), 0))
   }
 
-  it('5000件で S(P(S(b))) === S(b) が成り立ち、例外も出さない', () => {
-    const nextBlocks = makeGenerator(9)
-    let unstable = 0
-    for (let n = 0; n < 5000; n++) {
-      const blocks = nextBlocks()
-      expect(() => {
-        const s1 = serializeMinutesBlocks(blocks)
-        const s2 = serializeMinutesBlocks(parseMinutesMarkdown(s1))
-        if (s2 !== s1) unstable++
-      }).not.toThrow()
+  /**
+   * ブロック木に含まれる「空白以外の見える文字」を数えた表にする。
+   * リンクの href も本文として数える(href はユーザーが入れた情報で、
+   * 落としてはいけないもの。許可外 href は表示文字として書き出される)。
+   */
+  function visibleCharCounts(node: unknown, acc: Map<string, number> = new Map()): Map<string, number> {
+    if (node == null) return acc
+    if (typeof node === 'string') {
+      for (const ch of node.replace(/\s/g, '')) acc.set(ch, (acc.get(ch) ?? 0) + 1)
+      return acc
     }
-    expect(unstable).toBe(0)
+    if (Array.isArray(node)) {
+      for (const x of node) visibleCharCounts(x, acc)
+      return acc
+    }
+    if (typeof node === 'object') {
+      const o = node as Record<string, unknown>
+      // props(taskId・language・level 等)は本文ではないので数えない
+      if (typeof o.text === 'string') visibleCharCounts(o.text, acc)
+      if (typeof o.href === 'string') visibleCharCounts(o.href, acc)
+      if ('content' in o) visibleCharCounts(o.content, acc)
+      if ('rows' in o) visibleCharCounts(o.rows, acc)
+      if ('cells' in o) visibleCharCounts(o.cells, acc)
+      if ('children' in o) visibleCharCounts(o.children, acc)
+    }
+    return acc
+  }
+
+  /** 文字ごとの増減。`{ '[': 1 }` なら `[` が1個増えたという意味。 */
+  function charCountDelta(before: Map<string, number>, after: Map<string, number>): Record<string, number> {
+    const out: Record<string, number> = {}
+    for (const k of new Set([...before.keys(), ...after.keys()])) {
+      const d = (after.get(k) ?? 0) - (before.get(k) ?? 0)
+      if (d !== 0) out[k] = d
+    }
+    return out
+  }
+
+  function deltaText(delta: Record<string, number>): string {
+    return Object.entries(delta)
+      .map(([k, d]) => `${JSON.stringify(k)}:${d > 0 ? '+' : ''}${d}`)
+      .join(' ')
+  }
+
+  const SEEDS = 20
+  const CASES_PER_SEED = 500
+  /** 読み込み側に残ってはいけない幅ゼロ文字(U+200B)。 */
+  const ZERO_WIDTH = '\u200B'
+  /** 許可外 href のリンクを文字として書いたときに増えるリンク記号。 */
+  const LINK_SYNTAX_CHARS = ['[', ']', '(', ')']
+
+  /**
+   * 1つの文書について、落ちた性質の説明を返す(空配列なら全部通った)。
+   * 生成が重いので1回の生成で全性質をまとめて見る。性質ごとに生成し直すと
+   * 同じ乱数列を何度も回すことになり、CI の時間切れを招きやすい。
+   */
+  function checkOneDocument(blocks: MinutesBlock[], allowLinkSyntaxGain: boolean): string[] {
+    const failed: string[] = []
+    let s1 = ''
+    try {
+      s1 = serializeMinutesBlocks(blocks)
+      const back = parseMinutesMarkdown(s1)
+      const s2 = serializeMinutesBlocks(back)
+
+      // (c) 1回で正規化し、以後は書き直しても変わらない
+      if (s2 !== s1) failed.push(`安定しない s1=${JSON.stringify(s1)} s2=${JSON.stringify(s2)}`)
+
+      // (a) 読み込み結果に幅ゼロ文字が残らない
+      if (JSON.stringify(back).includes(ZERO_WIDTH)) failed.push(`幅ゼロ文字が残る s1=${JSON.stringify(s1)}`)
+
+      // (b) 空白以外の見える文字の中身が一致する。許可外 scheme の href は
+      // 安全のためリンクにせず `[text](href)` を文字として書くので、その分だけ
+      // リンク記号の4文字が増えるのを認める(文字が消えるのは常に不具合)。
+      const delta = charCountDelta(visibleCharCounts(blocks), visibleCharCounts(back))
+      const bad = Object.entries(delta).filter(([k, d]) => d < 0 || !(allowLinkSyntaxGain && LINK_SYNTAX_CHARS.includes(k)))
+      if (bad.length) failed.push(`見える文字が変わる ${deltaText(Object.fromEntries(bad))} s1=${JSON.stringify(s1)}`)
+    } catch (e) {
+      failed.push(`例外 ${String(e).slice(0, 200)} s1=${JSON.stringify(s1)}`)
+    }
+    return failed
+  }
+
+  /** seed 1〜SEEDS を回し、落ちた seed と性質名・件数・最初の実例を並べて比較する。 */
+  function runSeeds(label: string, unsafeHref: boolean): void {
+    const failures: string[] = []
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const nextBlocks = makeGenerator(seed, { unsafeHref })
+      const byProperty = new Map<string, { count: number; first: string }>()
+      for (let n = 0; n < CASES_PER_SEED; n++) {
+        for (const f of checkOneDocument(nextBlocks(), unsafeHref)) {
+          const name = f.split(' ')[0]
+          const hit = byProperty.get(name)
+          if (hit) hit.count++
+          else byProperty.set(name, { count: 1, first: f })
+        }
+      }
+      for (const [name, { count, first }] of byProperty) {
+        failures.push(`seed=${seed} ${name} ${count}/${CASES_PER_SEED}件\n      ${first}`)
+      }
+    }
+    expect(`${label}${failures.length ? '\n    ' + failures.join('\n    ') : ''}`).toBe(label)
+  }
+
+  it(
+    `seed 1〜${SEEDS} × 各${CASES_PER_SEED}件: 安定・幅ゼロ文字なし・見える文字が完全に一致(許可外 href なし)`,
+    () => {
+      runSeeds('許可外 href を混ぜない生成器: 落ちた seed なし', false)
+    },
+    60_000,
+  )
+
+  it(
+    `seed 1〜${SEEDS} × 各${CASES_PER_SEED}件: 許可外 href を混ぜても、増えるのはリンク記号 [ ] ( ) だけ`,
+    () => {
+      runSeeds('許可外 href を混ぜる生成器: 落ちた seed なし', true)
+    },
+    60_000,
+  )
+})
+
+// ---- レビュー指摘 MEDIUM-3/LOW: リンクの表示文字に `]` やコード表記が入っても壊れない ----
+
+describe('リンクの表示文字に ] やコード表記が入ってもリンクのまま往復する', () => {
+  it('「[参考] 資料」のような表示文字でもリンクになる', () => {
+    const s1 = serializeMinutesBlocks([
+      { type: 'paragraph', content: [{ type: 'link', href: 'https://example.com/a', content: [t('[参考] 資料')] } as never] },
+    ])
+    expect(s1).toBe('[[参考\\] 資料](https://example.com/a)')
+    expect(parseMinutesMarkdown(s1)[0].content).toEqual([
+      { type: 'link', href: 'https://example.com/a', content: [{ type: 'text', text: '[参考] 資料', styles: {} }] },
+    ])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
   })
 
-  it('記号を除いた文字の中身は変換後も残っている(日本語の「あ」の個数で確認)', () => {
-    // 生成に使う記号(*~`\#|-1.等)は逃がし/組み替えの対象になりうるので、
-    // それらと衝突しない「あ」の出現回数が変換の前後で変わらないことを見る。
-    const nextBlocks = makeGenerator(123)
-    function countAInText(node: unknown): number {
-      if (node == null) return 0
-      if (typeof node === 'string') return (node.match(/あ/g) ?? []).length
-      if (Array.isArray(node)) return node.reduce((sum: number, x) => sum + countAInText(x), 0)
-      if (typeof node === 'object') {
-        const o = node as Record<string, unknown>
-        let sum = 0
-        if (typeof o.text === 'string') sum += countAInText(o.text)
-        if ('content' in o) sum += countAInText(o.content)
-        if ('rows' in o) sum += countAInText(o.rows)
-        if ('cells' in o) sum += countAInText(o.cells)
-        if ('children' in o) sum += countAInText(o.children)
-        return sum
-      }
-      return 0
-    }
-    for (let n = 0; n < 500; n++) {
-      const blocks = nextBlocks()
-      const before = countAInText(blocks)
-      const out = serializeMinutesBlocks(blocks)
-      const after = (out.match(/あ/g) ?? []).length
-      expect(after).toBe(before)
-    }
+  it('表示文字のコード表記の中の ] でも切れない(コードの中は逃がせないので読む側が飛ばす)', () => {
+    const s1 = serializeMinutesBlocks([
+      {
+        type: 'paragraph',
+        content: [{ type: 'link', href: 'docs/a.md', content: [t('arr[0]', { code: true })] } as never],
+      },
+    ])
+    expect(s1).toBe('[`arr[0]`](docs/a.md)')
+    expect(parseMinutesMarkdown(s1)[0].content).toEqual([
+      { type: 'link', href: 'docs/a.md', content: [{ type: 'text', text: 'arr[0]', styles: { code: true } }] },
+    ])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(s1))).toBe(s1)
+  })
+
+  it('画像 ![alt](src) はリンクにせず文字のまま残す', () => {
+    const md = '![図](docs/a.png) を参照'
+    expect(parseMinutesMarkdown(md)[0].content).toEqual([{ type: 'text', text: md, styles: {} }])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
   })
 })
