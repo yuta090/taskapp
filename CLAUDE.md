@@ -94,7 +94,7 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
 
 ## UI Rules (Violations = Bugs)
 
-- **3-pane fixed layout**: [Left Nav: 240px] - [Main: flex-1] - [Inspector: 400px]（**デスクトップ = `md`(768px)以上**）
+- **3-pane fixed layout**: [Left Nav: 240px] - [Main: flex-1] - [Inspector: 400px]（**デスクトップ = `md`(768px)以上**）。例外: Wiki のページ情報パネルは 320px（ユーザー要望・2026-09-12）。他は全て 400px のまま
 - **Inspector never overlays** - must resize Main pane（**デスクトップ限定**。`md`未満のモバイルでは Inspector は Main をリサイズせず、全画面シート(`.inspector-pane` の `@media (max-width:767px)`)としてオーバーレイする。単一インスタンスをクラス切替で開閉し二重マウントしない）
 - **モバイル(`md`未満)**: LeftNav はハンバーガー＋スライドインdrawer化（`AppShell`）。ブレークポイントは portal と統一して**必ず `md`(768px)** を使う。ガント編集は**desktop-only**（`md`未満は推奨バナーでゲート）
 - **Amber-500** indicates client-visible elements
