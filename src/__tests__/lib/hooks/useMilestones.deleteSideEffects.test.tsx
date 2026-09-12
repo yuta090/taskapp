@@ -59,6 +59,7 @@ function makeWrapper(queryClient: QueryClient) {
 }
 
 const tasksQueryKey = ['tasks', 'org-1', 'space-1'] as const
+const otherSpaceTasksQueryKey = ['tasks', 'org-1', 'space-2'] as const
 const countsQueryKey = ['spaceContentCounts', 'space-1'] as const
 
 beforeEach(() => {
@@ -72,12 +73,22 @@ describe('useMilestones — deleteMilestone の波及', () => {
     const tasksData: TasksQueryData = {
       tasks: [
         { id: 't1', milestone_id: 'm1' } as unknown as Task,
-        { id: 't2', milestone_id: null } as unknown as Task,
+        // 別のマイルストーンを指す無関係のタスク（'m1' の削除で巻き込まれてはいけない）
+        { id: 't2', milestone_id: 'm-other' } as unknown as Task,
       ],
       owners: {},
       reviewStatuses: {},
     }
     queryClient.setQueryData(tasksQueryKey, tasksData)
+
+    // 別 space の tasks キャッシュ。同じ 'm1' を指していても、この space のキャッシュは
+    // 書き換わってはいけない（predicate は queryKey[2] === spaceId で絞る想定）
+    const otherSpaceTasksData: TasksQueryData = {
+      tasks: [{ id: 't3', milestone_id: 'm1' } as unknown as Task],
+      owners: {},
+      reviewStatuses: {},
+    }
+    queryClient.setQueryData(otherSpaceTasksQueryKey, otherSpaceTasksData)
 
     const { result } = renderHook(() => useMilestones({ spaceId: 'space-1' }), {
       wrapper: makeWrapper(queryClient),
@@ -89,8 +100,12 @@ describe('useMilestones — deleteMilestone の波及', () => {
 
     const updated = queryClient.getQueryData<TasksQueryData>(tasksQueryKey)
     expect(updated?.tasks.find((t) => t.id === 't1')?.milestone_id).toBeNull()
-    // 無関係のタスクはそのまま
-    expect(updated?.tasks.find((t) => t.id === 't2')?.milestone_id).toBeNull()
+    // 無関係のタスク（別のマイルストーンを指す）はそのまま
+    expect(updated?.tasks.find((t) => t.id === 't2')?.milestone_id).toBe('m-other')
+
+    // 別 space のタスクキャッシュは書き換わらない
+    const otherUpdated = queryClient.getQueryData<TasksQueryData>(otherSpaceTasksQueryKey)
+    expect(otherUpdated?.tasks.find((t) => t.id === 't3')?.milestone_id).toBe('m1')
   })
 
   it('削除後、その space の spaceContentCounts を古いままにしない（取り直しを促す）', async () => {
