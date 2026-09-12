@@ -14,11 +14,12 @@ import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
 import { filterSuggestionItems } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { LinkSimple, FileText, CheckCircle } from '@phosphor-icons/react'
-import { WikiFileLinkPicker } from '@/components/wiki/WikiFileLinkPicker'
-import { WikiPageLinkInsertPicker, type WikiPageInsertOption } from '@/components/wiki/WikiPageLinkInsertPicker'
+import { CheckCircle } from '@phosphor-icons/react'
+import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
+import { buildInsertLinkMenuItem, insertAppLink } from '@/components/editor/appLink'
+import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
+import { buildTaskHref, type AppLink } from '@/lib/navigation/appLinks'
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
-import type { ProjectFile } from '@/lib/hooks/useFiles'
 
 interface MinutesEditorProps {
   /** 保存されている議事録 Markdown。マウント時の初期表示にのみ使う（変更後の再パースはしない） */
@@ -27,6 +28,8 @@ interface MinutesEditorProps {
   editable?: boolean
   orgId: string
   spaceId: string
+  /** 本文中のリンクで画面を移る前に呼ぶ。待ち時間中の自動保存を確定させて書きかけを落とさない */
+  onBeforeNavigate?: () => void | Promise<void>
 }
 
 interface TaskMarkerChipProps {
@@ -47,8 +50,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function TaskMarkerChip({ taskId, orgId, spaceId }: TaskMarkerChipProps) {
   const router = useRouter()
   const isValidTaskId = UUID_RE.test(taskId)
-  const goToTask = () =>
-    router.push(`/${orgId}/project/${spaceId}?task=${encodeURIComponent(taskId)}`)
+  // リンクの組み立ては appLinks.ts に集約する（?task= の綴りがずれると押しても何も開かない）
+  const goToTask = () => router.push(buildTaskHref(orgId, spaceId, encodeURIComponent(taskId)))
 
   const className =
     'inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-ink align-middle' +
@@ -175,9 +178,9 @@ function useMinutesSchema(orgId: string, spaceId: string) {
  * 再レンダーのたびに BlockNoteView を描き直さないため。渡す props はすべて
  * プリミティブか安定した参照（onChange は呼び出し側で useCallback 済み）にすること。
  */
-function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceId }: MinutesEditorProps) {
-  const [isFilePickerOpen, setIsFilePickerOpen] = useState(false)
-  const [isWikiPickerOpen, setIsWikiPickerOpen] = useState(false)
+function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceId, onBeforeNavigate }: MinutesEditorProps) {
+  const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
+  const [isLinkPickerOpen, setIsLinkPickerOpen] = useState(false)
   const schema = useMinutesSchema(orgId, spaceId)
 
   // 例外が出ないはずのところへの念のための守り。parseMinutesMarkdown が万一例外を
@@ -208,33 +211,30 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
   const getSlashMenuItems = useCallback(
     async (query: string) =>
       filterSuggestionItems(
-        // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
-        getDefaultReactSlashMenuItems(editor).filter((item) =>
-          ALLOWED_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
-        ),
+        [
+          // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
+          buildInsertLinkMenuItem(() => setIsLinkPickerOpen(true)),
+          // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
+          ...getDefaultReactSlashMenuItems(editor).filter((item) =>
+            ALLOWED_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
+          ),
+        ],
         query
       ),
     [editor]
   )
 
-  const handleSelectFile = (file: ProjectFile) => {
-    editor.insertInlineContent([
-      { type: 'link', href: `/api/files/${file.id}/download`, content: file.name },
-    ] as Parameters<typeof editor.insertInlineContent>[0])
-    if (file.clientVisible) {
-      setIsFilePickerOpen(false)
+  // カーソル位置にアプリの中へのリンクを差し込む。社内のみのファイルのときは、
+  // 「相手先には開けない」という注意を読んでもらうためパネルを開いたままにする
+  const handleSelectLink = (link: AppLink) => {
+    insertAppLink(editor, link)
+    if (!link.href.startsWith('/api/files/')) {
+      setIsLinkPickerOpen(false)
     }
   }
 
-  const handleSelectWikiPage = (page: WikiPageInsertOption) => {
-    editor.insertInlineContent([
-      { type: 'link', href: `/${orgId}/project/${spaceId}/wiki?page=${page.id}`, content: page.title || '（無題）' },
-    ] as Parameters<typeof editor.insertInlineContent>[0])
-    setIsWikiPickerOpen(false)
-  }
-
   return (
-    <div className="minutes-editor" data-testid="minutes-editor">
+    <div className="minutes-editor" data-testid="minutes-editor" ref={editorContainerRef}>
       <BlockNoteView
         editor={editor}
         editable={effectiveEditable}
@@ -253,44 +253,13 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
       </BlockNoteView>
       {effectiveEditable && (
         <div className="flex items-center gap-2 mt-2 px-1">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setIsFilePickerOpen((prev) => !prev)
-                setIsWikiPickerOpen(false)
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
-            >
-              <LinkSimple className="text-sm" />
-              ファイルへのリンク
-            </button>
-            {isFilePickerOpen && (
-              <div className="absolute bottom-full left-0 mb-2 z-10">
-                <WikiFileLinkPicker spaceId={spaceId} onSelect={handleSelectFile} />
-              </div>
-            )}
-          </div>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setIsWikiPickerOpen((prev) => !prev)
-                setIsFilePickerOpen(false)
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
-            >
-              <FileText className="text-sm" />
-              Wikiページへのリンク
-            </button>
-            {isWikiPickerOpen && (
-              // スマホ(md未満)は2つ目のボタンなので left-0 だと右にはみ出す。
-              // right-0 にして画面内に収め、デスクトップ(md以上)だけ従来どおり left-0 に戻す。
-              <div className="absolute bottom-full right-0 md:right-auto md:left-0 mb-2 z-10">
-                <WikiPageLinkInsertPicker orgId={orgId} spaceId={spaceId} onSelect={handleSelectWikiPage} />
-              </div>
-            )}
-          </div>
+          <InsertLinkControl
+            orgId={orgId}
+            spaceId={spaceId}
+            isOpen={isLinkPickerOpen}
+            onToggle={() => setIsLinkPickerOpen((prev) => !prev)}
+            onSelect={handleSelectLink}
+          />
         </div>
       )}
     </div>

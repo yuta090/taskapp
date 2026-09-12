@@ -244,3 +244,13 @@ export function groupWikiPagesByMilestone(
 
 - DB 変更（列追加なし）。所属は毎回計算する。
 - ドラッグでのマイルストーン移動、複数マイルストーンの手動割り当て（主たる所属は 1 つのまま）。
+
+## 追補（2026-09-13）: 本文から他の物へリンクを貼る
+
+Wiki と議事録のエディタを共通化し、本文からファイル・Wikiページ・議事録・タスクへ
+リンクを貼れるようにした。仕様は `spec/DOC_LINK_SPEC.md` にまとめてある。
+
+- 「リンクを挿入」ボタンと「/」メニューの両方から開く。部品は `src/components/editor/` に共通化
+- 個別だった `WikiFileLinkPicker` / `MinutesWikiLinkPicker` は `AppLinkPicker` に統合（削除済み）
+- アプリの中の画面へのリンクは**同じタブ**で開き、ブラウザの「戻る」で書いていたページに戻る
+- CLI/API も同じリンクを `link` で返す

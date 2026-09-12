@@ -236,6 +236,21 @@ agentpm task update --task-id <タスクUUID> --wiki-page-id "$PAGE"
 
 全コマンド詳細は `agentpm --help` または各サブコマンドの `--help` を参照。
 
+### アプリの中の物へのリンク（`link`）
+
+タスク・Wikiページ・議事録・ファイルの**一覧と詳細に `link` が入る**。画面で開くための
+URL で、Wiki や議事録の本文にそのまま貼れる。詳細は `spec/DOC_LINK_SPEC.md`。
+
+```bash
+agentpm task list --json      # 各タスクに link（末尾のキー）
+agentpm wiki list --json      # 各ページに link（先頭のキー）
+agentpm meeting list --json   # 各会議に link
+agentpm file list --json      # 各ファイルに link（= downloadPath と同じ値）
+```
+
+Markdown で `[名前](link)` と書いて `wiki create` / `wiki update` に渡す。
+**`link` の値をそのまま使い、自分で URL を組み立てない**（綴りがずれると押しても開かない）。
+
 ## MCP サーバーとの関係
 
 | | CLI | MCP Server |

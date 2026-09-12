@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { MeetingsPageClient } from '@/app/(internal)/[orgId]/project/[spaceId]/meetings/MeetingsPageClient'
+// このファイルは '@/lib/hooks/useMeetings' をモックするので、競合の型はモックされない
+// 置き場（@/lib/minutes/errors）から取る。アプリ側も同じ置き場を見ている。
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import type { Meeting } from '@/types/database'
 
 // 会議を選んだら一覧の代わりに議事録の文書ビューを出す（Wiki のエディタビューと同じ考え方）。
@@ -43,6 +46,17 @@ vi.mock('@/lib/hooks/useAnnouncements', () => ({
 }))
 
 vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
+
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+const toastInfo = vi.fn()
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...a: unknown[]) => toastSuccess(...a),
+    error: (...a: unknown[]) => toastError(...a),
+    info: (...a: unknown[]) => toastInfo(...a),
+  },
+}))
 
 vi.mock('@/lib/hooks/useCanEditSpace', () => ({
   useCanEditSpace: () => ({ canEdit: true, canEditMoney: true, loading: false, resolved: true }),
@@ -115,6 +129,7 @@ const mockEnsureUpToDate = vi.fn().mockResolvedValue(undefined)
 const mockGetBaseUpdatedAt = vi.fn().mockReturnValue('2026-09-01T00:00:00.111111+00')
 const mockGetKnownRaw = vi.fn().mockReturnValue('flushed-content')
 const mockConfirmLeave = vi.fn().mockResolvedValue(true)
+const mockMarkConflict = vi.fn()
 
 interface FakeHandle {
   flushPendingSave: () => Promise<string>
@@ -122,6 +137,7 @@ interface FakeHandle {
   getBaseUpdatedAt: () => string | null
   getKnownRaw: () => string | null
   confirmLeave: () => Promise<boolean>
+  markConflict: () => void
 }
 
 vi.mock('@/components/meeting/MinutesDocumentView', () => ({
@@ -140,6 +156,7 @@ vi.mock('@/components/meeting/MinutesDocumentView', () => ({
       getBaseUpdatedAt: mockGetBaseUpdatedAt,
       getKnownRaw: mockGetKnownRaw,
       confirmLeave: mockConfirmLeave,
+      markConflict: mockMarkConflict,
     }))
     return (
       <div data-testid="minutes-document-view" data-fullscreen={String(!!props.fullscreen)}>
@@ -273,6 +290,46 @@ describe('MeetingsPageClient 議事録の文書ビュー', () => {
     })
 
     expect(mockParseMinutes).not.toHaveBeenCalled()
+  })
+
+  it('DB が「別の場所で更新されています」と断ったら、競合の帯を出し、成功のお知らせは出さない', async () => {
+    // 画面が確かめた直後〜RPC が書き込むまでの隙間に、ほかの人・AI秘書が書いた場合。
+    // DB は何も書かずに断る（作りかけのタスクも巻き戻る）ので、画面は競合として扱う。
+    renderPage()
+    await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
+    const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
+
+    mockParseMinutes.mockRejectedValue(
+      new MinutesConflictError('この議事録は、別の場所で更新されています。最新を読み込んでからもう一度お試しください')
+    )
+
+    await act(async () => {
+      await expect(lastInspectorElement.props.onCreateTasks('m1')).rejects.toBeInstanceOf(MinutesConflictError)
+    })
+
+    // 「最新を読み込む」で復帰できるよう、文書ビューに競合の帯を出させる
+    expect(mockMarkConflict).toHaveBeenCalledTimes(1)
+    // 何件作成できたかは出さない（1件も作られていない）
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(toastInfo).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledWith(
+      expect.stringContaining('別の場所で更新されています')
+    )
+  })
+
+  it('競合ではない失敗（通信断など）では競合の帯を出さない', async () => {
+    renderPage()
+    await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
+    const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
+
+    mockParseMinutes.mockRejectedValue(new Error('network'))
+
+    await act(async () => {
+      await expect(lastInspectorElement.props.onCreateTasks('m1')).rejects.toThrow('network')
+    })
+
+    expect(mockMarkConflict).not.toHaveBeenCalled()
+    expect(toastSuccess).not.toHaveBeenCalled()
   })
 
   it('HIGH-1: 書けない人には onCreateTasks を渡さない', async () => {

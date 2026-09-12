@@ -83,7 +83,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     subcommands: [
       {
         name: 'list',
-        description: 'List tasks. Each task includes number (TP-##) — put it in a PR title to auto-link the PR to the task',
+        description: 'List tasks. Each task includes number (TP-##) — put it in a PR title to auto-link the PR to the task. Includes link — the URL that opens it in the app; paste it into a wiki page or minutes to reference it.',
         aliases: ['ls'],
         tool: 'task_list',
         options: [
@@ -138,7 +138,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'get',
-        description: 'Get task details. Includes number (TP-##) — put it in a PR title to auto-link the PR to the task',
+        description: 'Get task details. Includes number (TP-##) — put it in a PR title to auto-link the PR to the task. Includes link — the URL that opens it in the app; paste it into a wiki page or minutes to reference it.',
         tool: 'task_get',
         options: [
           spaceOpt,
@@ -255,7 +255,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     subcommands: [
       {
         name: 'list',
-        description: 'List meetings',
+        description: 'List meetings. Includes link — the URL that opens it in the app; paste it into a wiki page or minutes to reference it.',
         aliases: ['ls'],
         tool: 'meeting_list',
         options: [
@@ -296,7 +296,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'get',
-        description: 'Get meeting details',
+        description: 'Get meeting details. Includes link — the URL that opens it in the app; paste it into a wiki page or minutes to reference it.',
         tool: 'meeting_get',
         options: [
           spaceOpt,
@@ -650,7 +650,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     subcommands: [
       {
         name: 'list',
-        description: 'List uploaded files in the space (ready only, newest first)',
+        description: 'List uploaded files in the space (ready only, newest first). Includes link — the download URL; paste it into a wiki page or minutes to reference the file.',
         tool: 'file_list',
         examples: ['agentpm file list', 'agentpm file list --limit 100 --json'],
         options: [
@@ -702,7 +702,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     subcommands: [
       {
         name: 'list',
-        description: 'List wiki pages',
+        description: 'List wiki pages. Includes link — the URL that opens it in the app; paste it into a wiki page or minutes to reference it.',
         aliases: ['ls'],
         tool: 'wiki_list',
         options: [
@@ -712,7 +712,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'get',
-        description: 'Get wiki page details',
+        description: 'Get wiki page details. Includes link — the URL that opens it in the app; paste it into a wiki page or minutes to reference it.',
         tool: 'wiki_get',
         options: [
           spaceOpt,
@@ -942,6 +942,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     id: '2026-09-10-task-list-offset',
     date: '2026-09-10',
     message: 'タスク一覧を続きから取れるようになりました: agentpm task list --limit 100 --offset 100（101件目から）',
+  },
+  {
+    id: '2026-09-13-app-links',
+    date: '2026-09-13',
+    message: 'タスク・Wikiページ・議事録・ファイルの一覧と詳細に link（画面で開くURL）が入るようになりました。Wiki や議事録の本文に [名前](link) の形で貼ると、そのまま開けます。画面側の「リンクを挿入」と同じ形です',
   },
 ]
 

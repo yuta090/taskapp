@@ -49,9 +49,12 @@ const manifest = {
   url: BASE,
   description: 'AgentPM: PR をタスクに自動で紐づけます',
   public: true,
-  // インストール後にここへ戻る（installation_id と state を受け取る）
-  setup_url: `${BASE}/api/github/callback`,
-  setup_on_update: false,
+  // インストール完了時に GitHub 側で利用者本人であることを確認するため、
+  // インストールと同時に OAuth 認可も求め、installation_id・code・state を
+  // まとめて callback_urls[0] で受け取る（setup_url ではなくこちらが使われる）
+  request_oauth_on_install: true,
+  callback_urls: [`${BASE}/api/github/callback`],
+  setup_on_update: true,
   // 作成直後の一時コードはローカルで受け取る
   redirect_url: `http://localhost:${PORT}/callback`,
   hook_attributes: { url: `${BASE}/api/github/webhook`, active: true },

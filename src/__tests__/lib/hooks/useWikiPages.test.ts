@@ -31,7 +31,14 @@ const mockFrom = vi.fn((table: string) => {
 })
 
 vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({ from: mockFrom, auth: { getUser: mockGetUser } }),
+  // getCachedUserId は getSession を先に見る（毎回サーバーへ出さないため）
+  createClient: () => ({
+    from: mockFrom,
+    auth: {
+      getUser: mockGetUser,
+      getSession: async () => ({ data: { session: null }, error: null }),
+    },
+  }),
 }))
 
 function makePageRow(overrides: Partial<WikiPage> = {}): WikiPage {

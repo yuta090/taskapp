@@ -5,6 +5,7 @@ import { getAuthContext } from '../config.js';
 import { ToolUserError } from '../errors.js';
 import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js';
 import { mapRaiseExceptionError } from '../lib/rpcErrors.js';
+import { buildMinutesLink, withLink } from '../lib/appLinks.js';
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
@@ -178,7 +179,8 @@ export async function meetingList(params) {
     const { data, error } = await query;
     if (error)
         throw new Error('会議一覧の取得に失敗しました');
-    return (data || []);
+    // link はそのまま Wiki・議事録の本文に貼れる（画面側の「リンクを挿入」と同じ形）
+    return (data || []).map((meeting) => withLink(meeting, buildMinutesLink(orgId, params.spaceId, meeting.id)));
 }
 export async function meetingGet(params) {
     await checkAuth(params.spaceId, 'read', 'meeting_get', 'meeting', params.meetingId);
@@ -202,7 +204,7 @@ export async function meetingGet(params) {
     if (participantsError)
         throw new Error('参加者の取得に失敗しました');
     return {
-        meeting: meeting,
+        meeting: withLink(meeting, buildMinutesLink(orgId, params.spaceId, params.meetingId)),
         participants: participants || [],
     };
 }

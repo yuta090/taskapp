@@ -198,7 +198,7 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 
 ### 7.6 許可範囲と承認待ち
 
-- 確定値: permissions `{ pull_requests: read, issues: write, metadata: read }`／events `['pull_request', 'issues']`
+- 確定値: permissions `{ pull_requests: read, issues: write, metadata: read, members: read }`（`members: read` は、接続する人が GitHub 側の管理者であることを確認するため）／events `['pull_request', 'issues']`
 - 正本は `src/lib/github/permissions.ts`（crypto を含まない純データ）。`config.ts` と `scripts/setup-github-app.mjs` の両方がここから読む。一致をテストで固定する
 - `config.ts` にある `contents:read` は使用箇所が無い（2026-09-10 に grep で確認）ので落とす
 - `installation.new_permissions_accepted` を処理して `github_installations.permissions` を更新する。インストール時の callback でも保存する
