@@ -372,7 +372,9 @@ describe('POST /api/invites/[token]/accept', () => {
     const response = await callPost(VALID_TOKEN, {})
     const data = await response.json()
 
-    expect(response.status).toBe(400)
+    // 利用者側の入力の問題ではない想定外の失敗なので400ではなく500にする
+    // （画面は状態番号で表示を分けていないため見え方は変わらない）
+    expect(response.status).toBe(500)
     expect(data.error).not.toMatch(/Not authorized/)
     expect(data.error).toBe('招待の受諾に失敗しました。時間をおいてもう一度お試しください。')
     expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -382,13 +384,44 @@ describe('POST /api/invites/[token]/accept', () => {
     consoleErrorSpy.mockRestore()
   })
 
-  it('returns 429 when the rate limit is exceeded', async () => {
+  it('returns 429 when the rate limit is exceeded, with a Japanese message (not the raw English string)', async () => {
     rateLimitAllowedMock.mockReturnValue({ allowed: false, remaining: 0, resetAt: Date.now() + 60000 })
 
     const response = await callPost(VALID_TOKEN, { password: 'password123' })
+    const data = await response.json()
 
     expect(response.status).toBe(429)
+    expect(data.error).toBe('操作が続いたため、しばらく時間をおいてからお試しください。')
     expect(inviteSingleMock).not.toHaveBeenCalled()
+  })
+
+  it('タスクの引き継ぎに失敗した500は、日本語の理由を返す（内部の英語の文言をそのまま出さない）', async () => {
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+    spaceMembershipResponse = { data: { id: 'sm-1' }, error: null }
+    taskHandoverUpdateResponse = { error: { message: 'db error' } }
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const response = await callPost(VALID_TOKEN, {})
+    const data = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(data.error).toBe('招待の受諾に失敗しました。時間をおいてもう一度お試しください。')
+    expect(data.error).not.toMatch(/Internal server error/)
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('想定外の例外（catch節）も、日本語の理由を返す（内部の英語の文言をそのまま出さない）', async () => {
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+    getUserMock.mockRejectedValueOnce(new Error('unexpected'))
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const response = await callPost(VALID_TOKEN, {})
+    const data = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(data.error).toBe('招待の受諾に失敗しました。時間をおいてもう一度お試しください。')
+    expect(data.error).not.toMatch(/Internal server error/)
+    consoleErrorSpy.mockRestore()
   })
 
   // 組織の役割と space の役割をそろえる決まり（20260912112543_org_space_role_consistency.sql）を

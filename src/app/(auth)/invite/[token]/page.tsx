@@ -7,7 +7,9 @@ import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
+import { describeAcceptInviteError, isMfaRequiredError } from '@/lib/invite/acceptErrorMessage'
 import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
+import { MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
@@ -34,6 +36,7 @@ export default function InviteAcceptPage({
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [mfaRequired, setMfaRequired] = useState(false)
   const [loading, setLoading] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -55,6 +58,7 @@ export default function InviteAcceptPage({
   const acceptInvite = useCallback(async (isAutoAccept: boolean, passwordArg?: string) => {
     setLoading(true)
     setError('')
+    setMfaRequired(false)
 
     try {
       if (!isAutoAccept && (!passwordArg || passwordArg.length < 8)) {
@@ -72,7 +76,8 @@ export default function InviteAcceptPage({
       const data = await response.json()
 
       if (!response.ok) {
-        setError(data.error || 'エラーが発生しました')
+        setError(describeAcceptInviteError(data, 'エラーが発生しました'))
+        setMfaRequired(isMfaRequiredError(data))
         setLoading(false)
         return
       }
@@ -285,6 +290,14 @@ export default function InviteAcceptPage({
         {error && (
           <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
             {error}
+            {mfaRequired && (
+              <>
+                {' '}
+                <Link href={MFA_CHALLENGE_PATH} className="underline">
+                  認証アプリのコードを入力する
+                </Link>
+              </>
+            )}
           </div>
         )}
 

@@ -54,7 +54,7 @@ export async function POST(
     const rateResult = checkRateLimit(`invite-accept:${clientIp}`, ACCEPT_RATE_LIMIT)
     if (!rateResult.allowed) {
       return NextResponse.json(
-        { error: 'Too many requests. Please try again later.' },
+        { error: '操作が続いたため、しばらく時間をおいてからお試しください。' },
         {
           status: 429,
           headers: {
@@ -178,7 +178,7 @@ export async function POST(
 
       if (handoverError) {
         console.error('Failed to hand over assignee-invite tasks:', handoverError)
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+        return NextResponse.json({ error: '招待の受諾に失敗しました。時間をおいてもう一度お試しください。' }, { status: 500 })
       }
 
       // 引き継ぎが済んでから受諾済みにする。ここが失敗したら受諾済みにしない
@@ -190,7 +190,7 @@ export async function POST(
 
       if (acceptMarkError) {
         console.error('Failed to mark invite as accepted:', acceptMarkError)
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+        return NextResponse.json({ error: '招待の受諾に失敗しました。時間をおいてもう一度お試しください。' }, { status: 500 })
       }
 
       await notifyInviter(admin, inviteRow, userId)
@@ -246,12 +246,13 @@ export async function POST(
       if (/Invalid or expired invite token/i.test(acceptError.message)) {
         return NextResponse.json(INVALID_INVITE_ERROR, { status: 404 })
       }
-      // それ以外は理由を利用者に説明できないため、DBの文言はサーバーログにだけ残し、
-      // 画面には一律の日本語だけを返す
+      // それ以外は想定外の失敗（利用者側の入力の問題ではない）なので、DBの文言は
+      // サーバーログにだけ残し、画面には一律の日本語だけを返す。状態番号で画面側の
+      // 表示を分けていないため見え方は変わらない
       console.error('rpc_accept_invite failed:', acceptError.message)
       return NextResponse.json(
         { error: '招待の受諾に失敗しました。時間をおいてもう一度お試しください。' },
-        { status: 400 }
+        { status: 500 }
       )
     }
 
@@ -267,7 +268,7 @@ export async function POST(
     })
   } catch (err) {
     console.error('Accept invite error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: '招待の受諾に失敗しました。時間をおいてもう一度お試しください。' }, { status: 500 })
   }
 }
 

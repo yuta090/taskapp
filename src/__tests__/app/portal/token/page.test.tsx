@@ -228,4 +228,26 @@ describe('PortalInvitePage — 受諾動線', () => {
       screen.getByText('リンクの再送が必要な場合は、プロジェクトの担当者にご連絡ください。')
     ).toBeInTheDocument()
   })
+
+  // apiMfaGuard.ts は { error: 'mfa_required', message: '二要素認証のコード入力が必要です' }
+  // という形の403を返す。error（合言葉）をそのまま出すと "mfa_required" という英語の
+  // 内部符号が画面に出てしまうため、message があればそれを優先して出す
+  it('二要素認証の門番に断られたら、"mfa_required" ではなくサーバーのmessageを出し、コード入力画面への案内も出す', async () => {
+    mockGetSession.mockResolvedValue(session('invitee@example.com'))
+    mockFetch.mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ error: 'mfa_required', message: '二要素認証のコード入力が必要です' }),
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('二要素認証のコード入力が必要です')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('mfa_required')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '認証アプリのコードを入力する' })).toHaveAttribute(
+      'href',
+      '/login/mfa'
+    )
+  })
 })
