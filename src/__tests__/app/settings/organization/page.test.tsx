@@ -32,8 +32,10 @@ vi.mock('@/lib/hooks/useCurrentOrg', () => ({
  * policyResponse/policyErrorを各itで差し替えられるようにする。
  */
 let policyResponse: { data: unknown; error: unknown } = { data: null, error: null }
-const rpcMock = vi.fn((...args: unknown[]) => {
-  void args
+// 保存後(onSettled)にサーバー側の値へ取り直すため、成功したRPC呼び出しはpolicyResponseを
+// 実際に書き換える（そうしないと、取り直しの応答が古いままで楽観的更新の結果が消えてしまう）
+const rpcMock = vi.fn((_fn: string, args: { p_org_id: string; p_enabled: boolean }) => {
+  policyResponse = { data: { due_reminders_enabled: args.p_enabled }, error: null }
   return Promise.resolve<{ error: { message: string } | null }>({ error: null })
 })
 
@@ -53,7 +55,7 @@ vi.mock('@/lib/supabase/client', () => ({
         update: () => ({ eq: () => Promise.resolve({ error: null }) }),
       }
     },
-    rpc: (...args: unknown[]) => rpcMock(...args),
+    rpc: (fn: string, args: { p_org_id: string; p_enabled: boolean }) => rpcMock(fn, args),
   }),
 }))
 

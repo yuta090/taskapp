@@ -45,6 +45,9 @@ export function useOrgReminderSettings(orgId: string | null) {
   })
 
   const mutation = useMutation({
+    // 表(org_channel_policy)への直接upsertは、due_reminders_enabledだけに限定した列レベル
+    // 権限とON CONFLICT DO UPDATEの組み合わせでpermission deniedになる（entitlement関連の
+    // 他の列に触らせないための制限・migration 20260721215120）ため、権限判定込みのRPC経由にする
     mutationFn: async (enabled: boolean) => {
       const { error } = await (supabase as SupabaseClient).rpc('rpc_set_org_due_reminders_enabled', {
         p_org_id: orgId!,
@@ -63,6 +66,12 @@ export function useOrgReminderSettings(orgId: string | null) {
       if (context?.previous !== undefined) {
         queryClient.setQueryData<boolean>(queryKey, context.previous)
       }
+    },
+    // 成功・失敗いずれの後も、サーバー側の値に合わせて取り直す。onErrorのロールバックは
+    // あくまで直前の値への一時的な巻き戻しで、その間にサーバー側の値がさらに変わっていることも
+    // あるため、古い値をstaleTime(60秒)いっぱい出したままにしない
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey })
     },
   })
 
@@ -87,7 +96,10 @@ export function useOrgReminderSettings(orgId: string | null) {
     // enabled:false でも isPending は true のままなので、orgId が無いときは読み込み中にしない
     dueRemindersLoading: !!orgId && isPending,
     // 初回だけ失敗(前回データが無いまま失敗)したときだけtrue。前回データがある状態で
-    // 裏の取り直しだけ失敗した場合はfalseのまま（前回値を出し続けられる）
+    // 裏の取り直しだけ失敗した場合はfalseのまま（前回値を出し続けられる）。
+    // 呼び出し側はこれがtrueの間トグルを押せなくすること: 読めていないのに既定の
+    // オン表示のまま操作可能にすると、実際はオフのorgに嘘の状態を見せて誤って
+    // 再度オンにしてしまう事故になる
     dueRemindersFetchError: isLoadingError,
     dueRemindersSaving: mutation.isPending,
     dueRemindersSaveError: mutation.isError,

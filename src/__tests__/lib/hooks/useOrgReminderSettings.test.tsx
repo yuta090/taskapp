@@ -165,4 +165,39 @@ describe('useOrgReminderSettings — 書き込み', () => {
     // 解決後も2本目が遅れて飛んでいないこと
     expect(mockRpc).toHaveBeenCalledTimes(1)
   })
+
+  it('保存が成功しても、サーバー側の値に合わせて取り直す（古い値をキャッシュいっぱい出したままにしない）', async () => {
+    const { Wrapper, queryClient } = createWrapper()
+    queryClient.setQueryData<boolean>(orgReminderSettingsQueryKey(ORG_ID), true)
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const { result } = renderHook(() => useOrgReminderSettings(ORG_ID), { wrapper: Wrapper })
+
+    act(() => {
+      result.current.setDueRemindersEnabled(false)
+    })
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: orgReminderSettingsQueryKey(ORG_ID) })
+      )
+    )
+  })
+
+  it('保存が失敗しても、取り直しは行う（ロールバックした値のまま古くなるのを防ぐ）', async () => {
+    const { Wrapper, queryClient } = createWrapper()
+    queryClient.setQueryData<boolean>(orgReminderSettingsQueryKey(ORG_ID), true)
+    mockRpc.mockResolvedValue({ error: { message: 'boom' } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const { result } = renderHook(() => useOrgReminderSettings(ORG_ID), { wrapper: Wrapper })
+
+    act(() => {
+      result.current.setDueRemindersEnabled(false)
+    })
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: orgReminderSettingsQueryKey(ORG_ID) })
+      )
+    )
+  })
 })
