@@ -11,6 +11,20 @@ vi.mock('@/lib/hooks/useAnnouncements', () => ({
   useAnnouncements: () => ({ announcements: [], unreadCount: 0, markAsRead: vi.fn(), markAllAsRead: vi.fn() }),
 }))
 
+// 「〇〇さんが書いています」の在席はこのファイルの関心事ではないので固定で返す
+// （在席そのものの検査は MinutesDocumentView.presence.test.tsx）
+vi.mock('@/lib/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({
+    user: { id: 'u-self', email: 'me@example.com', user_metadata: { name: '自分' } },
+    loading: false,
+    error: null,
+  }),
+}))
+
+vi.mock('@/lib/hooks/useMinutesPresence', () => ({
+  useMinutesPresence: () => ({ others: [], setEditing: vi.fn() }),
+}))
+
 vi.mock('@/lib/minutes/markdown', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/minutes/markdown')>()
   return {
