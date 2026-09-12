@@ -13,10 +13,15 @@
 --   2) rpc_minutes_append(p_meeting_id, p_org_id, p_space_id, p_content): 議事録（minutes_md）の末尾に p_content を足し、
 --      更新後の行を1件返す。読んでから書くのではなく1文の update で足すので、同時に足しても片方が消えない。
 --        本文が空（null か ''）なら区切りなしで入れる。そうでなければ空行（\n\n）を挟む。updated_at は 1) のトリガーが進める。
---        会議・組織・space の3つが合う行だけ変える。合わなければ何も変えず null を返す。
---        引数のどれかが null でも、何もせず null を返す（strict。p_content が null で本文が null に消えないように）。
---      呼ぶのは MCP サーバー（packages/mcp-server/src/tools/minutes.ts の minutesAppend。この名前・引数名で既に呼んでいて、
---        関数が無い・null が返るときは読んでから書くに戻る）。MCP は service_role のキーでつなぐ。
+--        会議・組織・space の3つが合う行だけ変える。合わなければ何も変えず例外にする（'minutes append target not found'。
+--          会議が無いのか、組織・space が違うのかは言わない）。
+--          null を返さないのは、PostgREST が「select … from 関数(…)」の形で呼ぶため、null が全列 null の1行
+--          （中身の無いオブジェクト）として届き、呼んだ側が成功と取り違えるから。
+--        引数のどれかが null なら、何もせず null を返す（strict。p_content が null で本文が null に消えないように。
+--          MCP は null を渡さない）。
+--      呼ぶのは MCP サーバー（packages/mcp-server/src/tools/minutes.ts の minutesAppend。この名前・引数名で既に呼んでいる）。
+--        MCP は service_role のキーでつなぐ。例外のとき（関数が無いときも）は読んでから書くに戻り、そこでも 0 行なので
+--        「議事録の追記に失敗しました」になる（コードの変更は要らない）。
 --      SECURITY INVOKER: 呼んだ役割の権限で書く。実行できるのは service_role だけ（PUBLIC・anon・authenticated には付けない）。
 --        service_role には RLS が効かないので、組織と space で絞る条件がそのまま境界になる。space への書き込み権は、
 --        呼ぶ前に MCP が checkAuth で確かめる。
@@ -84,12 +89,15 @@ create or replace function public.rpc_minutes_append(
   p_content    text
 )
   returns public.meetings
-  language sql
+  language plpgsql
   volatile
   strict
   security invoker
   set search_path = public
 as $$
+declare
+  v_row public.meetings;
+begin
   update public.meetings
      set minutes_md = case
                         when coalesce(minutes_md, '') = '' then p_content
@@ -98,11 +106,19 @@ as $$
    where id = p_meeting_id
      and org_id = p_org_id
      and space_id = p_space_id
-  returning *;
+  returning * into v_row;
+
+  -- 合う行が無ければ例外（会議が無いのか、組織・space が違うのかは言わない）
+  if not found then
+    raise exception 'minutes append target not found';
+  end if;
+
+  return v_row;
+end;
 $$;
 
 comment on function public.rpc_minutes_append(uuid, uuid, uuid, text) is
-  '議事録の末尾に1文の update で足す（空なら区切りなし・それ以外は空行を挟む）。会議・組織・space が合わなければ null。service_role（MCP）専用';
+  '議事録の末尾に1文の update で足す（空なら区切りなし・それ以外は空行を挟む）。会議・組織・space が合わなければ例外（minutes append target not found）。service_role（MCP）専用';
 
 -- 実行できるのは service_role だけ
 revoke all on function public.rpc_minutes_append(uuid, uuid, uuid, text) from public, anon, authenticated;
@@ -153,14 +169,16 @@ begin
   if v_fn is null then
     v_bad := v_bad || ' rpc_minutes_append: (なし);';
   else
-    -- rpc_minutes_append: meetings の行を1件返す・SECURITY INVOKER・strict・search_path = public
-    select format('returns_meetings=%s setof=%s definer=%s strict=%s config=%s',
-                  (p.prorettype = 'public.meetings'::regtype)::text, p.proretset::text, p.prosecdef::text,
+    -- rpc_minutes_append: meetings の行を1件返す・plpgsql・SECURITY INVOKER・strict・search_path = public
+    select format('returns_meetings=%s setof=%s lang=%s definer=%s strict=%s config=%s',
+                  (p.prorettype = 'public.meetings'::regtype)::text, p.proretset::text,
+                  (select l.lanname from pg_language l where l.oid = p.prolang), p.prosecdef::text,
                   p.proisstrict::text, coalesce(array_to_string(p.proconfig, ';'), ''))
       into v_text
       from pg_proc p
      where p.oid = v_fn;
-    if v_text is distinct from 'returns_meetings=true setof=false definer=false strict=true config=search_path=public' then
+    if v_text is distinct from
+       'returns_meetings=true setof=false lang=plpgsql definer=false strict=true config=search_path=public' then
       v_bad := v_bad || ' rpc_minutes_append: ' || coalesce(v_text, '(なし)') || ';';
     end if;
 
@@ -193,6 +211,9 @@ end $$;
 --        select tgname, tgenabled from pg_trigger
 --         where tgrelid = 'public.meetings'::regclass and tgname = 'trg_meetings_set_updated_at';
 --          → 1 行・O
+--        合う会議が無いときは例外（何も変わらない。存在しない会議 id で試す）:
+--        select public.rpc_minutes_append(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'x');
+--          → ERROR: minutes append target not found
 --   2) 動作（本番）: MCP の minutes_append で追記すると、本文の末尾に空行を挟んで足され、updated_at が進む。
 --      MCP の minutes_update で書き換えても updated_at が進む（Web で開いたままの議事録を保存すると「別の場所で更新されました」）。
 -- =============================================================================
