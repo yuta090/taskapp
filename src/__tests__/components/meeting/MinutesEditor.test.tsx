@@ -164,7 +164,10 @@ describe('MinutesEditor 日本語の案内・E2E目印', () => {
     const opts = mockUseCreateBlockNote.mock.calls.at(-1)?.[0] as {
       dictionary?: { placeholders?: Record<string, string> }
     }
-    expect(opts?.dictionary?.placeholders?.emptyDocument).toBe('ここに議事録を書きます')
+    // 「ここに議事録を書きます」は文書ビュー側の案内文が1つ出すので、エディタの薄い文字
+    // (プレースホルダー)は空にして2重表示にしない
+    expect(opts?.dictionary?.placeholders?.emptyDocument).toBe('')
+    expect(opts?.dictionary?.placeholders?.default).toBe('')
     // スラッシュメニューは無効(slashMenu={false})なので「/」の案内文言を残さない
     expect(opts?.dictionary?.placeholders?.default).not.toMatch(/\//)
     expect(opts?.dictionary?.placeholders?.emptyDocument).not.toMatch(/\//)

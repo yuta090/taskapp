@@ -7,6 +7,8 @@
  * そのもの)と一致することを確かめる（markdown.blocknote.test.ts と同じ作り方）。
  */
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   BlockNoteEditor,
   BlockNoteSchema,
@@ -16,6 +18,11 @@ import {
   defaultStyleSpecs,
 } from '@blocknote/core'
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
+
+const REAL_FIXTURE = readFileSync(
+  join(__dirname, '../../lib/minutes/fixtures/real-minutes-shape.md'),
+  'utf-8'
+)
 
 // MinutesEditor.tsx の useMinutesSchema と同じ構成（taskMarker の render だけ、
 // React コンポーネントではなく最小のスタブに置き換えている）
@@ -82,5 +89,41 @@ describe('MinutesEditor のスキーマで実際の BlockNote に読み込ませ
     const baseline = serializeMinutesBlocks(parseMinutesMarkdown(md))
     expect(openInRealEditor(md)).toBe(baseline)
     expect(baseline).toBe(md)
+  })
+
+  it('表・チェック済み・番号付き・コード・リンク・タスクの目印を全部含む本文でも、開いただけで保存0回の前提(基準と一致)が崩れない', () => {
+    const md = [
+      '# 会議: 定例',
+      '',
+      '## 決定事項',
+      '',
+      '- [x] 完了した決定事項',
+      '- [ ] 未完了の決定事項',
+      '',
+      '1. 最初の対応',
+      '2. 次の対応',
+      '',
+      '| 項目 | 担当 |',
+      '| --- | --- |',
+      '| レビュー | たかはし |',
+      '',
+      '```ts',
+      "const done = true",
+      '```',
+      '',
+      '詳細は [議事録テンプレ](https://example.com/spec) を参照。',
+      '',
+      '- [ ] SPEC(/spec/REVIEW_SPEC.md#a): 仕様を決める <!--task:11111111-1111-1111-1111-111111111111-->',
+    ].join('\n')
+
+    // ここで確かめたいのは「開いただけで保存0回」の前提(本物のBlockNoteが基準からずれない
+    // こと)であって、この入力自身の完全な自己往復ではない(markdown.ts側の関心事)
+    const baseline = serializeMinutesBlocks(parseMinutesMarkdown(md))
+    expect(openInRealEditor(md)).toBe(baseline)
+  })
+
+  it('実データの形のfixture(伏せ字)を読み込ませても、本物のBlockNoteが基準からずれない', () => {
+    const baseline = serializeMinutesBlocks(parseMinutesMarkdown(REAL_FIXTURE))
+    expect(openInRealEditor(REAL_FIXTURE)).toBe(baseline)
   })
 })

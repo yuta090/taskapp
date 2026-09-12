@@ -89,7 +89,9 @@ export function TaskMarkerChip({ taskId, orgId, spaceId }: TaskMarkerChipProps) 
 /**
  * BlockNote の日本語辞書（`@blocknote/core/locales` の `ja`）をもとにした議事録用の辞書。
  * スラッシュメニューは無効（`slashMenu={false}`）なので、行の案内から「/」の話を消す:
- * - `emptyDocument`（文書全体が空の唯一のブロックのときだけ出る案内）: 「ここに議事録を書きます」
+ * - `emptyDocument`（文書全体が空の唯一のブロックのときだけ出る案内）: 空にする。
+ *   呼び出し側(MinutesDocumentView)が本文の外側に同じ趣旨の案内文を1つだけ出すため、
+ *   ここで出すと「ここに議事録を書きます」が2回表示されてしまう。
  * - `default`（フォーカスした空行に出る案内）: 空にする（行ごとに毎回文言が出ると煩わしいため）
  */
 const MINUTES_DICTIONARY = {
@@ -97,7 +99,7 @@ const MINUTES_DICTIONARY = {
   placeholders: {
     ...jaLocale.placeholders,
     default: '',
-    emptyDocument: 'ここに議事録を書きます',
+    emptyDocument: '',
   },
 }
 
@@ -236,7 +238,9 @@ function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceI
               Wikiページへのリンク
             </button>
             {isWikiPickerOpen && (
-              <div className="absolute bottom-full left-0 mb-2 z-10">
+              // スマホ(md未満)は2つ目のボタンなので left-0 だと右にはみ出す。
+              // right-0 にして画面内に収め、デスクトップ(md以上)だけ従来どおり left-0 に戻す。
+              <div className="absolute bottom-full right-0 md:right-auto md:left-0 mb-2 z-10">
                 <MinutesWikiLinkPicker orgId={orgId} spaceId={spaceId} onSelect={handleSelectWikiPage} />
               </div>
             )}

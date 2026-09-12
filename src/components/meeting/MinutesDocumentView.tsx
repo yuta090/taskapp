@@ -7,7 +7,7 @@ import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
 import { MinutesConflictError } from '@/lib/hooks/useMeetings'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
-import { ErrorRetry } from '@/components/shared'
+import { ErrorRetry, useConfirmDialog } from '@/components/shared'
 import { SAVING } from '@/lib/design/tokens'
 import type { Meeting } from '@/types/database'
 
@@ -18,6 +18,21 @@ const CONFLICT_MESSAGE =
   'AI秘書やほかの人が、この議事録を先に書き換えました。あなたが書いた分はまだ保存されていません。' +
   '「書きかけをコピー」で控えてから「最新を読み込む」を押してください（読み込むと、この画面の書きかけは消えます）。'
 
+/** 保存に確定していないまま呼ばれた flushPendingSave/ensureUpToDate の失敗理由 */
+export class MinutesSaveInProgressError extends Error {
+  constructor(message = '議事録を保存中です。少し待ってからもう一度お試しください') {
+    super(message)
+    this.name = 'MinutesSaveInProgressError'
+  }
+}
+
+export class MinutesSaveFailedError extends Error {
+  constructor(message = '議事録を保存できませんでした') {
+    super(message)
+    this.name = 'MinutesSaveFailedError'
+  }
+}
+
 interface UpdateMinutesResult {
   minutesMd: string | null
   updatedAt: string
@@ -25,14 +40,28 @@ interface UpdateMinutesResult {
 
 export interface MinutesDocumentViewHandle {
   /**
-   * 保留中の（デバウンス待ちの）保存があれば即座に流し、保存が確定した本文（Markdown）を返す。
-   * 保留中の保存が無ければ、何もせず今の（確定済みの）本文をそのまま返す。
-   * 競合中・保存に失敗した・別の保存が通信中（同時に2本流さない）のいずれかなら、
-   * 本文は返さず例外を投げる（タスク化の前に呼ぶため、確定していない本文を渡さないようにする）。
+   * 保留中の（デバウンス待ちの）保存があれば即座に流し、保存が確定した「サーバーにあると
+   * 分かっている生の本文」を返す（正規化済みの表示用baselineではない。編集していない
+   * 議事録をタスク化のために書き換えないため）。保留中の保存が無ければ、何もせず今の
+   * （確定済みの）本文をそのまま返す。競合中・保存に失敗した・別の保存が通信中
+   * （同時に2本流さない）のいずれかなら、本文は返さず例外を投げる。
    */
   flushPendingSave: () => Promise<string>
+  /**
+   * サーバー側の最新のupdated_atを読み、いま分かっている基準と合っているか確かめる。
+   * 合っていれば何もしない。ずれていても、本文自体は変わっていなければ（会議の開始/終了
+   * など本文以外の更新でupdated_atだけ進んだだけなら）基準を差し替えて通す。本文が
+   * 本当に違えば競合状態にして例外を投げる。タスク化の直前など、保存確定後にもう一段
+   * 確かめたいときに呼ぶ。
+   */
+  ensureUpToDate: () => Promise<void>
   /** 今わかっている保存の基準(updated_at)。詳細をまだ読み込めていなければ null */
   getBaseUpdatedAt: () => string | null
+  /**
+   * 保存されていない書きかけがあれば確認してから離れてよいか判定する（MEDIUM-B）。
+   * true を返したときだけ呼び出し側は実際に画面を離れる。
+   */
+  confirmLeave: () => Promise<boolean>
 }
 
 interface MinutesDocumentViewProps {
@@ -41,6 +70,8 @@ interface MinutesDocumentViewProps {
   meeting: Meeting
   /** この space を編集できるか。会議の status では決めない（予定の会議でも書ける） */
   canEdit: boolean
+  /** タスク化中など、一時的に読み取り専用にしたいときに true にする（canEditとは別軸） */
+  forceReadOnly?: boolean
   onBack: () => void
   /** モバイルの情報ボタン。押すと親が会議詳細（Inspector）をシートで開く */
   onOpenInfo: () => void
@@ -80,7 +111,10 @@ function computeBaseline(minutesMd: string): Baseline {
 
 interface MinutesDocumentBodyHandle {
   flushPendingSave: () => Promise<string>
+  ensureUpToDate: () => Promise<void>
   getBaseUpdatedAt: () => string
+  /** 保存されていない書きかけ(未確定)があるか */
+  hasUnconfirmedDraft: () => boolean
 }
 
 interface MinutesDocumentBodyProps {
@@ -88,6 +122,7 @@ interface MinutesDocumentBodyProps {
   spaceId: string
   meetingId: string
   canEdit: boolean
+  forceReadOnly: boolean
   /** 開いたときに取り直した詳細の本文。マウント時にだけ使う（以後の変化は見ない） */
   initialMinutesMd: string
   /** 同じ詳細取得で届いた updated_at。保存の基準にする */
@@ -106,6 +141,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       spaceId,
       meetingId,
       canEdit,
+      forceReadOnly,
       initialMinutesMd,
       initialUpdatedAt,
       updateMinutes,
@@ -144,9 +180,34 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const onSaveStateChangeRef = useRef(onSaveStateChange)
     onSaveStateChangeRef.current = onSaveStateChange
 
+    // アンマウント時のクリーンアップ（deps=[]で1回だけ作られる）から常に最新の値・関数を
+    // 読めるよう、ref に都度反映する（MEDIUM-A: 最初 canEdit=false だった場合の漏れ防止）
+    const canEditRef = useRef(canEdit)
+    canEditRef.current = canEdit
+
     const setSaveState = useCallback((state: 'idle' | 'saving' | 'saved') => {
       onSaveStateChangeRef.current(state)
     }, [])
+
+    /**
+     * サーバーの現在の詳細を読み、本文が「知っている生の本文」と同じ（＝updated_atだけ
+     * 進んだ見せかけ）なら基準を差し替えて true を返す。本文が違う・読み直しにも
+     * 失敗したら false（呼び出し元が競合扱いにする）。
+     */
+    const tryRebaseFromServer = useCallback(async (): Promise<boolean> => {
+      let fresh: Meeting | null = null
+      try {
+        fresh = await fetchMeetingDetail(meetingId)
+      } catch {
+        fresh = null
+      }
+      const freshRaw = fresh?.minutes_md ?? ''
+      if (fresh && freshRaw === knownServerRawRef.current) {
+        baseUpdatedAtRef.current = fresh.updated_at
+        return true
+      }
+      return false
+    }, [fetchMeetingDetail, meetingId])
 
     // 実際に DB へ書きに行く1回ぶん。呼び出し元(scheduleSave)が「同時に1本だけ」を保証する。
     const runSave = useCallback(
@@ -172,16 +233,8 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
               attempted0Row = true
               // 0行だった。開始/終了など本文以外の更新で updated_at だけが進んだ見せかけの
               // 競合かもしれないので、本文とupdated_atを読み直して確かめる。
-              let fresh: Meeting | null = null
-              try {
-                fresh = await fetchMeetingDetail(meetingId)
-              } catch {
-                fresh = null
-              }
-              const freshRaw = fresh?.minutes_md ?? ''
-              if (fresh && freshRaw === knownServerRawRef.current) {
-                // 本文は変わっていない → 基準だけ差し替えて1回だけ送り直す
-                base = fresh.updated_at
+              if (await tryRebaseFromServer()) {
+                base = baseUpdatedAtRef.current
                 continue
               }
               // 本文が違う（本当の競合） or 読み直しにも失敗 → 競合として止める
@@ -215,7 +268,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           }
         }
       },
-      [meetingId, updateMinutes, fetchMeetingDetail, setSaveState]
+      [meetingId, updateMinutes, setSaveState, tryRebaseFromServer]
     )
 
     /** 保存を1本にまとめて流す。既に通信中なら、最後の1つだけキューに乗せて今の保存を待つ */
@@ -232,9 +285,13 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       [runSave]
     )
 
+    // アンマウント時のクリーンアップから常に最新の scheduleSave を呼べるようにする
+    const scheduleSaveRef = useRef(scheduleSave)
+    scheduleSaveRef.current = scheduleSave
+
     const handleEditorChange = useCallback(
       (content: string) => {
-        if (!canEdit || parseBrokenRef.current) return
+        if (!canEdit || forceReadOnly || parseBrokenRef.current) return
 
         const trimmed = trimTrailingBlank(content)
         currentContentRef.current = trimmed
@@ -242,6 +299,12 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         if (saveTimerRef.current) {
           clearTimeout(saveTimerRef.current)
           saveTimerRef.current = null
+        }
+
+        // 保存が通信中なら、保留中に積む本文は常に「今の本文」に上書きする。基準と
+        // 一致するかどうかに関わらず行う（LOW/R10: 戻し入力で古い内容が送られないように）。
+        if (savingRef.current) {
+          pendingContentRef.current = trimmed
         }
 
         // 開いたときと同じ内容（正規化済み比較）なら保存しない。BlockNote が初期表示
@@ -264,7 +327,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           void scheduleSave(trimmed)
         }, AUTO_SAVE_DEBOUNCE_MS)
       },
-      [canEdit, scheduleSave]
+      [canEdit, forceReadOnly, scheduleSave]
     )
 
     const handleCopyDraft = useCallback(async () => {
@@ -276,25 +339,22 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       }
     }, [])
 
-    // アンマウント時（「戻る」を待たずに離れた等）は、保留中の本文を state を触らずに送る。
-    // 通信の結果を待てない（コンポーネントは既に無い）ため、成否は問わないベストエフォート。
+    // アンマウント時（左メニュー・ブラウザの戻る等で待たずに離れた場合を含む）は、保留中の
+    // 本文を scheduleSave 経由で送る（保存と全く同じ道: 通信中なら次に回し、0行なら基準を
+    // 差し替える）。state を新たに作らずrefだけで完結させ、常に最新のcanEdit/scheduleSaveを
+    // 見る（MEDIUM-A）。
     useEffect(() => {
       return () => {
         if (savedBadgeTimerRef.current) clearTimeout(savedBadgeTimerRef.current)
         if (saveTimerRef.current) {
           clearTimeout(saveTimerRef.current)
           saveTimerRef.current = null
-          // parseBrokenRef.current はマウント時に1回だけ決まり、以後変わらない（読み取り専用に
-          // 倒すかどうかの判定）ため、クリーンアップ時点で読んでも安全
-          // eslint-disable-next-line react-hooks/exhaustive-deps
-          if (canEdit && !conflictRef.current && !parseBrokenRef.current) {
-            void updateMinutes(meetingId, currentContentRef.current, baseUpdatedAtRef.current).catch(() => {
-              // アンマウント後は表示するすべが無い。次に開いたときの取り直しに委ねる
-            })
-          }
+        }
+        const isDirty = currentContentRef.current !== baselineRef.current
+        if (canEditRef.current && !conflictRef.current && !parseBrokenRef.current && isDirty) {
+          void scheduleSaveRef.current(currentContentRef.current)
         }
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- アンマウント時の1回だけの送信。依存を増やすとその都度クリーンアップが走ってしまう
     }, [])
 
     // 未保存の間はページを閉じる/離れる前に確認を出す
@@ -315,7 +375,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         flushPendingSave: async () => {
           if (!canEdit) throw new Error('この会議の議事録を編集する権限がありません')
           if (parseBrokenRef.current) throw new Error('議事録の形式が壊れているため保存できません')
-          if (conflictRef.current) throw new Error('この議事録は、別の場所で更新されています。保存できていません')
+          if (conflictRef.current) throw new MinutesConflictError('この議事録は、別の場所で更新されています。保存できていません')
 
           if (saveTimerRef.current) {
             clearTimeout(saveTimerRef.current)
@@ -323,23 +383,41 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
             if (savingRef.current) {
               // 既に別の保存が通信中。今回は流さず、取りこぼさないようキューにだけ乗せる
               pendingContentRef.current = currentContentRef.current
-              throw new Error('議事録を保存中です。少し待ってからもう一度お試しください')
+              throw new MinutesSaveInProgressError()
             }
             await scheduleSave(currentContentRef.current)
           } else if (savingRef.current) {
-            throw new Error('議事録を保存中です。少し待ってからもう一度お試しください')
+            throw new MinutesSaveInProgressError()
           }
 
-          if (conflictRef.current) throw new Error('この議事録は、別の場所で更新されています。保存できていません')
-          if (lastSaveFailedRef.current) throw new Error('議事録を保存できませんでした')
-          return baselineRef.current
+          if (conflictRef.current) throw new MinutesConflictError('この議事録は、別の場所で更新されています。保存できていません')
+          if (lastSaveFailedRef.current) throw new MinutesSaveFailedError()
+          // MEDIUM-C: 正規化した baseline ではなく、サーバーにあると分かっている生の本文を返す
+          // （編集していない議事録をタスク化のために書き換えないため）
+          return knownServerRawRef.current
+        },
+        ensureUpToDate: async () => {
+          let fresh: Meeting | null = null
+          try {
+            fresh = await fetchMeetingDetail(meetingId)
+          } catch {
+            fresh = null
+          }
+          if (!fresh) throw new Error('議事録の状態を確かめられませんでした。もう一度お試しください')
+          if (fresh.updated_at === baseUpdatedAtRef.current) return
+          if (await tryRebaseFromServer()) return
+          // 本文が本当に違う（本当の競合）→ 帯を出す（「最新を読み込む」も押せるように）
+          conflictRef.current = true
+          setConflict(true)
+          throw new MinutesConflictError('この議事録は、別の場所で更新されています。保存できていません')
         },
         getBaseUpdatedAt: () => baseUpdatedAtRef.current,
+        hasUnconfirmedDraft: () => currentContentRef.current !== baselineRef.current,
       }),
-      [canEdit, scheduleSave]
+      [canEdit, scheduleSave, fetchMeetingDetail, meetingId, tryRebaseFromServer]
     )
 
-    const effectiveEditable = canEdit && !parseBrokenRef.current
+    const effectiveEditable = canEdit && !forceReadOnly && !parseBrokenRef.current
 
     return (
       <>
@@ -381,7 +459,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
             )}
             <MinutesEditorDynamic
               minutesMd={initialMinutesMd}
-              onChange={canEdit ? handleEditorChange : undefined}
+              onChange={canEdit && !forceReadOnly ? handleEditorChange : undefined}
               editable={effectiveEditable}
               orgId={orgId}
               spaceId={spaceId}
@@ -402,7 +480,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
 
 export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, MinutesDocumentViewProps>(
   function MinutesDocumentView(
-    { orgId, spaceId, meeting, canEdit, onBack, onOpenInfo, updateMinutes, fetchMeetingDetail },
+    { orgId, spaceId, meeting, canEdit, forceReadOnly = false, onBack, onOpenInfo, updateMinutes, fetchMeetingDetail },
     ref
   ) {
     type Phase = 'loading' | 'loaded' | 'error'
@@ -411,12 +489,17 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
     const loadTokenRef = useRef(0)
     const bodyRef = useRef<MinutesDocumentBodyHandle>(null)
+    const { confirm, ConfirmDialog } = useConfirmDialog()
 
     const load = useCallback(
       async (meetingId: string) => {
         const token = ++loadTokenRef.current
         setPhase('loading')
         setSaveState('idle')
+        // 詳細の取得と同時にエディタ部品(BlockNote)の読み込みも始める（表示速度: 次の
+        // 待ち時間を減らす。next/dynamic と同じチャンクを指すのでここで先に import
+        // してもモジュールが二重に読み込まれることはない）
+        void import('./MinutesEditor').catch(() => {})
         try {
           const fresh = await fetchMeetingDetail(meetingId)
           if (loadTokenRef.current !== token) return
@@ -446,14 +529,37 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
       void load(meeting.id)
     }, [load, meeting.id])
 
-    const handleBack = useCallback(async () => {
+    /**
+     * 保存されていない書きかけがあれば確認してから離れてよいか判定する（MEDIUM-B）。
+     * - 保存中(通信中)なら、あとで送られるのでそのまま離れてよい
+     * - 競合中・保存失敗なら、捨ててよいか確認する
+     * - それ以外(確定済み・権限が無い・形式が壊れている等)はそのまま離れてよい
+     */
+    const confirmLeave = useCallback(async (): Promise<boolean> => {
       try {
         await bodyRef.current?.flushPendingSave()
-      } catch {
-        // 保存を待つのはベストエフォート。失敗しても一覧へ戻ることは妨げない
+        return true
+      } catch (err) {
+        if (err instanceof MinutesSaveInProgressError) {
+          return true
+        }
+        if (err instanceof MinutesConflictError || err instanceof MinutesSaveFailedError) {
+          return confirm({
+            title: '保存されていない書きかけがあります',
+            message: '保存されていない書きかけを捨てて戻りますか？',
+            confirmLabel: '捨てて戻る',
+            variant: 'danger',
+          })
+        }
+        return true
       }
+    }, [confirm])
+
+    const handleBack = useCallback(async () => {
+      const ok = await confirmLeave()
+      if (!ok) return
       onBack()
-    }, [onBack])
+    }, [confirmLeave, onBack])
 
     useImperativeHandle(
       ref,
@@ -462,9 +568,14 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
           if (!bodyRef.current) throw new Error('議事録をまだ読み込めていません')
           return bodyRef.current.flushPendingSave()
         },
+        ensureUpToDate: async () => {
+          if (!bodyRef.current) throw new Error('議事録をまだ読み込めていません')
+          return bodyRef.current.ensureUpToDate()
+        },
         getBaseUpdatedAt: () => bodyRef.current?.getBaseUpdatedAt() ?? null,
+        confirmLeave,
       }),
-      []
+      [confirmLeave]
     )
 
     const heldAtLabel = meeting.held_at ? new Date(meeting.held_at).toLocaleString('ja-JP') : '未設定'
@@ -472,6 +583,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
 
     return (
       <div data-testid="minutes-document-view" className="flex-1 flex flex-col min-h-0">
+        {ConfirmDialog}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-surface flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <button
@@ -526,6 +638,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
             spaceId={spaceId}
             meetingId={detail.id}
             canEdit={canEdit}
+            forceReadOnly={forceReadOnly}
             initialMinutesMd={detail.minutes_md ?? ''}
             initialUpdatedAt={detail.updated_at}
             updateMinutes={updateMinutes}
