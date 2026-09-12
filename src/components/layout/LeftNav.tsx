@@ -942,12 +942,19 @@ export const LeftNav = memo(function LeftNav() {
   // 受信トレイ・マイタスクなどプロジェクト外の画面へ移っても、最後に開いていたプロジェクトは
   // 開いたままにする（URLのプロジェクトIDだけで判定していたため、移った瞬間に閉じていた）。
   // hydration が済むまでは localStorage 由来の値を使わない（サーバーと同じ表示にする・React #418）
+  // プロジェクトを開いている間は localStorage に覚えるだけにして、表示に使う state は動かさない
+  // （動かすと、プロジェクトを切り替えるたびに左メニュー全体を余計に描き直すことになる）。
+  // 覚えた値を表示に取り込むのは、プロジェクト外の画面に来たときだけでよい
   const [lastSpaces, setLastSpaces] = useState<Record<string, string>>(() => getLastSpaces())
   useEffect(() => {
-    if (!orgId || !spaceId) return
-    saveLastSpace(orgId, spaceId)
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage への保存と同じ値を画面にも反映
-    setLastSpaces((prev) => (prev[orgId] === spaceId ? prev : { ...prev, [orgId]: spaceId }))
+    if (!orgId) return
+    if (spaceId) {
+      saveLastSpace(orgId, spaceId)
+      return
+    }
+    const saved = getLastSpaces()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage（外部ストア）との同期
+    setLastSpaces((prev) => (prev[orgId] === saved[orgId] ? prev : saved))
   }, [orgId, spaceId])
   const expandedSpaceId = spaceId ?? (hydrated ? lastSpaces[orgId] : undefined)
 

@@ -295,13 +295,24 @@ export default function InboxClient() {
   // 「開く操作の巻き添えで消さない」ための例外なので、絞り込みを押したときは解除する。解除しないと
   // 読み終わった通知が「未読のみ」に居座り、既読にしても消えないように見える
   const [keepVisibleId, setKeepVisibleId] = useState<string | null>(selectedId)
-  useEffect(() => { setKeepVisibleId(selectedId) }, [selectedId])
+  const [syncedSelectedId, setSyncedSelectedId] = useState<string | null>(selectedId)
+  if (syncedSelectedId !== selectedId) {
+    // 開いている通知が変わったら、残す対象も切り替える。effect ではなく描画中に直すことで、
+    // ↑↓ で次々に読むときに描き直しと詳細の入れ替えが1回ずつで済む
+    setSyncedSelectedId(selectedId)
+    setKeepVisibleId(selectedId)
+  }
 
   /** 絞り込みの操作。押した時点で「開いているから残す」例外を解除し、条件どおりに絞り込む */
   const applyFilter = useCallback((change: () => void) => {
     setKeepVisibleId(null)
     change()
   }, [])
+
+  const handleTypeFilterChange = useCallback(
+    (types: ReadonlySet<string>) => applyFilter(() => setTypeFilter(types)),
+    [applyFilter]
+  )
 
   const hasActiveFilters = readFilter !== 'unread' || actionFilter !== 'all' || typeFilter.size > 0
 
@@ -544,7 +555,7 @@ export default function InboxClient() {
         {/* Type filter dropdown */}
         <TypeFilterDropdown
           selectedTypes={typeFilter}
-          onChange={(types) => applyFilter(() => setTypeFilter(types))}
+          onChange={handleTypeFilterChange}
         />
 
         {hasActiveFilters && (
