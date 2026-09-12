@@ -98,16 +98,19 @@ async function loadExistingTasks(spaceId: string): Promise<Map<string, string>> 
 }
 
 /**
- * 組織メンバーの「表示名 → id」「メール → id」を作る。
+ * プロジェクト（space）メンバーの「表示名 → id」「メール → id」を作る。
+ * 組織メンバー全体ではなく、このプロジェクトのメンバーだけを対象にする
+ * （task_update の担当者検証(assertUsersAreSpaceMembers)と同じ範囲。組織には
+ * いるが対象プロジェクトには参加していない人へ誤って割り当てないため）。
  * メールは auth.users にしかないため、CSV がメールで人を参照している場合だけ
- * auth.admin.listUsers をページングして引く（組織メンバー以外は捨てる）。
+ * auth.admin.listUsers をページングして引く（プロジェクトメンバー以外は捨てる）。
  */
-async function loadUserDirectory(orgId: string, needEmails: boolean): Promise<UserDirectory> {
+async function loadUserDirectory(spaceId: string, needEmails: boolean): Promise<UserDirectory> {
   const supabase = getSupabaseClient()
   const { data: members, error: mErr } = await supabase
-    .from('org_memberships')
+    .from('space_memberships')
     .select('user_id, role')
-    .eq('org_id', orgId)
+    .eq('space_id', spaceId)
   if (mErr) throw new Error(`メンバー一覧の取得に失敗しました: ${mErr.message}`)
   const memberIds = new Set((members ?? []).map((m: { user_id: string }) => m.user_id))
 
@@ -216,7 +219,7 @@ export async function taskImport(params: z.infer<typeof taskImportSchema>): Prom
 
   const [existingTasks, users, milestones] = await Promise.all([
     loadExistingTasks(params.spaceId),
-    loadUserDirectory(orgId, needEmails),
+    loadUserDirectory(params.spaceId, needEmails),
     loadMilestones(params.spaceId),
   ])
 

@@ -490,10 +490,10 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         tool: 'activity_log',
         options: [
           spaceOpt,
-          { flags: '--entity-table <table>', description: 'Table name', param: 'entityTable', required: true },
+          { flags: '--entity-table <table>', description: 'Table name. Accepted: tasks, milestones, meetings, wiki_pages, reviews, task_comments, files, scheduling_proposals', param: 'entityTable', required: true },
           { flags: '--entity-id <uuid>', description: 'Entity ID', param: 'entityId', required: true },
           { flags: '--action <action>', description: 'Action', param: 'action', required: true },
-          { flags: '--actor-type <type>', description: 'user|system|ai|service', param: 'actorType', choices: ['user', 'system', 'ai', 'service'], default: 'ai' },
+          { flags: '--actor-type <type>', description: 'Always recorded as ai regardless of this value', param: 'actorType', choices: ['user', 'system', 'ai', 'service'], default: 'ai' },
           { flags: '--actor-service <service>', description: 'Service name', param: 'actorService' },
           { flags: '--entity-display <name>', description: 'Display name', param: 'entityDisplay' },
           { flags: '--reason <reason>', description: 'Reason', param: 'reason' },

@@ -101,6 +101,46 @@ export async function assertUsersAreSpaceMembers(userIds: string[], spaceId: str
 }
 
 /**
+ * 渡した user たちが、指定した space のメンバーで、かつ許可された役割であることを確かめる
+ * （画面の担当者選択肢と同じ範囲: 相手先側=client/vendor、社内側=admin/editor/viewer）。
+ * space外なら404（assertUsersAreSpaceMembersと同じ理由）、メンバーだが役割が合わなければ
+ * 400（呼んだ人が直せる入力の問題として分かるように）。
+ */
+export async function assertUsersHaveSpaceRole(
+  userIds: string[],
+  spaceId: string,
+  allowedRoles: readonly string[],
+  fieldLabel: string
+): Promise<void> {
+  const uniqueIds = Array.from(new Set(userIds))
+  if (uniqueIds.length === 0) return
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('space_memberships')
+    .select('user_id, role')
+    .eq('space_id', spaceId)
+    .in('user_id', uniqueIds)
+
+  if (error) throw new Error('メンバーの確認に失敗しました')
+
+  const roleByUser = new Map(
+    ((data || []) as Array<{ user_id: string; role: string }>).map((m) => [m.user_id, m.role])
+  )
+  const missing = uniqueIds.filter((id) => !roleByUser.has(id))
+  if (missing.length > 0) {
+    throw new ToolUserError('対象のユーザーがこのプロジェクトのメンバーではありません', 404)
+  }
+  const mismatched = uniqueIds.filter((id) => !allowedRoles.includes(roleByUser.get(id)!))
+  if (mismatched.length > 0) {
+    throw new ToolUserError(
+      `${fieldLabel}に指定できるのは、役割が${allowedRoles.join('/')}の人だけです`,
+      400
+    )
+  }
+}
+
+/**
  * 渡した invite たちが、指定した space の未受諾(accepted_at is null)・期限内(expires_at > now)の
  * 招待であることを確かめる（画面の「招待中の担当者」候補と同じ範囲）。
  * 1人でも該当しなければ断る（呼んだ人に見せてよい理由=404）。

@@ -17,13 +17,15 @@ type Row = Record<string, unknown>
 const db: Record<string, Row[]> = {
   spaces: [{ id: 'space-1', org_id: 'org-1' }],
   tasks: [{ id: 't-old', title: '既存タスク', space_id: 'space-1' }],
-  org_memberships: [
-    { org_id: 'org-1', user_id: 'u-taka', role: 'owner' },
-    { org_id: 'org-1', user_id: 'u-tanaka', role: 'client' },
+  space_memberships: [
+    { space_id: 'space-1', user_id: 'u-taka', role: 'owner' },
+    { space_id: 'space-1', user_id: 'u-tanaka', role: 'client' },
   ],
   profiles: [
     { id: 'u-taka', display_name: '高橋' },
     { id: 'u-tanaka', display_name: '田中' },
+    // 組織には所属するが、このプロジェクト(space-1)のメンバーではない人
+    { id: 'u-outsider', display_name: '鈴木' },
   ],
   milestones: [{ id: 'm-1', space_id: 'space-1', name: 'フェーズ1' }],
 }
@@ -150,5 +152,17 @@ describe('task_import', () => {
       expect.objectContaining({ task_id: childB.id, side: 'client', user_id: 'u-tanaka' }),
     ])
     expect(res.created.map((c) => c.title)).toEqual(['大項目1', '子A', '子B'])
+  })
+
+  // 担当者は「組織のメンバー」ではなく「このプロジェクトのメンバー」から探す
+  // （task_update の担当者検証と同じ範囲。組織にはいるが、このプロジェクトには
+  // 参加していない人へ誤って割り当てないため）
+  it('組織のメンバーでも、このプロジェクトのメンバーでなければ担当者に指定できない', async () => {
+    const csv = 'title,assignee\n鈴木さんのタスク,鈴木\n'
+    const res = await taskImport({ spaceId: 'space-1', csv, dryRun: true })
+    expect(res.success).toBe(false)
+    expect(res.errors).toEqual([
+      { line: 2, title: '鈴木さんのタスク', message: expect.stringContaining('このプロジェクトのメンバーに見つかりません') },
+    ])
   })
 })
