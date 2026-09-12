@@ -6,7 +6,10 @@ import { dryRunDelete, confirmDelete } from '../auth/dryrun.js';
 import { withTaskNumber } from '../lib/taskNumber.js';
 import { ToolUserError } from '../errors.js';
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js';
-import { assertInSpace, assertUsersAreSpaceMembers, assertInvitesAreInSpace } from '../auth/scope.js';
+import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace } from '../auth/scope.js';
+// 画面の担当者選択肢と同じ範囲: 相手先側は client/vendor、社内側は admin/editor/viewer
+const CLIENT_OWNER_ROLES = ['client', 'vendor'];
+const INTERNAL_OWNER_ROLES = ['admin', 'editor', 'viewer'];
 // Schemas
 export const taskCreateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -123,10 +126,12 @@ export async function taskCreate(params) {
     if (params.ball === 'client' && params.clientOwnerIds.length === 0) {
         throw new Error('ball=clientの場合はclientOwnerIdsが必須です');
     }
-    // 担当者・担当者一覧は、画面の担当者選択肢と同じ範囲（このプロジェクトのメンバー）に限る
+    // 担当者・担当者一覧は、画面の担当者選択肢と同じ範囲（このプロジェクトのメンバー）に限る。
+    // clientOwnerIds/internalOwnerIdsは、さらに画面の選択肢と同じ役割（相手先側/社内側）まで確かめる
     if (params.assigneeId)
         await assertUsersAreSpaceMembers([params.assigneeId], params.spaceId);
-    await assertUsersAreSpaceMembers([...params.clientOwnerIds, ...params.internalOwnerIds], params.spaceId);
+    await assertUsersHaveSpaceRole(params.clientOwnerIds, params.spaceId, CLIENT_OWNER_ROLES, 'clientOwnerIds');
+    await assertUsersHaveSpaceRole(params.internalOwnerIds, params.spaceId, INTERNAL_OWNER_ROLES, 'internalOwnerIds');
     // 明示指定があればそれで作る（CLI の --status）。無指定のときの既定は従来どおり。
     const status = params.status ?? (params.type === 'spec' ? 'considering' : 'backlog');
     const { data: task, error: taskError } = await supabase
@@ -223,7 +228,7 @@ async function resolveAssigneeByEmail(orgId, spaceId, email) {
         throw new Error('招待の確認に失敗しました: ' + inviteError.message);
     if (invite)
         return { assignee_id: null, assignee_invite_id: invite.id };
-    throw new Error(`「${email}」はこのプロジェクトのメンバーにも、有効な招待にも見つかりません（先に招待してください）`);
+    throw new ToolUserError(`「${email}」はこのプロジェクトのメンバーにも、有効な招待にも見つかりません（先に招待してください）`, 404);
 }
 /**
  * 完了の関所（DB の enforce_review_gate・check_violation）に止められたときの、呼んだ人向けの理由。

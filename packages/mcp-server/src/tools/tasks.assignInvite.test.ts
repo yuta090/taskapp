@@ -96,7 +96,10 @@ describe('招待中の人への割り当て', () => {
     expect(updates[0]).toMatchObject({ assignee_id: null, assignee_invite_id: INV })
   })
 
-  it('メール指定: メンバーにも招待にも無ければ、招待を促すエラー', async () => {
-    await expect(taskUpdate({ spaceId: S, taskId: T, assigneeEmail: 'nobody@example.com' })).rejects.toThrow(/先に招待/)
+  it('メール指定: メンバーにも招待にも無ければ、理由がCLIに届くToolUserError(404)で断る', async () => {
+    const err = await taskUpdate({ spaceId: S, taskId: T, assigneeEmail: 'nobody@example.com' }).catch(
+      (e: unknown) => e,
+    )
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 404, message: expect.stringMatching(/先に招待/) })
   })
 })

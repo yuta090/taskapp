@@ -6,7 +6,11 @@ import { dryRunDelete, confirmDelete } from '../auth/dryrun.js'
 import { withTaskNumber } from '../lib/taskNumber.js'
 import { ToolUserError } from '../errors.js'
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
-import { assertInSpace, assertUsersAreSpaceMembers, assertInvitesAreInSpace } from '../auth/scope.js'
+import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace } from '../auth/scope.js'
+
+// 画面の担当者選択肢と同じ範囲: 相手先側は client/vendor、社内側は admin/editor/viewer
+const CLIENT_OWNER_ROLES = ['client', 'vendor'] as const
+const INTERNAL_OWNER_ROLES = ['admin', 'editor', 'viewer'] as const
 
 // Schemas
 export const taskCreateSchema = z.object({
@@ -140,9 +144,11 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
     throw new Error('ball=clientの場合はclientOwnerIdsが必須です')
   }
 
-  // 担当者・担当者一覧は、画面の担当者選択肢と同じ範囲（このプロジェクトのメンバー）に限る
+  // 担当者・担当者一覧は、画面の担当者選択肢と同じ範囲（このプロジェクトのメンバー）に限る。
+  // clientOwnerIds/internalOwnerIdsは、さらに画面の選択肢と同じ役割（相手先側/社内側）まで確かめる
   if (params.assigneeId) await assertUsersAreSpaceMembers([params.assigneeId], params.spaceId)
-  await assertUsersAreSpaceMembers([...params.clientOwnerIds, ...params.internalOwnerIds], params.spaceId)
+  await assertUsersHaveSpaceRole(params.clientOwnerIds, params.spaceId, CLIENT_OWNER_ROLES, 'clientOwnerIds')
+  await assertUsersHaveSpaceRole(params.internalOwnerIds, params.spaceId, INTERNAL_OWNER_ROLES, 'internalOwnerIds')
 
   // 明示指定があればそれで作る（CLI の --status）。無指定のときの既定は従来どおり。
   const status: TaskStatus = params.status ?? (params.type === 'spec' ? 'considering' : 'backlog')
@@ -247,8 +253,9 @@ async function resolveAssigneeByEmail(
   if (inviteError) throw new Error('招待の確認に失敗しました: ' + inviteError.message)
   if (invite) return { assignee_id: null, assignee_invite_id: (invite as { id: string }).id }
 
-  throw new Error(
+  throw new ToolUserError(
     `「${email}」はこのプロジェクトのメンバーにも、有効な招待にも見つかりません（先に招待してください）`,
+    404,
   )
 }
 

@@ -200,3 +200,36 @@ describe('cli-manifest: task list --offset', () => {
     expect(offset!.default).toBe('0')
   })
 })
+
+/**
+ * activity log の案内が、実際のサーバー側の動き（packages/mcp-server/src/tools/activity.ts）と
+ * 食い違っていた: --actor-type は選べる体裁だが記録は常に ai・--entity-table は
+ * 許可リストの8表以外は400で断られるのに、案内にその一覧が無かった。
+ */
+describe('cli-manifest: activity log の案内', () => {
+  const manifest = getManifest()
+  const activity = manifest.commands.find((c) => c.name === 'activity')!
+  const log = activity.subcommands!.find((s) => s.name === 'log')!
+
+  it('--actor-type は、選んでも記録は常に ai であることが説明に書かれている', () => {
+    const actorType = log.options.find((o) => o.param === 'actorType')!
+    expect(actorType.description!.toLowerCase()).toContain('always')
+    expect(actorType.description!.toLowerCase()).toContain('ai')
+  })
+
+  it('--entity-table の説明に、受け付ける8表が並んでいる', () => {
+    const entityTable = log.options.find((o) => o.param === 'entityTable')!
+    for (const table of [
+      'tasks',
+      'milestones',
+      'meetings',
+      'wiki_pages',
+      'reviews',
+      'task_comments',
+      'files',
+      'scheduling_proposals',
+    ]) {
+      expect(entityTable.description!).toContain(table)
+    }
+  })
+})
