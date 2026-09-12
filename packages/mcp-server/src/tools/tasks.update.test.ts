@@ -7,6 +7,8 @@ const chain = {
   eq: () => chain,
   select: () => chain,
   single: async () => ({ data: { id: 't-1' }, error: null }),
+  // wikiPageId の範囲照合(assertInSpace)が見るページの存在確認。既定は「同じ space に見つかる」
+  maybeSingle: async () => ({ data: { id: 'wiki-page' }, error: null }),
 }
 vi.mock('../supabase/client.js', () => ({ getSupabaseClient: () => ({ from: () => chain }) }))
 vi.mock('../config.js', () => ({

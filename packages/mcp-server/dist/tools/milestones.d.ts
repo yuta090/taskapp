@@ -30,14 +30,14 @@ export declare const milestoneUpdateSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     milestoneId: string;
-    dueDate?: string | undefined;
     name?: string | undefined;
+    dueDate?: string | undefined;
     orderKey?: number | undefined;
 }, {
     spaceId: string;
     milestoneId: string;
-    dueDate?: string | undefined;
     name?: string | undefined;
+    dueDate?: string | undefined;
     orderKey?: number | undefined;
 }>;
 export declare const milestoneListSchema: z.ZodObject<{
@@ -104,14 +104,14 @@ export declare const milestoneTools: ({
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         milestoneId: string;
-        dueDate?: string | undefined;
         name?: string | undefined;
+        dueDate?: string | undefined;
         orderKey?: number | undefined;
     }, {
         spaceId: string;
         milestoneId: string;
-        dueDate?: string | undefined;
         name?: string | undefined;
+        dueDate?: string | undefined;
         orderKey?: number | undefined;
     }>;
     handler: typeof milestoneUpdate;

@@ -6,6 +6,7 @@ import { dryRunDelete, confirmDelete } from '../auth/dryrun.js'
 import { withTaskNumber } from '../lib/taskNumber.js'
 import { ToolUserError } from '../errors.js'
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
+import { assertInSpace } from '../auth/scope.js'
 
 // Schemas
 export const taskCreateSchema = z.object({
@@ -278,7 +279,13 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
   if (params.startDate !== undefined) updateData.start_date = params.startDate
   if (params.parentTaskId !== undefined) updateData.parent_task_id = params.parentTaskId
   if (params.milestoneId !== undefined) updateData.milestone_id = params.milestoneId
-  if (params.wikiPageId !== undefined) updateData.wiki_page_id = params.wikiPageId
+  if (params.wikiPageId !== undefined) {
+    // 指定する Wiki ページは同じ space のものに限る（解除=nullは確認不要）
+    if (params.wikiPageId !== null) {
+      await assertInSpace('wiki_pages', params.wikiPageId, params.spaceId, '紐づけるWikiページが見つかりません')
+    }
+    updateData.wiki_page_id = params.wikiPageId
+  }
   // 担当者は「本人」か「招待中の招待」のどちらか一方だけ（DB の tasks_single_assignee_chk）。
   // 片方を指定したら、もう片方は明示的に消してから入れる
   if (params.assigneeEmail !== undefined) {
@@ -346,11 +353,14 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
 
     if (metricsError) {
       // tasks 側の更新(あれば)は既にDBへ反映済みで、この呼び出しでは戻せない
-      // （半分だけ保存された状態）。どこまで保存されたかを呼び出し元に伝える
-      throw new Error(
+      // （半分だけ保存された状態）。どこまで保存されたかは秘密を含まないので、
+      // 呼んだ人に見せてよい理由として返す（ToolUserError でないと /api/tools が
+      // 中身を隠した500に潰してしまい、CLI/AIに届かない）
+      throw new ToolUserError(
         data
           ? 'タイトル等は更新できましたが、実績工数の更新に失敗しました'
-          : '実績工数の更新に失敗しました'
+          : '実績工数の更新に失敗しました',
+        400
       )
     }
   }
