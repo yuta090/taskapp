@@ -72,10 +72,9 @@ function chunk<T>(arr: T[], size: number): T[][] {
 /**
  * スペース内の既存タスクを「タイトル → id」で全件引く（重複スキップと parent 解決に使う）。
  *
- * ⚠ 以前は CSV のタイトル群を `.in('title', [...])` で問い合わせていたが、日本語タイトルは
- *   URL エンコードで3倍に膨らみ、200件で URL 長の上限を超えて fetch 自体が失敗した
- *   （本番で 500・ローカルで "fetch failed"）。タイトルを URL に載せず、スペースのタスクを
- *   ページングで全件取ってメモリ上で突き合わせる。1スペースのタスク数は有限（上限 20 ページ×1000）。
+ * タイトルは URL に載せず、スペースのタスクをページングで全件取ってメモリ上で突き合わせる
+ * （日本語タイトルを `.in('title', [...])` で問い合わせるとURLエンコードで長さが膨らむため）。
+ * 1スペースのタスク数は有限（上限 20 ページ×1000）。
  */
 async function loadExistingTasks(spaceId: string): Promise<Map<string, string>> {
   const supabase = getSupabaseClient()

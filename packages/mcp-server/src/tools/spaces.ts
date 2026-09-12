@@ -76,8 +76,8 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
   const ctx = (await import('../config.js')).getAuthContext()
   const supabase = getSupabaseClient()
 
-  // scope=space（プロジェクト設定で作った鍵）: 使えるのはそのプロジェクトだけなので、その1件を返す。
-  // 以前はここで断っていて、画面の案内どおり `agentpm space list` で接続を確かめると必ず失敗していた。
+  // scope=space（プロジェクト設定で作った鍵）: 使えるのはそのプロジェクトだけなので、その1件を返す
+  // （画面の案内どおり `agentpm space list` で接続を確かめられる）。
   // メンバーかどうか・読み取りが許されているかは、ほかの操作と同じ権限確認(checkAuth)で見る
   if (ctx.scope === 'space' && ctx.keyId !== 'dev-key') {
     if (!ctx.spaceId) {

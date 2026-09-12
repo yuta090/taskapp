@@ -2,8 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /**
  * space_list: プロジェクト設定で作ったキー（scope=space）でも、そのプロジェクト1件を返す。
- * 以前は scope=org/user 以外を断っていたため、画面の案内どおり `agentpm space list` で
- * 接続を確かめると必ず失敗していた（しかも /api/tools で 500 に化けて理由も見えなかった）。
+ * 画面の案内どおり `agentpm space list` で接続を確かめられる。
  */
 type Ctx = {
   keyId: string
