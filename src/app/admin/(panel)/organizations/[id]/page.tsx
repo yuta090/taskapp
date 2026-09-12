@@ -4,7 +4,7 @@ import { ArrowLeft } from '@phosphor-icons/react/dist/ssr'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import { buildOrgDetail, type OrgDetail, type OrgDetailInput } from '@/lib/admin/org-detail'
-import { mapWithConcurrency } from '@/lib/admin/concurrency'
+import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
 import { AdminBadge } from '@/components/admin/AdminBadge'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
 import { OrgAcquisitionEditor } from '@/components/admin/OrgAcquisitionEditor'
@@ -13,8 +13,6 @@ import { MilestoneReconcileButton } from '@/components/admin/MilestoneReconcileB
 export const dynamic = 'force-dynamic'
 
 const RECENT_NOTIFICATIONS_LIMIT = 10
-/** auth 側へのメール問い合わせを同時に投げる本数の上限（レート制限で全員のメールが消えるのを防ぐ） */
-const EMAIL_LOOKUP_CONCURRENCY = 8
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**

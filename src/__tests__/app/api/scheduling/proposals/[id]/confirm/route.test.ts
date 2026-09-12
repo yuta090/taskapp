@@ -22,6 +22,7 @@ let confirmRpcResponse: { data: Record<string, unknown> | null; error: { message
 let respondentsResponse: { data: Array<Record<string, unknown>> | null }
 let proposalsUpdateCall: Record<string, unknown> | undefined
 let meetingsUpdateCall: Record<string, unknown> | undefined
+let getUserByIdImpl: (id: string) => Promise<{ data: { user: { email: string } | null } }>
 
 const isConfiguredMock = vi.fn(() => true)
 const createMeetingMock = vi.fn(() =>
@@ -51,6 +52,16 @@ function chain(response: any) {
   builder.then = (resolve: any, reject?: any) => Promise.resolve(response).then(resolve, reject)
   return builder
 }
+
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: vi.fn(() => ({
+    auth: {
+      admin: {
+        getUserById: vi.fn((id: string) => getUserByIdImpl(id)),
+      },
+    },
+  })),
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
@@ -117,9 +128,12 @@ describe('POST /api/scheduling/proposals/[id]/confirm', () => {
       data: { ok: true, meeting_id: 'meeting-1', slot_start: '2026-08-01T10:00:00+09:00', slot_end: '2026-08-01T11:00:00+09:00' },
       error: null,
     }
+    // profilesにemail列は無いため、respondentsのjoinはdisplay_nameだけを返す。
+    // メールは管理用の鍵(auth.admin.getUserById)で解決する
     respondentsResponse = {
-      data: [{ user_id: CREATOR_ID, profiles: { display_name: 'Taro', email: 'taro@example.com' } }],
+      data: [{ user_id: CREATOR_ID, profiles: { display_name: 'Taro' } }],
     }
+    getUserByIdImpl = (id: string) => Promise.resolve({ data: { user: { email: `${id}@example.com` } } })
   })
 
   it('returns 401 when not authenticated', async () => {
@@ -195,6 +209,8 @@ describe('POST /api/scheduling/proposals/[id]/confirm', () => {
 
   it('creates a video conference meeting when the proposal has a configured provider', async () => {
     proposalLookupResponse = { data: { ...baseProposal, video_provider: 'google_meet' } }
+    getUserByIdImpl = (id: string) =>
+      Promise.resolve({ data: { user: id === CREATOR_ID ? { email: 'taro@example.com' } : null } })
     const response = await callPost(PROPOSAL_ID, { slotId: SLOT_ID })
     const data = await response.json()
 
@@ -224,10 +240,13 @@ describe('POST /api/scheduling/proposals/[id]/confirm', () => {
     proposalLookupResponse = { data: { ...baseProposal, video_provider: 'google_meet' } }
     respondentsResponse = {
       data: [
-        { user_id: CREATOR_ID, profiles: { display_name: 'Taro', email: 'taro@example.com' } },
-        { user_id: OTHER_USER_ID, profiles: { display_name: 'NoEmail', email: null } },
+        { user_id: CREATOR_ID, profiles: { display_name: 'Taro' } },
+        { user_id: OTHER_USER_ID, profiles: { display_name: 'NoEmail' } },
       ],
     }
+    // OTHER_USER_ID はメールを引けない(退会済み等)想定
+    getUserByIdImpl = (id: string) =>
+      Promise.resolve({ data: { user: id === CREATOR_ID ? { email: 'taro@example.com' } : null } })
     await callPost(PROPOSAL_ID, { slotId: SLOT_ID })
     expect(createMeetingMock).toHaveBeenCalledWith(
       expect.objectContaining({ participants: [{ email: 'taro@example.com', name: 'Taro' }] })
