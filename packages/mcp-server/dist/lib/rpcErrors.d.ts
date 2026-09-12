@@ -9,9 +9,11 @@ interface ConfirmProposalErrorData {
     current_status?: string;
 }
 /**
- * rpc_confirm_proposal_slot_as が {ok:false, error: <コード>} で返す断りの理由を、
- * 決まった日本語の ToolUserError に置き換える。認識できないコードは一般的な Error のまま返す。
+ * mcp_dry_run_delete / mcp_confirm_delete が成功したレスポンスの中で返す
+ * 断りの理由（data.error）を、決まった日本語にする。これらは呼び出し元の RPC 自身が
+ * 決めた文言でありDBの生の例外ではないため、認識できない理由もそのまま返す。
  */
+export declare function translateDryRunBusinessError(error: string | null | undefined): string | undefined;
 export declare function mapConfirmProposalError(data: ConfirmProposalErrorData | null | undefined): Error;
 export {};
 //# sourceMappingURL=rpcErrors.d.ts.map

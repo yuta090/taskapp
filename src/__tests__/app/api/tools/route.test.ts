@@ -159,13 +159,13 @@ describe('POST /api/tools', () => {
   })
 
   it('returns 401 when dispatch rejects with an invalid/expired API key error', async () => {
-    dispatchImpl = () => Promise.reject(new Error('Invalid or expired API key'))
+    dispatchImpl = () => Promise.reject(new Error('APIキーが無効か期限切れです'))
 
     const response = await callTools({ tool: 'list_tasks' })
     const data = await response.json()
 
     expect(response.status).toBe(401)
-    expect(data.error).toBe('Invalid or expired API key')
+    expect(data.error).toBe('APIキーが無効か期限切れです')
   })
 
   it('returns 400 when dispatch rejects with ToolNotFoundError', async () => {
@@ -274,7 +274,7 @@ describe('POST /api/tools', () => {
   })
 
   it('does not log usage when auth fails before dispatchTool reports a ctx', async () => {
-    dispatchImpl = () => Promise.reject(new Error('Invalid or expired API key'))
+    dispatchImpl = () => Promise.reject(new Error('APIキーが無効か期限切れです'))
 
     await callTools({ tool: 'task_list' })
 

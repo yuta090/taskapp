@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof Error) {
       // Auth errors
-      if (error.message === 'Invalid or expired API key') {
+      if (error.message === 'APIキーが無効か期限切れです') {
         return NextResponse.json({ error: error.message }, { status: 401 })
       }
 

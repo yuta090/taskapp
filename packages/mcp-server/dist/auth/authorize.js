@@ -4,6 +4,7 @@
  * 全てのMCPツールはこのモジュールを通じて権限チェックを行う
  */
 import { getSupabaseClient } from '../supabase/client.js';
+import { AUTH_REASON_LABELS, actionNotAllowedReason } from '../lib/authReasonLabels.js';
 /**
  * 権限チェックを実行
  * DB側のmcp_authorize関数を呼び出す
@@ -15,21 +16,21 @@ export async function authorize(params) {
     if (!spaceId) {
         return {
             allowed: false,
-            reason: 'space_id is required for all operations'
+            reason: AUTH_REASON_LABELS.spaceIdRequired
         };
     }
     // アクションがAPIキーで許可されているかローカルチェック
     if (!ctx.allowedActions.includes(action)) {
         return {
             allowed: false,
-            reason: `Action "${action}" not allowed for this API key`
+            reason: actionNotAllowedReason(action)
         };
     }
     // scope='user'でallowed_space_idsが設定されている場合のローカルチェック
     if (ctx.scope === 'user' && ctx.allowedSpaceIds && !ctx.allowedSpaceIds.includes(spaceId)) {
         return {
             allowed: false,
-            reason: 'Space not in allowed_space_ids'
+            reason: AUTH_REASON_LABELS.spaceNotAllowed
         };
     }
     // DB側で詳細な権限チェック
