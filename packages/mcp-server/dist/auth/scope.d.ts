@@ -31,4 +31,11 @@ export declare function assertUsersHaveSpaceRole(userIds: string[], spaceId: str
  * 1人でも該当しなければ断る（呼んだ人に見せてよい理由=404）。
  */
 export declare function assertInvitesAreInSpace(inviteIds: string[], spaceId: string): Promise<void>;
+/**
+ * 「誰がやったか」の記録が要る RPC（会議開始・レビュー承認など）を呼ぶ前に、
+ * この鍵に紐づく利用者(user_id)を取り出す。画面は auth.uid() を使うのに対し、
+ * service role で動くこの道具は鍵の持ち主をそのまま渡す。
+ * 個人に紐づかない鍵（組織/space の共用鍵）では実行できない。
+ */
+export declare function requireActorUserId(): string;
 //# sourceMappingURL=scope.d.ts.map

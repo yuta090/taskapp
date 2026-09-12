@@ -11,7 +11,7 @@ export interface SpaceMember {
   id: string          // user_id
   displayName: string // profiles.display_name
   avatarUrl: string | null
-  role: string        // admin | editor | viewer | client (from DB)
+  role: string        // admin | editor | viewer | client | vendor (from DB)
 }
 
 interface UseSpaceMembersResult {

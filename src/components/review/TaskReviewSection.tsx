@@ -17,6 +17,7 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useDefaultReviewers } from '@/lib/hooks/useDefaultReviewers'
 import { resolveDefaultReviewerIds } from '@/lib/review/defaultReviewers'
+import { isReviewApproverRole } from '@/lib/roles/spaceRoles'
 import { useConfirmDialog } from '@/components/shared'
 import type { Review, ReviewApproval } from '@/types/database'
 
@@ -59,17 +60,28 @@ export function TaskReviewSection({
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const { defaultReviewerIds, setDefaultReviewer } = useDefaultReviewers(spaceId)
 
-  // 自分は自分の承認者にできないので、選択肢からも既定からも外す
+  // 自分は自分の承認者にできないので、選択肢からも既定からも外す。
+  // 承認者候補は admin/editor だけ（rpc_review_openが受け付ける範囲。viewerを選べると依頼が失敗する）
   const selectableMembers = useMemo(
-    () => internalMembers.filter((m) => m.id !== user?.id),
+    () => internalMembers.filter((m) => m.id !== user?.id && isReviewApproverRole(m.role)),
     [internalMembers, user?.id]
   )
   const defaultSelection = useMemo(
     () => resolveDefaultReviewerIds(defaultReviewerIds, selectableMembers.map((m) => m.id)),
     [defaultReviewerIds, selectableMembers]
   )
-  // 既定の読み込みが後から終わっても追随させたいので、state ではなく毎回ここで解決する
-  const selected = selectedReviewerIds ?? defaultSelection
+  // 既定の読み込みが後から終わっても追随させたいので、state ではなく毎回ここで解決する。
+  // 再依頼のプリセット等で候補外のID（viewerに下げられた・スペースを抜けた等）が
+  // 紛れ込んでいても、選べる候補と毎回突き合わせて落とす（見えないまま選ばれて
+  // 依頼だけ失敗する、という事態を防ぐ）
+  const selected = useMemo(
+    () =>
+      resolveDefaultReviewerIds(
+        selectedReviewerIds ?? defaultSelection,
+        selectableMembers.map((m) => m.id)
+      ),
+    [selectedReviewerIds, defaultSelection, selectableMembers]
+  )
 
   // Fetch review for this task.
   // Returns { ok: true, status } on success, { ok: false } on failure.
@@ -136,6 +148,7 @@ export function TaskReviewSection({
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to open review:', err)
+      toast.error('社内承認の依頼に失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -150,6 +163,7 @@ export function TaskReviewSection({
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to approve:', err)
+      toast.error('承認に失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -170,6 +184,7 @@ export function TaskReviewSection({
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to block:', err)
+      toast.error('差し戻しに失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -193,6 +208,7 @@ export function TaskReviewSection({
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to cancel review:', err)
+      toast.error('レビューの取り消しに失敗しました')
     } finally {
       setSubmitting(false)
     }

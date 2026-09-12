@@ -3,7 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
 import { getAuthContext } from '../config.js';
 import { ToolUserError } from '../errors.js';
-import { assertUsersAreSpaceMembers } from '../auth/scope.js';
+import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js';
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
@@ -100,7 +100,10 @@ export async function meetingStart(params) {
     if (checkError || !existingMeeting) {
         throw new Error('会議が見つかりません');
     }
-    const { error } = await supabase.rpc('rpc_meeting_start', {
+    // 誰が開始したか（task_events.actor_id）は、鍵に紐づく利用者から取る
+    const actor = requireActorUserId();
+    const { error } = await supabase.rpc('rpc_meeting_start_as', {
+        p_actor: actor,
         p_meeting_id: params.meetingId,
     });
     if (error)
@@ -130,7 +133,10 @@ export async function meetingEnd(params) {
     if (checkError || !existingMeeting) {
         throw new Error('会議が見つかりません');
     }
-    const { data, error } = await supabase.rpc('rpc_meeting_end', {
+    // 誰が終了したか（task_events.actor_id）は、鍵に紐づく利用者から取る
+    const actor = requireActorUserId();
+    const { data, error } = await supabase.rpc('rpc_meeting_end_as', {
+        p_actor: actor,
         p_meeting_id: params.meetingId,
     });
     if (error)
