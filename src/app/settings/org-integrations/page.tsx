@@ -50,7 +50,10 @@ const GITHUB_CALLBACK_ERROR_MESSAGES = new Map<string, string>([
   ['forbidden', 'GitHub の接続は、この組織のオーナーだけができます'],
   ['already_linked', 'この GitHub の接続は、別の組織ですでに使われています'],
   ['state_mismatch', '接続を始めた人と、戻ってきた人が違います。この画面の「接続する」からやり直してください'],
-  ['oauth_required', 'GitHub での確認が完了しませんでした。もう一度お試しください'],
+  [
+    'oauth_required',
+    'GitHub での確認が完了しませんでした。GitHub 側の設定画面からこのアプリをいったん解除し、この画面の「接続する」から接続し直してください',
+  ],
   ['oauth_failed', 'GitHub での確認が完了しませんでした。もう一度お試しください'],
   ['invalid_state', '接続の手順がうまくつながりませんでした。この画面の「接続する」からやり直してください'],
   ['missing_org_id', '接続の手順がうまくつながりませんでした。この画面の「接続する」からやり直してください'],
