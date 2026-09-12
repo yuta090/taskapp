@@ -350,15 +350,25 @@ describe('LeftNav — hydration前はキャッシュ由来の表示をサーバ�
     expect(container.querySelector('[data-testid="leftnav-spaces-skeleton"]')).not.toBeInTheDocument()
   })
 
-  it('一度も取得できないまま失敗したときは「プロジェクトがありません」ではなく再読み込みの案内を出す（本当はあるのに作り直させない）', () => {
+  it('一度も取得できないまま失敗したときは「プロジェクトがありません」ではなく再読み込みの案内を出す（本当はあるのに作り直させない。グループ内の「プロジェクトなし」も出さない）', () => {
     mockUseUserSpaces.mockReturnValue({
       spaces: [],
       isPending: false,
       isLoadingError: true,
       refetch: mockRefetchSpaces,
     })
+    mockUseSpaceGroups.mockReturnValue({
+      groups: [{ id: 'group1', name: 'グループA', sortOrder: 0 }],
+      createGroup: vi.fn(),
+      renameGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      reorderGroups: vi.fn(),
+      moveSpaceToGroup: vi.fn(),
+    })
     render(<LeftNav />)
+    expect(screen.getByText('グループA')).toBeInTheDocument()
     expect(screen.queryByText('プロジェクトがありません')).not.toBeInTheDocument()
+    expect(screen.queryByText('プロジェクトなし')).not.toBeInTheDocument()
     expect(screen.getByText('プロジェクトを読み込めませんでした')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('再読み込み'))

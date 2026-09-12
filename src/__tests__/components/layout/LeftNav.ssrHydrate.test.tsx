@@ -44,18 +44,23 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
 }))
 vi.mock('@/lib/auth/signOutClient', () => ({ signOutAndLeave: vi.fn() }))
 // ブラウザ側（hydration後）のプロジェクト一覧の状態。'has-space'=1件取得済み、
-// 'loading'=まだ取得中(isPending)、'empty'=取得が終わって本当に0件
-type ClientSpacesMode = 'has-space' | 'loading' | 'empty'
+// 'loading'=まだ取得中(isPending)、'empty'=取得が終わって本当に0件、
+// 'error'=一度も取得できないまま失敗(isLoadingError)
+type ClientSpacesMode = 'has-space' | 'loading' | 'empty' | 'error'
 let clientSpacesMode: ClientSpacesMode = 'has-space'
+const mockRefetchSpaces = vi.fn()
 vi.mock('@/lib/hooks/useUserSpaces', () => ({
   useUserSpaces: () => {
     // サーバーは常に「まだ何も取れていない」(isPending:true)。react-queryはSSRでは
     // このqueryFnを実行しないため、実際の挙動と一致する
     if (phase === 'server' || clientSpacesMode === 'loading') {
-      return { spaces: [], isPending: true }
+      return { spaces: [], isPending: true, isLoadingError: false, refetch: mockRefetchSpaces }
+    }
+    if (clientSpacesMode === 'error') {
+      return { spaces: [], isPending: false, isLoadingError: true, refetch: mockRefetchSpaces }
     }
     if (clientSpacesMode === 'empty') {
-      return { spaces: [], isPending: false }
+      return { spaces: [], isPending: false, isLoadingError: false, refetch: mockRefetchSpaces }
     }
     return {
       spaces: [
@@ -71,6 +76,8 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
         },
       ],
       isPending: false,
+      isLoadingError: false,
+      refetch: mockRefetchSpaces,
     }
   },
 }))
@@ -155,6 +162,9 @@ async function renderThenHydrate(clientOrgValue: ActiveOrgContextValue) {
     groupHeader: container.textContent?.includes('グループA') ?? false,
     noProjectsMessage: container.textContent?.includes('プロジェクトがありません') ?? false,
     spacesSkeleton: !!container.querySelector('[data-testid="leftnav-spaces-skeleton"]'),
+    loadErrorMessage: container.textContent?.includes('プロジェクトを読み込めませんでした') ?? false,
+    retryButton: container.textContent?.includes('再読み込み') ?? false,
+    groupNoneMessage: container.textContent?.includes('プロジェクトなし') ?? false,
     // サーバーが描いたHTML自体（hydrate前）にも骨組みが入っているかを見るため
     serverHtmlHadSkeleton: html.includes('data-testid="leftnav-spaces-skeleton"'),
     serverHtmlHadNoProjectsMessage: html.includes('プロジェクトがありません'),
@@ -169,6 +179,7 @@ describe('LeftNav — サーバーの描画とハイドレーション時の描�
   afterEach(() => {
     includeGroupOnClient = false
     clientSpacesMode = 'has-space'
+    mockRefetchSpaces.mockClear()
     localStorage.removeItem(GROUP_COLLAPSED_KEY)
   })
 
@@ -312,5 +323,30 @@ describe('LeftNav — サーバーの描画とハイドレーション時の描�
     expect(result.windowErrors).toEqual([])
     expect(result.noProjectsMessage).toBe(true)
     expect(result.spacesSkeleton).toBe(false)
+  })
+
+  it('一度も取得できないまま失敗しても食い違い警告は出ず、「プロジェクトがありません」ではなく再読み込みの案内を出す（グループ内の「プロジェクトなし」も出さない）', async () => {
+    pathname = '/org1/project/space1'
+    params = { orgId: 'org1', spaceId: 'space1' }
+    clientSpacesMode = 'error'
+    includeGroupOnClient = true
+
+    const clientOrgValue: ActiveOrgContextValue = {
+      ...serverOrgValue,
+      activeOrgId: 'org1',
+      activeOrgName: 'テスト組織',
+      orgs: [{ orgId: 'org1', orgName: 'テスト組織', role: 'owner' }],
+      orgsStatus: 'verified',
+      loading: false,
+    }
+
+    const result = await renderThenHydrate(clientOrgValue)
+
+    expect(result.consoleErrors).toEqual([])
+    expect(result.windowErrors).toEqual([])
+    expect(result.loadErrorMessage).toBe(true)
+    expect(result.retryButton).toBe(true)
+    expect(result.noProjectsMessage).toBe(false)
+    expect(result.groupNoneMessage).toBe(false)
   })
 })

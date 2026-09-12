@@ -1280,8 +1280,10 @@ export const LeftNav = memo(function LeftNav() {
                     <div className="space-y-0.5">
                       {/* キャッシュが無い最初の読み込みで、グループの取得がプロジェクト一覧
                           より先に終わると、読み込み中でも一瞬「プロジェクトなし」が出てしまう
-                          ため、読み込み中は出さない（一覧側の骨組みで表現する） */}
-                      {spacesInGroup.length === 0 && !collapsed && !spacesLoading && (
+                          ため、読み込み中は出さない（一覧側の骨組みで表現する）。一覧の取得が
+                          一度も成功しないまま失敗したときも、実際はあるかもしれないので出さない
+                          （一覧側の「読み込めませんでした」に任せる） */}
+                      {spacesInGroup.length === 0 && !collapsed && !spacesLoading && !spacesLoadingError && (
                         <div className="px-4 py-1.5 text-[11px] text-gray-300 italic">
                           プロジェクトなし
                         </div>
