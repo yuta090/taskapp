@@ -11,6 +11,20 @@ type PickerPage = Pick<WikiPage, 'id' | 'title' | 'tags'>
 
 type Option = { kind: 'page'; page: PickerPage } | { kind: 'create'; title: string }
 
+const SPEC_TAG = '仕様書'
+
+/** 「仕様書」バッジ。タイトルの直後に置く。 */
+function SpecBadge({ testId }: { testId: string }) {
+  return (
+    <span
+      data-testid={`${testId}-spec-badge`}
+      className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-600 shrink-0"
+    >
+      仕様書
+    </span>
+  )
+}
+
 interface WikiPageLinkPickerProps {
   /** 候補にする Wiki ページ（タグの有無は問わない） */
   pages: readonly PickerPage[]
@@ -214,6 +228,7 @@ export function WikiPageLinkPicker({
         >
           <FileText className="shrink-0 text-gray-400" />
           <span className="truncate">{label}</span>
+          {current?.tags.includes(SPEC_TAG) && <SpecBadge testId={testId} />}
         </button>
         <button
           type="button"
@@ -301,6 +316,7 @@ export function WikiPageLinkPicker({
                 <>
                   <FileText className="shrink-0 text-gray-400" />
                   <span className="truncate text-gray-700">{option.page.title || '（無題）'}</span>
+                  {option.page.tags.includes(SPEC_TAG) && <SpecBadge testId={testId} />}
                   {option.page.id === value && <Check className="ml-auto shrink-0 text-gray-500" />}
                 </>
               ) : (
