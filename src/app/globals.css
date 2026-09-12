@@ -518,45 +518,57 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 }
 
 /* ============================================
-   Wiki / 議事録エディタ - 見出しの大きさ
-   BlockNote の既定は本文16pxに対して h1=3em(48px)・h2=2em(32px) と
-   英語圏のブログ向けで、日本語の業務文書には大きすぎる。
-   日本語の社内文書に合わせて h1=24px・h2=20px・h3=18px に落とし、
-   縮めたぶんは見出しの上の余白で段落の区切りを見せる。
-   BlockNote は --level / --prev-level 変数で字の大きさを決めているので、
-   変数だけを差し替えて型変更時のアニメーションはそのまま活かす。
+   Wiki / 議事録エディタ - 文書の文字組み
+
+   BlockNote の既定は英語圏のブログ向けで、本文16pxに対して
+   h1=48px・h2=32px、行間 1.5、ブロックの上下 3px しかない。
+   日本語の業務文書としては見出しが大きすぎ、本文も詰まって読みづらい。
+   以下の梯子に組み直す（本文 16px を基準にした値）。
+
+     本文      16px / 行間 1.75 / 段落の間 10px
+     見出し6〜4 16px / 上 20px / 下 8px
+     見出し3    17px / 上 24px / 下 8px
+     見出し2    20px / 上 28px / 下 10px
+     見出し1    24px / 上 32px / 下 12px（見出しの行間はすべて 1.4）
+
+   考え方:
+   - 見出しは本文の 1.0〜1.5 倍に収める。日本語の社内文書では 3 倍は過剰。
+   - 本文より小さい見出しは作らない。BlockNote の既定は h5=14.4px・
+     h6=12.8px と本文を下回っていた。
+   - 上の余白を下より大きくして、見出しがその下の本文とひとかたまりに見えるようにする。
+   - 大きさは BlockNote の --level / --prev-level 変数だけを差し替える。
+     font-size を直接上書きすると、段落から見出しに変えたときの
+     アニメーションが壊れるため。
+   - 上書きはすべて既定より詳細度を高くする。本番では BlockNote の CSS が
+     エディタ部品と一緒に globals.css より後に読み込まれるので、順序に頼れない。
    ============================================ */
+
+/* --- 見出しの大きさ（BlockNote の変数を差し替え） --- */
 
 .wiki-editor [data-content-type="heading"],
 .minutes-editor [data-content-type="heading"] {
-  --level: 1.5em;
+  --level: 1.5em; /* 24px */
 }
 
 .wiki-editor [data-content-type="heading"][data-level="2"],
 .minutes-editor [data-content-type="heading"][data-level="2"] {
-  --level: 1.25em;
+  --level: 1.25em; /* 20px */
 }
 
 .wiki-editor [data-content-type="heading"][data-level="3"],
 .minutes-editor [data-content-type="heading"][data-level="3"] {
-  --level: 1.125em;
+  --level: 1.0625em; /* 17px */
 }
 
-/* h4〜h6 は BlockNote の既定のまま。上の 1.5em と詳細度が同じで、
-   後に書いた側が勝ってしまうため、ここで同じ値を書き戻す */
+/* 見出し4〜6 は本文と同じ大きさの太字。既定(16/14.4/12.8px)では
+   本文より小さくなり、見出しとして成り立たなかった */
 .wiki-editor [data-content-type="heading"][data-level="4"],
-.minutes-editor [data-content-type="heading"][data-level="4"] {
-  --level: 1em;
-}
-
 .wiki-editor [data-content-type="heading"][data-level="5"],
-.minutes-editor [data-content-type="heading"][data-level="5"] {
-  --level: 0.9em;
-}
-
 .wiki-editor [data-content-type="heading"][data-level="6"],
+.minutes-editor [data-content-type="heading"][data-level="4"],
+.minutes-editor [data-content-type="heading"][data-level="5"],
 .minutes-editor [data-content-type="heading"][data-level="6"] {
-  --level: 0.8em;
+  --level: 1em; /* 16px */
 }
 
 /* 型を変えている最中の表示（BlockNote のアニメーション用）も同じ大きさに揃える */
@@ -572,18 +584,65 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 
 .wiki-editor [data-prev-level="3"],
 .minutes-editor [data-prev-level="3"] {
-  --prev-level: 1.125em;
+  --prev-level: 1.0625em;
 }
 
-/* 見出しは行間を詰め、上に余白を置いて段落の切れ目を見せる（先頭の行を除く） */
+.wiki-editor [data-prev-level="4"],
+.wiki-editor [data-prev-level="5"],
+.wiki-editor [data-prev-level="6"],
+.minutes-editor [data-prev-level="4"],
+.minutes-editor [data-prev-level="5"],
+.minutes-editor [data-prev-level="6"] {
+  --prev-level: 1em;
+}
+
+/* --- 本文の行間と段落の間 --- */
+
+.wiki-editor .bn-block-content,
+.minutes-editor .bn-block-content {
+  line-height: 1.75;
+}
+
+.wiki-editor .bn-block-content[data-content-type="paragraph"],
+.minutes-editor .bn-block-content[data-content-type="paragraph"] {
+  padding-block: 5px;
+}
+
+/* --- 見出しの余白（既定は上下 3px しかなく、本文と見分けがつかない） --- */
+
 .wiki-editor .bn-block-content[data-content-type="heading"],
 .minutes-editor .bn-block-content[data-content-type="heading"] {
   line-height: 1.4;
+  padding-top: 32px;
+  padding-bottom: 12px;
 }
 
-.wiki-editor .bn-block-outer:not(:first-child) > .bn-block > .bn-block-content[data-content-type="heading"],
-.minutes-editor .bn-block-outer:not(:first-child) > .bn-block > .bn-block-content[data-content-type="heading"] {
-  padding-top: 0.9em;
+.wiki-editor .bn-block-content[data-content-type="heading"][data-level="2"],
+.minutes-editor .bn-block-content[data-content-type="heading"][data-level="2"] {
+  padding-top: 28px;
+  padding-bottom: 10px;
+}
+
+.wiki-editor .bn-block-content[data-content-type="heading"][data-level="3"],
+.minutes-editor .bn-block-content[data-content-type="heading"][data-level="3"] {
+  padding-top: 24px;
+  padding-bottom: 8px;
+}
+
+.wiki-editor .bn-block-content[data-content-type="heading"][data-level="4"],
+.wiki-editor .bn-block-content[data-content-type="heading"][data-level="5"],
+.wiki-editor .bn-block-content[data-content-type="heading"][data-level="6"],
+.minutes-editor .bn-block-content[data-content-type="heading"][data-level="4"],
+.minutes-editor .bn-block-content[data-content-type="heading"][data-level="5"],
+.minutes-editor .bn-block-content[data-content-type="heading"][data-level="6"] {
+  padding-top: 20px;
+  padding-bottom: 8px;
+}
+
+/* 文書の先頭の見出しだけは上を詰める（画面の上に無駄な空きを作らない） */
+.wiki-editor .bn-block-outer:first-child > .bn-block > .bn-block-content[data-content-type="heading"],
+.minutes-editor .bn-block-outer:first-child > .bn-block > .bn-block-content[data-content-type="heading"] {
+  padding-top: 4px;
 }
 
 /* ============================================
