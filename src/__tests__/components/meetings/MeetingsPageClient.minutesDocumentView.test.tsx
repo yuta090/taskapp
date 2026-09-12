@@ -1,6 +1,6 @@
 import React, { forwardRef, useImperativeHandle } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { MeetingsPageClient } from '@/app/(internal)/[orgId]/project/[spaceId]/meetings/MeetingsPageClient'
 import type { Meeting } from '@/types/database'
@@ -90,13 +90,17 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
 }))
 
 const mockFlushPendingSave = vi.fn().mockResolvedValue('flushed-content')
+const mockGetBaseUpdatedAt = vi.fn().mockReturnValue('2026-09-01T00:00:00.111111+00')
 
 vi.mock('@/components/meeting/MinutesDocumentView', () => ({
   MinutesDocumentView: forwardRef(function FakeMinutesDocumentView(
     props: { onBack: () => void; meeting: Meeting },
-    ref: React.Ref<{ flushPendingSave: () => Promise<string> }>
+    ref: React.Ref<{ flushPendingSave: () => Promise<string>; getBaseUpdatedAt: () => string | null }>
   ) {
-    useImperativeHandle(ref, () => ({ flushPendingSave: mockFlushPendingSave }))
+    useImperativeHandle(ref, () => ({
+      flushPendingSave: mockFlushPendingSave,
+      getBaseUpdatedAt: mockGetBaseUpdatedAt,
+    }))
     return (
       <div data-testid="minutes-document-view">
         <span>{props.meeting.title}</span>
@@ -130,9 +134,14 @@ describe('MeetingsPageClient 議事録の文書ビュー', () => {
     expect(screen.getByText('定例MTG')).toBeInTheDocument()
   })
 
-  it('戻るを押すと ?meeting= を外して一覧に戻る', () => {
+  it('戻るを押すと（保存を待ってから）?meeting= を外して一覧に戻る', async () => {
     renderPage()
-    fireEvent.click(screen.getByText('戻る'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('戻る'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(mockFlushPendingSave).toHaveBeenCalledTimes(1)
     expect(mockRouterReplace).toHaveBeenCalledWith('/org-1/project/space-1/meetings')
   })
 
@@ -145,10 +154,49 @@ describe('MeetingsPageClient 議事録の文書ビュー', () => {
     const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
     expect(lastInspectorElement).toBeTruthy()
 
-    await lastInspectorElement.props.onCreateTasks('m1', '古い本文（未フラッシュ）')
+    await act(async () => {
+      await lastInspectorElement.props.onCreateTasks('m1', '古い本文（未フラッシュ）')
+    })
 
     expect(mockFlushPendingSave).toHaveBeenCalledTimes(1)
-    expect(mockParseMinutes).toHaveBeenCalledWith('m1', 'flushed-content')
+    // flush 確定後、RPC を呼ぶ前にもう一度サーバーの状態を確かめる(HIGH-1)
     expect(mockFetchMeetingDetail).toHaveBeenCalledWith('m1')
+    expect(mockParseMinutes).toHaveBeenCalledWith('m1', 'flushed-content')
+  })
+
+  it('HIGH-1: flush 確定後に基準(updated_at)がずれていたらタスク化を中止する', async () => {
+    renderPage()
+    await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
+    const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
+
+    // サーバーの状態がずれている（別の場所で更新済み）
+    mockFetchMeetingDetail.mockResolvedValue(makeMeeting({ updated_at: '2026-09-01T09:99:99.999999+00' }))
+
+    await act(async () => {
+      await expect(lastInspectorElement.props.onCreateTasks('m1', '本文')).rejects.toThrow()
+    })
+
+    expect(mockParseMinutes).not.toHaveBeenCalled()
+  })
+
+  it('HIGH-1: 書けない人には onCreateTasks を渡さない', async () => {
+    // このテストだけ canEdit=false を模す
+    vi.doMock('@/lib/hooks/useCanEditSpace', () => ({
+      useCanEditSpace: () => ({ canEdit: false, canEditMoney: false, loading: false, resolved: true }),
+    }))
+    vi.resetModules()
+    const { MeetingsPageClient: MeetingsPageClientReadonly } = await import(
+      '@/app/(internal)/[orgId]/project/[spaceId]/meetings/MeetingsPageClient'
+    )
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MeetingsPageClientReadonly orgId="org-1" spaceId="space-1" />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
+    const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
+    expect(lastInspectorElement.props.onCreateTasks).toBeUndefined()
   })
 })

@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { useCreateBlockNote, createReactInlineContentSpec } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
+import { ja as jaLocale } from '@blocknote/core/locales'
 import { LinkSimple, FileText, CheckCircle } from '@phosphor-icons/react'
 import { WikiFileLinkPicker } from '@/components/wiki/WikiFileLinkPicker'
 import { MinutesWikiLinkPicker, type MinutesWikiPageOption } from './MinutesWikiLinkPicker'
@@ -28,14 +29,33 @@ interface TaskMarkerChipProps {
   spaceId: string
 }
 
+/** UUID（v1〜v5想定の一般形）の形をしているかどうか。壊れた/意図しない taskId をボタン化しない */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
  * 議事録に埋め込まれた `<!--task:uuid-->` の見た目。単独でテストできるよう
  * BlockNote の render コールバックから切り出している。content:'none' なので
  * 文字は足せず、押すとそのタスクの詳細（`?task=<id>`）へ移動するだけ。
+ * taskId が UUID の形のときだけボタンにする（それ以外は見た目だけの静的なチップ）。
  */
 export function TaskMarkerChip({ taskId, orgId, spaceId }: TaskMarkerChipProps) {
   const router = useRouter()
-  const goToTask = () => router.push(`/${orgId}/project/${spaceId}?task=${taskId}`)
+  const isValidTaskId = UUID_RE.test(taskId)
+  const goToTask = () =>
+    router.push(`/${orgId}/project/${spaceId}?task=${encodeURIComponent(taskId)}`)
+
+  const className =
+    'inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-ink align-middle' +
+    (isValidTaskId ? ' cursor-pointer hover:bg-indigo-100' : '')
+
+  if (!isValidTaskId) {
+    return (
+      <span data-testid="minutes-task-marker-chip" className={className}>
+        <CheckCircle weight="fill" className="text-sm" />
+        タスク作成済み
+      </span>
+    )
+  }
 
   return (
     <span
@@ -51,7 +71,7 @@ export function TaskMarkerChip({ taskId, orgId, spaceId }: TaskMarkerChipProps) 
           goToTask()
         }
       }}
-      className="inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-ink cursor-pointer hover:bg-indigo-100 align-middle"
+      className={className}
     >
       <CheckCircle weight="fill" className="text-sm" />
       タスク作成済み
@@ -66,6 +86,21 @@ export function TaskMarkerChip({ taskId, orgId, spaceId }: TaskMarkerChipProps) 
  * taskMarker（行末の `<!--task:uuid-->`）はチップ表示のみ・content:'none'（文字を足せない）。
  * orgId/spaceId をクロージャで持たせるため、schema はコンポーネント内で作り直す。
  */
+/**
+ * BlockNote の日本語辞書（`@blocknote/core/locales` の `ja`）をもとにした議事録用の辞書。
+ * スラッシュメニューは無効（`slashMenu={false}`）なので、行の案内から「/」の話を消す:
+ * - `emptyDocument`（文書全体が空の唯一のブロックのときだけ出る案内）: 「ここに議事録を書きます」
+ * - `default`（フォーカスした空行に出る案内）: 空にする（行ごとに毎回文言が出ると煩わしいため）
+ */
+const MINUTES_DICTIONARY = {
+  ...jaLocale,
+  placeholders: {
+    ...jaLocale.placeholders,
+    default: '',
+    emptyDocument: 'ここに議事録を書きます',
+  },
+}
+
 function useMinutesSchema(orgId: string, spaceId: string) {
   return useMemo(() => {
     const taskMarkerSpec = createReactInlineContentSpec(
@@ -106,7 +141,12 @@ function useMinutesSchema(orgId: string, spaceId: string) {
   }, [orgId, spaceId])
 }
 
-export function MinutesEditor({ minutesMd, onChange, editable = true, orgId, spaceId }: MinutesEditorProps) {
+/**
+ * `memo` で包む: 保存中/保存済みの表示切り替えなど、親（MinutesDocumentView）の
+ * 再レンダーのたびに BlockNoteView を描き直さないため。渡す props はすべて
+ * プリミティブか安定した参照（onChange は呼び出し側で useCallback 済み）にすること。
+ */
+function MinutesEditorImpl({ minutesMd, onChange, editable = true, orgId, spaceId }: MinutesEditorProps) {
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false)
   const [isWikiPickerOpen, setIsWikiPickerOpen] = useState(false)
   const schema = useMinutesSchema(orgId, spaceId)
@@ -133,6 +173,7 @@ export function MinutesEditor({ minutesMd, onChange, editable = true, orgId, spa
   const editor = useCreateBlockNote({
     schema,
     initialContent,
+    dictionary: MINUTES_DICTIONARY,
   })
 
   const handleSelectFile = (file: ProjectFile) => {
@@ -152,7 +193,7 @@ export function MinutesEditor({ minutesMd, onChange, editable = true, orgId, spa
   }
 
   return (
-    <div className="minutes-editor">
+    <div className="minutes-editor" data-testid="minutes-editor">
       <BlockNoteView
         editor={editor}
         editable={effectiveEditable}
@@ -205,3 +246,5 @@ export function MinutesEditor({ minutesMd, onChange, editable = true, orgId, spa
     </div>
   )
 }
+
+export const MinutesEditor = memo(MinutesEditorImpl)

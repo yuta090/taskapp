@@ -65,6 +65,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   // key に含めて丸ごと再マウントする（目印がチップになった最新の本文で作り直す）
   const [minutesReloadToken, setMinutesReloadToken] = useState(0)
   const minutesViewRef = useRef<MinutesDocumentViewHandle>(null)
+  // HIGH-1: タスク化している間はエディタを読み取り専用にする
+  const [isTaskifying, setIsTaskifying] = useState(false)
 
   // Filter state
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
@@ -226,6 +228,17 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     [router, projectBasePath, searchParams]
   )
 
+  // HIGH-3: 一覧へ戻るときは保存を待ってから戻る（ベストエフォート。失敗しても戻ることは妨げない）。
+  // 文書ビュー自身の「戻る」ボタンだけでなく、Inspector の×（一覧へ戻る）でも同じ経路を使う。
+  const handleBackToList = useCallback(async () => {
+    try {
+      await minutesViewRef.current?.flushPendingSave()
+    } catch {
+      // ベストエフォート。一覧へ戻ることは妨げない
+    }
+    updateQuery({ meeting: null })
+  }, [updateQuery])
+
   // ---- Meeting inspector ----
   const selectedMeeting: Meeting | null = useMemo(() => {
     if (!selectedMeetingId) return null
@@ -241,7 +254,6 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   // 会議を切り替えたら、モバイルの情報シート表示は毎回閉じ直す
   // （前の会議で開いていた状態のまま次の会議に持ち越さない）
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 会議切り替え時のリセット（Wiki の showInfo と同じ理由）
     setShowInfo(false)
   }, [selectedMeetingId])
 
@@ -263,7 +275,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       <MeetingInspector
         meeting={selectedMeeting}
         participants={participants[selectedMeeting.id] || []}
-        onClose={() => (isMobile ? setShowInfo(false) : updateQuery({ meeting: null }))}
+        onClose={() => (isMobile ? setShowInfo(false) : void handleBackToList())}
         onStart={async () => {
           try {
             await startMeeting(selectedMeeting.id)
@@ -288,25 +300,77 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
           }
         }}
         onPreviewMinutes={previewMinutes}
-        onCreateTasks={async (meetingId, minutesMdFromInspector) => {
-          // タスク化の直前に、文書ビューの保留中の保存（デバウンス待ち）を即座に流し、
-          // その本文でタスク化する（開いたまま編集中の内容を取りこぼさないため）。
-          const flushedContent = (await minutesViewRef.current?.flushPendingSave()) ?? minutesMdFromInspector
-          const result = await parseMinutes(meetingId, flushedContent)
-          // 議事録は rpc_parse_meeting_minutes がサーバー側で書き換える（行末に目印を足す）
-          // ため、詳細を取り直して保存の基準(updated_at)を合わせ、文書ビューを作り直す
-          await fetchMeetingDetail(meetingId)
-          setMinutesReloadToken((t) => t + 1)
-          if (result.createdCount > 0) {
-            toast.success(`${result.createdCount}件のタスクを作成しました`)
-          } else {
-            toast.info('タスク化できる決定事項はありませんでした')
-          }
-          return result
-        }}
+        // HIGH-1: 書けない人にはタスク化を渡さない
+        onCreateTasks={
+          canEdit
+            ? async (meetingId) => {
+                setIsTaskifying(true)
+                try {
+                  // タスク化の直前に、文書ビューの保留中の保存（デバウンス待ち）を即座に流す。
+                  // 競合中・保存失敗・通信中なら例外になる（確定していない本文を渡さないため）。
+                  let flushedContent: string
+                  try {
+                    flushedContent = await minutesViewRef.current!.flushPendingSave()
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : '議事録を保存できませんでした'
+                    toast.error(message)
+                    throw err
+                  }
+
+                  // RPCを呼ぶ直前にもう一度サーバーの状態を確かめる（flush確定〜RPC呼び出しの
+                  // 一瞬に、別の場所で書き換えられていないか）。基準(updated_at)がずれていれば止める。
+                  const knownUpdatedAt = minutesViewRef.current!.getBaseUpdatedAt()
+                  const justBeforeRpc = await fetchMeetingDetail(meetingId)
+                  if (!justBeforeRpc || (knownUpdatedAt !== null && justBeforeRpc.updated_at !== knownUpdatedAt)) {
+                    const message =
+                      '議事録が別の場所で更新されたため、タスク化を中止しました。最新を読み込んでからやり直してください'
+                    toast.error(message)
+                    throw new Error(message)
+                  }
+
+                  const result = await parseMinutes(meetingId, flushedContent)
+
+                  // 議事録は rpc_parse_meeting_minutes がサーバー側で書き換える（行末に目印を
+                  // 足す）ため、詳細を取り直して文書ビューを作り直す。取り直しは別に try する
+                  // （タスクはできたのに「失敗しました」と出さないため）。
+                  try {
+                    await fetchMeetingDetail(meetingId)
+                  } catch {
+                    // 無視。次に開いたときの取り直しに委ねる
+                  }
+                  setMinutesReloadToken((t) => t + 1)
+
+                  if (result.createdCount > 0) {
+                    toast.success(`${result.createdCount}件のタスクを作成しました`)
+                  } else {
+                    toast.info('タスク化できる決定事項はありませんでした')
+                  }
+                  return result
+                } finally {
+                  setIsTaskifying(false)
+                }
+              }
+            : undefined
+        }
       />
     )
-  }, [endMeeting, deleteMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery, parseMinutes, previewMinutes, isMobile, showInfo, fetchMeetingDetail])
+  }, [
+    endMeeting,
+    deleteMeeting,
+    participants,
+    selectedMeeting,
+    selectedProposalId,
+    setInspector,
+    startMeeting,
+    updateQuery,
+    parseMinutes,
+    previewMinutes,
+    isMobile,
+    showInfo,
+    fetchMeetingDetail,
+    canEdit,
+    handleBackToList,
+  ])
 
   // ---- Proposal inspector ----
   // Reset detail when switching proposals (prevents stale data flash)
@@ -386,8 +450,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         orgId={orgId}
         spaceId={spaceId}
         meeting={selectedMeeting}
-        canEdit={canEdit}
-        onBack={() => updateQuery({ meeting: null })}
+        canEdit={canEdit && !isTaskifying}
+        onBack={() => void handleBackToList()}
         onOpenInfo={() => setShowInfo(true)}
         updateMinutes={updateMinutes}
         fetchMeetingDetail={fetchMeetingDetail}

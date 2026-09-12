@@ -33,7 +33,7 @@ export function MinutesWikiLinkPicker({ orgId, spaceId, onSelect }: MinutesWikiL
   const hiddenCount = total - matches.length
 
   return (
-    <div className="w-72 max-h-80 overflow-y-auto bg-surface border border-gray-200 rounded-lg shadow-lg p-2">
+    <div className="w-72 max-w-[calc(100vw-2rem)] max-h-80 overflow-y-auto bg-surface border border-gray-200 rounded-lg shadow-lg p-2">
       <div className="relative mb-2">
         <MagnifyingGlass className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
         <input

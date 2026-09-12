@@ -14,6 +14,10 @@ vi.mock('next/navigation', () => ({
 
 const mockInsertInlineContent = vi.fn()
 const mockDocument: unknown[] = [{ type: 'paragraph', content: [] }]
+const mockUseCreateBlockNote = vi.fn((_opts: unknown) => ({
+  document: mockDocument,
+  insertInlineContent: mockInsertInlineContent,
+}))
 
 // BlockNote mounts a real ProseMirror editor which is heavy/unstable in jsdom.
 // Mock the hook and view so this test focuses on the toolbar wiring instead
@@ -22,10 +26,7 @@ vi.mock('@blocknote/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@blocknote/react')>()
   return {
     ...actual,
-    useCreateBlockNote: () => ({
-      document: mockDocument,
-      insertInlineContent: mockInsertInlineContent,
-    }),
+    useCreateBlockNote: (opts: unknown) => mockUseCreateBlockNote(opts),
   }
 })
 
@@ -115,22 +116,57 @@ describe('MinutesEditor 差し込みツールバー', () => {
   })
 })
 
+const VALID_TASK_ID = '11111111-1111-1111-1111-111111111111'
+
 describe('TaskMarkerChip', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('「タスク作成済み」を表示し、押すとタスク詳細へ移動する', () => {
-    render(<TaskMarkerChip taskId="task-9" orgId={ORG_ID} spaceId={SPACE_ID} />)
+  it('taskId が UUID の形なら「タスク作成済み」を表示し、押すとタスク詳細へ移動する', () => {
+    render(<TaskMarkerChip taskId={VALID_TASK_ID} orgId={ORG_ID} spaceId={SPACE_ID} />)
     const chip = screen.getByTestId('minutes-task-marker-chip')
     expect(chip).toHaveTextContent('タスク作成済み')
 
     fireEvent.click(chip)
-    expect(mockPush).toHaveBeenCalledWith(`/${ORG_ID}/project/${SPACE_ID}?task=task-9`)
+    expect(mockPush).toHaveBeenCalledWith(`/${ORG_ID}/project/${SPACE_ID}?task=${VALID_TASK_ID}`)
   })
 
   it('編集できない（content:none）ので contentEditable=false を持つ', () => {
-    render(<TaskMarkerChip taskId="task-9" orgId={ORG_ID} spaceId={SPACE_ID} />)
+    render(<TaskMarkerChip taskId={VALID_TASK_ID} orgId={ORG_ID} spaceId={SPACE_ID} />)
     expect(screen.getByTestId('minutes-task-marker-chip')).toHaveAttribute('contenteditable', 'false')
+  })
+
+  it('taskId が UUID の形でなければボタン化しない（クリックしても移動しない）', () => {
+    render(<TaskMarkerChip taskId="not-a-uuid" orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const chip = screen.getByTestId('minutes-task-marker-chip')
+    expect(chip).toHaveTextContent('タスク作成済み')
+    expect(chip).not.toHaveAttribute('role', 'button')
+
+    fireEvent.click(chip)
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+})
+
+describe('MinutesEditor 日本語の案内・E2E目印', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('一番外側に minutes-editor の目印を持つ', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByTestId('minutes-editor')).toBeInTheDocument()
+  })
+
+  it('BlockNote へ日本語辞書を渡し、スラッシュメニューの案内文言を含めない', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+    const opts = mockUseCreateBlockNote.mock.calls.at(-1)?.[0] as {
+      dictionary?: { placeholders?: Record<string, string> }
+    }
+    expect(opts?.dictionary?.placeholders?.emptyDocument).toBe('ここに議事録を書きます')
+    // スラッシュメニューは無効(slashMenu={false})なので「/」の案内文言を残さない
+    expect(opts?.dictionary?.placeholders?.default).not.toMatch(/\//)
+    expect(opts?.dictionary?.placeholders?.emptyDocument).not.toMatch(/\//)
   })
 })

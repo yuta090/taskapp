@@ -72,6 +72,9 @@ export function MeetingInspector({
 
   // 会議ごとに一度だけプレビューを走らせるためのキー（自前 setState での再実行を防ぐ）
   const previewKeyRef = useRef<string | null>(null)
+  // M3: 保存の確定後に議事録が変わっている可能性があるので、「もう一度確認」で
+  // 手動でも取り直せるようにする（このカウンタを増やすと下の effect が再実行される）
+  const [refreshToken, setRefreshToken] = useState(0)
 
   // 別会議に切り替わったらタスク化の状態をリセット
   useEffect(() => {
@@ -103,7 +106,16 @@ export function MeetingInspector({
     return () => {
       cancelled = true
     }
-  }, [activeTab, meeting.id, meeting.minutes_md, onPreviewMinutes, createResult])
+  }, [activeTab, meeting.id, meeting.minutes_md, onPreviewMinutes, createResult, refreshToken])
+
+  // M3: 文書ビューで書いた本文が保存された後は、開いたときの候補が古いままになりうる。
+  // 手動で取り直す
+  const handleRefreshPreview = () => {
+    previewKeyRef.current = null
+    setPreview(null)
+    setTaskError(null)
+    setRefreshToken((t) => t + 1)
+  }
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -324,9 +336,21 @@ export function MeetingInspector({
                 data-testid="minutes-task-panel"
                 className="rounded-lg border border-gray-200 p-3 space-y-3"
               >
-                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
-                  <ListChecks className="text-sm" />
-                  決定事項のタスク化
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                    <ListChecks className="text-sm" />
+                    決定事項のタスク化
+                  </div>
+                  {!createResult && !previewLoading && (
+                    <button
+                      type="button"
+                      onClick={handleRefreshPreview}
+                      data-testid="minutes-task-refresh"
+                      className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      もう一度確認
+                    </button>
+                  )}
                 </div>
 
                 {taskError && (
@@ -405,14 +429,18 @@ export function MeetingInspector({
                         : `${preview.newSpecCount}件をタスク化`}
                     </button>
                   </>
-                ) : preview ? (
-                  <p
-                    data-testid="minutes-task-empty"
-                    className="text-xs text-gray-400"
-                  >
-                    タスク化できる決定事項はありません
-                  </p>
-                ) : null}
+                ) : (
+                  <div data-testid="minutes-task-empty" className="text-xs text-gray-400 space-y-1">
+                    <p>タスク化できる決定事項はありません</p>
+                    <p>
+                      議事録に「
+                      <code className="px-1 py-0.5 bg-gray-100 rounded text-gray-600">
+                        - [ ] SPEC(資料の場所): やること
+                      </code>
+                      」と書くと、ここでタスクにできます。
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

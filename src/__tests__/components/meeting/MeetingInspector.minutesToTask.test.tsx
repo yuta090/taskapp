@@ -169,4 +169,31 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     expect(screen.queryByTestId('minutes-task-panel')).toBeNull()
     expect(screen.queryByTestId('minutes-taskify-button')).toBeNull()
   })
+
+  it('候補が0件のとき、SPEC行の書き方の案内を出す（非技術者向け）', async () => {
+    const onPreviewMinutes = vi.fn().mockResolvedValue({
+      newSpecCount: 0,
+      existingSpecCount: 0,
+      newSpecs: [],
+      existingSpecs: [],
+    })
+    render(
+      <MeetingInspector meeting={makeMeeting()} onClose={vi.fn()} onPreviewMinutes={onPreviewMinutes} />
+    )
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalled())
+    expect(await screen.findByText(/SPEC\(資料の場所\): やること/)).toBeTruthy()
+  })
+
+  it('M3: 「もう一度確認」でプレビューを取り直す', async () => {
+    const onPreviewMinutes = vi.fn().mockResolvedValue(previewResult)
+    render(
+      <MeetingInspector meeting={makeMeeting()} onClose={vi.fn()} onPreviewMinutes={onPreviewMinutes} onCreateTasks={vi.fn()} />
+    )
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId('minutes-task-refresh'))
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(2))
+  })
 })
