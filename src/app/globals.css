@@ -518,6 +518,75 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 }
 
 /* ============================================
+   Wiki / 議事録エディタ - 見出しの大きさ
+   BlockNote の既定は本文16pxに対して h1=3em(48px)・h2=2em(32px) と
+   英語圏のブログ向けで、日本語の業務文書には大きすぎる。
+   日本語の社内文書に合わせて h1=24px・h2=20px・h3=18px に落とし、
+   縮めたぶんは見出しの上の余白で段落の区切りを見せる。
+   BlockNote は --level / --prev-level 変数で字の大きさを決めているので、
+   変数だけを差し替えて型変更時のアニメーションはそのまま活かす。
+   ============================================ */
+
+.wiki-editor [data-content-type="heading"],
+.minutes-editor [data-content-type="heading"] {
+  --level: 1.5em;
+}
+
+.wiki-editor [data-content-type="heading"][data-level="2"],
+.minutes-editor [data-content-type="heading"][data-level="2"] {
+  --level: 1.25em;
+}
+
+.wiki-editor [data-content-type="heading"][data-level="3"],
+.minutes-editor [data-content-type="heading"][data-level="3"] {
+  --level: 1.125em;
+}
+
+/* h4〜h6 は BlockNote の既定のまま。上の 1.5em と詳細度が同じで、
+   後に書いた側が勝ってしまうため、ここで同じ値を書き戻す */
+.wiki-editor [data-content-type="heading"][data-level="4"],
+.minutes-editor [data-content-type="heading"][data-level="4"] {
+  --level: 1em;
+}
+
+.wiki-editor [data-content-type="heading"][data-level="5"],
+.minutes-editor [data-content-type="heading"][data-level="5"] {
+  --level: 0.9em;
+}
+
+.wiki-editor [data-content-type="heading"][data-level="6"],
+.minutes-editor [data-content-type="heading"][data-level="6"] {
+  --level: 0.8em;
+}
+
+/* 型を変えている最中の表示（BlockNote のアニメーション用）も同じ大きさに揃える */
+.wiki-editor [data-prev-level="1"],
+.minutes-editor [data-prev-level="1"] {
+  --prev-level: 1.5em;
+}
+
+.wiki-editor [data-prev-level="2"],
+.minutes-editor [data-prev-level="2"] {
+  --prev-level: 1.25em;
+}
+
+.wiki-editor [data-prev-level="3"],
+.minutes-editor [data-prev-level="3"] {
+  --prev-level: 1.125em;
+}
+
+/* 見出しは行間を詰め、上に余白を置いて段落の切れ目を見せる（先頭の行を除く） */
+.wiki-editor .bn-block-content[data-content-type="heading"],
+.minutes-editor .bn-block-content[data-content-type="heading"] {
+  line-height: 1.4;
+}
+
+.wiki-editor .bn-block-outer:not(:first-child) > .bn-block > .bn-block-content[data-content-type="heading"],
+.minutes-editor .bn-block-outer:not(:first-child) > .bn-block > .bn-block-content[data-content-type="heading"] {
+  padding-top: 0.9em;
+}
+
+/* ============================================
    Japanese Web Design / LP Elements
    ============================================ */
 
