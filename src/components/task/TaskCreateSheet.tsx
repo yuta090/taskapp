@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
+import { WikiPageLinkPicker } from './WikiPageLinkPicker'
 import { useEstimationAssist } from '@/lib/hooks/useEstimationAssist'
 import { toast } from 'sonner'
 import type { TaskType, BallSide, DecisionState, ClientScope } from '@/types/database'
@@ -103,6 +104,8 @@ export function TaskCreateSheet({
   const [ball, setBall] = useState<BallSide>(defaultBall)
   const [clientScope, setClientScope] = useState<ClientScope>('internal')
   const [wikiPageId, setWikiPageId] = useState('')
+  // 選んだページが「仕様書」か。null は未確定（下書きから戻したときなど）→ 一覧のタグで判定する
+  const [wikiPageIsSpec, setWikiPageIsSpec] = useState<boolean | null>(null)
   const [decisionState, setDecisionState] = useState<DecisionState>('considering')
   const [clientOwnerIds, setClientOwnerIds] = useState<string[]>(defaultClientOwnerIds)
   const [internalOwnerIds, setInternalOwnerIds] = useState<string[]>([])
@@ -136,16 +139,22 @@ export function TaskCreateSheet({
     orgId: effectiveOrgId,
   })
 
-  // Wiki pages for spec link selector（一覧を読むだけ。canEdit は渡さない＝既定 false で
-  // 空のWikiの自動作成は行わない）
-  const { pages: wikiPages } = useWikiPages({
+  // Wiki のページ（紐づけの候補）。canEdit は渡さない＝既定 false で空の Wiki の自動作成は行わない。
+  // 候補はタグの有無に関係なく全ページ。見つからなければその場で作れる（タスク詳細と同じ入力欄）
+  const {
+    pages: wikiPages,
+    createPage: createWikiPage,
+    loading: wikiPagesLoading,
+    error: wikiPagesError,
+  } = useWikiPages({
     orgId: effectiveOrgId,
     spaceId: effectiveSpaceId,
   })
-  const specWikiPages = useMemo(
-    () => wikiPages.filter((p) => p.tags?.includes('仕様書')),
-    [wikiPages]
-  )
+  // 仕様タスク（検討中→決定まで完了できない）にするのは「仕様書」の名札つきのページだけ。
+  // 作った直後のページはまだ一覧に無いので、選んだときのページのタグを優先して見る
+  const selectedPageIsSpec =
+    !!wikiPageId &&
+    (wikiPageIsSpec ?? wikiPages.find((p) => p.id === wikiPageId)?.tags?.includes('仕様書') ?? false)
 
   // Use hook for members with display names
   const {
@@ -370,8 +379,8 @@ export function TaskCreateSheet({
       return
     }
 
-    // Auto-determine type based on wikiPageId
-    const effectiveType: TaskType = wikiPageId ? 'spec' : 'task'
+    // 「仕様書」の名札つきのページを紐づけたときだけ仕様タスク。それ以外はリンクだけ
+    const effectiveType: TaskType = selectedPageIsSpec ? 'spec' : 'task'
 
     setIsSubmitting(true)
     try {
@@ -382,7 +391,7 @@ export function TaskCreateSheet({
         ball,
         origin: 'internal', // Always internal when creating
         clientScope,
-        wikiPageId: effectiveType === 'spec' ? wikiPageId : undefined,
+        wikiPageId: wikiPageId || undefined,
         decisionState: effectiveType === 'spec' ? decisionState : undefined,
         clientOwnerIds,
         internalOwnerIds,
@@ -399,6 +408,7 @@ export function TaskCreateSheet({
       setTitle('')
       setDescription('')
       setWikiPageId('')
+      setWikiPageIsSpec(null)
       setStartDate('')
       setDueDate('')
       setAssigneeId('')
@@ -1011,41 +1021,39 @@ export function TaskCreateSheet({
                 </div>
               )}
 
-              {/* Wiki spec page selector — rarely used, kept at bottom */}
+              {/* Wiki のページの紐づけ — タスク詳細と同じ「探す＋無ければその場で作る」入力欄 */}
               <div className="pl-3">
                 <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
                   <FileText className="text-sm" />
-                  仕様書を紐付け（任意）
+                  Wikiのページを紐づけ（任意）
                 </label>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Wikiの仕様書ページを紐付けると、検討中→決定→実装済みの進捗を管理できます
+                  「仕様書」のページを選ぶと、検討中→決定→実装済みで進み具合を管理できます
                 </p>
-                {specWikiPages.length > 0 ? (
-                  <select
-                    value={wikiPageId}
-                    onChange={(e) => setWikiPageId(e.target.value)}
-                    data-testid="task-create-wiki-page"
-                    className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
-                  >
-                    <option value="">紐付けなし</option>
-                    {specWikiPages.map((page) => (
-                      <option key={page.id} value={page.id}>
-                        {page.title}
-                        {page.tags?.filter((t) => t !== '仕様書').length > 0
-                          ? ` (${page.tags.filter((t) => t !== '仕様書').join(', ')})`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="mt-1 text-xs text-gray-400 py-2">
-                    仕様書タグのついたWikiページがありません。Wikiで仕様書を作成してください。
-                  </p>
-                )}
+                <div className="mt-1">
+                  {effectiveSpaceId ? (
+                    <WikiPageLinkPicker
+                      pages={wikiPages}
+                      value={wikiPageId || null}
+                      loading={wikiPagesLoading}
+                      loadError={!!wikiPagesError && wikiPages.length === 0}
+                      onSelect={(pageId, page) => {
+                        setWikiPageId(pageId ?? '')
+                        setWikiPageIsSpec(pageId ? (page?.tags?.includes('仕様書') ?? null) : null)
+                      }}
+                      onCreate={(pageTitle) => createWikiPage({ title: pageTitle })}
+                      testId="task-create-wiki-page"
+                    />
+                  ) : (
+                    <p className="text-xs text-gray-400 py-2">
+                      プロジェクトを選ぶと、Wikiのページを紐づけられます
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {/* Decision state (shown only when wiki page is selected) */}
-              {wikiPageId && (
+              {/* Decision state (shown only when a 仕様書 page is selected) */}
+              {selectedPageIsSpec && (
                 <div className="pl-3">
                   <label className="text-xs font-medium text-gray-500">仕様ステータス</label>
                   <div className="mt-1 flex gap-2">
