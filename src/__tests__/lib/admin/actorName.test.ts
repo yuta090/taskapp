@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveActorName } from '@/app/admin/(panel)/dashboard/page'
+import { resolveActorName } from '@/lib/admin/actorName'
 
 /**
  * profiles.display_name はNOT NULLで既定値が空文字のため、「未設定」の判定は

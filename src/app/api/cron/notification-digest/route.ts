@@ -10,11 +10,8 @@ import {
   type PendingInvitesSummary,
 } from '@/lib/notifications/digest'
 import { jstNow } from '@/lib/datetime/jstNow'
-import { mapWithConcurrency } from '@/lib/admin/concurrency'
+import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
 import type { SupabaseClient } from '@supabase/supabase-js'
-
-// GoTrue（auth.usersのメール取得）を一斉に呼んでレート制限に当たらないよう絞る
-const EMAIL_LOOKUP_CONCURRENCY = 8
 
 /**
  * POST /api/cron/notification-digest

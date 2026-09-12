@@ -1,9 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { mapWithConcurrency } from '@/lib/admin/concurrency'
+import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
-
-// GoTrue（auth.usersのメール取得）を一斉に呼んでレート制限に当たらないよう絞る
-const EMAIL_LOOKUP_CONCURRENCY = 8
 
 interface UsageLog {
   id: string

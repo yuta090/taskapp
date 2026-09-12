@@ -1,10 +1,8 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { mapWithConcurrency } from '@/lib/admin/concurrency'
+import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
+import { resolveActorName } from '@/lib/admin/actorName'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
-
-// GoTrue（auth.usersのメール取得）を一斉に呼んでレート制限に当たらないよう絞る
-const EMAIL_LOOKUP_CONCURRENCY = 8
 
 interface AuditLogRow {
   id: string
@@ -14,13 +12,6 @@ interface AuditLogRow {
   relativeTime: string
   actor_id: string | null
   actorName: string
-}
-
-// profiles.display_name は空文字を許す既定値（NOT NULL）なので、
-// 「未設定」の判定には `??` でなく `||` を使う（空文字だとメールを引いていても
-// 表示が空欄になってしまうため）
-export function resolveActorName(displayName: string | null | undefined, email: string | undefined): string {
-  return displayName || email || 'System'
 }
 
 function computeRelativeTime(isoString: string, nowMs: number): string {

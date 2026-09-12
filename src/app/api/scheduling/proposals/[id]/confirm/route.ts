@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { mapWithConcurrency } from '@/lib/admin/concurrency'
+import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
 import { videoConferenceRegistry } from '@/lib/video-conference'
 import type { VideoConferenceProviderName } from '@/lib/video-conference'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -9,9 +9,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 
 import { UUID_REGEX } from '@/lib/uuid'
-
-// GoTrue（auth.usersのメール取得）を一斉に呼んでレート制限に当たらないよう絞る
-const EMAIL_LOOKUP_CONCURRENCY = 8
 
 // POST: スロット確定
 export async function POST(
