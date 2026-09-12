@@ -20,9 +20,23 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockSetInspector = vi.fn()
-vi.mock('@/components/layout', () => ({
-  useInspector: () => ({ setInspector: mockSetInspector }),
-}))
+// 全画面表示（Wiki の WikiPageClient.fullscreen.test.tsx と同じ手法）: useShellFullscreen は
+// AppShell の状態そのものなので、1画面分の state で代用し、呼び出しを mockSetShellFullscreen で見る
+const mockSetShellFullscreen = vi.hoisted(() => vi.fn())
+vi.mock('@/components/layout', async () => {
+  const React = await import('react')
+  return {
+    useInspector: () => ({ setInspector: mockSetInspector }),
+    useShellFullscreen: () => {
+      const [fullscreen, setLocal] = React.useState(false)
+      const setFullscreen = React.useCallback((value: boolean) => {
+        mockSetShellFullscreen(value)
+        setLocal(value)
+      }, [])
+      return { fullscreen, setFullscreen }
+    },
+  }
+})
 
 vi.mock('@/lib/hooks/useAnnouncements', () => ({
   useAnnouncements: () => ({ announcements: [], unreadCount: 0, markAsRead: vi.fn(), markAllAsRead: vi.fn() }),
@@ -58,10 +72,13 @@ const mockParseMinutes = vi.fn()
 const mockFetchMeetingDetail = vi.fn()
 const mockUpdateMinutes = vi.fn()
 const mockPreviewMinutes = vi.fn()
+// 「全画面中に他の人が会議を削除する」を再現するために、一覧を差し替え可能にしておく
+// （通常は固定の1件。テストの中で配列そのものを書き換えてから rerenderPage する）
+let mockMeetingsList: Meeting[] = [makeMeeting()]
 
 vi.mock('@/lib/hooks/useMeetings', () => ({
   useMeetings: () => ({
-    meetings: [makeMeeting()],
+    meetings: mockMeetingsList,
     participants: {},
     loading: false,
     error: null,
@@ -109,7 +126,12 @@ interface FakeHandle {
 
 vi.mock('@/components/meeting/MinutesDocumentView', () => ({
   MinutesDocumentView: forwardRef(function FakeMinutesDocumentView(
-    props: { onBack: () => void; meeting: Meeting },
+    props: {
+      onBack: () => void
+      meeting: Meeting
+      fullscreen?: boolean
+      onToggleFullscreen?: () => void
+    },
     ref: React.Ref<FakeHandle>
   ) {
     useImperativeHandle(ref, () => ({
@@ -120,9 +142,14 @@ vi.mock('@/components/meeting/MinutesDocumentView', () => ({
       confirmLeave: mockConfirmLeave,
     }))
     return (
-      <div data-testid="minutes-document-view">
+      <div data-testid="minutes-document-view" data-fullscreen={String(!!props.fullscreen)}>
         <span>{props.meeting.title}</span>
         <button onClick={props.onBack}>戻る</button>
+        {/* 実際の全画面ボタン(MinutesDocumentView.fullscreen.test.tsx)の代わりに、
+            MeetingsPageClient から渡された onToggleFullscreen をそのまま叩けるボタンを置く */}
+        {props.onToggleFullscreen && (
+          <button onClick={props.onToggleFullscreen}>全画面切替</button>
+        )}
       </div>
     )
   }),
@@ -130,11 +157,16 @@ vi.mock('@/components/meeting/MinutesDocumentView', () => ({
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const ui = () => (
     <QueryClientProvider client={queryClient}>
       <MeetingsPageClient orgId="org-1" spaceId="space-1" />
     </QueryClientProvider>
   )
+  const utils = render(ui())
+  // 一覧(mockMeetingsList)や searchParamsValue を書き換えた後、改めて描き直すためのヘルパー。
+  // モックの外側の値なので、React の state 更新経由では拾えない（明示的に再描画を頼む）。
+  const rerenderPage = () => utils.rerender(ui())
+  return { ...utils, rerenderPage }
 }
 
 let historyReplaceSpy: ReturnType<typeof vi.spyOn>
@@ -142,6 +174,7 @@ let historyReplaceSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   vi.clearAllMocks()
   searchParamsValue = 'meeting=m1'
+  mockMeetingsList = [makeMeeting()]
   mockFlushPendingSave.mockResolvedValue('flushed-content')
   mockEnsureUpToDate.mockResolvedValue(undefined)
   mockGetKnownRaw.mockReturnValue('flushed-content')
@@ -261,5 +294,82 @@ describe('MeetingsPageClient 議事録の文書ビュー', () => {
     await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
     const lastInspectorElement = mockSetInspector.mock.calls.at(-1)?.[0]
     expect(lastInspectorElement.props.onCreateTasks).toBeUndefined()
+  })
+})
+
+describe('MeetingsPageClient 議事録の全画面表示（Wiki と同じ「全画面」）', () => {
+  it('議事録を閉じる（戻る）と全画面表示が解除される', async () => {
+    renderPage()
+    fireEvent.click(screen.getByText('全画面切替'))
+    expect(screen.getByTestId('minutes-document-view')).toHaveAttribute('data-fullscreen', 'true')
+
+    mockSetShellFullscreen.mockClear()
+    fireEvent.click(screen.getByText('戻る'))
+
+    expect(mockSetShellFullscreen).toHaveBeenCalledWith(false)
+    expect(historyReplaceSpy).toHaveBeenCalledWith(null, '', '/org-1/project/space-1/meetings')
+  })
+
+  it('Escキーで全画面表示を終了する（IME変換中のEscでは終了しない）', async () => {
+    renderPage()
+    fireEvent.click(screen.getByText('全画面切替'))
+    expect(screen.getByTestId('minutes-document-view')).toHaveAttribute('data-fullscreen', 'true')
+
+    fireEvent.keyDown(document, { key: 'Escape', isComposing: true })
+    expect(screen.getByTestId('minutes-document-view')).toHaveAttribute('data-fullscreen', 'true')
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByTestId('minutes-document-view')).toHaveAttribute('data-fullscreen', 'false')
+  })
+
+  it('全画面のあいだは会議詳細（Inspector）を閉じる', async () => {
+    renderPage()
+    await waitFor(() => expect(mockSetInspector).toHaveBeenCalled())
+    mockSetInspector.mockClear()
+
+    fireEvent.click(screen.getByText('全画面切替'))
+
+    await waitFor(() => expect(mockSetInspector).toHaveBeenLastCalledWith(null))
+  })
+
+  it('会議一覧の画面を離れる（アンマウント）と全画面表示を解除する', async () => {
+    const { unmount } = renderPage()
+    fireEvent.click(screen.getByText('全画面切替'))
+    mockSetShellFullscreen.mockClear()
+
+    unmount()
+
+    expect(mockSetShellFullscreen).toHaveBeenCalledWith(false)
+  })
+
+  // レビュー指摘: 全画面で書いている最中に、ほかの人がその会議を消す・日程調整に切り替わる
+  // などで議事録の文書ビューが出せなくなったとき、「全画面を閉じる」ボタンは文書ビューの
+  // 中にしか無いため、Esc以外に抜け道が無くなってしまう。Wiki（ページが無くなったら解除）
+  // と同じ保険が MeetingsPageClient 側に効いていることを確かめる。
+  it('全画面中に、ほかの人がその会議を削除すると全画面表示が解除され、一覧が描かれる', () => {
+    const { rerenderPage } = renderPage()
+    fireEvent.click(screen.getByText('全画面切替'))
+    expect(screen.getByTestId('minutes-document-view')).toHaveAttribute('data-fullscreen', 'true')
+
+    mockSetShellFullscreen.mockClear()
+    // 他の人が削除した(一覧から消えた)状況を模す
+    mockMeetingsList = []
+    rerenderPage()
+
+    expect(mockSetShellFullscreen).toHaveBeenCalledWith(false)
+    expect(screen.queryByTestId('minutes-document-view')).not.toBeInTheDocument()
+  })
+
+  it('会議を選んだまま日程調整(proposal)のパラメータが付くと、全画面表示が解除される', () => {
+    const { rerenderPage } = renderPage()
+    fireEvent.click(screen.getByText('全画面切替'))
+    expect(screen.getByTestId('minutes-document-view')).toHaveAttribute('data-fullscreen', 'true')
+
+    mockSetShellFullscreen.mockClear()
+    searchParamsValue = 'meeting=m1&proposal=p1'
+    rerenderPage()
+
+    expect(mockSetShellFullscreen).toHaveBeenCalledWith(false)
+    expect(screen.queryByTestId('minutes-document-view')).not.toBeInTheDocument()
   })
 })

@@ -5,30 +5,44 @@ import { MagnifyingGlass, FileText } from '@phosphor-icons/react'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { createWikiPageSearch } from '@/lib/wiki/pageSearch'
 
-export interface MinutesWikiPageOption {
+export interface WikiPageInsertOption {
   id: string
   title: string
 }
 
-interface MinutesWikiLinkPickerProps {
+interface WikiPageLinkInsertPickerProps {
   orgId: string
   spaceId: string
-  onSelect: (page: MinutesWikiPageOption) => void
+  onSelect: (page: WikiPageInsertOption) => void
+  /** いま開いているページなど、候補から外したい id。指定しなければ全ページを候補にする */
+  excludePageId?: string
 }
 
 /**
- * 議事録エディタから Wiki ページを名前で探してリンクを差し込むためのピッカー。
- * モーダル禁止のUIルールに従い、呼び出し側がインラインパネルとして絶対配置する想定。
+ * Wiki ページを名前で探してリンクを差し込むためのピッカー。Wiki エディタ・議事録エディタの
+ * 両方から使う共有部品。モーダル禁止のUIルールに従い、呼び出し側がインラインパネルとして
+ * 絶対配置する想定。
  *
  * `src/components/task/WikiPageLinkPicker.tsx` とは別物（あちらは選んだ値を持ち、
  * 見つからなければその場で作る「紐づけ」用）。こちらは常にカーソル位置へのリンク挿入で、
  * 値を持たない・作成もしない（Wiki ページ一覧に無ければ探し方を変えてもらうだけ）。
  */
-export function MinutesWikiLinkPicker({ orgId, spaceId, onSelect }: MinutesWikiLinkPickerProps) {
+export function WikiPageLinkInsertPicker({
+  orgId,
+  spaceId,
+  onSelect,
+  excludePageId,
+}: WikiPageLinkInsertPickerProps) {
   const { pages, loading } = useWikiPages({ orgId, spaceId, canEdit: false })
   const [query, setQuery] = useState('')
 
-  const search = useMemo(() => createWikiPageSearch(pages), [pages])
+  // いま開いているページ自身へのリンクは作れても意味が無いので、検索の下ごしらえの前に外す
+  const candidatePages = useMemo(
+    () => (excludePageId ? pages.filter((page) => page.id !== excludePageId) : pages),
+    [pages, excludePageId]
+  )
+
+  const search = useMemo(() => createWikiPageSearch(candidatePages), [candidatePages])
   const { matches, total } = useMemo(() => search(query, 8), [search, query])
   const hiddenCount = total - matches.length
 
@@ -42,7 +56,7 @@ export function MinutesWikiLinkPicker({ orgId, spaceId, onSelect }: MinutesWikiL
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Wikiページを検索"
           autoFocus
-          data-testid="minutes-wiki-link-picker-input"
+          data-testid="wiki-page-link-insert-picker-input"
           className="w-full rounded-lg border border-gray-200 bg-surface py-1.5 pl-7 pr-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
@@ -57,7 +71,7 @@ export function MinutesWikiLinkPicker({ orgId, spaceId, onSelect }: MinutesWikiL
               <button
                 type="button"
                 onClick={() => onSelect({ id: page.id, title: page.title })}
-                data-testid="minutes-wiki-link-picker-option"
+                data-testid="wiki-page-link-insert-picker-option"
                 className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50 rounded transition-colors"
               >
                 <FileText className="shrink-0 text-gray-400" />

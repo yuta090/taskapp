@@ -37,9 +37,13 @@ export function isGitHubFullyConfigured(): boolean {
 /**
  * OAuth state を HMAC 署名付きで生成
  * CSRF攻撃を防止するため、署名検証が必須
+ *
+ * userId（GitHub 側の戻りを受け取るコールバックでログイン中の利用者と照合する ID）を
+ * 必ず含める。この ID が無い state はインストール完了時に利用者本人の確認ができないため、
+ * 検証側（verifySignedState）で無効として扱う。
  */
-export function createSignedState(orgId: string, redirectUri: string): string {
-  const payload = JSON.stringify({ orgId, redirectUri, ts: Date.now() })
+export function createSignedState(orgId: string, redirectUri: string, userId: string): string {
+  const payload = JSON.stringify({ orgId, redirectUri, sub: userId, ts: Date.now() })
   const signature = createHmac('sha256', GITHUB_CONFIG.stateSecret)
     .update(payload)
     .digest('hex')
@@ -49,9 +53,9 @@ export function createSignedState(orgId: string, redirectUri: string): string {
 
 /**
  * OAuth state の署名を検証
- * 15分以内の有効期限チェックも行う
+ * 15分以内の有効期限チェックと、利用者 ID（sub）が入っているかのチェックを行う
  */
-export function verifySignedState(state: string): { orgId: string; redirectUri: string } | null {
+export function verifySignedState(state: string): { orgId: string; redirectUri: string; userId: string } | null {
   try {
     const base64 = state.replace(/-/g, '+').replace(/_/g, '/')
     const decoded = JSON.parse(Buffer.from(base64, 'base64').toString('utf8'))
@@ -83,9 +87,15 @@ export function verifySignedState(state: string): { orgId: string; redirectUri: 
       return null
     }
 
+    // 利用者 ID の入っていない state（古い形式）は無効
+    if (!parsedPayload.sub || typeof parsedPayload.sub !== 'string') {
+      return null
+    }
+
     return {
       orgId: parsedPayload.orgId,
       redirectUri: parsedPayload.redirectUri,
+      userId: parsedPayload.sub,
     }
   } catch (e) {
     console.error('Failed to verify state:', e)
@@ -93,7 +103,7 @@ export function verifySignedState(state: string): { orgId: string; redirectUri: 
   }
 }
 
-export function getGitHubInstallUrl(orgId: string, redirectUri: string): string {
-  const state = createSignedState(orgId, redirectUri)
+export function getGitHubInstallUrl(orgId: string, redirectUri: string, userId: string): string {
+  const state = createSignedState(orgId, redirectUri, userId)
   return `${GITHUB_CONFIG.installUrl}?state=${encodeURIComponent(state)}`
 }
