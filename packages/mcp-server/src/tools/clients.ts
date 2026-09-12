@@ -2,7 +2,17 @@ import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { config } from '../config.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
+import { assertUsersInSpaceOrg } from '../auth/scope.js'
+import { ToolUserError } from '../errors.js'
 import crypto from 'crypto'
+
+/** 招待・space_memberships の組織は、鍵の組織(config.orgId)ではなく space から取る */
+async function getOrgId(spaceId: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
+  if (error || !data) throw new Error('スペースが見つかりません')
+  return (data as { org_id: string }).org_id
+}
 
 // Types
 export interface ClientInvite {
@@ -107,7 +117,7 @@ export async function clientInviteCreate(
 ): Promise<ClientInviteWithUrl> {
   await checkAuth(params.spaceId, 'write', 'client_invite_create', 'invite')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = await getOrgId(params.spaceId)
   const actorId = config.actorId
 
   const expiresAt = new Date()
@@ -115,11 +125,14 @@ export async function clientInviteCreate(
   const email = params.email.toLowerCase()
 
   // 既に有効な招待（未承諾・未失効）があれば作り直さず期限だけ延ばす。
-  // 画面側の rpc_create_invite と同じ約束（同じ宛先に複数のリンクを配らない）
+  // 画面側の rpc_create_invite と同じ約束（同じ宛先に複数のリンクを配らない）。
+  // 使い回しは、同じ space・同じ role の招待に限る
   const { data: existing } = await supabase
     .from('invites')
     .select('*')
     .eq('org_id', orgId)
+    .eq('space_id', params.spaceId)
+    .eq('role', params.role)
     .eq('email', email)
     .is('accepted_at', null)
     .gt('expires_at', new Date().toISOString())
@@ -180,7 +193,7 @@ export async function clientInviteBulkCreate(
 ): Promise<{ created: number; failed: string[]; invites: ClientInvite[] }> {
   await checkAuth(params.spaceId, 'bulk', 'client_invite_bulk_create', 'invite')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = await getOrgId(params.spaceId)
   const actorId = config.actorId
 
   const expiresAt = new Date()
@@ -298,8 +311,51 @@ export async function clientGet(
 export async function clientUpdate(
   params: z.infer<typeof clientUpdateSchema>
 ): Promise<SpaceMembership> {
-  await checkAuth(params.spaceId, 'write', 'client_update', 'client', params.userId)
+  const { ctx, role: callerRole } = await checkAuth(params.spaceId, 'write', 'client_update', 'client', params.userId)
+  if (callerRole !== 'admin') {
+    throw new ToolUserError('この操作はプロジェクトの管理者(admin)だけができます', 403)
+  }
+  if (ctx.userId && ctx.userId === params.userId) {
+    throw new ToolUserError('自分自身の役割は変更できません', 403)
+  }
+
   const supabase = getSupabaseClient()
+
+  const { data: current, error: currentError } = await supabase
+    .from('space_memberships')
+    .select('role')
+    .eq('space_id', params.spaceId)
+    .eq('user_id', params.userId)
+    .maybeSingle()
+  if (currentError) throw new Error('現在の役割の確認に失敗しました')
+  if (!current) throw new ToolUserError('対象のユーザーはこのプロジェクトのメンバーではありません', 404)
+  if ((current as { role: string }).role === 'admin') {
+    throw new ToolUserError('管理者(admin)の役割は、この操作では変更できません', 403)
+  }
+
+  // 組織のオーナーは、space の役割に関わらず変更させない
+  const orgId = await getOrgId(params.spaceId)
+  const { data: orgMembership, error: orgMemberError } = await supabase
+    .from('org_memberships')
+    .select('role')
+    .eq('org_id', orgId)
+    .eq('user_id', params.userId)
+    .maybeSingle()
+  if (orgMemberError) throw new Error('組織メンバーの確認に失敗しました')
+  const orgRole = (orgMembership as { role: string } | null)?.role
+  if (orgRole === 'owner') {
+    throw new ToolUserError('組織のオーナーの役割は変更できません', 403)
+  }
+
+  // space の役割は、組織での役割とそろえる（組織 client → space client、それ以外 →
+  // space viewer）。相手先(client)を社内扱いの役割に変える・その逆はできない
+  const expectedRole = orgRole === 'client' ? 'client' : 'viewer'
+  if (params.role !== expectedRole) {
+    throw new ToolUserError(
+      `組織での役割（${orgRole}）と合わないロールです。${expectedRole} を指定してください`,
+      400
+    )
+  }
 
   const { data, error } = await supabase
     .from('space_memberships')
@@ -316,7 +372,23 @@ export async function clientUpdate(
 export async function clientAddToSpace(
   params: z.infer<typeof clientAddToSpaceSchema>
 ): Promise<SpaceMembership> {
-  await checkAuth(params.spaceId, 'write', 'client_add_to_space', 'client', params.userId)
+  const { role: callerRole } = await checkAuth(params.spaceId, 'write', 'client_add_to_space', 'client', params.userId)
+  if (callerRole !== 'admin') {
+    throw new ToolUserError('この操作はプロジェクトの管理者(admin)だけができます', 403)
+  }
+
+  // 対象は space の組織のメンバーだけ。役割は組織での役割と揃える
+  // （組織 client → space client、それ以外 → space viewer。admin はこの道具では付けられない）
+  const memberships = await assertUsersInSpaceOrg([params.userId], params.spaceId)
+  const orgRole = memberships.get(params.userId)!.role
+  const expectedRole = orgRole === 'client' ? 'client' : 'viewer'
+  if (params.role !== expectedRole) {
+    throw new ToolUserError(
+      `組織での役割（${orgRole}）と合わないロールです。${expectedRole} を指定してください`,
+      400
+    )
+  }
+
   const supabase = getSupabaseClient()
 
   const { data, error } = await supabase

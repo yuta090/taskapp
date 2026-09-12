@@ -37,8 +37,8 @@ export declare const taskCreateSchema: z.ZodObject<{
     title: string;
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     ball?: "client" | "internal" | undefined;
-    description?: string | undefined;
     type?: "task" | "spec" | undefined;
+    description?: string | undefined;
     origin?: "client" | "internal" | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
     clientOwnerIds?: string[] | undefined;
@@ -251,8 +251,8 @@ export declare const taskTools: ({
         title: string;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         ball?: "client" | "internal" | undefined;
-        description?: string | undefined;
         type?: "task" | "spec" | undefined;
+        description?: string | undefined;
         origin?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
         clientOwnerIds?: string[] | undefined;

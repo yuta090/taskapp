@@ -89,13 +89,13 @@ declare const fileUpdateSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     fileId: string;
-    description?: string | null | undefined;
     name?: string | undefined;
+    description?: string | null | undefined;
 }, {
     spaceId: string;
     fileId: string;
-    description?: string | null | undefined;
     name?: string | undefined;
+    description?: string | null | undefined;
 }>;
 export declare function fileUpdate(params: z.infer<typeof fileUpdateSchema>): Promise<FileListItem>;
 export declare const fileTools: ({
@@ -157,13 +157,13 @@ export declare const fileTools: ({
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         fileId: string;
-        description?: string | null | undefined;
         name?: string | undefined;
+        description?: string | null | undefined;
     }, {
         spaceId: string;
         fileId: string;
-        description?: string | null | undefined;
         name?: string | undefined;
+        description?: string | null | undefined;
     }>;
     handler: typeof fileUpdate;
 })[];

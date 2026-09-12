@@ -39,8 +39,8 @@ export declare const allTools: ({
         title: string;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         ball?: "client" | "internal" | undefined;
-        description?: string | undefined;
         type?: "task" | "spec" | undefined;
+        description?: string | undefined;
         origin?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
         clientOwnerIds?: string[] | undefined;
@@ -464,14 +464,14 @@ export declare const allTools: ({
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         milestoneId: string;
-        dueDate?: string | undefined;
         name?: string | undefined;
+        dueDate?: string | undefined;
         orderKey?: number | undefined;
     }, {
         spaceId: string;
         milestoneId: string;
-        dueDate?: string | undefined;
         name?: string | undefined;
+        dueDate?: string | undefined;
         orderKey?: number | undefined;
     }>;
     handler: typeof import("./milestones.js").milestoneUpdate;
@@ -1230,13 +1230,13 @@ export declare const allTools: ({
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         fileId: string;
-        description?: string | null | undefined;
         name?: string | undefined;
+        description?: string | null | undefined;
     }, {
         spaceId: string;
         fileId: string;
-        description?: string | null | undefined;
         name?: string | undefined;
+        description?: string | null | undefined;
     }>;
     handler: typeof import("./files.js").fileUpdate;
 })[];

@@ -3,6 +3,7 @@ import { getSupabaseClient, WikiPage, WikiPageVersion } from '../supabase/client
 import { config } from '../config.js'
 import { checkAuth } from '../auth/helpers.js'
 import { toWikiBlocksJson, type WikiBodyFormat } from '../lib/wikiBody.js'
+import { assertInSpace } from '../auth/scope.js'
 
 const bodyFormatSchema = z
   .enum(['markdown', 'html', 'blocks'])
@@ -211,6 +212,9 @@ export async function wikiVersions(params: z.infer<typeof wikiVersionsSchema>): 
   await checkAuth(params.spaceId, 'read', 'wiki_versions', 'wiki', params.pageId)
   const supabase = getSupabaseClient()
   const orgId = await getOrgId(params.spaceId)
+  // wiki_page_versions に space_id の列が無いため、先に wiki_pages がこの space の
+  // ものと確かめてから版を引く
+  await assertInSpace('wiki_pages', params.pageId, params.spaceId, 'Wikiページが見つかりません')
 
   const { data, error } = await supabase
     .from('wiki_page_versions')
