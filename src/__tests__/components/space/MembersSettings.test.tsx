@@ -62,6 +62,17 @@ function membersFixture() {
   ]
 }
 
+// RC-2: 役割の選択肢は「その人の組織の役割」で絞る（rpc_get_org_members）。
+// ここでは両者とも組織が社内（owner/member）にして、admin/editor/viewer の
+// これまでどおりの役割変更が通る状態にする（絞り込み自体は spaceRoles.test.ts /
+// MembersSettings.roleOptions.test.tsx で別途検証済み）
+function orgMembersFixture() {
+  return [
+    { user_id: 'user-1', role: 'owner' },
+    { user_id: 'user-2', role: 'member' },
+  ]
+}
+
 function getRoleSelectFor(displayName: string): HTMLElement {
   const row = screen.getByText(displayName).closest('.divide-y > div') as HTMLElement
   return within(row).getByRole('combobox')
@@ -91,6 +102,9 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
       if (fnName === 'rpc_get_space_members') {
         return Promise.resolve({ data: membersFixture(), error: null })
       }
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: orgMembersFixture(), error: null })
+      }
       return Promise.resolve({ data: { ok: true }, error: null })
     })
   })
@@ -100,6 +114,9 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
       if (fnName === 'rpc_get_space_members') {
         return Promise.resolve({ data: membersFixture(), error: null })
       }
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: orgMembersFixture(), error: null })
+      }
       if (fnName === 'rpc_update_space_member_role') {
         return Promise.resolve({ data: { ok: true }, error: null })
       }
@@ -108,6 +125,8 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
 
     renderMembers()
     await waitFor(() => expect(screen.getByText('Editor User')).toBeInTheDocument())
+    // 役割の選択肢は「組織の役割」(rpc_get_org_members) が別途届いてから絞り込まれる
+    await waitFor(() => expect(getRoleSelectFor('Editor User')).toBeInTheDocument())
 
     const select = getRoleSelectFor('Editor User')
     fireEvent.change(select, { target: { value: 'viewer' } })
@@ -129,6 +148,9 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
       if (fnName === 'rpc_get_space_members') {
         return Promise.resolve({ data: membersFixture(), error: null })
       }
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: orgMembersFixture(), error: null })
+      }
       if (fnName === 'rpc_update_space_member_role') {
         return Promise.resolve({ data: null, error: { message: 'Not authorized: only org owners or space admins can change member roles' } })
       }
@@ -137,6 +159,8 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
 
     renderMembers()
     await waitFor(() => expect(screen.getByText('Editor User')).toBeInTheDocument())
+    // 役割の選択肢は「組織の役割」(rpc_get_org_members) が別途届いてから絞り込まれる
+    await waitFor(() => expect(getRoleSelectFor('Editor User')).toBeInTheDocument())
 
     const select = getRoleSelectFor('Editor User')
     fireEvent.change(select, { target: { value: 'viewer' } })
@@ -146,12 +170,47 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
     await waitFor(() => expect(getRoleSelectFor('Editor User')).toHaveValue('editor'))
   })
 
+  it('rpc_update_space_member_role が日本語の理由で断ったら、その文をそのまま出す', async () => {
+    // DB側（RC-1）は「社内のメンバーには、社内の役割（admin / editor / viewer）しか
+    // 付けられません」のように日本語で断る。英語の一律メッセージに潰さず、そのまま見せる
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_space_members') {
+        return Promise.resolve({ data: membersFixture(), error: null })
+      }
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: orgMembersFixture(), error: null })
+      }
+      if (fnName === 'rpc_update_space_member_role') {
+        return Promise.resolve({
+          data: null,
+          error: { message: '社内のメンバーには、社内の役割（admin / editor / viewer）しか付けられません' },
+        })
+      }
+      return Promise.resolve({ data: null, error: null })
+    })
+
+    renderMembers()
+    await waitFor(() => expect(screen.getByText('Editor User')).toBeInTheDocument())
+    await waitFor(() => expect(getRoleSelectFor('Editor User')).toBeInTheDocument())
+
+    fireEvent.change(getRoleSelectFor('Editor User'), { target: { value: 'viewer' } })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        '社内のメンバーには、社内の役割（admin / editor / viewer）しか付けられません'
+      )
+    )
+  })
+
   it('calls rpc_remove_space_member with space_id/user_id and removes the row only after RPC succeeds', async () => {
     // 成功したあとは共有キャッシュを取り直すので、サーバー側も減った状態を返すようにする
     let remaining = membersFixture()
     mockRpc.mockImplementation((fnName: string, args?: { p_user_id?: string }) => {
       if (fnName === 'rpc_get_space_members') {
         return Promise.resolve({ data: remaining, error: null })
+      }
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: orgMembersFixture(), error: null })
       }
       if (fnName === 'rpc_remove_space_member') {
         remaining = remaining.filter((m) => m.user_id !== args?.p_user_id)
@@ -180,6 +239,9 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
     mockRpc.mockImplementation((fnName: string) => {
       if (fnName === 'rpc_get_space_members') {
         return Promise.resolve({ data: membersFixture(), error: null })
+      }
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: orgMembersFixture(), error: null })
       }
       if (fnName === 'rpc_remove_space_member') {
         return Promise.resolve({ data: null, error: { message: 'Not authorized: only org owners or space admins can remove members' } })
@@ -211,6 +273,9 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
     mockRpc.mockImplementation((fnName: string) => {
       if (fnName === 'rpc_get_space_members') {
         return Promise.resolve({ data: membersFixture(), error: null })
+      }
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: orgMembersFixture(), error: null })
       }
       return Promise.resolve({ data: { ok: true }, error: null })
     })
@@ -320,5 +385,68 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
     expect(inviteButton).not.toBeDisabled()
     fireEvent.click(inviteButton)
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('MembersSettings — rpc_get_org_members を呼ばない場面（本物の useOrgMembers を通す）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockConfirm.mockResolvedValue(true)
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    mockFrom.mockReturnValue({
+      select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }),
+    })
+  })
+
+  it('閲覧者: 役割を変えられないので組織メンバーの役割は取りに行かない', async () => {
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_space_members') {
+        return Promise.resolve({
+          data: [{ user_id: 'user-1', display_name: 'Viewer User', avatar_url: null, role: 'viewer' }],
+          error: null,
+        })
+      }
+      return Promise.resolve({ data: { ok: true }, error: null })
+    })
+    renderMembers()
+    await waitFor(() => expect(screen.getByText('Viewer User')).toBeInTheDocument())
+    expect(mockRpc).not.toHaveBeenCalledWith('rpc_get_org_members', expect.anything())
+  })
+
+  it('管理者でない人（編集者）: 招待はできても役割変更・削除はできないので取りに行かない', async () => {
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_space_members') {
+        return Promise.resolve({
+          data: [
+            { user_id: 'user-1', display_name: 'Editor Self', avatar_url: null, role: 'editor' },
+            { user_id: 'user-2', display_name: 'Other Editor', avatar_url: null, role: 'editor' },
+          ],
+          error: null,
+        })
+      }
+      return Promise.resolve({ data: { ok: true }, error: null })
+    })
+    renderMembers()
+    await waitFor(() => expect(screen.getByText('Other Editor')).toBeInTheDocument())
+    expect(mockRpc).not.toHaveBeenCalledWith('rpc_get_org_members', expect.anything())
+  })
+
+  it('管理者でも「メンバー」タブから離れたら、そのあとは組織メンバーを取りに行かない（返事待ちタブ）', async () => {
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_space_members') {
+        return Promise.resolve({ data: membersFixture(), error: null })
+      }
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: orgMembersFixture(), error: null })
+      }
+      return Promise.resolve({ data: { ok: true }, error: null })
+    })
+    renderMembers()
+    await waitFor(() => expect(screen.getByText('Editor User')).toBeInTheDocument())
+    mockRpc.mockClear()
+
+    fireEvent.click(screen.getByRole('tab', { name: /返事待ち/ }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: /返事待ち/ })).toHaveAttribute('aria-selected', 'true'))
+    expect(mockRpc).not.toHaveBeenCalledWith('rpc_get_org_members', expect.anything())
   })
 })

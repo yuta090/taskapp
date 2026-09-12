@@ -62,6 +62,28 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   }),
 }))
 
+// RC-2: 役割の選択肢の絞り込み自体は spaceRoles.test.ts / MembersSettings.roleOptions.test.tsx
+// で別途検証済み。ここでは参加者一覧の取得の一本化・楽観更新を見るので、
+// 役割変更（editor→viewer）が通る「社内」役割に固定する（実際の react-query は使わない）
+vi.mock('@/lib/hooks/useSpaceRow', () => ({
+  useSpaceRow: () => ({ space: { agency_mode: false }, isPending: false }),
+}))
+vi.mock('@/lib/hooks/useOrgMembers', () => ({
+  useOrgMembers: () => ({
+    members: [],
+    roleByUserId: new Map([
+      ['user-1', 'owner'],
+      ['user-2', 'member'],
+    ]),
+    isPending: false,
+    isLoadingError: false,
+    error: null,
+  }),
+}))
+vi.mock('@/lib/hooks/useUserSpaces', () => ({
+  useUserSpaces: () => ({ spaces: [{ id: 'space-1', role: 'admin' }], isPending: false, isLoadingError: false }),
+}))
+
 const mockRpc = vi.fn()
 const mockFrom = vi.fn()
 vi.mock('@/lib/supabase/client', () => ({

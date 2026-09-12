@@ -151,3 +151,28 @@ export function canEditSpaceMoney(
   if (!isOrgInternalRole(orgRole)) return false
   return (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole ?? '')
 }
+
+const INTERNAL_ORG_SPACE_ROLES: SpaceRoleGuide['value'][] = ['admin', 'editor', 'viewer']
+
+/**
+ * 組織の役割（と代理店モード）から、その人が space で選べる役割を返す
+ * （Fable裁定 role-consistency-decision, 2026-09-12）。DB側でもトリガー・RPCの両方で
+ * 同じ規則で断る（RC-1）。ここは画面用の正本。
+ *
+ * - 組織が社内（owner/member。'admin' は死に値だが同じ扱い）→ 管理者/編集者/閲覧者 だけ
+ * - 組織が client（相手先）→ クライアント だけ。代理店モード(spaces.agency_mode)が
+ *   真のときだけ ベンダー も選べる（社内メンバーに vendor/client は禁止・降格として使わない）
+ * - 組織の役割が未取得・不明なら空配列（安全側に倒す。呼び出し側は「変更不可」として扱うこと）
+ */
+export function allowedSpaceRolesFor(
+  orgRole: string | undefined | null,
+  agencyMode: boolean
+): SpaceRoleGuide['value'][] {
+  if (isOrgInternalRole(orgRole)) {
+    return [...INTERNAL_ORG_SPACE_ROLES]
+  }
+  if (orgRole === 'client') {
+    return agencyMode ? ['client', 'vendor'] : ['client']
+  }
+  return []
+}
