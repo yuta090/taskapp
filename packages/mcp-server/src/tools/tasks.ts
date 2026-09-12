@@ -6,7 +6,7 @@ import { dryRunDelete, confirmDelete } from '../auth/dryrun.js'
 import { withTaskNumber } from '../lib/taskNumber.js'
 import { ToolUserError } from '../errors.js'
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
-import { assertInSpace } from '../auth/scope.js'
+import { assertInSpace, assertUsersAreSpaceMembers, assertInvitesAreInSpace } from '../auth/scope.js'
 
 // Schemas
 export const taskCreateSchema = z.object({
@@ -140,6 +140,10 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
     throw new Error('ball=clientの場合はclientOwnerIdsが必須です')
   }
 
+  // 担当者・担当者一覧は、画面の担当者選択肢と同じ範囲（このプロジェクトのメンバー）に限る
+  if (params.assigneeId) await assertUsersAreSpaceMembers([params.assigneeId], params.spaceId)
+  await assertUsersAreSpaceMembers([...params.clientOwnerIds, ...params.internalOwnerIds], params.spaceId)
+
   // 明示指定があればそれで作る（CLI の --status）。無指定のときの既定は従来どおり。
   const status: TaskStatus = params.status ?? (params.type === 'spec' ? 'considering' : 'backlog')
 
@@ -212,11 +216,12 @@ async function resolveAssigneeByEmail(
   const supabase = getSupabaseClient()
   const normalized = email.trim().toLowerCase()
 
-  // 1) 参加済みのメンバー（auth.users はメールで直接引けないので listUsers を使う）
+  // 1) このプロジェクトのメンバー（auth.users はメールで直接引けないので listUsers を使う）。
+  // 担当者ID・招待IDの直接指定と同じ範囲（プロジェクトのメンバー）に限る
   const { data: members, error: memberError } = await supabase
-    .from('org_memberships')
+    .from('space_memberships')
     .select('user_id')
-    .eq('org_id', orgId)
+    .eq('space_id', spaceId)
   if (memberError) throw new Error('メンバーの確認に失敗しました: ' + memberError.message)
   const memberIds = new Set((members ?? []).map((m: { user_id: string }) => m.user_id))
 
@@ -243,7 +248,7 @@ async function resolveAssigneeByEmail(
   if (invite) return { assignee_id: null, assignee_invite_id: (invite as { id: string }).id }
 
   throw new Error(
-    `「${email}」はこの組織のメンバーにも、このプロジェクトの有効な招待にも見つかりません（先に招待してください）`,
+    `「${email}」はこのプロジェクトのメンバーにも、有効な招待にも見つかりません（先に招待してください）`,
   )
 }
 
@@ -273,7 +278,11 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
   if (params.description !== undefined) updateData.description = params.description
   if (params.status !== undefined) updateData.status = params.status
   if (params.dueDate !== undefined) updateData.due_date = params.dueDate
-  if (params.assigneeId !== undefined) updateData.assignee_id = params.assigneeId
+  if (params.assigneeId !== undefined) {
+    // 担当者は、画面の担当者選択肢と同じ範囲（このプロジェクトのメンバー）に限る
+    if (params.assigneeId !== null) await assertUsersAreSpaceMembers([params.assigneeId], params.spaceId)
+    updateData.assignee_id = params.assigneeId
+  }
   if (params.priority !== undefined) updateData.priority = params.priority
   if (params.clientScope !== undefined) updateData.client_scope = params.clientScope
   if (params.startDate !== undefined) updateData.start_date = params.startDate
@@ -296,6 +305,8 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
     updateData.assignee_invite_id = resolved.assignee_invite_id
   }
   if (params.assigneeInviteId !== undefined) {
+    // 招待は、このプロジェクトの未受諾・期限内の招待に限る
+    if (params.assigneeInviteId !== null) await assertInvitesAreInSpace([params.assigneeInviteId], params.spaceId)
     updateData.assignee_invite_id = params.assigneeInviteId
     if (params.assigneeInviteId !== null && params.assigneeId === undefined) updateData.assignee_id = null
   }

@@ -246,17 +246,10 @@ export async function clientUpdate(params) {
     if (current.role === 'admin') {
         throw new ToolUserError('管理者(admin)の役割は、この操作では変更できません', 403);
     }
+    // 対象は space の組織のメンバーに限る（client_add_to_space と同じ確認）
+    const orgMemberships = await assertUsersInSpaceOrg([params.userId], params.spaceId);
+    const orgRole = orgMemberships.get(params.userId).role;
     // 組織のオーナーは、space の役割に関わらず変更させない
-    const orgId = await getOrgId(params.spaceId);
-    const { data: orgMembership, error: orgMemberError } = await supabase
-        .from('org_memberships')
-        .select('role')
-        .eq('org_id', orgId)
-        .eq('user_id', params.userId)
-        .maybeSingle();
-    if (orgMemberError)
-        throw new Error('組織メンバーの確認に失敗しました');
-    const orgRole = orgMembership?.role;
     if (orgRole === 'owner') {
         throw new ToolUserError('組織のオーナーの役割は変更できません', 403);
     }

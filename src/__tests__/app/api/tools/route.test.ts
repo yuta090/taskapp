@@ -33,21 +33,37 @@ class MockToolUserError extends Error {
   }
 }
 
-let dispatchImpl: (apiKey: string, tool: string, params: Record<string, unknown>) => Promise<unknown>
+type OnAuthenticated = (info: { keyId: string; orgId: string; userId: string | null; spaceId: string | null }) => void
+
+let dispatchImpl: (
+  apiKey: string,
+  tool: string,
+  params: Record<string, unknown>,
+  onAuthenticated?: OnAuthenticated,
+) => Promise<unknown>
 
 const dispatchToolMock = vi.fn(
-  (apiKey: string, tool: string, params: Record<string, unknown>) => dispatchImpl(apiKey, tool, params)
+  (apiKey: string, tool: string, params: Record<string, unknown>, onAuthenticated?: OnAuthenticated) =>
+    dispatchImpl(apiKey, tool, params, onAuthenticated)
 )
 
 vi.mock('agentpm-core/dist/dispatch.js', () => ({
-  dispatchTool: (...args: [string, string, Record<string, unknown>]) => dispatchToolMock(...args),
+  dispatchTool: (...args: [string, string, Record<string, unknown>, OnAuthenticated?]) => dispatchToolMock(...args),
   ToolNotFoundError: MockToolNotFoundError,
 }))
 
-// Fire-and-forget usage logger reads a global auth context; keep it a no-op
-// (no authContext) so it never touches the DB during route tests.
-vi.mock('agentpm-core/dist/config.js', () => ({
-  config: { authContext: null, spaceId: null },
+// 利用記録(fire-and-forget)は dispatchTool が報告した ctx/spaceId を使う（共有の config
+// モジュールは読まない）。挿入内容を確かめられるよう、admin client をモックする
+const insertedUsageLogs: Record<string, unknown>[] = []
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({
+    from: () => ({
+      insert: (row: Record<string, unknown>) => {
+        insertedUsageLogs.push(row)
+        return Promise.resolve({ error: null })
+      },
+    }),
+  }),
 }))
 
 const { POST } = await import('@/app/api/tools/route')
@@ -68,6 +84,7 @@ function callTools(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  insertedUsageLogs.length = 0
   dispatchImpl = () => Promise.resolve({ ok: true })
 })
 
@@ -133,7 +150,12 @@ describe('POST /api/tools', () => {
 
     expect(response.status).toBe(200)
     expect(data).toEqual({ tasks: [] })
-    expect(dispatchToolMock).toHaveBeenCalledWith('valid_api_key_123', 'list_tasks', { spaceId: 'space-1' })
+    expect(dispatchToolMock).toHaveBeenCalledWith(
+      'valid_api_key_123',
+      'list_tasks',
+      { spaceId: 'space-1' },
+      expect.any(Function),
+    )
   })
 
   it('returns 401 when dispatch rejects with an invalid/expired API key error', async () => {
@@ -210,5 +232,52 @@ describe('POST /api/tools', () => {
     expect(data.error).toBe('Internal server error')
     expect(data.stack).toBeUndefined()
     expect(JSON.stringify(data)).not.toContain('unexpected internal failure')
+  })
+
+  // 利用記録は、この呼び出しで dispatchTool が認証した ctx/実際の spaceId を使う
+  // （共有の config モジュールは読み直さない）
+  it('logs usage with the ctx/spaceId this call authenticated as, on success', async () => {
+    dispatchImpl = (_apiKey, _tool, _params, onAuthenticated) => {
+      onAuthenticated?.({ keyId: 'key-A', orgId: 'org-A', userId: 'user-A', spaceId: 'space-A' })
+      return Promise.resolve({ ok: true })
+    }
+
+    await callTools({ tool: 'task_list', params: { spaceId: 'space-A' } })
+
+    expect(insertedUsageLogs).toHaveLength(1)
+    expect(insertedUsageLogs[0]).toMatchObject({
+      api_key_id: 'key-A',
+      org_id: 'org-A',
+      user_id: 'user-A',
+      space_id: 'space-A',
+      tool_name: 'task_list',
+      status: 'success',
+    })
+  })
+
+  it('logs usage with the ctx this call authenticated as, on failure', async () => {
+    dispatchImpl = (_apiKey, _tool, _params, onAuthenticated) => {
+      onAuthenticated?.({ keyId: 'key-B', orgId: 'org-B', userId: null, spaceId: 'space-B' })
+      return Promise.reject(new MockToolUserError('拒否理由', 400))
+    }
+
+    await callTools({ tool: 'task_update', params: { spaceId: 'space-B' } })
+
+    expect(insertedUsageLogs).toHaveLength(1)
+    expect(insertedUsageLogs[0]).toMatchObject({
+      api_key_id: 'key-B',
+      org_id: 'org-B',
+      user_id: null,
+      space_id: 'space-B',
+      status: 'error',
+    })
+  })
+
+  it('does not log usage when auth fails before dispatchTool reports a ctx', async () => {
+    dispatchImpl = () => Promise.reject(new Error('Invalid or expired API key'))
+
+    await callTools({ tool: 'task_list' })
+
+    expect(insertedUsageLogs).toHaveLength(0)
   })
 })

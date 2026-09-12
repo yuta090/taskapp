@@ -74,3 +74,55 @@ export async function assertUsersInSpaceOrg(
 
   return byUser
 }
+
+/**
+ * 渡した user たちが、指定した space のメンバーであることを確かめる（役割は問わない）。
+ * 画面の担当者選択肢（タスクの担当者・会議の参加者・日程調整の回答者など）と同じ範囲。
+ * 1人でも space 外なら断る（呼んだ人に見せてよい理由=404）。
+ */
+export async function assertUsersAreSpaceMembers(userIds: string[], spaceId: string): Promise<void> {
+  const uniqueIds = Array.from(new Set(userIds))
+  if (uniqueIds.length === 0) return
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('space_memberships')
+    .select('user_id')
+    .eq('space_id', spaceId)
+    .in('user_id', uniqueIds)
+
+  if (error) throw new Error('メンバーの確認に失敗しました')
+
+  const found = new Set(((data || []) as Array<{ user_id: string }>).map((m) => m.user_id))
+  const missing = uniqueIds.filter((id) => !found.has(id))
+  if (missing.length > 0) {
+    throw new ToolUserError('対象のユーザーがこのプロジェクトのメンバーではありません', 404)
+  }
+}
+
+/**
+ * 渡した invite たちが、指定した space の未受諾(accepted_at is null)・期限内(expires_at > now)の
+ * 招待であることを確かめる（画面の「招待中の担当者」候補と同じ範囲）。
+ * 1人でも該当しなければ断る（呼んだ人に見せてよい理由=404）。
+ */
+export async function assertInvitesAreInSpace(inviteIds: string[], spaceId: string): Promise<void> {
+  const uniqueIds = Array.from(new Set(inviteIds))
+  if (uniqueIds.length === 0) return
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('invites')
+    .select('id')
+    .eq('space_id', spaceId)
+    .is('accepted_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .in('id', uniqueIds)
+
+  if (error) throw new Error('招待の確認に失敗しました')
+
+  const found = new Set(((data || []) as Array<{ id: string }>).map((r) => r.id))
+  const missing = uniqueIds.filter((id) => !found.has(id))
+  if (missing.length > 0) {
+    throw new ToolUserError('対象の招待が、このプロジェクトの有効な招待ではありません', 404)
+  }
+}
