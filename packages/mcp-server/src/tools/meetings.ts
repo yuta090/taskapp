@@ -3,6 +3,7 @@ import { getSupabaseClient, Meeting } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
 import { getAuthContext } from '../config.js'
 import { ToolUserError } from '../errors.js'
+import { assertUsersAreSpaceMembers } from '../auth/scope.js'
 
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId: string): Promise<string> {
@@ -53,6 +54,9 @@ export async function meetingCreate(params: z.infer<typeof meetingCreateSchema>)
   }
   const supabase = getSupabaseClient()
   const orgId = await getOrgId(params.spaceId)
+
+  // 参加者は、画面の参加者選択肢と同じ範囲（このプロジェクトのメンバー）に限る
+  await assertUsersAreSpaceMembers(params.participantIds, params.spaceId)
 
   const { data: meeting, error } = await supabase
     .from('meetings')
