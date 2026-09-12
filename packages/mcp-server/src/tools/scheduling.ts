@@ -102,7 +102,7 @@ export async function schedulingList(params: z.infer<typeof schedulingListSchema
 
   let query = supabase
     .from('scheduling_proposals')
-    .select('*, proposal_slots(*), proposal_respondents(*)')
+    .select('*, proposal_slots!proposal_slots_proposal_id_fkey(*), proposal_respondents(*)')
     .eq('space_id', params.spaceId)
     .order('created_at', { ascending: false })
     .limit(params.limit)
