@@ -45,7 +45,10 @@ export async function milestoneCreate(params) {
         space_id: params.spaceId,
         name: params.name,
         due_date: params.dueDate || null,
-        order_key: Math.floor(Date.now() / 1000),
+        // 画面（useMilestones.ts・TaskCreateSheet.tsx）と単位を揃える（ミリ秒）。
+        // ここだけ秒にすると、あとから CLI/MCP で作ったマイルストーンの order_key が
+        // 画面で先に作ったものより小さくなり、並び順で前に出てしまう
+        order_key: Date.now(),
     })
         .select('*')
         .single();
