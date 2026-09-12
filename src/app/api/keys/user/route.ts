@@ -80,28 +80,11 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient()
 
-    // Get user's org from their first space membership
-    const { data: membership, error: memberError } = await adminClient
-      .from('space_memberships')
-      .select('spaces(org_id)')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single()
-
-    if (memberError || !membership) {
-      return NextResponse.json(
-        { error: 'User has no space memberships' },
-        { status: 400 }
-      )
-    }
-
-    const spaces = membership.spaces as unknown as { org_id: string } | { org_id: string }[]
-    const orgId = Array.isArray(spaces) ? spaces[0]?.org_id : spaces?.org_id
-
-    // Verify user has access to all selected spaces（役割も取り、相手先としての所属を見分ける）
+    // Verify user has access to all selected spaces（役割も取り、相手先としての所属を見分ける）。
+    // 鍵の組織(orgId)も、選んだspaceそのものから決める（DB側でも同じ一致を確かめる）
     const { data: userSpaces, error: spacesError } = await adminClient
       .from('space_memberships')
-      .select('space_id, role')
+      .select('space_id, role, spaces(org_id)')
       .eq('user_id', user.id)
       .in('space_id', allowedSpaceIds)
 
@@ -132,6 +115,23 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       )
     }
+
+    // 選んだspaceが複数の組織にまたがっていたら、鍵をどちらの組織のものにするか決められないため断る
+    const orgIds = new Set(
+      userSpaces.map((s) => {
+        const spaces = s.spaces as unknown as { org_id: string } | { org_id: string }[]
+        return Array.isArray(spaces) ? spaces[0]?.org_id : spaces?.org_id
+      })
+    )
+
+    if (orgIds.size > 1) {
+      return NextResponse.json(
+        { error: 'Selected projects must belong to the same organization' },
+        { status: 400 }
+      )
+    }
+
+    const orgId = [...orgIds][0]
 
     // キーの本体は画面から受け取らず、ここ（サーバー）で推測できない乱数から作る。
     // 保存するのはハッシュと prefix だけで、平文はこの応答でしか返さない
