@@ -9,9 +9,12 @@ import { Breadcrumb, ErrorRetry } from '@/components/shared'
 import { MeetingRow } from '@/components/meeting/MeetingRow'
 import { MeetingInspector } from '@/components/meeting/MeetingInspector'
 import { MeetingCreateSheet, type MeetingCreateData } from '@/components/meeting'
+import { MinutesDocumentView, type MinutesDocumentViewHandle } from '@/components/meeting/MinutesDocumentView'
 import { ProposalRow, ProposalInspector, ProposalCreateSheet } from '@/components/scheduling'
 import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { useSchedulingProposals, type ProposalDetail, type ProposalWithDetails } from '@/lib/hooks/useSchedulingProposals'
 import type { Meeting } from '@/types/database'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
@@ -48,11 +51,20 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const router = useRouter()
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
+  const isMobile = useIsMobile()
+  const { canEdit } = useCanEditSpace(spaceId, orgId)
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false)
   const [isProposalCreateOpen, setIsProposalCreateOpen] = useState(false)
   const [proposalDetail, setProposalDetail] = useState<ProposalDetail | null>(null)
   const [showCreateMenu, setShowCreateMenu] = useState(false)
   const createMenuRef = useRef<HTMLDivElement>(null)
+  // モバイルでは文書ビューを開いても会議詳細(Inspector)は自動で出さず、情報ボタンで開く
+  // （Wiki の showInfo と同じ考え方。オーバーレイ禁止のためモバイルはシート表示）
+  const [showInfo, setShowInfo] = useState(false)
+  // 議事録の文書ビュー。タスク化直後に「詳細を取り直して基準を更新→エディタを作り直す」ため、
+  // key に含めて丸ごと再マウントする（目印がチップになった最新の本文で作り直す）
+  const [minutesReloadToken, setMinutesReloadToken] = useState(0)
+  const minutesViewRef = useRef<MinutesDocumentViewHandle>(null)
 
   // Filter state
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
@@ -75,6 +87,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     endMeeting,
     parseMinutes,
     previewMinutes,
+    updateMinutes,
   } = useMeetings({ orgId, spaceId })
 
   const {
@@ -225,6 +238,13 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     }
   }, [selectedMeeting, fetchMeetingDetail])
 
+  // 会議を切り替えたら、モバイルの情報シート表示は毎回閉じ直す
+  // （前の会議で開いていた状態のまま次の会議に持ち越さない）
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 会議切り替え時のリセット（Wiki の showInfo と同じ理由）
+    setShowInfo(false)
+  }, [selectedMeetingId])
+
   useEffect(() => {
     // Mutual exclusivity: proposal takes priority if both params exist
     if (!selectedMeeting || selectedProposalId) {
@@ -232,11 +252,18 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       return
     }
 
+    // モバイル: 文書ビューを開いても会議詳細は自動で出さず、情報ボタンで開いたときだけ表示する
+    // （Wiki の showInfo と同じ。オーバーレイ禁止のためモバイルはシート表示）
+    if (isMobile && !showInfo) {
+      setInspector(null)
+      return
+    }
+
     setInspector(
       <MeetingInspector
         meeting={selectedMeeting}
         participants={participants[selectedMeeting.id] || []}
-        onClose={() => updateQuery({ meeting: null })}
+        onClose={() => (isMobile ? setShowInfo(false) : updateQuery({ meeting: null }))}
         onStart={async () => {
           try {
             await startMeeting(selectedMeeting.id)
@@ -261,8 +288,15 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
           }
         }}
         onPreviewMinutes={previewMinutes}
-        onCreateTasks={async (meetingId, minutesMd) => {
-          const result = await parseMinutes(meetingId, minutesMd)
+        onCreateTasks={async (meetingId, minutesMdFromInspector) => {
+          // タスク化の直前に、文書ビューの保留中の保存（デバウンス待ち）を即座に流し、
+          // その本文でタスク化する（開いたまま編集中の内容を取りこぼさないため）。
+          const flushedContent = (await minutesViewRef.current?.flushPendingSave()) ?? minutesMdFromInspector
+          const result = await parseMinutes(meetingId, flushedContent)
+          // 議事録は rpc_parse_meeting_minutes がサーバー側で書き換える（行末に目印を足す）
+          // ため、詳細を取り直して保存の基準(updated_at)を合わせ、文書ビューを作り直す
+          await fetchMeetingDetail(meetingId)
+          setMinutesReloadToken((t) => t + 1)
           if (result.createdCount > 0) {
             toast.success(`${result.createdCount}件のタスクを作成しました`)
           } else {
@@ -272,7 +306,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         }}
       />
     )
-  }, [endMeeting, deleteMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery, parseMinutes, previewMinutes])
+  }, [endMeeting, deleteMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery, parseMinutes, previewMinutes, isMobile, showInfo, fetchMeetingDetail])
 
   // ---- Proposal inspector ----
   // Reset detail when switching proposals (prevents stale data flash)
@@ -341,6 +375,25 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     { label: spaceName || 'プロジェクト', href: `/${orgId}/project/${spaceId}` },
     { label: '議事録' },
   ]
+
+  // 議事録の文書ビュー（Wiki のエディタビューと同じ考え方: 選んだら一覧を丸ごと
+  // 差し替える。日程調整（proposal）は文書ビューを持たないため対象外のまま今の表示に留まる）
+  if (selectedMeeting && !selectedProposalId) {
+    return (
+      <MinutesDocumentView
+        key={`${selectedMeeting.id}-${minutesReloadToken}`}
+        ref={minutesViewRef}
+        orgId={orgId}
+        spaceId={spaceId}
+        meeting={selectedMeeting}
+        canEdit={canEdit}
+        onBack={() => updateQuery({ meeting: null })}
+        onOpenInfo={() => setShowInfo(true)}
+        updateMinutes={updateMinutes}
+        fetchMeetingDetail={fetchMeetingDetail}
+      />
+    )
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0">

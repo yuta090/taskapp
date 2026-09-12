@@ -29,7 +29,18 @@ vi.mock('@/lib/hooks/useMeetings', () => ({
     endMeeting: vi.fn(),
     parseMinutes: vi.fn(),
     previewMinutes: vi.fn(),
+    updateMinutes: vi.fn(),
   }),
+}))
+
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({ announcements: [], unreadCount: 0, markAsRead: vi.fn(), markAllAsRead: vi.fn() }),
+}))
+
+vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
+
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: true, canEditMoney: true, loading: false, resolved: true }),
 }))
 
 vi.mock('@/lib/hooks/useSchedulingProposals', () => ({

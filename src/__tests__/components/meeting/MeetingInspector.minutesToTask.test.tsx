@@ -64,7 +64,7 @@ const createResult = {
 }
 
 function openMinutesTab() {
-  fireEvent.click(screen.getByTestId('meeting-inspector-tab-minutes'))
+  fireEvent.click(screen.getByTestId('meeting-inspector-tab-taskify'))
 }
 
 describe('MeetingInspector 議事録→タスク化 (#87)', () => {
@@ -159,16 +159,14 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     )
     openMinutesTab()
     expect(onPreviewMinutes).not.toHaveBeenCalled()
-    expect(screen.getByText('議事録はまだありません。会議終了後にここに表示されます。')).toBeTruthy()
   })
 
-  it('コールバック未提供でも従来通り議事録markdownを表示する（後方互換）', () => {
+  it('コールバック未提供でもタブは開けタスク化パネルは出さない（後方互換）', () => {
     render(
       <MeetingInspector meeting={makeMeeting()} onClose={vi.fn()} />
     )
     openMinutesTab()
-    // pre に元markdownが出る（タスク化パネルは出ない）
-    expect(screen.getByText(/レビュー観点を追記/)).toBeTruthy()
+    expect(screen.queryByTestId('minutes-task-panel')).toBeNull()
     expect(screen.queryByTestId('minutes-taskify-button')).toBeNull()
   })
 })

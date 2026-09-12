@@ -36,7 +36,7 @@ test.describe('MeetingInspector', () => {
     await page.goto(`${BASE_URL}?meeting=some-meeting-id`)
 
     const infoTab = page.getByTestId('meeting-inspector-tab-info')
-    const minutesTab = page.getByTestId('meeting-inspector-tab-minutes')
+    const minutesTab = page.getByTestId('meeting-inspector-tab-taskify')
     const decisionsTab = page.getByTestId('meeting-inspector-tab-decisions')
 
     await expect(infoTab).toBeVisible()
@@ -47,7 +47,7 @@ test.describe('MeetingInspector', () => {
   test.skip('tab click should change active tab', async ({ page }) => {
     await page.goto(`${BASE_URL}?meeting=some-meeting-id`)
 
-    const minutesTab = page.getByTestId('meeting-inspector-tab-minutes')
+    const minutesTab = page.getByTestId('meeting-inspector-tab-taskify')
     await minutesTab.click()
     await expect(minutesTab).toHaveClass(/text-gray-900/)
   })

@@ -34,7 +34,7 @@ interface MeetingInspectorProps {
   onCreateTasks?: (meetingId: string, minutesMd: string) => Promise<ParseMinutesResult>
 }
 
-type Tab = 'info' | 'minutes' | 'decisions'
+type Tab = 'info' | 'taskify' | 'decisions'
 
 export function MeetingInspector({
   meeting,
@@ -83,7 +83,7 @@ export function MeetingInspector({
 
   // 議事録タブを開いたときに一度だけタスク化候補をプレビュー
   useEffect(() => {
-    if (activeTab !== 'minutes') return
+    if (activeTab !== 'taskify') return
     if (!meeting.minutes_md || !onPreviewMinutes) return
     if (createResult) return
     if (previewKeyRef.current === meeting.id) return
@@ -172,7 +172,7 @@ export function MeetingInspector({
       <div className="flex border-b border-gray-100 px-4">
         {[
           { id: 'info' as Tab, label: '概要', icon: <FileText /> },
-          { id: 'minutes' as Tab, label: '議事録', icon: <ListChecks /> },
+          { id: 'taskify' as Tab, label: 'タスク化', icon: <ListChecks /> },
           { id: 'decisions' as Tab, label: '決定事項', icon: <ArrowRight /> },
         ].map((tab) => (
           <button
@@ -316,118 +316,103 @@ export function MeetingInspector({
           </div>
         )}
 
-        {activeTab === 'minutes' && (
+        {activeTab === 'taskify' && (
           <div className="space-y-4">
-            {meeting.minutes_md ? (
-              <>
-                {/* #87: 議事録→タスク化パネル */}
-                {onPreviewMinutes && (
-                  <div
-                    data-testid="minutes-task-panel"
-                    className="rounded-lg border border-gray-200 p-3 space-y-3"
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
-                      <ListChecks className="text-sm" />
-                      決定事項のタスク化
-                    </div>
+            {/* #87: 議事録→タスク化パネル。プレビュー・作成は文書ビューの今の本文で行う */}
+            {onPreviewMinutes && (
+              <div
+                data-testid="minutes-task-panel"
+                className="rounded-lg border border-gray-200 p-3 space-y-3"
+              >
+                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                  <ListChecks className="text-sm" />
+                  決定事項のタスク化
+                </div>
 
-                    {taskError && (
-                      <p className="text-xs text-red-600" role="alert">
-                        {taskError}
-                      </p>
-                    )}
-
-                    {createResult ? (
-                      // 作成結果
-                      <div data-testid="minutes-task-result" className="space-y-2">
-                        <div className="flex items-center gap-1.5 text-sm text-green-700">
-                          <CheckCircle weight="fill" className="text-base" />
-                          {createResult.createdCount}件のタスクを作成しました
-                        </div>
-                        <ul className="space-y-1">
-                          {createResult.createdTasks.map((t) => (
-                            <li
-                              key={t.taskId}
-                              className="text-xs text-gray-600 flex items-center gap-1"
-                            >
-                              <ArrowSquareOut className="text-gray-400 flex-shrink-0" />
-                              <span className="truncate">{t.title}</span>
-                              {t.dueDate && (
-                                <span className="text-gray-400">（{t.dueDate}）</span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : previewLoading ? (
-                      <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                        <CircleNotch className="animate-spin" />
-                        候補を確認中…
-                      </div>
-                    ) : preview && preview.newSpecCount > 0 ? (
-                      <>
-                        <ul className="space-y-1.5">
-                          {preview.newSpecs.map((s) => (
-                            <li
-                              key={s.lineNumber}
-                              data-testid="minutes-task-candidate"
-                              className="flex items-start gap-1.5 text-sm text-gray-700"
-                            >
-                              <span className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-900" />
-                              <div className="min-w-0">
-                                <div className="truncate">{s.title}</div>
-                                <div className="truncate text-xs text-gray-400">
-                                  {s.specPath}
-                                </div>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                        {preview.existingSpecCount > 0 && (
-                          <p
-                            data-testid="minutes-task-existing"
-                            className="text-xs text-gray-400"
-                          >
-                            作成済み {preview.existingSpecCount}件はスキップします
-                          </p>
-                        )}
-                        <button
-                          onClick={handleTaskify}
-                          disabled={creating || !onCreateTasks}
-                          data-testid="minutes-taskify-button"
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-gray-100 text-sm font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {creating ? (
-                            <CircleNotch className="animate-spin" />
-                          ) : (
-                            <ListChecks weight="fill" />
-                          )}
-                          {creating
-                            ? '作成中…'
-                            : `${preview.newSpecCount}件をタスク化`}
-                        </button>
-                      </>
-                    ) : preview ? (
-                      <p
-                        data-testid="minutes-task-empty"
-                        className="text-xs text-gray-400"
-                      >
-                        タスク化できる決定事項はありません
-                      </p>
-                    ) : null}
-                  </div>
+                {taskError && (
+                  <p className="text-xs text-red-600" role="alert">
+                    {taskError}
+                  </p>
                 )}
 
-                <div className="prose prose-sm max-w-none">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
-                    {meeting.minutes_md}
-                  </pre>
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-10 text-gray-400">
-                <FileText className="text-4xl mx-auto mb-2 opacity-50" />
-                <p className="text-sm">議事録はまだありません。会議終了後にここに表示されます。</p>
+                {createResult ? (
+                  // 作成結果
+                  <div data-testid="minutes-task-result" className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-sm text-green-700">
+                      <CheckCircle weight="fill" className="text-base" />
+                      {createResult.createdCount}件のタスクを作成しました
+                    </div>
+                    <ul className="space-y-1">
+                      {createResult.createdTasks.map((t) => (
+                        <li
+                          key={t.taskId}
+                          className="text-xs text-gray-600 flex items-center gap-1"
+                        >
+                          <ArrowSquareOut className="text-gray-400 flex-shrink-0" />
+                          <span className="truncate">{t.title}</span>
+                          {t.dueDate && (
+                            <span className="text-gray-400">（{t.dueDate}）</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : previewLoading ? (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <CircleNotch className="animate-spin" />
+                    候補を確認中…
+                  </div>
+                ) : preview && preview.newSpecCount > 0 ? (
+                  <>
+                    <ul className="space-y-1.5">
+                      {preview.newSpecs.map((s) => (
+                        <li
+                          key={s.lineNumber}
+                          data-testid="minutes-task-candidate"
+                          className="flex items-start gap-1.5 text-sm text-gray-700"
+                        >
+                          <span className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-900" />
+                          <div className="min-w-0">
+                            <div className="truncate">{s.title}</div>
+                            <div className="truncate text-xs text-gray-400">
+                              {s.specPath}
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    {preview.existingSpecCount > 0 && (
+                      <p
+                        data-testid="minutes-task-existing"
+                        className="text-xs text-gray-400"
+                      >
+                        作成済み {preview.existingSpecCount}件はスキップします
+                      </p>
+                    )}
+                    <button
+                      onClick={handleTaskify}
+                      disabled={creating || !onCreateTasks}
+                      data-testid="minutes-taskify-button"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-gray-100 text-sm font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {creating ? (
+                        <CircleNotch className="animate-spin" />
+                      ) : (
+                        <ListChecks weight="fill" />
+                      )}
+                      {creating
+                        ? '作成中…'
+                        : `${preview.newSpecCount}件をタスク化`}
+                    </button>
+                  </>
+                ) : preview ? (
+                  <p
+                    data-testid="minutes-task-empty"
+                    className="text-xs text-gray-400"
+                  >
+                    タスク化できる決定事項はありません
+                  </p>
+                ) : null}
               </div>
             )}
           </div>
