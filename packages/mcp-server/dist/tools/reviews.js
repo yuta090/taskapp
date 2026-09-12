@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
 import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js';
+import { mapRaiseExceptionError } from '../lib/rpcErrors.js';
 // 画面の承認者候補と同じ役割の範囲（社内のadmin/editorだけ。rpc_review_open_asも同じ規則）
 const REVIEW_APPROVER_ROLES = ['admin', 'editor'];
 // Helper: get orgId from spaceId
@@ -62,7 +63,7 @@ export async function reviewOpen(params) {
         p_meeting_id: null,
     });
     if (error)
-        throw new Error('レビューの開始に失敗しました');
+        throw mapRaiseExceptionError(error.message, 'レビューの開始に失敗しました');
     const { data: review, error: reviewError } = await supabase
         .from('reviews')
         .select('*')
@@ -96,7 +97,7 @@ export async function reviewApprove(params) {
         p_meeting_id: null,
     });
     if (error)
-        throw new Error('レビューの承認に失敗しました');
+        throw mapRaiseExceptionError(error.message, 'レビューの承認に失敗しました');
     return {
         ok: true,
         allApproved: data?.allApproved || false,
@@ -125,7 +126,7 @@ export async function reviewBlock(params) {
         p_meeting_id: null,
     });
     if (error)
-        throw new Error('レビューのブロックに失敗しました');
+        throw mapRaiseExceptionError(error.message, 'レビューのブロックに失敗しました');
     return { ok: true };
 }
 export async function reviewList(params) {

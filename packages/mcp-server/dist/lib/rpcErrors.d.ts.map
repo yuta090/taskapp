@@ -1,0 +1,1 @@
+{"version":3,"file":"rpcErrors.d.ts","sourceRoot":"","sources":["../../src/lib/rpcErrors.ts"],"names":[],"mappings":"AA+CA;;;;GAIG;AACH,wBAAgB,sBAAsB,CAAC,OAAO,EAAE,MAAM,EAAE,eAAe,EAAE,MAAM,GAAG,KAAK,CAMtF;AAED,UAAU,wBAAwB;IAChC,KAAK,CAAC,EAAE,MAAM,CAAA;IACd,cAAc,CAAC,EAAE,MAAM,CAAA;CACxB;AAED;;;GAGG;AACH,wBAAgB,uBAAuB,CAAC,IAAI,EAAE,wBAAwB,GAAG,IAAI,GAAG,SAAS,GAAG,KAAK,CAiBhG"}
