@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 import { emailsMatch } from '@/lib/invite/emailMatch'
 import { seatLimitFromRpcError } from '@/lib/billing/seatLimitMessage'
+import { isOrgInternalRole } from '@/lib/roles/spaceRoles'
 
 const MIN_PASSWORD_LENGTH = 8
 
@@ -151,6 +152,52 @@ export async function POST(
       created = true
     }
 
+    // 組織の役割と space の役割をそろえる決まり（DB のトリガー）に当てる前に、
+    // ここで確かめて分かる日本語で断る。DB の英語の例外をそのまま画面に出さない。
+    const { data: existingSpaceMembership } = await admin
+      .from('space_memberships')
+      .select('id')
+      .eq('space_id', inviteRow.space_id)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (existingSpaceMembership) {
+      // すでにこの space のメンバー: 人数枠チェックも RPC も通さず、招待だけ受諾済みにする
+      // （on conflict do nothing で無害とはいえ、定員に達した組織で再クリックすると
+      // rpc_check_org_limits の枠チェックにだけ引っかかって失敗して見える不具合を避ける）
+      await admin
+        .from('invites')
+        .update({ accepted_at: new Date().toISOString() })
+        .eq('id', inviteRow.id)
+
+      await notifyInviter(admin, inviteRow, userId)
+
+      return NextResponse.json({
+        org_id: inviteRow.org_id,
+        space_id: inviteRow.space_id,
+        role: inviteRow.role,
+        email: inviteRow.email,
+        created,
+      })
+    }
+
+    const { data: existingOrgMembership } = await admin
+      .from('org_memberships')
+      .select('role')
+      .eq('org_id', inviteRow.org_id)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (existingOrgMembership) {
+      const mismatch = orgRoleInviteMismatchMessage(
+        (existingOrgMembership as { role: string }).role,
+        inviteRow.role
+      )
+      if (mismatch) {
+        return NextResponse.json({ error: mismatch }, { status: 409 })
+      }
+    }
+
     const { data: acceptResult, error: acceptError } = await admin.rpc('rpc_accept_invite', {
       p_token: token,
       p_user_id: userId,
@@ -162,6 +209,14 @@ export async function POST(
       const seat = seatLimitFromRpcError(acceptError.message, 'accept')
       if (seat) {
         return NextResponse.json({ error: seat.message, code: seat.code }, { status: seat.status })
+      }
+      // 念のため: 上の事前確認をすり抜けて、組織と space の役割の不整合を守る DB の
+      // トリガー（英語の例外）が返ってきた場合も、生の文言をそのまま出さない
+      if (/is not allowed for organization role|does not match space roles/.test(acceptError.message)) {
+        return NextResponse.json(
+          { error: '組織の役割と招待の種類が合わないため、受諾できませんでした。管理者にご確認ください。' },
+          { status: 409 }
+        )
       }
       return NextResponse.json({ error: acceptError.message }, { status: 400 })
     }
@@ -186,6 +241,24 @@ function inviteRoleLabel(role: string): string {
   if (role === 'client') return '相手先'
   if (role === 'vendor') return 'ベンダー'
   return 'メンバー'
+}
+
+/**
+ * 組織の役割と space の役割をそろえる決まり（20260912112543_org_space_role_consistency.sql）:
+ * 組織 client（相手先・協力会社）は space が client/vendor だけ、組織 owner/member（社内）は
+ * space が admin/editor/viewer だけ。すでに組織にいる人が種類の合わない招待
+ * （社内が相手先・協力会社向け／相手先が社内向け）を受けようとした場合に、分かる日本語で断る。
+ * 合っていれば null（呼び出し側はそのまま rpc_accept_invite へ進める）。
+ */
+function orgRoleInviteMismatchMessage(existingOrgRole: string, inviteRole: string): string | null {
+  const orgIsInternal = isOrgInternalRole(existingOrgRole)
+  const inviteIsInternal = inviteRole === 'member'
+  if (orgIsInternal === inviteIsInternal) return null
+
+  if (orgIsInternal) {
+    return `この招待は${inviteRoleLabel(inviteRole)}向けです。すでに社内メンバーとして参加しているため使えません`
+  }
+  return 'この招待は社内メンバー向けです。すでに相手先として参加しているため使えません'
 }
 
 /**

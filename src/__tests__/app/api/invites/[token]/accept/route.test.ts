@@ -51,6 +51,16 @@ const notificationsUpsertMock = vi.fn(
     Promise.resolve(notificationsUpsertResponse),
 )
 
+// 組織の役割と space の役割をそろえる決まり（RC-1）の事前確認まわり。
+// 既定は「まだ組織にも space にもいない（新規）」＝どちらも null で、
+// 既存の受諾テストはこれまでどおり rpc_accept_invite まで進む。
+let spaceMembershipResponse: { data: { id: string } | null; error: { message: string } | null }
+const spaceMembershipMaybeSingleMock = vi.fn(() => Promise.resolve(spaceMembershipResponse))
+let orgMembershipResponse: { data: { role: string } | null; error: { message: string } | null }
+const orgMembershipMaybeSingleMock = vi.fn(() => Promise.resolve(orgMembershipResponse))
+const inviteUpdateEqMock = vi.fn(() => Promise.resolve({ error: null }))
+const inviteUpdateMock = vi.fn(() => ({ eq: inviteUpdateEqMock }))
+
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => rateLimitAllowedMock(...args),
   getClientIp: () => '127.0.0.1',
@@ -76,6 +86,7 @@ vi.mock('@/lib/supabase/admin', () => ({
               single: inviteSingleMock,
             })),
           })),
+          update: inviteUpdateMock,
         }
       }
       if (table === 'spaces') {
@@ -83,6 +94,28 @@ vi.mock('@/lib/supabase/admin', () => ({
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
               single: spaceSingleMock,
+            })),
+          })),
+        }
+      }
+      if (table === 'space_memberships') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: spaceMembershipMaybeSingleMock,
+              })),
+            })),
+          })),
+        }
+      }
+      if (table === 'org_memberships') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: orgMembershipMaybeSingleMock,
+              })),
             })),
           })),
         }
@@ -128,6 +161,8 @@ describe('POST /api/invites/[token]/accept', () => {
     }
     spaceSelectResponse = { data: { name: 'PJ-A' }, error: null }
     notificationsUpsertResponse = { error: null }
+    spaceMembershipResponse = { data: null, error: null }
+    orgMembershipResponse = { data: null, error: null }
   })
 
   it('returns 404 when the token does not match any invite', async () => {
@@ -321,6 +356,111 @@ describe('POST /api/invites/[token]/accept', () => {
 
     expect(response.status).toBe(429)
     expect(inviteSingleMock).not.toHaveBeenCalled()
+  })
+
+  // 組織の役割と space の役割をそろえる決まり（20260912112543_org_space_role_consistency.sql）を
+  // DB に入れると、種類の合わない招待を既存メンバーが受けたとき rpc_accept_invite が
+  // 英語の例外（例: space role client is not allowed for organization role member）で落ちる。
+  // API 側で先に確かめ、分かる日本語で断る。
+  describe('組織の役割と招待の種類が合わないとき', () => {
+    it('すでに space のメンバーなら、人数枠チェックもRPCも通さず受諾済みにする', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      spaceMembershipResponse = { data: { id: 'sm-1' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data).toEqual({
+        org_id: baseInvite.org_id,
+        space_id: baseInvite.space_id,
+        role: baseInvite.role,
+        email: baseInvite.email,
+        created: false,
+      })
+      expect(adminRpcMock).not.toHaveBeenCalled()
+      expect(inviteUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({ accepted_at: expect.any(String) })
+      )
+      expect(inviteUpdateEqMock).toHaveBeenCalledWith('id', baseInvite.id)
+    })
+
+    it('すでに社内メンバー(member)として組織にいる人が、相手先向けの招待を受けようとしたら409＋日本語', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      inviteSelectResponse = { data: { ...baseInvite, role: 'client' }, error: null }
+      orgMembershipResponse = { data: { role: 'member' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+      const data = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(data.error).toMatch(/相手先向け/)
+      expect(data.error).not.toMatch(/is not allowed/)
+      expect(adminRpcMock).not.toHaveBeenCalled()
+    })
+
+    it('すでに社内メンバー(owner)として組織にいる人が、協力会社(vendor)向けの招待を受けようとしたら409＋日本語', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      inviteSelectResponse = { data: { ...baseInvite, role: 'vendor' }, error: null }
+      orgMembershipResponse = { data: { role: 'owner' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+      const data = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(data.error).toMatch(/ベンダー向け/)
+      expect(adminRpcMock).not.toHaveBeenCalled()
+    })
+
+    it('すでに相手先(client)として組織にいる人が、社内向けの招待を受けようとしたら409＋日本語', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      inviteSelectResponse = { data: { ...baseInvite, role: 'member' }, error: null }
+      orgMembershipResponse = { data: { role: 'client' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+      const data = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(data.error).toMatch(/社内メンバー向け/)
+      expect(adminRpcMock).not.toHaveBeenCalled()
+    })
+
+    it('組織の役割と招待の種類が合っていれば、これまでどおり受諾できる（社内→社内）', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      orgMembershipResponse = { data: { role: 'member' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(200)
+      expect(adminRpcMock).toHaveBeenCalled()
+    })
+
+    it('組織の役割と招待の種類が合っていれば、これまでどおり受諾できる（相手先→相手先）', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      inviteSelectResponse = { data: { ...baseInvite, role: 'client' }, error: null }
+      acceptRpcResponse = { data: { org_id: 'org-1', space_id: 'space-1', role: 'client' }, error: null }
+      orgMembershipResponse = { data: { role: 'client' }, error: null }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(200)
+      expect(adminRpcMock).toHaveBeenCalled()
+    })
+
+    it('念のため: RPCが役割不整合の英語エラーを返しても、日本語の409に置き換える', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+      acceptRpcResponse = {
+        data: null,
+        error: { message: 'space role client is not allowed for organization role member' },
+      }
+
+      const response = await callPost(VALID_TOKEN, {})
+      const data = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(data.error).not.toMatch(/is not allowed/)
+      expect(data.error).toMatch(/組織の役割/)
+    })
   })
 
   describe('招待した人への承諾通知', () => {
