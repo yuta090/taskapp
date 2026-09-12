@@ -52,7 +52,8 @@ export default function ApiKeysSettingsPage() {
   const queryClient = useQueryClient()
   // API キーは社内メンバー（admin / editor / viewer）専用。相手先として参加しているプロジェクトは
   // 発行フォームの選択肢に出さない（サーバーの /api/keys/user も同じ条件で断る）。
-  // 一覧のプロジェクト名の表示には、全部の所属（spaces）をそのまま使う
+  // 発行済みキーの一覧のプロジェクト名表示には、アーカイブ済みも含む全部（allSpaces）を使う
+  // （アーカイブ済みのプロジェクトを含むキーでも、名前が欠けないようにするため）
   const selectableSpaces = useMemo(() => spaces.filter((s) => isInternalSpaceRole(s.role)), [spaces])
 
   // 鍵の組織は選んだプロジェクトの組織になる（サーバー側の判定と合わせる）ため、
@@ -592,7 +593,7 @@ export default function ApiKeysSettingsPage() {
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-gray-500">
                         <span>
-                          プロジェクト: {spacesLoading ? '読み込み中...' : describeKeySpaces(key, spaces)}
+                          プロジェクト: {spacesLoading ? '読み込み中...' : describeKeySpaces(key, allSpaces)}
                         </span>
                         <span>
                           操作: {formatApiKeyActions(key.allowed_actions)}
