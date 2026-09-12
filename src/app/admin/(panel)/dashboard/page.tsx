@@ -16,6 +16,13 @@ interface AuditLogRow {
   actorName: string
 }
 
+// profiles.display_name は空文字を許す既定値（NOT NULL）なので、
+// 「未設定」の判定には `??` でなく `||` を使う（空文字だとメールを引いていても
+// 表示が空欄になってしまうため）
+export function resolveActorName(displayName: string | null | undefined, email: string | undefined): string {
+  return displayName || email || 'System'
+}
+
 function computeRelativeTime(isoString: string, nowMs: number): string {
   const diff = nowMs - new Date(isoString).getTime()
   const minutes = Math.floor(diff / 60000)
@@ -132,10 +139,10 @@ async function fetchRecentActivity(): Promise<AuditLogRow[]> {
     summary: row.summary,
     occurred_at: row.occurred_at,
     actor_id: row.actor_id,
-    actorName:
-      row.actor_profile?.display_name ??
-      (row.actor_id ? emailByActorId.get(row.actor_id) : undefined) ??
-      'System',
+    actorName: resolveActorName(
+      row.actor_profile?.display_name,
+      row.actor_id ? emailByActorId.get(row.actor_id) : undefined,
+    ),
     relativeTime: computeRelativeTime(row.occurred_at, nowMs),
   }))
 }
