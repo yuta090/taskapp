@@ -5,6 +5,7 @@ import { authorizeAndLog } from '../auth/index.js';
 import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js';
 import { mapRaiseExceptionError, mapConfirmProposalError } from '../lib/rpcErrors.js';
 import { proposalStatusLabel } from '../lib/statusLabels.js';
+import { hideDbError } from '../lib/dbErrors.js';
 // Schemas
 export const schedulingListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -95,7 +96,7 @@ export async function schedulingList(params) {
     }
     const { data, error } = await query;
     if (error)
-        throw new Error(`日程調整一覧の取得に失敗しました: ${error.message}`);
+        throw hideDbError(error, 'list_scheduling_proposals', '日程調整一覧の取得に失敗しました');
     return {
         proposals: (data || []).map((p) => ({
             ...p,
@@ -279,7 +280,7 @@ export async function schedulingCancel(params) {
             .eq('status', 'open')
             .select('id');
         if (error)
-            throw new Error(`キャンセルに失敗しました: ${error.message}`);
+            throw hideDbError(error, 'cancel_scheduling_proposal', 'キャンセルに失敗しました');
         if (!updated || updated.length === 0) {
             throw new Error('提案は既に変更されています（別の操作が先に実行された可能性があります）');
         }
@@ -302,7 +303,7 @@ export async function schedulingCancel(params) {
         .eq('status', 'open')
         .select('id');
     if (error)
-        throw new Error(`期限延長に失敗しました: ${error.message}`);
+        throw hideDbError(error, 'cancel_scheduling_proposal (extend)', '期限延長に失敗しました');
     if (!updated || updated.length === 0) {
         throw new Error('提案は既に変更されています（別の操作が先に実行された可能性があります）');
     }

@@ -3,6 +3,7 @@ import { getSupabaseClient, Space } from '../supabase/client.js'
 import { config } from '../config.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 import { authorizeAndLog } from '../auth/index.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 
 // Schemas
 export const spaceCreateSchema = z.object({
@@ -40,7 +41,7 @@ export async function spaceCreate(params: z.infer<typeof spaceCreateSchema>): Pr
     .select('*')
     .single()
 
-  if (error) throw new Error('プロジェクトの作成に失敗しました: ' + error.message)
+  if (error) throw hideDbError(error, 'space_create', 'プロジェクトの作成に失敗しました')
   return data as Space
 }
 
@@ -67,7 +68,7 @@ export async function spaceUpdate(params: z.infer<typeof spaceUpdateSchema>): Pr
     .select('*')
     .single()
 
-  if (error) throw new Error('プロジェクトの更新に失敗しました: ' + error.message)
+  if (error) throw hideDbError(error, 'space_update', 'プロジェクトの更新に失敗しました')
   return data as Space
 }
 
@@ -86,7 +87,7 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
     let own = supabase.from('spaces').select('*').eq('id', ctx.spaceId).eq('org_id', ctx.orgId)
     if (params.type) own = own.eq('type', params.type)
     const { data, error } = await own
-    if (error) throw new Error('プロジェクト一覧の取得に失敗しました: ' + error.message)
+    if (error) throw hideDbError(error, 'space_list', 'プロジェクト一覧の取得に失敗しました')
     return (data || []) as Space[]
   }
 
@@ -101,7 +102,7 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
       .from('space_memberships')
       .select('space_id')
       .eq('user_id', ctx.userId)
-    if (memberError) throw new Error('プロジェクト一覧の取得に失敗しました: ' + memberError.message)
+    if (memberError) throw hideDbError(memberError, 'space_list (space_memberships)', 'プロジェクト一覧の取得に失敗しました')
 
     const allowedIds = ctx.allowedSpaceIds
     const candidateIds = (memberRows || [])
@@ -124,7 +125,7 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
     let mine = supabase.from('spaces').select('*').in('id', permitted).order('created_at', { ascending: false })
     if (params.type) mine = mine.eq('type', params.type)
     const { data, error } = await mine
-    if (error) throw new Error('プロジェクト一覧の取得に失敗しました: ' + error.message)
+    if (error) throw hideDbError(error, 'space_list (user)', 'プロジェクト一覧の取得に失敗しました')
     return (data || []) as Space[]
   }
 
@@ -148,7 +149,7 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
 
   const { data, error } = await query
 
-  if (error) throw new Error('プロジェクト一覧の取得に失敗しました: ' + error.message)
+  if (error) throw hideDbError(error, 'space_list (org)', 'プロジェクト一覧の取得に失敗しました')
   return (data || []) as Space[]
 }
 
@@ -167,7 +168,7 @@ export async function spaceGet(params: z.infer<typeof spaceGetSchema>): Promise<
     .eq('org_id', orgId)
     .single()
 
-  if (error) throw new Error('プロジェクトが見つかりません: ' + error.message)
+  if (error) throw notFoundOr(error, 'space_get', 'プロジェクトが見つかりません', 'プロジェクトの取得に失敗しました')
   return data as Space
 }
 

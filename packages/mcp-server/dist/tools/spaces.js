@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js';
 import { config } from '../config.js';
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js';
 import { authorizeAndLog } from '../auth/index.js';
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js';
 // Schemas
 export const spaceCreateSchema = z.object({
     name: z.string().min(1).describe('プロジェクト名'),
@@ -34,7 +35,7 @@ export async function spaceCreate(params) {
         .select('*')
         .single();
     if (error)
-        throw new Error('プロジェクトの作成に失敗しました: ' + error.message);
+        throw hideDbError(error, 'space_create', 'プロジェクトの作成に失敗しました');
     return data;
 }
 export async function spaceUpdate(params) {
@@ -58,7 +59,7 @@ export async function spaceUpdate(params) {
         .select('*')
         .single();
     if (error)
-        throw new Error('プロジェクトの更新に失敗しました: ' + error.message);
+        throw hideDbError(error, 'space_update', 'プロジェクトの更新に失敗しました');
     return data;
 }
 export async function spaceList(params) {
@@ -77,7 +78,7 @@ export async function spaceList(params) {
             own = own.eq('type', params.type);
         const { data, error } = await own;
         if (error)
-            throw new Error('プロジェクト一覧の取得に失敗しました: ' + error.message);
+            throw hideDbError(error, 'space_list', 'プロジェクト一覧の取得に失敗しました');
         return (data || []);
     }
     // scope=user（個人用の鍵）: 選んだプロジェクトのうち、今もメンバーで読み取りが許されるものだけを返す。
@@ -92,7 +93,7 @@ export async function spaceList(params) {
             .select('space_id')
             .eq('user_id', ctx.userId);
         if (memberError)
-            throw new Error('プロジェクト一覧の取得に失敗しました: ' + memberError.message);
+            throw hideDbError(memberError, 'space_list (space_memberships)', 'プロジェクト一覧の取得に失敗しました');
         const allowedIds = ctx.allowedSpaceIds;
         const candidateIds = (memberRows || [])
             .map((m) => m.space_id)
@@ -117,7 +118,7 @@ export async function spaceList(params) {
             mine = mine.eq('type', params.type);
         const { data, error } = await mine;
         if (error)
-            throw new Error('プロジェクト一覧の取得に失敗しました: ' + error.message);
+            throw hideDbError(error, 'space_list (user)', 'プロジェクト一覧の取得に失敗しました');
         return (data || []);
     }
     // scope=org: 組織のプロジェクトを全部返す（org 鍵を発行する経路は無い）
@@ -137,7 +138,7 @@ export async function spaceList(params) {
     }
     const { data, error } = await query;
     if (error)
-        throw new Error('プロジェクト一覧の取得に失敗しました: ' + error.message);
+        throw hideDbError(error, 'space_list (org)', 'プロジェクト一覧の取得に失敗しました');
     return (data || []);
 }
 export async function spaceGet(params) {
@@ -154,7 +155,7 @@ export async function spaceGet(params) {
         .eq('org_id', orgId)
         .single();
     if (error)
-        throw new Error('プロジェクトが見つかりません: ' + error.message);
+        throw notFoundOr(error, 'space_get', 'プロジェクトが見つかりません', 'プロジェクトの取得に失敗しました');
     return data;
 }
 // Tool definitions for MCP

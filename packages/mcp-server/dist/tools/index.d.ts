@@ -774,12 +774,12 @@ export declare const allTools: ({
         role: import("zod").ZodDefault<import("zod").ZodEnum<["client", "member", "all"]>>;
     }, "strip", import("zod").ZodTypeAny, {
         role: "client" | "member" | "all";
-        status: "pending" | "accepted" | "expired" | "all";
+        status: "expired" | "pending" | "accepted" | "all";
         spaceId?: string | undefined;
     }, {
         spaceId?: string | undefined;
         role?: "client" | "member" | "all" | undefined;
-        status?: "pending" | "accepted" | "expired" | "all" | undefined;
+        status?: "expired" | "pending" | "accepted" | "all" | undefined;
     }>;
     handler: typeof import("./clients.js").clientInviteList;
 } | {
@@ -971,10 +971,10 @@ export declare const allTools: ({
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         limit: number;
-        status?: "open" | "expired" | "confirmed" | "cancelled" | undefined;
+        status?: "open" | "confirmed" | "cancelled" | "expired" | undefined;
     }, {
         spaceId: string;
-        status?: "open" | "expired" | "confirmed" | "cancelled" | undefined;
+        status?: "open" | "confirmed" | "cancelled" | "expired" | undefined;
         limit?: number | undefined;
     }>;
     handler: typeof import("./scheduling.js").schedulingList;
