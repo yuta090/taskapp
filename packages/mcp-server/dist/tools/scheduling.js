@@ -4,6 +4,7 @@ import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
 import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js';
 import { mapRaiseExceptionError, mapConfirmProposalError } from '../lib/rpcErrors.js';
+import { proposalStatusLabel } from '../lib/statusLabels.js';
 // Schemas
 export const schedulingListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -181,7 +182,7 @@ export async function schedulingRespond(params) {
         throw new Error('提案が見つかりません');
     }
     if (proposal.status !== 'open') {
-        throw new Error(`この提案は現在「${proposal.status}」のため、回答できません`);
+        throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、回答できません`);
     }
     // Find respondent_id for current user
     const userId = ctx.userId || config.actorId;
@@ -266,7 +267,7 @@ export async function schedulingCancel(params) {
         throw new Error('提案が見つかりません');
     }
     if (proposal.status !== 'open') {
-        throw new Error(`この提案は現在「${proposal.status}」のため、変更できません`);
+        throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、変更できません`);
     }
     if (params.action === 'cancel') {
         // Atomic: only update if still open (prevents TOCTOU race)
@@ -654,7 +655,7 @@ export async function schedulingSendReminder(params) {
     if (proposalError || !proposal)
         throw new Error('提案が見つかりません');
     if (proposal.status !== 'open')
-        throw new Error(`この提案は現在「${proposal.status}」のため、リマインドできません`);
+        throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、リマインドできません`);
     // Find respondents who haven't responded to any slot
     const { data: respondents, error: respondentError } = await supabase
         .from('proposal_respondents')

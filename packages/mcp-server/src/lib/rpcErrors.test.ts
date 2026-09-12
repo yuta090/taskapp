@@ -23,22 +23,24 @@ describe('mapRaiseExceptionError', () => {
     expect(err).toMatchObject({ name: 'ToolUserError', status: 403 })
   })
 
-  it('会議が進行中でないのに終了しようとすると409で現在の状態を含める', () => {
+  it('会議が進行中でないのに終了しようとすると409で現在の状態を日本語で含める', () => {
     const err = mapRaiseExceptionError(
       'Meeting can only end from in_progress status, current: planned',
       '会議の終了に失敗しました'
     )
     expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
-    expect((err as Error).message).toContain('planned')
+    expect((err as Error).message).toContain('開始前')
+    expect((err as Error).message).not.toContain('planned')
   })
 
-  it('会議が計画中でないのに開始しようとすると409で現在の状態を含める', () => {
+  it('会議が計画中でないのに開始しようとすると409で現在の状態を日本語で含める', () => {
     const err = mapRaiseExceptionError(
       'Meeting can only start from planned status, current: ended',
       '会議の開始に失敗しました'
     )
     expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
-    expect((err as Error).message).toContain('ended')
+    expect((err as Error).message).toContain('終了済み')
+    expect((err as Error).message).not.toContain('ended')
   })
 
   it('タスクが見つからない場合は404', () => {
@@ -92,10 +94,11 @@ describe('mapConfirmProposalError', () => {
     expect(err).toMatchObject({ name: 'ToolUserError', status: 403 })
   })
 
-  it('proposal_not_open は409で現在の状態を含める', () => {
+  it('proposal_not_open は409で現在の状態を日本語で含める', () => {
     const err = mapConfirmProposalError({ error: 'proposal_not_open', current_status: 'cancelled' })
     expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
-    expect((err as Error).message).toContain('cancelled')
+    expect((err as Error).message).toContain('キャンセル済み')
+    expect((err as Error).message).not.toContain('cancelled')
   })
 
   it('slot_not_found は404', () => {

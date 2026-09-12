@@ -131,7 +131,10 @@ export async function activityLog(params: z.infer<typeof activityLogSchema>): Pr
     .select('id')
     .single()
 
-  if (error) throw new Error('アクティビティログの記録に失敗しました: ' + error.message)
+  if (error) {
+    console.error('activity_log failed:', error.code, error.message)
+    throw new Error('アクティビティログの記録に失敗しました')
+  }
   return { id: data.id }
 }
 
@@ -159,7 +162,10 @@ export async function activitySearch(params: z.infer<typeof activitySearchSchema
 
   const { data, error } = await query
 
-  if (error) throw new Error('アクティビティログの検索に失敗しました: ' + error.message)
+  if (error) {
+    console.error('activity_search failed:', error.code, error.message)
+    throw new Error('アクティビティログの検索に失敗しました')
+  }
   return (data || []) as ActivityLog[]
 }
 
@@ -178,7 +184,10 @@ export async function activityEntityHistory(params: z.infer<typeof activityEntit
     .order('occurred_at', { ascending: false })
     .limit(params.limit)
 
-  if (error) throw new Error('エンティティ履歴の取得に失敗しました: ' + error.message)
+  if (error) {
+    console.error('activity_entity_history failed:', error.code, error.message)
+    throw new Error('エンティティ履歴の取得に失敗しました')
+  }
   return (data || []) as ActivityLog[]
 }
 

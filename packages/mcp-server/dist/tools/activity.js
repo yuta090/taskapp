@@ -94,8 +94,10 @@ export async function activityLog(params) {
     })
         .select('id')
         .single();
-    if (error)
-        throw new Error('アクティビティログの記録に失敗しました: ' + error.message);
+    if (error) {
+        console.error('activity_log failed:', error.code, error.message);
+        throw new Error('アクティビティログの記録に失敗しました');
+    }
     return { id: data.id };
 }
 export async function activitySearch(params) {
@@ -125,8 +127,10 @@ export async function activitySearch(params) {
     if (params.to)
         query = query.lte('occurred_at', params.to);
     const { data, error } = await query;
-    if (error)
-        throw new Error('アクティビティログの検索に失敗しました: ' + error.message);
+    if (error) {
+        console.error('activity_search failed:', error.code, error.message);
+        throw new Error('アクティビティログの検索に失敗しました');
+    }
     return (data || []);
 }
 export async function activityEntityHistory(params) {
@@ -142,8 +146,10 @@ export async function activityEntityHistory(params) {
         .eq('is_deleted', false)
         .order('occurred_at', { ascending: false })
         .limit(params.limit);
-    if (error)
-        throw new Error('エンティティ履歴の取得に失敗しました: ' + error.message);
+    if (error) {
+        console.error('activity_entity_history failed:', error.code, error.message);
+        throw new Error('エンティティ履歴の取得に失敗しました');
+    }
     return (data || []);
 }
 // Tool definitions for MCP

@@ -1,6 +1,15 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
+import { ToolUserError } from '../errors.js'
+
+/** .single() が0件（PGRST116）で断ったときだけ、見つからない旨のToolUserErrorにする */
+function notFoundOr(error: { code?: string; message?: string }, context: string, fallbackMessage: string): Error {
+  if (error.code === 'PGRST116') return new ToolUserError('マイルストーンが見つかりません', 404)
+  // それ以外のDBの理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
+  console.error(`${context} failed:`, error.code, error.message)
+  return new Error(fallbackMessage)
+}
 
 // Milestone type
 export interface Milestone {
@@ -71,7 +80,10 @@ export async function milestoneCreate(params: z.infer<typeof milestoneCreateSche
     .select('*')
     .single()
 
-  if (error) throw new Error('マイルストーンの作成に失敗しました: ' + error.message)
+  if (error) {
+    console.error('milestone_create failed:', error.code, error.message)
+    throw new Error('マイルストーンの作成に失敗しました')
+  }
   return data as Milestone
 }
 
@@ -101,7 +113,7 @@ export async function milestoneUpdate(params: z.infer<typeof milestoneUpdateSche
     .select('*')
     .single()
 
-  if (error) throw new Error('マイルストーンの更新に失敗しました: ' + error.message)
+  if (error) throw notFoundOr(error, 'milestone_update', 'マイルストーンの更新に失敗しました')
   return data as Milestone
 }
 
@@ -117,7 +129,10 @@ export async function milestoneList(params: z.infer<typeof milestoneListSchema>)
     .eq('space_id', params.spaceId)
     .order('order_key', { ascending: true })
 
-  if (error) throw new Error('マイルストーン一覧の取得に失敗しました: ' + error.message)
+  if (error) {
+    console.error('milestone_list failed:', error.code, error.message)
+    throw new Error('マイルストーン一覧の取得に失敗しました')
+  }
   return (data || []) as Milestone[]
 }
 
@@ -134,7 +149,7 @@ export async function milestoneGet(params: z.infer<typeof milestoneGetSchema>): 
     .eq('space_id', params.spaceId)
     .single()
 
-  if (error) throw new Error('マイルストーンが見つかりません: ' + error.message)
+  if (error) throw notFoundOr(error, 'milestone_get', 'マイルストーンの取得に失敗しました')
   return data as Milestone
 }
 
@@ -150,7 +165,10 @@ export async function milestoneDelete(params: z.infer<typeof milestoneDeleteSche
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
 
-  if (error) throw new Error('マイルストーンの削除に失敗しました: ' + error.message)
+  if (error) {
+    console.error('milestone_delete failed:', error.code, error.message)
+    throw new Error('マイルストーンの削除に失敗しました')
+  }
   return { success: true, milestoneId: params.milestoneId }
 }
 

@@ -4,6 +4,7 @@ import { config, getAuthContext } from '../config.js'
 import { authorizeAndLog, type ActionType } from '../auth/index.js'
 import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js'
 import { mapRaiseExceptionError, mapConfirmProposalError } from '../lib/rpcErrors.js'
+import { proposalStatusLabel } from '../lib/statusLabels.js'
 
 // Schemas
 export const schedulingListSchema = z.object({
@@ -215,7 +216,7 @@ export async function schedulingRespond(params: z.infer<typeof schedulingRespond
   }
 
   if (proposal.status !== 'open') {
-    throw new Error(`この提案は現在「${proposal.status}」のため、回答できません`)
+    throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、回答できません`)
   }
 
   // Find respondent_id for current user
@@ -322,7 +323,7 @@ export async function schedulingCancel(params: z.infer<typeof schedulingCancelSc
   }
 
   if (proposal.status !== 'open') {
-    throw new Error(`この提案は現在「${proposal.status}」のため、変更できません`)
+    throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、変更できません`)
   }
 
   if (params.action === 'cancel') {
@@ -817,7 +818,7 @@ export async function schedulingSendReminder(params: z.infer<typeof schedulingRe
     .single()
 
   if (proposalError || !proposal) throw new Error('提案が見つかりません')
-  if (proposal.status !== 'open') throw new Error(`この提案は現在「${proposal.status}」のため、リマインドできません`)
+  if (proposal.status !== 'open') throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、リマインドできません`)
 
   // Find respondents who haven't responded to any slot
   const { data: respondents, error: respondentError } = await supabase

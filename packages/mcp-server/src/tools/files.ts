@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
+import { ToolUserError } from '../errors.js'
 
 /**
  * file_* — プロジェクトのファイル（`agentpm file list / upload` の実体）。
@@ -298,7 +299,13 @@ export async function fileUpdate(params: z.infer<typeof fileUpdateSchema>): Prom
     .eq('status', 'ready')
     .select('id, name, description, mime_type, size_bytes, origin, client_visible, status, created_at')
     .single()
-  if (error || !data) throw new Error('ファイルの更新に失敗しました' + (error ? ': ' + error.message : ''))
+  if (error?.code === 'PGRST116') {
+    throw new ToolUserError('ファイルが見つかりません（アップロード中は更新できません）', 404)
+  }
+  if (error || !data) {
+    console.error('file_update failed:', error?.code, error?.message)
+    throw new Error('ファイルの更新に失敗しました')
+  }
   const f = data as Record<string, unknown>
   return {
     id: f.id as string,

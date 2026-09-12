@@ -5,6 +5,7 @@
  * 返す（2026-07 のエラー詳細漏洩対策を崩さない）。
  */
 import { ToolUserError } from '../errors.js'
+import { meetingStatusLabel, proposalStatusLabel } from './statusLabels.js'
 
 interface RaisePattern {
   test: RegExp
@@ -19,12 +20,12 @@ const RAISE_PATTERNS: RaisePattern[] = [
   {
     test: /^Meeting can only end from in_progress status, current: (.+)$/,
     status: 409,
-    toMessage: (m) => `会議は進行中のときだけ終了できます（現在: ${m[1]}）`,
+    toMessage: (m) => `会議は進行中のときだけ終了できます（現在: ${meetingStatusLabel(m[1])}）`,
   },
   {
     test: /^Meeting can only start from planned status, current: (.+)$/,
     status: 409,
-    toMessage: (m) => `会議は開始前のときだけ開始できます（現在: ${m[1]}）`,
+    toMessage: (m) => `会議は開始前のときだけ開始できます（現在: ${meetingStatusLabel(m[1])}）`,
   },
   { test: /^Task not found:/, status: 404, toMessage: () => 'タスクが見つかりません' },
   { test: /^Not authorized to access this task$/, status: 403, toMessage: () => 'このタスクにアクセスする権限がありません' },
@@ -74,7 +75,10 @@ export function mapConfirmProposalError(data: ConfirmProposalErrorData | null | 
     case 'not_authorized':
       return new ToolUserError('この提案を確定する権限がありません', 403)
     case 'proposal_not_open':
-      return new ToolUserError(`この提案は現在「${data.current_status ?? ''}」のため確定できません`, 409)
+      return new ToolUserError(
+        `この提案は現在「${proposalStatusLabel(data.current_status ?? '')}」のため確定できません`,
+        409
+      )
     case 'slot_not_found':
       return new ToolUserError('指定されたスロットが見つかりません', 404)
     case 'no_required_respondents':
