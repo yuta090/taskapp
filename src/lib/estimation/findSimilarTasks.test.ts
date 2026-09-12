@@ -142,6 +142,20 @@ describe('findSimilarTasks', () => {
       const notCall = tasksCalls.find((c) => c.method === 'not')
       expect(notCall?.args[0]).toBe('task_internal_metrics.actual_hours')
     })
+
+    it('limits to 10 candidates and filters by space_id/org_id/status on the outer tasks row', async () => {
+      const { supabase, tasksCalls } = makeSupabase({ tasks: { data: [], error: null } })
+
+      await findSimilarTasks(supabase, { title: 'ロゴ制作', ...baseParams })
+
+      const limitCall = tasksCalls.find((c) => c.method === 'limit')
+      expect(limitCall?.args[0]).toBe(10)
+
+      const eqCalls = tasksCalls.filter((c) => c.method === 'eq').map((c) => c.args)
+      expect(eqCalls).toContainEqual(['space_id', baseParams.spaceId])
+      expect(eqCalls).toContainEqual(['org_id', baseParams.orgId])
+      expect(eqCalls).toContainEqual(['status', 'done'])
+    })
   })
 
   describe('no matching / errored tasks query', () => {
