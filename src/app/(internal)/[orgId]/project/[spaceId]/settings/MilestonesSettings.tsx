@@ -287,7 +287,7 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
                   <button
                     onClick={() => startEdit(ms)}
                     disabled={!canEdit}
-                    aria-label="編集"
+                    aria-label={`${ms.name}を編集`}
                     className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
                     <PencilSimple className="text-sm" />
@@ -295,7 +295,7 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
                   <button
                     onClick={() => handleDelete(ms.id)}
                     disabled={!canEdit}
-                    aria-label="削除"
+                    aria-label={`${ms.name}を削除`}
                     className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
                     <Trash className="text-sm" />

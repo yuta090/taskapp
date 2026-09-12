@@ -39,7 +39,6 @@ function renderSettings() {
 
 beforeEach(() => {
   mockCanEdit = true
-  process.env.NEXT_PUBLIC_ZOOM_ENABLED = 'true'
 })
 
 describe('VideoProviderSettings — 編集できる人には従来どおり操作できる', () => {
