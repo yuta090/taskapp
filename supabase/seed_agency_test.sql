@@ -50,7 +50,10 @@ BEGIN
 
   -- ==========================================================================
   -- 2. Agency Mode スペース
+  --    代理店モードの space を作る・切り替えるのはサーバー（service_role）だけ（spaces の見張り
+  --    guard_agency_settings）。この insert の間だけ service_role で行う
   -- ==========================================================================
+  SET LOCAL ROLE service_role;
   INSERT INTO spaces (id, org_id, type, name, agency_mode, created_at)
   VALUES (
     v_space_id, v_org_id, 'project',
@@ -61,6 +64,7 @@ BEGIN
   ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     agency_mode = EXCLUDED.agency_mode;
+  RESET ROLE;
 
   -- 既定の利益率・ベンダーポータル設定は社内専用の別表 space_agency_settings へ
   INSERT INTO space_agency_settings (space_id, org_id, default_margin_rate, vendor_settings)
@@ -99,6 +103,7 @@ BEGIN
   -- ==========================================================================
   DELETE FROM milestones WHERE space_id = v_space_id;
 
+  -- 完了かどうかは completed_at（配下のタスクがすべて完了すると、tasks のトリガーが入れる）
   INSERT INTO milestones (id, org_id, space_id, name, due_date, order_key, created_at) VALUES
     ('eeeeeeee-0001-0000-0000-000000000001', v_org_id, v_space_id,
      'プリプロダクション',
@@ -118,74 +123,73 @@ BEGIN
   -- ==========================================================================
   DELETE FROM tasks WHERE space_id = v_space_id;
 
+  -- 作った人（created_by）はどれもデモの Agency PM
   -- ベンダーボール (vendor が対応すべき)
-  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, assignee_id, milestone_id, created_at) VALUES
+  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, assignee_id, milestone_id, created_by, created_at) VALUES
     ('ffffffff-0001-0000-0000-000000000001', v_org_id, v_space_id,
      'ロケハン候補地リスト作成', 'in_progress', 'vendor', 'internal', 'task',
      (v_now + interval '3 days')::date, v_vendor1_id,
-     'eeeeeeee-0002-0000-0000-000000000001', v_now - interval '2 days'),
+     'eeeeeeee-0002-0000-0000-000000000001', v_demo_id, v_now - interval '2 days'),
     ('ffffffff-0002-0000-0000-000000000001', v_org_id, v_space_id,
      'キャスティング候補者リスト', 'todo', 'vendor', 'internal', 'task',
      (v_now + interval '5 days')::date, v_vendor2_id,
-     'eeeeeeee-0002-0000-0000-000000000001', v_now - interval '1 day'),
+     'eeeeeeee-0002-0000-0000-000000000001', v_demo_id, v_now - interval '1 day'),
     ('ffffffff-0003-0000-0000-000000000001', v_org_id, v_space_id,
      '撮影スケジュール案の作成', 'todo', 'vendor', 'internal', 'task',
      (v_now + interval '7 days')::date, v_vendor1_id,
-     'eeeeeeee-0002-0000-0000-000000000001', v_now - interval '1 day');
+     'eeeeeeee-0002-0000-0000-000000000001', v_demo_id, v_now - interval '1 day');
 
   -- エージェンシーボール (agency が対応すべき)
-  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, assignee_id, milestone_id, created_at) VALUES
+  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, assignee_id, milestone_id, created_by, created_at) VALUES
     ('ffffffff-0004-0000-0000-000000000001', v_org_id, v_space_id,
      'クライアント向けコンテ修正', 'in_progress', 'agency', 'internal', 'task',
      (v_now + interval '2 days')::date, v_staff1_id,
-     'eeeeeeee-0002-0000-0000-000000000001', v_now - interval '3 days'),
+     'eeeeeeee-0002-0000-0000-000000000001', v_demo_id, v_now - interval '3 days'),
     ('ffffffff-0005-0000-0000-000000000001', v_org_id, v_space_id,
      'ベンダー見積もり確認・承認', 'todo', 'agency', 'internal', 'task',
      (v_now + interval '4 days')::date, v_demo_id,
-     'eeeeeeee-0002-0000-0000-000000000001', v_now - interval '2 days');
+     'eeeeeeee-0002-0000-0000-000000000001', v_demo_id, v_now - interval '2 days');
 
-  -- クライアントボール (client が確認すべき)
-  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, milestone_id, created_at) VALUES
+  -- クライアントボール (client が確認すべき。ボールが client のタスクは client_scope = deliverable)
+  -- spec タスクは、作るときに spec_path と decision_state が要る
+  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, client_scope, spec_path, decision_state, due_date, milestone_id, created_by, created_at) VALUES
     ('ffffffff-0006-0000-0000-000000000001', v_org_id, v_space_id,
-     '絵コンテ最終承認', 'considering', 'client', 'internal', 'task',
+     '絵コンテ最終承認', 'considering', 'client', 'internal', 'task', 'deliverable', NULL, NULL,
      (v_now + interval '1 day')::date,
-     'eeeeeeee-0002-0000-0000-000000000001', v_now - interval '5 days'),
+     'eeeeeeee-0002-0000-0000-000000000001', v_demo_id, v_now - interval '5 days'),
     ('ffffffff-0007-0000-0000-000000000001', v_org_id, v_space_id,
-     'ナレーション原稿承認', 'considering', 'client', 'internal', 'spec',
+     'ナレーション原稿承認', 'considering', 'client', 'internal', 'spec', 'deliverable', '/spec/narration#script', 'considering',
      (v_now - interval '2 days')::date,
-     'eeeeeeee-0002-0000-0000-000000000001', v_now - interval '7 days');
-
-  -- spec タスクの追加フィールド
-  UPDATE tasks SET
-    spec_path = '/spec/narration#script',
-    decision_state = 'considering'
-  WHERE id = 'ffffffff-0007-0000-0000-000000000001';
+     'eeeeeeee-0002-0000-0000-000000000001', v_demo_id, v_now - interval '7 days');
 
   -- internal ボール
-  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, assignee_id, milestone_id, created_at) VALUES
+  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, assignee_id, milestone_id, created_by, created_at) VALUES
     ('ffffffff-0008-0000-0000-000000000001', v_org_id, v_space_id,
      '楽曲ライセンス契約手配', 'in_progress', 'internal', 'internal', 'task',
      (v_now + interval '10 days')::date, v_demo_id,
-     'eeeeeeee-0003-0000-0000-000000000001', v_now - interval '3 days');
+     'eeeeeeee-0003-0000-0000-000000000001', v_demo_id, v_now - interval '3 days');
 
   -- 完了タスク
-  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, milestone_id, created_at, updated_at) VALUES
+  INSERT INTO tasks (id, org_id, space_id, title, status, ball, origin, type, due_date, milestone_id, created_by, created_at, updated_at) VALUES
     ('ffffffff-0009-0000-0000-000000000001', v_org_id, v_space_id,
      'プロジェクトキックオフ', 'done', 'internal', 'internal', 'task',
      (v_now - interval '20 days')::date,
-     'eeeeeeee-0001-0000-0000-000000000001', v_now - interval '25 days', v_now - interval '20 days'),
+     'eeeeeeee-0001-0000-0000-000000000001', v_demo_id, v_now - interval '25 days', v_now - interval '20 days'),
     ('ffffffff-0010-0000-0000-000000000001', v_org_id, v_space_id,
      '企画書・コンセプト作成', 'done', 'internal', 'internal', 'task',
      (v_now - interval '15 days')::date,
-     'eeeeeeee-0001-0000-0000-000000000001', v_now - interval '22 days', v_now - interval '14 days'),
+     'eeeeeeee-0001-0000-0000-000000000001', v_demo_id, v_now - interval '22 days', v_now - interval '14 days'),
     ('ffffffff-0011-0000-0000-000000000001', v_org_id, v_space_id,
      '予算概算提出', 'done', 'internal', 'client', 'task',
      (v_now - interval '10 days')::date,
-     'eeeeeeee-0001-0000-0000-000000000001', v_now - interval '18 days', v_now - interval '9 days');
+     'eeeeeeee-0001-0000-0000-000000000001', v_demo_id, v_now - interval '18 days', v_now - interval '9 days');
 
   -- ==========================================================================
   -- 7. Task Pricing (見積もりデータ)
+  --    見積の行を書けるのはサーバー（service_role）と、その space の admin / editor / vendor だけ
+  --    （task_pricing の見張り）。この節の間だけ service_role で行う
   -- ==========================================================================
+  SET LOCAL ROLE service_role;
   DELETE FROM task_pricing WHERE task_id IN (
     'ffffffff-0001-0000-0000-000000000001',
     'ffffffff-0002-0000-0000-000000000001',
@@ -224,19 +228,21 @@ BEGIN
      30, 5000,    -- 30h x 5000 = 150,000
      'fixed', 250000,  -- 固定売値 250,000
      v_now - interval '15 days', v_now - interval '13 days', v_now - interval '10 days');
+  RESET ROLE;
 
   -- ==========================================================================
   -- 8. アクティビティログ
   -- ==========================================================================
   DELETE FROM audit_logs WHERE space_id = v_space_id;
 
-  INSERT INTO audit_logs (id, space_id, task_id, actor_id, action, payload, created_at) VALUES
-    (gen_random_uuid(), v_space_id, 'ffffffff-0009-0000-0000-000000000001', v_demo_id,
-     'status_changed', '{"from": "in_progress", "to": "done"}', v_now - interval '20 days'),
-    (gen_random_uuid(), v_space_id, 'ffffffff-0001-0000-0000-000000000001', v_vendor1_id,
-     'status_changed', '{"from": "todo", "to": "in_progress"}', v_now - interval '2 days'),
-    (gen_random_uuid(), v_space_id, 'ffffffff-0006-0000-0000-000000000001', v_demo_id,
-     'ball_changed', '{"from": "agency", "to": "client"}', v_now - interval '5 days');
+  INSERT INTO audit_logs (org_id, space_id, actor_id, actor_role, event_type, target_type, target_id,
+                          data_before, data_after, occurred_at) VALUES
+    (v_org_id, v_space_id, v_demo_id, 'owner', 'task.status_changed', 'task', 'ffffffff-0009-0000-0000-000000000001',
+     '{"status": "in_progress"}', '{"status": "done"}', v_now - interval '20 days'),
+    (v_org_id, v_space_id, v_vendor1_id, 'client', 'task.status_changed', 'task', 'ffffffff-0001-0000-0000-000000000001',
+     '{"status": "todo"}', '{"status": "in_progress"}', v_now - interval '2 days'),
+    (v_org_id, v_space_id, v_demo_id, 'owner', 'task.updated', 'task', 'ffffffff-0006-0000-0000-000000000001',
+     '{"ball": "agency"}', '{"ball": "client"}', v_now - interval '5 days');
 
   RAISE NOTICE 'Agency test data created successfully for space: %', v_space_id;
 END $$;
