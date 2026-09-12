@@ -122,11 +122,12 @@ export async function markTaskReminderSent(taskId: string, sentAtISO: string): P
 /**
  * 設定時ゲート用: タスクが所属する org を導出する（tasks.space_id -> spaces.org_id）。
  * 見つからなければ null。
+ * tasks → spaces の外部キーは2本あるため（20260911155718_space_org_fk.sql）、道を明示する。
  */
 export async function findTaskOrgId(taskId: string): Promise<{ orgId: string; spaceId: string } | null> {
   const { data, error } = await admin()
     .from('tasks')
-    .select('space_id, spaces!inner(org_id)')
+    .select('space_id, spaces!tasks_space_id_fkey!inner(org_id)')
     .eq('id', taskId)
     .maybeSingle()
 

@@ -44,7 +44,7 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
         space_id,
         estimated_cost,
         estimate_status,
-        spaces!inner (
+        spaces!tasks_space_id_fkey!inner (
           id,
           name,
           org_id,
