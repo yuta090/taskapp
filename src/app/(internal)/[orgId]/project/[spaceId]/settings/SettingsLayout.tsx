@@ -111,19 +111,19 @@ function SettingsSection({
     case 'general':
       return (
         <>
-          <GeneralSettings spaceId={spaceId} />
+          <GeneralSettings orgId={orgId} spaceId={spaceId} />
           <hr className="my-6 border-gray-100" />
           <PresetSettings orgId={orgId} spaceId={spaceId} />
         </>
       )
     case 'milestones':
-      return <MilestonesSettings spaceId={spaceId} />
+      return <MilestonesSettings orgId={orgId} spaceId={spaceId} />
     case 'members':
       return <MembersSettings orgId={orgId} spaceId={spaceId} />
     case 'approval':
-      return <ApprovalSettings spaceId={spaceId} />
+      return <ApprovalSettings orgId={orgId} spaceId={spaceId} />
     case 'portal':
-      return <PortalSettings spaceId={spaceId} />
+      return <PortalSettings orgId={orgId} spaceId={spaceId} />
     case 'agency':
       return <AgencySettings orgId={orgId} spaceId={spaceId} />
     case 'github':
