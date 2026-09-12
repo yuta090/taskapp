@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { Calendar, Clock, CaretRight, FileText, X } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
+// 共有 barrel を経由しない（議事録の Markdown 変換器がポータル全ページの
+// 共有チャンクに載るのを避けるため。components/portal/index.ts のコメント参照）
+import { PortalMinutesDocument } from '@/components/portal/PortalMinutesDocument'
 
 interface Project {
   id: string
@@ -93,12 +96,10 @@ function MeetingInspector({
             </div>
           )}
 
-          {meeting.minutesMd ? (
-            <div className="prose prose-sm max-w-none">
+          {meeting.minutesMd?.trim() ? (
+            <div>
               <div className="text-xs font-medium text-gray-500 mb-2">議事録</div>
-              <div className="whitespace-pre-wrap text-sm text-gray-700">
-                {meeting.minutesMd}
-              </div>
+              <PortalMinutesDocument md={meeting.minutesMd} />
             </div>
           ) : (
             <div className="text-center py-8 text-gray-400">
