@@ -1,15 +1,7 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
-import { ToolUserError } from '../errors.js'
-
-/** .single() が0件（PGRST116）で断ったときだけ、見つからない旨のToolUserErrorにする */
-function notFoundOr(error: { code?: string; message?: string }, context: string, fallbackMessage: string): Error {
-  if (error.code === 'PGRST116') return new ToolUserError('マイルストーンが見つかりません', 404)
-  // それ以外のDBの理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
-  console.error(`${context} failed:`, error.code, error.message)
-  return new Error(fallbackMessage)
-}
+import { notFoundOr } from '../lib/dbErrors.js'
 
 // Milestone type
 export interface Milestone {
@@ -113,7 +105,7 @@ export async function milestoneUpdate(params: z.infer<typeof milestoneUpdateSche
     .select('*')
     .single()
 
-  if (error) throw notFoundOr(error, 'milestone_update', 'マイルストーンの更新に失敗しました')
+  if (error) throw notFoundOr(error, 'milestone_update', 'マイルストーンが見つかりません', 'マイルストーンの更新に失敗しました')
   return data as Milestone
 }
 
@@ -149,7 +141,7 @@ export async function milestoneGet(params: z.infer<typeof milestoneGetSchema>): 
     .eq('space_id', params.spaceId)
     .single()
 
-  if (error) throw notFoundOr(error, 'milestone_get', 'マイルストーンの取得に失敗しました')
+  if (error) throw notFoundOr(error, 'milestone_get', 'マイルストーンが見つかりません', 'マイルストーンの取得に失敗しました')
   return data as Milestone
 }
 
