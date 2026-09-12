@@ -290,3 +290,51 @@ describe('TaskCreateSheet — Wiki のページの紐づけ（探す＋その場
     )
   })
 })
+
+// マイタスクなどの横断作成（プロジェクトをその場で選ぶ）で、プロジェクトを選び直したときの挙動
+describe('TaskCreateSheet — 横断作成でプロジェクトを選び直すと、Wikiページの紐づけも空にする', () => {
+  function renderGlobalSheet(onSubmit = vi.fn()) {
+    return render(
+      <TaskCreateSheet
+        spaceId=""
+        isOpen
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+        spaces={[
+          { id: 'space1', name: 'プロジェクトA', orgId: 'org1' },
+          { id: 'space2', name: 'プロジェクトB', orgId: 'org1' },
+        ]}
+      />
+    )
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    wikiMock.pages = [{ id: 'w1', title: 'UI仕様書', tags: ['仕様書', 'UI'] }]
+  })
+
+  afterEach(() => {
+    wikiMock.pages = []
+  })
+
+  it('プロジェクトAでWikiページを選んだ後にプロジェクトBへ選び直すと、紐づけが外れる（前のプロジェクトのページのまま作らない）', async () => {
+    renderGlobalSheet()
+
+    fireEvent.change(screen.getByTestId('task-create-space'), { target: { value: 'space1' } })
+    fireEvent.click(screen.getByText('詳細オプション'))
+
+    const input = screen.getByTestId('task-create-wiki-page-input')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'UI' } })
+    fireEvent.click(screen.getByRole('option', { name: /UI仕様書/ }))
+    await waitFor(() =>
+      expect(screen.getByTestId('task-create-wiki-page-current')).toHaveTextContent('UI仕様書')
+    )
+
+    fireEvent.change(screen.getByTestId('task-create-space'), { target: { value: 'space2' } })
+
+    expect(screen.queryByTestId('task-create-wiki-page-current')).not.toBeInTheDocument()
+    expect(screen.getByTestId('task-create-wiki-page-input')).toBeInTheDocument()
+  })
+})
