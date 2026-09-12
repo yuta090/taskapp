@@ -34,11 +34,26 @@ E2E(Playwright)は実行コストが高いので**CIには載せない**。代�
 `playwright.config.ts` が `.env.local` を読むので、**引数も環境変数も渡さなくてよい**。
 
 ```bash
-npm run test:e2e          # ローカル dev サーバー(:4000)に対して
-npm run test:e2e:preview  # develop の Vercel プレビューに対して（約20秒）
+npm run test:e2e          # ローカル(:4000)に対して。起動していなければ本番ビルドして立ち上げる（約3分）
 npm run test:e2e:prod     # 本番(agentpm.app)に対して
+BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に release ブランチのプレビューに対して
 ```
 
+- **Vercel のプレビューは main と `release/*` にしか作られない**（2026-09-12〜・ビルド代の節約）。
+  作業ブランチ（PR）と develop のプレビューは無いので、**画面の確認と E2E はローカルで回す**
+  （ユーザー方針「ローカルでできることはローカルで」）。ビルドが増える設定（プレビューを戻す・
+  ビルドマシンを Turbo に戻す）は**ユーザーの了承なしに戻さない**。
+- **ローカルの起動は webpack**。この Mac の exFAT ボリュームでは Turbopack が `Permission denied`
+  で落ちるため。worktree でも `node_modules` と `.env.local` をメイン checkout へのシンボリック
+  リンクにすれば動く。
+  - **E2E・通しの確認は本番ビルドで**: `npm run build:local`（約3分）→ `npm run start:local`（:4000）。
+    `npm run test:e2e` はサーバーが無ければこれを自動で行う。本番ビルドなら全41件が約20秒で回り、
+    結果は本番と同じ（34 passed / 7 skipped・2026-09-12）。
+  - **ページの見た目をさっと見るだけなら** `npm run dev`（`next dev --webpack`）。ただしページごとの
+    初回表示はコンパイルで 30 秒ほどかかり、**受信トレイ・マイタスクなど一部のページは初回
+    コンパイルが止まって開けない**ことがある（2026-09-12 に実測）。そのときは本番ビルドで見る。
+  - ローカル実行のスクショ・レポートは OS の一時フォルダ（`$TMPDIR/taskapp-e2e/`）に出る
+    （exFAT の `._*` で `test-results/` が消せず、起動前に落ちるのを避けるため）。
 - **回すタイミング**: `develop` → `main` の昇格PRを出す前に1回。UIの見た目クラス・
   `data-testid`・ボタンの表示名を変えたときも1回。
 - `E2E_EMAIL` / `E2E_PASSWORD` / `E2E_CLIENT_EMAIL` / `E2E_CLIENT_PASSWORD` は `.env.local` に置く。
