@@ -491,14 +491,18 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 }
 
 /* ============================================
-   Wiki Editor - Link Styling
-   BlockNote/Mantine overrides require !important
+   文書エディタ（Wiki・議事録）の本文中のリンク
+   BlockNote/Mantine の既定を上書きするので !important が要る
    ============================================ */
 
 .wiki-editor .bn-editor a[href],
 .wiki-editor .bn-block-content a[href],
 .wiki-editor [data-content-type] a[href],
-.wiki-editor a[href] {
+.wiki-editor a[href],
+.minutes-editor .bn-editor a[href],
+.minutes-editor .bn-block-content a[href],
+.minutes-editor [data-content-type] a[href],
+.minutes-editor a[href] {
   color: #4f46e5 !important;
   text-decoration: underline !important;
   text-decoration-color: #a5b4fc !important;
@@ -512,22 +516,37 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 .wiki-editor .bn-editor a[href]:hover,
 .wiki-editor .bn-block-content a[href]:hover,
 .wiki-editor [data-content-type] a[href]:hover,
-.wiki-editor a[href]:hover {
+.wiki-editor a[href]:hover,
+.minutes-editor .bn-editor a[href]:hover,
+.minutes-editor .bn-block-content a[href]:hover,
+.minutes-editor [data-content-type] a[href]:hover,
+.minutes-editor a[href]:hover {
   color: #4338ca !important;
   text-decoration-color: #6366f1 !important;
   background-color: rgba(99, 102, 241, 0.06);
 }
 
-/* Internal link indicator (starts with /) */
-.wiki-editor a[href^="/"]::before {
-  content: "↗";
-  font-size: 0.7em;
-  margin-right: 2px;
+/* このアプリの中の画面へ（押すと同じタブで移動し、戻るで戻れる） */
+.wiki-editor a[href^="/"]::before,
+.minutes-editor a[href^="/"]::before {
+  content: "→";
+  font-size: 0.8em;
+  margin-right: 3px;
+  opacity: 0.55;
+}
+
+/* ファイルのダウンロード（押すと保存が始まり、画面は変わらない） */
+.wiki-editor a[href^="/api/files/"]::before,
+.minutes-editor a[href^="/api/files/"]::before {
+  content: "⤓";
+  font-size: 0.85em;
+  margin-right: 3px;
   opacity: 0.6;
 }
 
-/* External link indicator */
-.wiki-editor a[href^="http"]::after {
+/* 外部のサイトへ（別のタブが開く） */
+.wiki-editor a[href^="http"]::after,
+.minutes-editor a[href^="http"]::after {
   content: "↗";
   font-size: 0.7em;
   margin-left: 2px;

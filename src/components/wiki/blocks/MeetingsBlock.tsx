@@ -4,6 +4,7 @@ import { createReactBlockSpec } from '@blocknote/react'
 import { useState, useEffect } from 'react'
 import { Notebook, ArrowRight, CalendarBlank, Circle } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import { buildMinutesHref, buildProjectBasePath } from '@/lib/navigation/appLinks'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Props stored in block JSON
@@ -80,7 +81,9 @@ function MeetingsBlockComponent({ block, editor }: { block: { props: { orgId: st
     }
   }
 
-  const basePath = orgId && spaceId ? `/${orgId}/project/${spaceId}/meetings` : '#'
+  // リンクの組み立ては appLinks.ts に集約する（クエリの綴りがずれると押しても何も開かない）
+  const projectPath = orgId && spaceId ? buildProjectBasePath(orgId, spaceId) : null
+  const basePath = projectPath ? `${projectPath}/meetings` : '#'
 
   return (
     <div className="my-2 rounded-lg border border-gray-200 bg-gray-50/50 overflow-hidden" contentEditable={false}>
@@ -114,7 +117,7 @@ function MeetingsBlockComponent({ block, editor }: { block: { props: { orgId: st
             {meetings.map(meeting => (
               <a
                 key={meeting.id}
-                href={`${basePath}?meeting=${meeting.id}`}
+                href={projectPath ? buildMinutesHref(orgId, spaceId, meeting.id) : '#'}
                 className="flex items-center gap-3 py-2 hover:bg-gray-100/50 -mx-2 px-2 rounded transition-colors"
               >
                 <Circle weight="fill" className={`text-[8px] flex-shrink-0 ${statusColor(meeting.status)}`} />

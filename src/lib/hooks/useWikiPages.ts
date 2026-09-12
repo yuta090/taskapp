@@ -3,6 +3,7 @@
 import { useRef, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { getCachedUserId } from '@/lib/supabase/cached-auth'
 import type { WikiPage, WikiPageVersion } from '@/types/database'
 import {
   DEFAULT_WIKI_TITLE,
@@ -333,9 +334,10 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       })
     )
 
+    // 本人確認はキャッシュ経由（毎回サーバーへ出ると、本文中のリンクを押したときの待ちが伸びる）
+    let userId: string | undefined
     try {
-      const { data: authData } = await supabase.auth.getUser()
-      const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID
+      userId = (await getCachedUserId(supabase)) || process.env.NEXT_PUBLIC_DEMO_USER_ID
 
       const updateData: Record<string, unknown> = { updated_by: userId }
       if (input.title !== undefined) updateData.title = input.title
@@ -360,11 +362,11 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       throw err instanceof Error ? err : new Error('Failed to update wiki page')
     }
 
-    // Insert version snapshot if body changed (non-critical)
+    // 版の控えを残す。本文はもう保存できているので、ここは待たない
+    // （待つと、本文中のリンクを押したときに1往復ぶん画面が動き出すのが遅れる）
     if (input.body !== undefined) {
-      try {
-        const { data: authData } = await supabase.auth.getUser()
-        const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID
+      void (async () => {
+        try {
         if (userId) {
           const currentPage = previousData?.pages.find(p => p.id === pageId)
           await (supabase as SupabaseClient)
@@ -377,9 +379,10 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
               created_by: userId,
             })
         }
-      } catch {
-        // Version snapshot failure is non-critical
-      }
+        } catch {
+          // 版の控えが残せなくても本文は保存できている
+        }
+      })()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId already in deps
   }, [orgId, supabase, queryClient])

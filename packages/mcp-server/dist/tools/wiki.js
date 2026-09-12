@@ -5,6 +5,7 @@ import { checkAuth } from '../auth/helpers.js';
 import { toWikiBlocksJson } from '../lib/wikiBody.js';
 import { assertInSpace } from '../auth/scope.js';
 import { ToolUserError } from '../errors.js';
+import { buildWikiPageLink, withLink } from '../lib/appLinks.js';
 const bodyFormatSchema = z
     .enum(['markdown', 'html', 'blocks'])
     .optional()
@@ -73,7 +74,8 @@ export async function wikiList(params) {
         .limit(params.limit);
     if (error)
         throw new Error('Wikiページ一覧の取得に失敗しました');
-    return (data || []);
+    // link はそのまま Wiki・議事録の本文に貼れる（画面側の「リンクを挿入」と同じ形）
+    return (data || []).map((page) => withLink(page, buildWikiPageLink(orgId, params.spaceId, page.id)));
 }
 export async function wikiGet(params) {
     await checkAuth(params.spaceId, 'read', 'wiki_get', 'wiki', params.pageId);
@@ -88,7 +90,7 @@ export async function wikiGet(params) {
         .single();
     if (error)
         throw new Error('Wikiページが見つかりません');
-    return data;
+    return withLink(data, buildWikiPageLink(orgId, params.spaceId, params.pageId));
 }
 export async function wikiCreate(params) {
     await checkAuth(params.spaceId, 'write', 'wiki_create', 'wiki');

@@ -475,6 +475,21 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       return () => window.removeEventListener('beforeunload', handleBeforeUnload)
     }, [])
 
+    /**
+     * 本文中のリンクで画面を移る前に呼ばれる。待ち時間の途中で移ると最後の一手が消えるので、
+     * ここで保存を確定させる。保存できない状態（権限なし・形式が壊れている・別の場所で更新された）
+     * のときは例外を投げて移動を止める。書きかけを消すより、その場で理由を読んでもらう
+     */
+    const handleBeforeNavigate = useCallback(async () => {
+      if (saveTimerRef.current === null) return
+      if (!canEdit || parseBrokenRef.current || conflictRef.current) {
+        throw new Error('保存できていない変更があります')
+      }
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+      await scheduleSaveRef.current(currentContentRef.current)
+    }, [canEdit])
+
     useImperativeHandle(
       ref,
       () => ({
@@ -604,6 +619,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
             <MinutesEditorDynamic
               minutesMd={initialMinutesMd}
               onChange={canEdit && !forceReadOnly ? handleEditorChange : undefined}
+              onBeforeNavigate={handleBeforeNavigate}
               editable={effectiveEditable}
               orgId={orgId}
               spaceId={spaceId}
