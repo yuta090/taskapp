@@ -20,7 +20,12 @@ export interface LinkPart {
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 
 /**
- * 拾う形（この順に試す）:
+ * 拾う形（この順に試す）。
+ *
+ * **この定数に `test()` / `exec()` を使わないこと。** `matchAll` は正規表現を複製して回すので
+ * `lastIndex` を持ち越さないが、`test()` を1回でも呼ぶと `lastIndex` が進んだまま複製され、
+ * 以降 `matchAll` が何も拾わなくなる（例外は出ず、全部ただの文字に戻るので気づきにくい）。
+ *
  * 1. `https://…` / `http://…`
  * 2. `/api/files/<uuid>/download`
  * 3. `/<uuid>/project/<uuid>` （＋ `/wiki` `/meetings` ＋ `?key=value`）

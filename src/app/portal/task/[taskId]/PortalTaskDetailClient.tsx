@@ -1,7 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { LinkifiedText } from '@/components/shared'
+// バレル（@/components/shared）を経由すると、相手先には開けない CommandPalette や
+// ショートカット一覧まで同じチャンクに載る（実測 +6.3KB gzip・リクエスト1本）。直接指す
+import { LinkifiedText } from '@/components/shared/LinkifiedText'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
