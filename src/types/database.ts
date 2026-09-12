@@ -805,6 +805,7 @@ export interface Database {
           meeting_id: string
           user_id: string
           side: BallSide
+          created_by: string | null
           created_at: string
         }
         Insert: {
@@ -814,6 +815,7 @@ export interface Database {
           meeting_id: string
           user_id: string
           side: BallSide
+          created_by?: string | null
           created_at?: string
         }
         Update: {
@@ -823,6 +825,7 @@ export interface Database {
           meeting_id?: string
           user_id?: string
           side?: BallSide
+          created_by?: string | null
           created_at?: string
         }
       }
