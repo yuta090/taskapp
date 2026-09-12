@@ -78,7 +78,9 @@ describe('useMeetings.createMeeting', () => {
     }))
   })
 
-  it('参加者の行に、表の必須列（org_id・space_id・meeting_id・user_id・side）と登録者を入れる', async () => {
+  // created_by（登録者）は送らない。列の既定値 auth.uid() がログイン中の利用者を入れる。
+  // 送らなければ、ブラウザから他人を登録者にできず、created_by 列を足す migration の前後どちらでも動く。
+  it('参加者の行に、表の必須列（org_id・space_id・meeting_id・user_id・side）だけを入れる', async () => {
     const { result } = renderHook(() => useMeetings({ orgId: 'o1', spaceId: 's1' }), {
       wrapper: createWrapper(),
     })
@@ -96,8 +98,8 @@ describe('useMeetings.createMeeting', () => {
     expect(mockParticipantsInsert).toHaveBeenCalledTimes(1)
     const rows = mockParticipantsInsert.mock.calls[0][0]
     expect(rows).toEqual([
-      { org_id: 'o1', space_id: 's1', meeting_id: 'm-new', user_id: 'client-1', side: 'client', created_by: 'user-1' },
-      { org_id: 'o1', space_id: 's1', meeting_id: 'm-new', user_id: 'internal-1', side: 'internal', created_by: 'user-1' },
+      { org_id: 'o1', space_id: 's1', meeting_id: 'm-new', user_id: 'client-1', side: 'client' },
+      { org_id: 'o1', space_id: 's1', meeting_id: 'm-new', user_id: 'internal-1', side: 'internal' },
     ])
   })
 

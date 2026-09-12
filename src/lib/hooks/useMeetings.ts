@@ -185,12 +185,12 @@ export function useMeetings({
 
         const createdMeeting = created as Meeting
 
-        // 参加者を登録（org_id / space_id は表の必須列。会議と同じ値を入れる）
+        // 参加者を登録（org_id / space_id は表の必須列。会議と同じ値を入れる）。
+        // created_by は送らない: 列の既定値 auth.uid() がログイン中の利用者を入れる（ブラウザから他人を登録者にさせない）
         const participantBase = {
           org_id: createdMeeting.org_id,
           space_id: createdMeeting.space_id,
           meeting_id: createdMeeting.id,
-          created_by: authUser.id,
         }
         const participantRows = [
           ...meeting.clientParticipantIds.map((userId) => ({
