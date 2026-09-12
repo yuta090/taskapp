@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Key,
@@ -44,7 +44,11 @@ interface ApiKey {
 export default function ApiKeysSettingsPage() {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const { user, loading: userLoading } = useCurrentUser()
-  const { spaces, loading: spacesLoading } = useUserSpaces()
+  // 左メニューと同じ引数(includeArchived: true)にして、同じキャッシュ(['userSpaces', uid, true])
+  // を使い回す（通信を1本減らす）。アーカイブ済みプロジェクトは、このページ側で除く
+  // （このページの一覧・鍵の発行対象は、これまでどおりアーカイブ済みを含めない）
+  const { spaces: allSpaces, loading: spacesLoading } = useUserSpaces({ includeArchived: true })
+  const spaces = useMemo(() => allSpaces.filter((s) => s.archivedAt === null), [allSpaces])
   const queryClient = useQueryClient()
   // API キーは社内メンバー（admin / editor / viewer）専用。相手先として参加しているプロジェクトは
   // 発行フォームの選択肢に出さない（サーバーの /api/keys/user も同じ条件で断る）。
@@ -213,13 +217,26 @@ export default function ApiKeysSettingsPage() {
       }
       const currentOrgId = prev.length > 0 ? spaceOrgById.get(prev[0]) : undefined
       const targetOrgId = spaceOrgById.get(spaceId)
-      // 別の組織のプロジェクトを選んだら、前の組織の選択は外す（鍵の組織は1つに決まる）
-      if (currentOrgId && targetOrgId !== currentOrgId) {
+      // 別の組織のプロジェクトを選んだら、前の組織の選択は外す（鍵の組織は1つに決まる）。
+      // 今の選択の組織が分からない（選択肢から消えた等で spaceOrgById に無い）場合も、
+      // 別の組織の space が紛れ込まないよう素通しで足さず、新しい1件に置き換える
+      if (!currentOrgId || targetOrgId !== currentOrgId) {
         return [spaceId]
       }
       return [...prev, spaceId]
     })
   }
+
+  // 開いている間に一覧が取り直され、選んでいた space が選択肢（selectableSpaces）から
+  // 消えたとき（役割が変わった・space から外れた等）は、選択からも外す。フィルタで
+  // 減らすだけ（足さない）ので、別の組織の space が混ざることはない。
+  useEffect(() => {
+    const validIds = new Set(selectableSpaces.map((s) => s.id))
+    setSelectedSpaces((prev) => {
+      const next = prev.filter((id) => validIds.has(id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [selectableSpaces])
 
   const toggleAction = (action: string) => {
     setAllowedActions((prev) => {
