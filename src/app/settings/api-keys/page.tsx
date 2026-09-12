@@ -23,6 +23,7 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { API_KEY_ACTION_OPTIONS, formatApiKeyActions } from '@/lib/api-keys/actionOptions'
 import { describeKeySpaces } from '@/lib/api-keys/keySpaces'
+import { describeApiKeyCreateError } from '@/lib/api-keys/createErrorMessages'
 import { CliSetupGuide } from '@/components/settings/CliSetupGuide'
 import { isInternalSpaceRole } from '@/lib/roles/spaceRoles'
 
@@ -49,6 +50,25 @@ export default function ApiKeysSettingsPage() {
   // 発行フォームの選択肢に出さない（サーバーの /api/keys/user も同じ条件で断る）。
   // 一覧のプロジェクト名の表示には、全部の所属（spaces）をそのまま使う
   const selectableSpaces = useMemo(() => spaces.filter((s) => isInternalSpaceRole(s.role)), [spaces])
+
+  // 鍵の組織は選んだプロジェクトの組織になる（サーバー側の判定と合わせる）ため、
+  // 選択肢は組織ごとに見出しで分け、1つの組織のプロジェクトだけを選べるようにする
+  const selectableSpacesByOrg = useMemo(() => {
+    const groups = new Map<string, { orgId: string; orgName: string; spaces: typeof selectableSpaces }>()
+    for (const space of selectableSpaces) {
+      const group = groups.get(space.orgId)
+      if (group) {
+        group.spaces.push(space)
+      } else {
+        groups.set(space.orgId, { orgId: space.orgId, orgName: space.orgName, spaces: [space] })
+      }
+    }
+    return Array.from(groups.values())
+  }, [selectableSpaces])
+  const spaceOrgById = useMemo(
+    () => new Map(selectableSpaces.map((s) => [s.id, s.orgId])),
+    [selectableSpaces]
+  )
 
   // New key form state
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -121,7 +141,16 @@ export default function ApiKeysSettingsPage() {
       })
 
       const result = await response.json()
-      if (!response.ok) throw new Error(result.error)
+      if (!response.ok) {
+        // 400は画面側で防ぎきれなかった入力の問題なので、理由を日本語で伝える。
+        // それ以外（401/403/500等）は決まった一般文言のまま
+        toast.error(
+          response.status === 400
+            ? describeApiKeyCreateError(typeof result.error === 'string' ? result.error : undefined)
+            : 'APIキーの作成に失敗しました'
+        )
+        return
+      }
       // サーバーから平文キーを受け取れていなければ、入力欄を空にする前に失敗として扱う
       // （消してしまうと、キーを画面に出せないまま入力し直しもできなくなる）
       if (typeof result.key !== 'string' || !result.key) {
@@ -178,9 +207,18 @@ export default function ApiKeysSettingsPage() {
   }
 
   const toggleSpace = (spaceId: string) => {
-    setSelectedSpaces((prev) =>
-      prev.includes(spaceId) ? prev.filter((id) => id !== spaceId) : [...prev, spaceId]
-    )
+    setSelectedSpaces((prev) => {
+      if (prev.includes(spaceId)) {
+        return prev.filter((id) => id !== spaceId)
+      }
+      const currentOrgId = prev.length > 0 ? spaceOrgById.get(prev[0]) : undefined
+      const targetOrgId = spaceOrgById.get(spaceId)
+      // 別の組織のプロジェクトを選んだら、前の組織の選択は外す（鍵の組織は1つに決まる）
+      if (currentOrgId && targetOrgId !== currentOrgId) {
+        return [spaceId]
+      }
+      return [...prev, spaceId]
+    })
   }
 
   const toggleAction = (action: string) => {
@@ -190,8 +228,11 @@ export default function ApiKeysSettingsPage() {
     })
   }
 
-  const selectAllSpaces = () => {
-    setSelectedSpaces(selectableSpaces.map((s) => s.id))
+  // この組織のプロジェクトだけを全部選ぶ（別の組織を選んでいた場合はそちらを外す）
+  const selectAllInOrg = (orgId: string) => {
+    setSelectedSpaces(
+      selectableSpaces.filter((s) => s.orgId === orgId).map((s) => s.id)
+    )
   }
 
   const deselectAllSpaces = () => {
@@ -327,25 +368,18 @@ export default function ApiKeysSettingsPage() {
                 <label className="block text-sm font-medium text-gray-700">
                   アクセス許可するプロジェクト
                 </label>
-                <div className="flex gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={selectAllSpaces}
-                    className="text-indigo-600 hover:text-indigo-700"
-                  >
-                    すべて選択
-                  </button>
-                  <span className="text-gray-300">|</span>
-                  <button
-                    type="button"
-                    onClick={deselectAllSpaces}
-                    className="text-gray-500 hover:text-gray-700"
-                  >
-                    すべて解除
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={deselectAllSpaces}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  すべて解除
+                </button>
               </div>
-              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
+              <p className="text-xs text-gray-500 mb-2">
+                1つの組織のプロジェクトだけを選べます。別の組織のプロジェクトを選ぶと、これまでの選択は外れます
+              </p>
+              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
                 {spacesLoading ? (
                   <div className="px-4 py-3 text-sm text-gray-500">
                     読み込み中...
@@ -359,32 +393,45 @@ export default function ApiKeysSettingsPage() {
                     APIキーは社内メンバー向けの機能です。相手先として参加しているプロジェクトでは発行できません
                   </div>
                 ) : (
-                  selectableSpaces.map((space) => (
-                    <label
-                      key={space.id}
-                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleSpace(space.id)}
-                        className="text-lg text-gray-500"
-                      >
-                        {selectedSpaces.includes(space.id) ? (
-                          <CheckSquare className="text-indigo-600" weight="fill" />
-                        ) : (
-                          <Square />
-                        )}
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 truncate">
-                          {space.name}
-                        </div>
-                        <div className="text-xs text-gray-500">{space.orgName}</div>
+                  selectableSpacesByOrg.map((group) => (
+                    <div key={group.orgId}>
+                      <div className="flex items-center justify-between px-4 py-1.5 bg-gray-50">
+                        <span className="text-xs font-medium text-gray-500">{group.orgName}</span>
+                        <button
+                          type="button"
+                          onClick={() => selectAllInOrg(group.orgId)}
+                          className="text-xs text-indigo-600 hover:text-indigo-700"
+                        >
+                          この組織を全部選択
+                        </button>
                       </div>
-                      <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
-                        {space.role}
-                      </span>
-                    </label>
+                      {group.spaces.map((space) => (
+                        <label
+                          key={space.id}
+                          className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleSpace(space.id)}
+                            className="text-lg text-gray-500"
+                          >
+                            {selectedSpaces.includes(space.id) ? (
+                              <CheckSquare className="text-indigo-600" weight="fill" />
+                            ) : (
+                              <Square />
+                            )}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-900 truncate">
+                              {space.name}
+                            </div>
+                          </div>
+                          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
+                            {space.role}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
                   ))
                 )}
               </div>
