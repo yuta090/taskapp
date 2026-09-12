@@ -15,11 +15,12 @@ import { GITHUB_APP_PERMISSIONS, GITHUB_APP_EVENTS } from './permissions.mjs'
 const REPO_ROOT = path.resolve(__dirname, '../../..')
 
 describe('GitHub App permissions/events の正本', () => {
-  it('確定値どおり: pull_requests=read, issues=write, metadata=read', () => {
+  it('確定値どおり: pull_requests=read, issues=write, metadata=read, members=read', () => {
     expect(GITHUB_APP_PERMISSIONS).toEqual({
       pull_requests: 'read',
       issues: 'write',
       metadata: 'read',
+      members: 'read',
     })
   })
 

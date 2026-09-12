@@ -14,6 +14,9 @@ export const GITHUB_APP_PERMISSIONS = {
   pull_requests: 'read',
   issues: 'write',
   metadata: 'read',
+  // 接続する人が GitHub 側の管理者であることを確認するため
+  // （組織アカウントで /user/memberships/orgs/{org} を引く）
+  members: 'read',
 }
 
 /** GitHub App が購読する webhook イベント */

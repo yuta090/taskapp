@@ -17,6 +17,7 @@ import {
 } from '@phosphor-icons/react'
 import { AmberBadge, useConfirmDialog } from '@/components/shared'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import type { Meeting, MeetingParticipant } from '@/types/database'
 import type { MinutesPreviewResult, ParseMinutesResult } from '@/lib/hooks/useMeetings'
 
@@ -152,8 +153,10 @@ export function MeetingInspector({
       const result = await onCreateTasks(meeting.id)
       setCreateResult(result)
       setPreview(null)
-    } catch {
-      setTaskError('タスク化に失敗しました')
+    } catch (err) {
+      // 別の場所で更新されていて DB が断ったときは、その理由をそのまま出す
+      // （「タスク化に失敗しました」だけだと、最新を読み込めば直ることが分からない）
+      setTaskError(err instanceof MinutesConflictError ? err.message : 'タスク化に失敗しました')
     } finally {
       setCreating(false)
     }

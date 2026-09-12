@@ -12,6 +12,8 @@ import { MeetingCreateSheet, type MeetingCreateData } from '@/components/meeting
 import { MinutesDocumentView, type MinutesDocumentViewHandle } from '@/components/meeting/MinutesDocumentView'
 import { ProposalRow, ProposalInspector, ProposalCreateSheet } from '@/components/scheduling'
 import { useMeetings } from '@/lib/hooks/useMeetings'
+// 競合の型は、hooks ではなくモックされない置き場から取る（理由は errors.ts のコメント）
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
@@ -376,7 +378,20 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
                     throw err
                   }
 
-                  const result = await parseMinutes(meetingId, flushedContent)
+                  // DB 側でも「渡した本文が、いま DB にある本文と同じか」を確かめる。
+                  // 上の確認〜ここまでの隙間に誰かが書いていたら、DB は何も書かずに断る
+                  // （作りかけのタスクも同じトランザクションで巻き戻る）。その場合は
+                  // 保存が0行だったときと同じ競合の帯を出し、「最新を読み込む」で復帰させる。
+                  let result: Awaited<ReturnType<typeof parseMinutes>>
+                  try {
+                    result = await parseMinutes(meetingId, flushedContent)
+                  } catch (err) {
+                    if (err instanceof MinutesConflictError) {
+                      minutesViewRef.current?.markConflict()
+                      toast.error(err.message)
+                    }
+                    throw err
+                  }
 
                   // 議事録は rpc_parse_meeting_minutes がサーバー側で書き換える（行末に目印を
                   // 足す）ため、詳細を取り直して文書ビューを作り直す。取り直しは別に try する

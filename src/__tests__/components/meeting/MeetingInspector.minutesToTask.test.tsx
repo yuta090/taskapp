@@ -2,6 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MeetingInspector } from '@/components/meeting/MeetingInspector'
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import type { Meeting } from '@/types/database'
 
 // #87: 議事録タブから、決まった作業(SPEC行)をワンクリックでタスク化する導線。
@@ -225,6 +226,44 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalled())
     expect(await screen.findByText('タスク化候補の取得に失敗しました')).toBeTruthy()
     expect(screen.queryByTestId('minutes-task-empty')).toBeNull()
+  })
+
+  it('別の場所で更新されていて作れなかったときは、その理由の文を出す（「失敗しました」で終わらせない）', async () => {
+    const message = 'この議事録は、別の場所で更新されています。最新を読み込んでからもう一度お試しください'
+    const onCreateTasks = vi.fn().mockRejectedValue(new MinutesConflictError(message))
+    render(
+      <MeetingInspector
+        meeting={makeMeeting()}
+        onClose={vi.fn()}
+        onPreviewMinutes={vi.fn().mockResolvedValue(previewResult)}
+        onCreateTasks={onCreateTasks}
+      />
+    )
+    openMinutesTab()
+
+    fireEvent.click(await screen.findByTestId('minutes-taskify-button'))
+
+    expect(await screen.findByText(message)).toBeTruthy()
+    expect(screen.queryByText('タスク化に失敗しました')).toBeNull()
+    // 作成結果は出さない（1件も作られていない）
+    expect(screen.queryByTestId('minutes-task-result')).toBeNull()
+  })
+
+  it('競合以外の失敗はこれまでどおり「タスク化に失敗しました」と出す', async () => {
+    const onCreateTasks = vi.fn().mockRejectedValue(new Error('network'))
+    render(
+      <MeetingInspector
+        meeting={makeMeeting()}
+        onClose={vi.fn()}
+        onPreviewMinutes={vi.fn().mockResolvedValue(previewResult)}
+        onCreateTasks={onCreateTasks}
+      />
+    )
+    openMinutesTab()
+
+    fireEvent.click(await screen.findByTestId('minutes-taskify-button'))
+
+    expect(await screen.findByText('タスク化に失敗しました')).toBeTruthy()
   })
 
   it('LOW: タスク化を1回した後も「もう一度確認」を出し、押すとプレビューを取り直す', async () => {

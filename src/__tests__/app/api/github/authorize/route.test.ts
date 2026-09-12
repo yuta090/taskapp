@@ -106,7 +106,7 @@ describe('GET /api/github/authorize', () => {
 
     const state = location.searchParams.get('state')!
     const verified = verifySignedState(state)
-    expect(verified).toEqual({ orgId: ORG_ID, redirectUri: '/settings/org-integrations' })
+    expect(verified).toEqual({ orgId: ORG_ID, redirectUri: '/settings/org-integrations', userId: mockUser.id })
   })
 
   it('redirect はサイト内パスのみ受け付け、外部 URL は既定に置き換える', async () => {
