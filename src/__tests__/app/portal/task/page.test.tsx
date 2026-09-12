@@ -233,4 +233,27 @@ describe('PortalTaskDetailPage loading order', () => {
     await expect(renderPromise).rejects.toBeInstanceOf(NotFoundSignal)
     expect(callLog).toContain('membership-start')
   })
+
+  // DB 側で他の人のプロフィールを読める範囲を「一緒に仕事をしている人」に絞る変更が
+  // 入っても、コメントの書き手が読めないときにこのページは正しく表示すること
+  it('書き手のプロフィールが読めないコメントは、分かる一語で表示する', async () => {
+    const renderPromise = renderPage()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    taskDeferred.resolve({ data: taskRow, error: null })
+    commentsDeferred.resolve({
+      data: [
+        { id: 'c1', body: 'こんにちは', created_at: '2026-01-01T00:00:00', actor_id: 'ghost-1', profiles: null },
+      ],
+      error: null,
+    })
+    projectsDeferred.resolve([])
+
+    const result = await renderPromise
+
+    expect((result as { props: { comments: Array<{ author: string }> } }).props.comments).toEqual([
+      expect.objectContaining({ author: '（メンバー外）' }),
+    ])
+  })
 })

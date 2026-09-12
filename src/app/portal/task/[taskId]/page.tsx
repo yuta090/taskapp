@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalTaskDetailClient } from './PortalTaskDetailClient'
 import { getClientProjects } from '@/lib/portal/getClientProjects'
+import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface PageProps {
@@ -133,7 +134,7 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
     id: c.id,
     content: c.body,
     createdAt: c.created_at,
-    author: c.profiles?.display_name || 'Unknown',
+    author: c.profiles?.display_name || UNKNOWN_PROFILE_LABEL,
   }))
 
   return (

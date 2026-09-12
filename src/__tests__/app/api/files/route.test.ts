@@ -172,11 +172,18 @@ describe('GET /api/files', () => {
     expect(data.files[0].description).toBeNull()
   })
 
-  it('falls back to "メンバー" when the uploader has no display name', async () => {
+  it('falls back to a clear placeholder when the uploader has no display name', async () => {
     profilesResponse = { data: [{ id: UPLOADER_ID, display_name: '' }], error: null }
     const response = await callGet(SPACE_ID)
     const data = await response.json()
-    expect(data.files[0].uploaderName).toBe('メンバー')
+    expect(data.files[0].uploaderName).toBe('（メンバー外）')
+  })
+
+  it('falls back to the same placeholder when the uploader profile cannot be resolved at all', async () => {
+    profilesResponse = { data: [], error: null }
+    const response = await callGet(SPACE_ID)
+    const data = await response.json()
+    expect(data.files[0].uploaderName).toBe('（メンバー外）')
   })
 
   it('returns an empty list without querying profiles when there are no files', async () => {

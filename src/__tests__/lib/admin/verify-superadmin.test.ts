@@ -1,13 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 let user: { id: string } | null = { id: 'admin-1' }
-let isSuperadmin = true
+let rpcResponse: { data: boolean | null; error: { code: string; message: string } | null } = {
+  data: true,
+  error: null,
+}
 let aalCheck: { ok: boolean; reason?: string; enrolled?: boolean } = { ok: true, enrolled: true }
+const rpcMock = vi.fn((..._args: unknown[]) => Promise.resolve(rpcResponse))
 vi.mock('@/lib/supabase/server', () => ({
   createClient: () =>
     Promise.resolve({
       auth: { getUser: () => Promise.resolve({ data: { user } }) },
-      from: () => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { is_superadmin: isSuperadmin } }) }) }) }),
+      rpc: (...args: unknown[]) => rpcMock(...args),
     }),
 }))
 const checkAal2Mock = vi.fn()
@@ -18,7 +22,7 @@ const { verifySuperadmin, verifySuperadminDetailed } = await import('@/lib/admin
 beforeEach(() => {
   vi.clearAllMocks()
   user = { id: 'admin-1' }
-  isSuperadmin = true
+  rpcResponse = { data: true, error: null }
   aalCheck = { ok: true, enrolled: true }
   checkAal2Mock.mockImplementation(() => Promise.resolve({ ...aalCheck, userId: 'admin-1' }))
   delete process.env.ADMIN_MFA_REQUIRED
@@ -27,12 +31,13 @@ beforeEach(() => {
 describe('verifySuperadmin（運営 API の門番）', () => {
   it('superadmin かつ aal2 条件を満たせば userId', async () => {
     expect(await verifySuperadmin()).toBe('admin-1')
+    expect(rpcMock).toHaveBeenCalledWith('rpc_is_superadmin')
   })
   it('未ログイン・非 superadmin は null（理由つき）', async () => {
     user = null
     expect(await verifySuperadminDetailed()).toEqual({ ok: false, reason: 'unauthenticated' })
     user = { id: 'u' }
-    isSuperadmin = false
+    rpcResponse = { data: false, error: null }
     expect(await verifySuperadminDetailed()).toMatchObject({ ok: false, reason: 'not_superadmin' })
     expect(checkAal2Mock).not.toHaveBeenCalled()
   })
@@ -40,6 +45,24 @@ describe('verifySuperadmin（運営 API の門番）', () => {
     aalCheck = { ok: false, reason: 'mfa_required' }
     expect(await verifySuperadmin()).toBeNull()
     expect(await verifySuperadminDetailed()).toMatchObject({ ok: false, reason: 'mfa_required' })
+  })
+  // rpc_is_superadmin() は SECURITY DEFINER で profiles の RLS を経由しないが、
+  // db_pre_request（20260907144900_mfa_pre_request.sql）は role/セッション単位の
+  // 見張りなので、RPC 呼び出しでも同じ理由(42501)で拒否される
+  it('rpc_is_superadmin が db_pre_request の42501を返しても、mfa_requiredとして扱う（「運営でない」に化けさせない）', async () => {
+    rpcResponse = { data: null, error: { code: '42501', message: 'mfa_required' } }
+    expect(await verifySuperadmin()).toBeNull()
+    expect(await verifySuperadminDetailed()).toMatchObject({ ok: false, reason: 'mfa_required', userId: 'admin-1' })
+    expect(checkAal2Mock).not.toHaveBeenCalled()
+  })
+  // 42501 は「関数の実行権が無い」等、二要素の途中とは別の理由でも返る符号。
+  // message まで mfa_required と一致しない場合は「運営でない」にも化けさせず、
+  // 判定できない扱い(check_failed)にして締め出す（fail-closed）
+  it('42501でもmessageがmfa_requiredでなければcheck_failedにする（「運営でない」に化けさせない）', async () => {
+    rpcResponse = { data: null, error: { code: '42501', message: 'permission denied for function rpc_is_superadmin' } }
+    expect(await verifySuperadmin()).toBeNull()
+    expect(await verifySuperadminDetailed()).toMatchObject({ ok: false, reason: 'check_failed', userId: 'admin-1' })
+    expect(checkAal2Mock).not.toHaveBeenCalled()
   })
   it('ADMIN_MFA_REQUIRED=true のときだけ strict で判定する', async () => {
     await verifySuperadmin()

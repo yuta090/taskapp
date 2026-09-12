@@ -10,6 +10,7 @@ import type {
   CommentVisibility,
 } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 
 interface UseTaskCommentsOptions {
   orgId: string
@@ -118,7 +119,7 @@ export function useTaskComments({
           const profile = profileMap.get(c.actor_id)
           return {
             ...c,
-            actor_name: profile?.display_name || c.actor_id.slice(0, 8) + '...',
+            actor_name: profile?.display_name || UNKNOWN_PROFILE_LABEL,
             actor_avatar_url: profile?.avatar_url || null,
           }
         })
