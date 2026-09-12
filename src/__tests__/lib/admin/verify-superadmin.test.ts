@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+/**
+ * verifySuperadminDetailed / verifySuperadmin は React の cache() で包み、1リクエストに
+ * つき1回だけ実行する（(panel) layout と各ページの両方が呼んでいたのを1回にまとめる）。
+ * cache() の重複排除そのものは、実際のリクエスト（Next.js の RSC レンダー）単位の
+ * キャッシュ範囲に依存するため、この Vitest（Node）環境では検証できない
+ * （このファイルの各テストは cache() を経由しても判定結果自体が変わらないことを確かめる）。
+ */
+
 let user: { id: string } | null = { id: 'admin-1' }
 let rpcResponse: { data: boolean | null; error: { code: string; message: string } | null } = {
   data: true,

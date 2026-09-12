@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkAal2, type Aal2Check } from '@/lib/auth/requireAal2'
@@ -16,8 +17,13 @@ export function isAdminMfaRequired(): boolean {
  * リクエストユーザーが superadmin で、かつ二要素認証の条件を満たすか（理由つき）。
  * - 登録済みの運営は、コード入力済み(aal2)でなければ拒否（画面の門番とは別に、API 側で本当に強制する）
  * - ADMIN_MFA_REQUIRED=true なら未登録の運営も拒否
+ *
+ * React の cache() で1リクエスト（1回のレンダー）につき1回だけ実行する。運営画面の
+ * ページは (panel) layout（verifySuperadminDetailed を呼ぶ）の内側でさらに
+ * verifySuperadmin() を呼んでおり、同じ判定（getUser → rpc_is_superadmin → checkAal2）を
+ * 2回実行していた。判定そのもの（二要素の判定・check_failed の扱い）は変えない。
  */
-export async function verifySuperadminDetailed(): Promise<SuperadminVerdict> {
+export const verifySuperadminDetailed = cache(async (): Promise<SuperadminVerdict> => {
   const supabase = await createClient()
   const {
     data: { user },
@@ -39,12 +45,13 @@ export async function verifySuperadminDetailed(): Promise<SuperadminVerdict> {
   const aal = await checkAal2(supabase as SupabaseClient, { strict: isAdminMfaRequired() })
   if (!aal.ok) return { ok: false, reason: aal.reason, userId: user.id }
   return { ok: true, userId: user.id, enrolled: aal.enrolled }
-}
+})
 
 /**
  * admin API ルートの認可ゲート。superadmin かつ二要素認証の条件を満たすとき user id、違えば null（呼び出し側は 403）。
+ * verifySuperadminDetailed() 自体が cache() 済みなので、これも同じリクエスト内で1回だけ実行される。
  */
-export async function verifySuperadmin(): Promise<string | null> {
+export const verifySuperadmin = cache(async (): Promise<string | null> => {
   const v = await verifySuperadminDetailed()
   return v.ok ? v.userId : null
-}
+})

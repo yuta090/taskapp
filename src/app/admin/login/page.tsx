@@ -99,10 +99,16 @@ export default function AdminLoginPage() {
         // 返す。運営でないのとは別に扱い、サインアウトせず ADMIN_HOME へ進める（(panel)
         // layout の verifySuperadminDetailed が /login/mfa?redirect=/admin/dashboard へ回す）
         if (!isSuperadmin && !isMfaPendingRpcError(rpcError)) {
+          if (rpcError) {
+            // 42501は「関数の実行権が無い」等、二要素の途中とは別の理由でも返る一時的な
+            // 失敗。サインアウトはせず、メール・パスワードを入力し直さずに再試行できる
+            // ようにする（「管理者権限がありません」に化けさせない）
+            setError('確認できませんでした。もう一度お試しください。')
+            setLoading(false)
+            return
+          }
           await supabase.auth.signOut()
-          // 42501は「関数の実行権が無い」等、二要素の途中とは別の理由でも返る。それ以外の
-          // 一時的な失敗を「管理者権限がありません」に化けさせない
-          setError(rpcError ? '確認できませんでした。もう一度お試しください。' : '管理者権限がありません')
+          setError('管理者権限がありません')
           setLoading(false)
           return
         }
