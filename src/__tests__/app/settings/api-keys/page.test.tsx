@@ -215,6 +215,30 @@ describe('ApiKeysSettingsPage — プロジェクト選択は組織ごとに分�
     const body = JSON.parse(String((postCall?.[1] as RequestInit | undefined)?.body))
     expect(body.allowedSpaceIds).toEqual(['space-b1'])
   })
+
+  it('今の選択の組織が分からない(組織IDが空)ときは、足さずに新しい選択だけに置き換える', async () => {
+    mockSpaces = [
+      { id: 'space-unknown-org', name: 'プロジェクト不明組織', orgId: '', orgName: '', role: 'admin', archivedAt: null, groupId: null, sortOrder: 0 },
+      { id: 'space-a1', name: 'プロジェクトA1', orgId: 'org-a', orgName: '組織A', role: 'admin', archivedAt: null, groupId: null, sortOrder: 1 },
+    ]
+    renderPage()
+    openCreateForm()
+
+    await waitFor(() => expect(screen.getByText('プロジェクト不明組織')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('プロジェクト不明組織'))
+    fireEvent.click(screen.getByText('プロジェクトA1'))
+
+    postResponse = { ok: true, json: () => Promise.resolve({ key: 'tsk_dummy', data: {} }) }
+    fireEvent.change(screen.getByPlaceholderText('例: Claude Code用'), { target: { value: 'テストキー' } })
+    fireEvent.click(screen.getByText('APIキーを発行'))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/keys/user', expect.anything()))
+    const postCall = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'POST'
+    )
+    const body = JSON.parse(String((postCall?.[1] as RequestInit | undefined)?.body))
+    expect(body.allowedSpaceIds).toEqual(['space-a1'])
+  })
 })
 
 describe('ApiKeysSettingsPage — 左メニューと同じキャッシュを使い、アーカイブ済みは出さない', () => {
