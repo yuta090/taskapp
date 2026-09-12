@@ -5,6 +5,7 @@ import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
 import { hideDbError } from '../lib/dbErrors.js';
 import { parseTaskImportCsv, planTaskImport, } from '../lib/taskImportPlan.js';
+import { hideDbErrorWithHint } from '../lib/dbErrorHints.js';
 /**
  * task_import — CSV からタスクを一括作成する（`agentpm task import` の実体）。
  *
@@ -81,7 +82,7 @@ async function loadUserDirectory(spaceId, needEmails) {
         .select('user_id, role')
         .eq('space_id', spaceId);
     if (mErr)
-        throw new Error(`メンバー一覧の取得に失敗しました: ${mErr.message}`);
+        throw hideDbErrorWithHint(mErr, 'task_import (space_memberships)', 'メンバー一覧の取得に失敗しました');
     const memberIds = new Set((members ?? []).map((m) => m.user_id));
     const byName = new Map();
     for (const part of chunk([...memberIds], IN_CHUNK)) {
@@ -90,7 +91,7 @@ async function loadUserDirectory(spaceId, needEmails) {
             .select('id, display_name')
             .in('id', part);
         if (pErr)
-            throw new Error(`プロフィールの取得に失敗しました: ${pErr.message}`);
+            throw hideDbErrorWithHint(pErr, 'task_import (profiles)', 'プロフィールの取得に失敗しました');
         for (const p of (profiles ?? [])) {
             const name = (p.display_name ?? '').trim();
             if (!name)
@@ -271,8 +272,9 @@ export async function taskImport(params) {
     ]);
     if (ownerRows.length > 0) {
         const { error } = await supabase.from('task_owners').insert(ownerRows);
-        if (error)
-            throw new Error(`担当者の登録に失敗しました（タスク ${created.length}件は作成済み）: ${error.message}`);
+        if (error) {
+            throw hideDbErrorWithHint(error, 'task_import (task_owners)', `担当者の登録に失敗しました（タスク ${created.length}件は作成済み）`);
+        }
     }
     return {
         ...base,

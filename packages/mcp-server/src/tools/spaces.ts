@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 import { authorizeAndLog } from '../auth/index.js'
 import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
+import { AUTH_REASON_LABELS, actionNotAllowedReason, scopeRequiredReason } from '../lib/authReasonLabels.js'
 
 // Schemas
 export const spaceCreateSchema = z.object({
@@ -81,7 +82,7 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
   // メンバーかどうか・読み取りが許されているかは、ほかの操作と同じ権限確認(checkAuth)で見る
   if (ctx.scope === 'space' && ctx.keyId !== 'dev-key') {
     if (!ctx.spaceId) {
-      throw new Error('権限エラー: This API key is not bound to a space')
+      throw new Error(`権限エラー: ${AUTH_REASON_LABELS.keyNotBoundToSpace}`)
     }
     await checkAuth(ctx.spaceId, 'read', 'space_list', 'space', ctx.spaceId)
     let own = supabase.from('spaces').select('*').eq('id', ctx.spaceId).eq('org_id', ctx.orgId)
@@ -96,7 +97,7 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
   // プロジェクトから外れた鍵にも追従する。個人用の鍵は組織をまたげるので、鍵の組織では絞らない
   if (ctx.scope === 'user' && ctx.keyId !== 'dev-key') {
     if (!ctx.userId) {
-      throw new Error('権限エラー: API key owner is not set')
+      throw new Error(`権限エラー: ${AUTH_REASON_LABELS.keyOwnerNotSet}`)
     }
     const { data: memberRows, error: memberError } = await supabase
       .from('space_memberships')
@@ -131,10 +132,10 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
 
   // scope=org: 組織のプロジェクトを全部返す（org 鍵を発行する経路は無い）
   if (ctx.scope !== 'org' && ctx.keyId !== 'dev-key') {
-    throw new Error(`権限エラー: Tool "space_list" requires scope=org or scope=user (current: ${ctx.scope})`)
+    throw new Error(`権限エラー: ${scopeRequiredReason('space_list', 'scope=org または scope=user', ctx.scope)}`)
   }
   if (!ctx.allowedActions.includes('read')) {
-    throw new Error('権限エラー: Action "read" not allowed for this API key')
+    throw new Error(`権限エラー: ${actionNotAllowedReason('read')}`)
   }
 
   let query = supabase

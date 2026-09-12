@@ -39,3 +39,30 @@ describe('authorize — mcp_authorize自体が失敗したときは決まった�
     expect(result.reason).toBeTruthy()
   })
 })
+
+describe('authorize — ローカルの断り理由も日本語にする', () => {
+  it('spaceIdが無ければ日本語で理由を返す', async () => {
+    const result = await authorize({ ctx: CTX as never, spaceId: '', action: 'read' })
+
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toBe('spaceId の指定が必要です')
+  })
+
+  it('鍵に許可されていない操作は日本語で理由を返す', async () => {
+    const result = await authorize({ ctx: { ...CTX, allowedActions: ['read'] } as never, spaceId: 'space-1', action: 'write' })
+
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toBe('このAPIキーでは操作「write」を実行できません')
+  })
+
+  it('scope=userの鍵でallowed_space_idsに無いプロジェクトは日本語で理由を返す', async () => {
+    const result = await authorize({
+      ctx: { ...CTX, scope: 'user', allowedSpaceIds: ['space-2'] } as never,
+      spaceId: 'space-1',
+      action: 'read',
+    })
+
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toBe('このAPIキーで許可されたプロジェクトではありません')
+  })
+})

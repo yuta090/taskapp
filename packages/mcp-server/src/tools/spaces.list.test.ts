@@ -78,7 +78,7 @@ describe('space_list', () => {
   it('どのプロジェクトのキーか分からなければ断る', async () => {
     ctx = { keyId: 'k1', userId: 'u1', orgId: 'org-1', scope: 'space', spaceId: null, allowedSpaceIds: null, allowedActions: ['read'] }
 
-    await expect(spaceList({})).rejects.toThrow(/^権限エラー:/)
+    await expect(spaceList({})).rejects.toThrow('権限エラー: このAPIキーはどのプロジェクトにも紐づいていません')
   })
 
   it('組織全体用のキーは今までどおり組織のプロジェクトを全部返す（1件に絞らない）', async () => {
@@ -136,6 +136,20 @@ describe('space_list', () => {
   it('個人用の鍵に持ち主が無ければ断る', async () => {
     ctx = { keyId: 'k3', userId: null, orgId: 'org-1', scope: 'user', allowedSpaceIds: ['space-1'], allowedActions: ['read'] }
 
-    await expect(spaceList({})).rejects.toThrow(/^権限エラー:/)
+    await expect(spaceList({})).rejects.toThrow('権限エラー: このAPIキーに持ち主が設定されていません')
+  })
+
+  it('想定外のscope値（DB側の破損等）はツール名と現在のscopeを含む日本語で断る', async () => {
+    ctx = { keyId: 'k4', userId: 'u1', orgId: 'org-1', scope: 'unexpected' as Ctx['scope'], allowedSpaceIds: null, allowedActions: ['read'] }
+
+    await expect(spaceList({})).rejects.toThrow(
+      '権限エラー: ツール「space_list」は scope=org または scope=user のAPIキーが必要です（現在のscope: unexpected）',
+    )
+  })
+
+  it('鍵に許可されていない操作は操作名を含む日本語で断る（組織全体用の鍵）', async () => {
+    ctx = { keyId: 'k2', userId: 'u1', orgId: 'org-1', scope: 'org', allowedSpaceIds: null, allowedActions: [] }
+
+    await expect(spaceList({})).rejects.toThrow('権限エラー: このAPIキーでは操作「read」を実行できません')
   })
 })

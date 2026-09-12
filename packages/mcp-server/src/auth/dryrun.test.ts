@@ -40,3 +40,27 @@ describe('confirmDelete — RPCが失敗したときは決まった日本語を�
     expect(result.error).toBeTruthy()
   })
 })
+
+describe('dryRunDelete / confirmDelete — RPC自体は成功したがsuccess:falseで返す理由も日本語にする', () => {
+  it('dryRunDelete: 未対応の対象種別は日本語にする', async () => {
+    rpcResponse = {
+      data: {
+        success: false, affected_count: 0, resource_type: 'unknown', resource_ids: [],
+        confirm_token: '', expires_in_seconds: 0, message: '', error: 'Unsupported resource type',
+      },
+      error: null,
+    }
+
+    const result = await dryRunDelete({ ctx: CTX, spaceId: 'space-1', resourceType: 'unknown', resourceIds: ['t-1'] })
+
+    expect(result.error).toBe('指定した対象の種類には対応していません')
+  })
+
+  it('confirmDelete: 確認トークンが無効・期限切れ・使用済みは日本語にする', async () => {
+    rpcResponse = { data: { success: false, error: 'Invalid, expired, or already used confirm token' }, error: null }
+
+    const result = await confirmDelete({ ctx: CTX, confirmToken: 'token-1' })
+
+    expect(result.error).toBe('確認用のトークンが無効か期限切れ、または既に使われています')
+  })
+})

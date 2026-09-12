@@ -68,6 +68,21 @@ interface ConfirmProposalErrorData {
  * rpc_confirm_proposal_slot_as が {ok:false, error: <コード>} で返す断りの理由を、
  * 決まった日本語の ToolUserError に置き換える。認識できないコードは一般的な Error のまま返す。
  */
+const DRY_RUN_BUSINESS_ERRORS: Record<string, string> = {
+  'Unsupported resource type': '指定した対象の種類には対応していません',
+  'Invalid, expired, or already used confirm token': '確認用のトークンが無効か期限切れ、または既に使われています',
+}
+
+/**
+ * mcp_dry_run_delete / mcp_confirm_delete が成功したレスポンスの中で返す
+ * 断りの理由（data.error）を、決まった日本語にする。これらは呼び出し元の RPC 自身が
+ * 決めた文言でありDBの生の例外ではないため、認識できない理由もそのまま返す。
+ */
+export function translateDryRunBusinessError(error: string | null | undefined): string | undefined {
+  if (!error) return undefined
+  return DRY_RUN_BUSINESS_ERRORS[error] ?? error
+}
+
 export function mapConfirmProposalError(data: ConfirmProposalErrorData | null | undefined): Error {
   switch (data?.error) {
     case 'proposal_not_found':

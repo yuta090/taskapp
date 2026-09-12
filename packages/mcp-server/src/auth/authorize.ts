@@ -5,6 +5,7 @@
  */
 
 import { getSupabaseClient } from '../supabase/client.js'
+import { AUTH_REASON_LABELS, actionNotAllowedReason } from '../lib/authReasonLabels.js'
 
 export type ActionType = 'read' | 'write' | 'delete' | 'bulk'
 
@@ -46,7 +47,7 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
   if (!spaceId) {
     return {
       allowed: false,
-      reason: 'space_id is required for all operations'
+      reason: AUTH_REASON_LABELS.spaceIdRequired
     }
   }
 
@@ -54,7 +55,7 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
   if (!ctx.allowedActions.includes(action)) {
     return {
       allowed: false,
-      reason: `Action "${action}" not allowed for this API key`
+      reason: actionNotAllowedReason(action)
     }
   }
 
@@ -62,7 +63,7 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
   if (ctx.scope === 'user' && ctx.allowedSpaceIds && !ctx.allowedSpaceIds.includes(spaceId)) {
     return {
       allowed: false,
-      reason: 'Space not in allowed_space_ids'
+      reason: AUTH_REASON_LABELS.spaceNotAllowed
     }
   }
 

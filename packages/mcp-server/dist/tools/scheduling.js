@@ -6,6 +6,7 @@ import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '.
 import { mapRaiseExceptionError, mapConfirmProposalError } from '../lib/rpcErrors.js';
 import { proposalStatusLabel } from '../lib/statusLabels.js';
 import { hideDbError } from '../lib/dbErrors.js';
+import { hideDbErrorWithHint } from '../lib/dbErrorHints.js';
 // Schemas
 export const schedulingListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -141,7 +142,7 @@ export async function schedulingCreate(params) {
         .select('*')
         .single();
     if (proposalError)
-        throw new Error(`提案の作成に失敗しました: ${proposalError.message}`);
+        throw hideDbErrorWithHint(proposalError, 'create_scheduling_proposal', '提案の作成に失敗しました');
     // Create slots
     const slotRows = params.slots.map((slot, idx) => ({
         proposal_id: proposal.id,
@@ -153,7 +154,7 @@ export async function schedulingCreate(params) {
         .from('proposal_slots')
         .insert(slotRows);
     if (slotsError)
-        throw new Error(`候補日時の作成に失敗しました: ${slotsError.message}`);
+        throw hideDbErrorWithHint(slotsError, 'create_scheduling_proposal (slots)', '候補日時の作成に失敗しました');
     // Create respondents
     const respondentRows = params.respondents.map((r) => ({
         proposal_id: proposal.id,
@@ -165,7 +166,7 @@ export async function schedulingCreate(params) {
         .from('proposal_respondents')
         .insert(respondentRows);
     if (respondentsError)
-        throw new Error(`回答者の登録に失敗しました: ${respondentsError.message}`);
+        throw hideDbErrorWithHint(respondentsError, 'create_scheduling_proposal (respondents)', '回答者の登録に失敗しました');
     return { proposal };
 }
 export async function schedulingRespond(params) {
@@ -222,7 +223,7 @@ export async function schedulingRespond(params) {
         .from('slot_responses')
         .upsert(rows, { onConflict: 'slot_id,respondent_id' });
     if (upsertError) {
-        throw new Error(`回答の保存に失敗しました: ${upsertError.message}`);
+        throw hideDbErrorWithHint(upsertError, 'respond_to_proposal', '回答の保存に失敗しました');
     }
     return { ok: true, updatedCount: rows.length };
 }
@@ -328,7 +329,7 @@ export async function schedulingGetResponses(params) {
         .select('id, user_id, side, is_required, slot_responses(slot_id, response, responded_at)')
         .eq('proposal_id', params.proposalId);
     if (respondentError)
-        throw new Error(`回答者情報の取得に失敗しました: ${respondentError.message}`);
+        throw hideDbErrorWithHint(respondentError, 'get_proposal_responses (respondents)', '回答者情報の取得に失敗しました');
     // Fetch slots with responses
     const { data: slots, error: slotsError } = await supabase
         .from('proposal_slots')
@@ -336,7 +337,7 @@ export async function schedulingGetResponses(params) {
         .eq('proposal_id', params.proposalId)
         .order('slot_order', { ascending: true });
     if (slotsError)
-        throw new Error(`スロット情報の取得に失敗しました: ${slotsError.message}`);
+        throw hideDbErrorWithHint(slotsError, 'get_proposal_responses (slots)', 'スロット情報の取得に失敗しました');
     // Enrich respondents with display_name
     const userIds = respondents.map((r) => r.user_id);
     const { data: profiles } = await supabase
@@ -663,7 +664,7 @@ export async function schedulingSendReminder(params) {
         .select('id, user_id, slot_responses(id)')
         .eq('proposal_id', params.proposalId);
     if (respondentError)
-        throw new Error(`回答者情報の取得に失敗しました: ${respondentError.message}`);
+        throw hideDbErrorWithHint(respondentError, 'send_proposal_reminder (respondents)', '回答者情報の取得に失敗しました');
     const unrespondedUsers = respondents
         .filter((r) => r.slot_responses.length === 0)
         .map((r) => r.user_id);
@@ -693,7 +694,7 @@ export async function schedulingSendReminder(params) {
         .from('notifications')
         .upsert(notificationRows, { onConflict: 'to_user_id,channel,dedupe_key', ignoreDuplicates: true });
     if (insertError)
-        throw new Error(`リマインド送信に失敗しました: ${insertError.message}`);
+        throw hideDbErrorWithHint(insertError, 'send_proposal_reminder (notifications)', 'リマインド送信に失敗しました');
     // Also log to scheduling_reminder_log for tracking
     const logRows = unrespondedUsers.map((userId) => ({
         proposal_id: params.proposalId,

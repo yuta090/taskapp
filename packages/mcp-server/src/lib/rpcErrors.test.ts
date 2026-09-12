@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mapRaiseExceptionError, mapConfirmProposalError } from './rpcErrors.js'
+import { mapRaiseExceptionError, mapConfirmProposalError, translateDryRunBusinessError } from './rpcErrors.js'
 
 /**
  * DB の断りの理由（RAISE EXCEPTION の文言・rpc_confirm_proposal_slot_as の jsonb の
@@ -119,5 +119,26 @@ describe('mapConfirmProposalError', () => {
   it('data自体が無ければ一般的なエラー', () => {
     const err = mapConfirmProposalError(null)
     expect(err).not.toMatchObject({ name: 'ToolUserError' })
+  })
+})
+
+describe('translateDryRunBusinessError', () => {
+  it('未対応の対象種別は決まった日本語にする', () => {
+    expect(translateDryRunBusinessError('Unsupported resource type')).toBe('指定した対象の種類には対応していません')
+  })
+
+  it('確認トークンが無効・期限切れ・使用済みは決まった日本語にする', () => {
+    expect(translateDryRunBusinessError('Invalid, expired, or already used confirm token')).toBe(
+      '確認用のトークンが無効か期限切れ、または既に使われています',
+    )
+  })
+
+  it('未知の理由はそのまま返す', () => {
+    expect(translateDryRunBusinessError('something_new')).toBe('something_new')
+  })
+
+  it('無ければ無いまま返す', () => {
+    expect(translateDryRunBusinessError(undefined)).toBeUndefined()
+    expect(translateDryRunBusinessError(null)).toBeUndefined()
   })
 })

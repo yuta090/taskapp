@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /**
  * milestone_update の回帰: milestones テーブルに updated_at 列は無い（id/org_id/space_id/name/due_date/
@@ -8,12 +8,16 @@ import { describe, it, expect, vi } from 'vitest'
  */
 const updates: Record<string, unknown>[] = []
 const inserts: Record<string, unknown>[] = []
+let singleResult: { data: unknown; error: { code?: string; message?: string } | null } = {
+  data: { id: 'm-1', name: 'M', due_date: '2026-09-09' },
+  error: null,
+}
 const chain = {
   insert: (payload: Record<string, unknown>) => { inserts.push(payload); return chain },
   update: (payload: Record<string, unknown>) => { updates.push(payload); return chain },
   eq: () => chain,
   select: () => chain,
-  single: async () => ({ data: { id: 'm-1', name: 'M', due_date: '2026-09-09' }, error: null }),
+  single: async () => singleResult,
 }
 vi.mock('../supabase/client.js', () => ({
   getSupabaseClient: () => ({
@@ -24,7 +28,11 @@ vi.mock('../supabase/client.js', () => ({
 }))
 vi.mock('../auth/helpers.js', () => ({ checkAuth: async () => ({ ctx: {} }) }))
 
-const { milestoneCreate, milestoneUpdate } = await import('./milestones.js')
+const { milestoneCreate, milestoneUpdate, milestoneGet } = await import('./milestones.js')
+
+beforeEach(() => {
+  singleResult = { data: { id: 'm-1', name: 'M', due_date: '2026-09-09' }, error: null }
+})
 
 describe('milestone_update', () => {
   it('存在しない updated_at 列を送らない（due_date だけを更新する）', async () => {
@@ -52,5 +60,59 @@ describe('milestone_create', () => {
     }
     expect(inserts).toHaveLength(1)
     expect(inserts[0].order_key).toBe(fixedNowMs)
+  })
+})
+
+/**
+ * milestone_get / milestone_update は、共通の notFoundOr（dbErrors.ts）を使う。
+ * .single() が0件（PGRST116）のときだけ見つからない旨の404、それ以外は一般のエラーにする。
+ */
+describe('milestone_get / milestone_update — 見つからない場合と、それ以外のDBエラー', () => {
+  it('milestone_get: PGRST116なら見つからない旨の404', async () => {
+    singleResult = { data: null, error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' } }
+
+    const err = await milestoneGet({
+      spaceId: '00000000-0000-0000-0000-000000000010',
+      milestoneId: '00000000-0000-0000-0000-000000000001',
+    }).catch((e: unknown) => e)
+
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 404 })
+    expect((err as Error).message).toBe('マイルストーンが見つかりません')
+  })
+
+  it('milestone_get: それ以外のDBエラーは中身を隠した一般のエラー', async () => {
+    singleResult = { data: null, error: { code: '42501', message: 'permission denied for table milestones' } }
+
+    const err = await milestoneGet({
+      spaceId: '00000000-0000-0000-0000-000000000010',
+      milestoneId: '00000000-0000-0000-0000-000000000001',
+    }).catch((e: unknown) => e)
+
+    expect((err as Error).message).not.toContain('permission denied')
+  })
+
+  it('milestone_update: PGRST116なら見つからない旨の404', async () => {
+    singleResult = { data: null, error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' } }
+
+    const err = await milestoneUpdate({
+      spaceId: '00000000-0000-0000-0000-000000000010',
+      milestoneId: '00000000-0000-0000-0000-000000000001',
+      name: '新しい名前',
+    }).catch((e: unknown) => e)
+
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 404 })
+    expect((err as Error).message).toBe('マイルストーンが見つかりません')
+  })
+
+  it('milestone_update: それ以外のDBエラーは中身を隠した一般のエラー', async () => {
+    singleResult = { data: null, error: { code: '42501', message: 'permission denied for table milestones' } }
+
+    const err = await milestoneUpdate({
+      spaceId: '00000000-0000-0000-0000-000000000010',
+      milestoneId: '00000000-0000-0000-0000-000000000001',
+      name: '新しい名前',
+    }).catch((e: unknown) => e)
+
+    expect((err as Error).message).not.toContain('permission denied')
   })
 })

@@ -2,6 +2,7 @@ import { config as dotenvConfig } from 'dotenv'
 import type { AuthContext, ActionType } from './auth/authorize.js'
 import { createAuthContext } from './auth/authorize.js'
 import { getSupabaseClient } from './supabase/client.js'
+import { AUTH_REASON_LABELS } from './lib/authReasonLabels.js'
 
 dotenvConfig()
 
@@ -121,7 +122,7 @@ export async function initializeAuthWithApiKey(apiKey: string): Promise<void> {
   const { data, error } = await supabase.rpc('rpc_validate_api_key', { p_api_key: apiKey })
 
   if (error || !data || (data as Record<string, unknown>[]).length === 0) {
-    throw new Error('Invalid or expired API key')
+    throw new Error(AUTH_REASON_LABELS.invalidOrExpiredApiKey)
   }
 
   const row = (data as Record<string, unknown>[])[0]
