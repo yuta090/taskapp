@@ -9,7 +9,12 @@ import {
   type ReminderRecipient,
   type SentLogEntry,
 } from '@/lib/reminders/computeClientReminders'
+import { mapWithRateLimit } from '@/lib/concurrency/rateLimitedMap'
+import { EMAIL_SEND_RATE_LIMIT } from '@/lib/email/sendRateLimit'
 import type { SupabaseClient } from '@supabase/supabase-js'
+
+// 対象者が多いと、間隔を空けた送信で既定の実行時間を超えることがある。上限を明示する
+export const maxDuration = 300
 
 /**
  * POST /api/cron/client-reminders
@@ -250,10 +255,14 @@ export async function POST(request: NextRequest) {
 
     let emailsSent = 0
     const errors: string[] = []
-    const successfulLogEntries: SentLogEntry[] = []
 
-    await Promise.allSettled(
-      result.digests.map(async (digest) => {
+    interface ReminderOutcome {
+      logEntries: SentLogEntry[]
+    }
+
+    await mapWithRateLimit<typeof result.digests[number], ReminderOutcome>(
+      result.digests,
+      async (digest) => {
         try {
           await sendReminderEmail({
             to: recipientOverride || digest.email,
@@ -262,34 +271,43 @@ export async function POST(request: NextRequest) {
             senderOrgName: senderOrgForDigest([...digest.overdue, ...digest.dueToday, ...digest.stalled].map((r) => r.taskId), orgIdByTask, senderNameByOrg),
           })
           emailsSent += 1
-          if (!recipientOverride) {
-            const entries = result.logEntries.filter((e) => e.recipientUserId === digest.recipientUserId)
-            successfulLogEntries.push(...entries)
-          }
+          if (recipientOverride) return { logEntries: [] }
+          return { logEntries: result.logEntries.filter((e) => e.recipientUserId === digest.recipientUserId) }
         } catch (err) {
           console.error(`[client-reminders] Failed to send to ${digest.email}:`, err)
           errors.push(`${digest.email}: ${err instanceof Error ? err.message : 'unknown error'}`)
+          return { logEntries: [] }
         }
-      })
-    )
+      },
+      {
+        ...EMAIL_SEND_RATE_LIMIT,
+        // かたまりの送信が終わるたびに送信記録を保存する。全部終わってからまとめて
+        // 保存すると、途中で関数が打ち切られたときに記録の残らない人が出て、
+        // 次の実行で同じ内容をもう一度送ってしまう
+        onChunkSettled: async (chunkResults) => {
+          const successfulLogEntries = chunkResults
+            .filter((r): r is PromiseFulfilledResult<ReminderOutcome> => r.status === 'fulfilled')
+            .flatMap((r) => r.value.logEntries)
+          if (successfulLogEntries.length === 0) return
 
-    if (successfulLogEntries.length > 0) {
-      const { error: logError } = await admin
-        .from('client_reminder_log')
-        .upsert(
-          successfulLogEntries.map((e) => ({
-            task_id: e.taskId,
-            recipient_user_id: e.recipientUserId,
-            kind: e.kind,
-            sent_on: e.sentOn,
-            slot: e.slot,
-          })),
-          { onConflict: 'task_id,recipient_user_id,kind,sent_on,slot', ignoreDuplicates: true }
-        )
-      if (logError) {
-        console.error('[client-reminders] Failed to write reminder log entries:', logError)
-      }
-    }
+          const { error: logError } = await admin
+            .from('client_reminder_log')
+            .upsert(
+              successfulLogEntries.map((e) => ({
+                task_id: e.taskId,
+                recipient_user_id: e.recipientUserId,
+                kind: e.kind,
+                sent_on: e.sentOn,
+                slot: e.slot,
+              })),
+              { onConflict: 'task_id,recipient_user_id,kind,sent_on,slot', ignoreDuplicates: true }
+            )
+          if (logError) {
+            console.error('[client-reminders] Failed to write reminder log entries:', logError)
+          }
+        },
+      },
+    )
 
     return NextResponse.json({
       todayJst: result.todayJst,

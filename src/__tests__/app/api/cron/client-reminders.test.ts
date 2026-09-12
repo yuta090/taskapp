@@ -41,7 +41,7 @@ vi.mock('@/lib/supabase/admin', () => ({
   })),
 }))
 
-const { POST } = await import('@/app/api/cron/client-reminders/route')
+const { POST, maxDuration } = await import('@/app/api/cron/client-reminders/route')
 
 function callPost(headers: Record<string, string> = {}, body: Record<string, unknown> = {}) {
   const request = new NextRequest(new URL('/api/cron/client-reminders', 'http://localhost:3000'), {
@@ -95,5 +95,11 @@ describe('POST /api/cron/client-reminders', () => {
     expect(response.status).toBe(200)
     expect(data.dryRun).toBe(true)
     expect(sendReminderEmailMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('実行時間の上限', () => {
+  it('既定より長い間隔を空けた送信でも打ち切られないよう300秒にしている', () => {
+    expect(maxDuration).toBe(300)
   })
 })
