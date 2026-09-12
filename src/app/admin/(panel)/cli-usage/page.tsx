@@ -21,7 +21,6 @@ interface OrgRow {
 interface ProfileRow {
   id: string
   display_name: string | null
-  email: string | null
 }
 
 /** tool_name → 日本語の機能名マッピング */
@@ -124,16 +123,26 @@ async function fetchCliUsageData() {
       .order('created_at', { ascending: false })
       .limit(5000),
     admin.from('organizations').select('id, name'),
-    admin.from('profiles').select('id, display_name, email'),
+    admin.from('profiles').select('id, display_name'),
   ])
 
   const logs = (logsResult.data ?? []) as UsageLog[]
   const orgMap = new Map<string, string>()
   ;(orgsResult.data as OrgRow[] | null)?.forEach((o) => orgMap.set(o.id, o.name))
   const profileMap = new Map<string, string>()
-  ;(profilesResult.data as ProfileRow[] | null)?.forEach((p) =>
-    profileMap.set(p.id, p.display_name || p.email || p.id.slice(0, 8))
+  ;(profilesResult.data as ProfileRow[] | null)?.forEach((p) => {
+    if (p.display_name) profileMap.set(p.id, p.display_name)
+  })
+
+  // 表示名が無い人だけ、メールを管理用の鍵(admin.auth.admin)で補う
+  // （profilesにemail列は無い。メールの正はauth.users）
+  const userIdsMissingName = [...new Set(logs.map((l) => l.user_id).filter((id): id is string => !!id))].filter(
+    (id) => !profileMap.has(id)
   )
+  for (const id of userIdsMissingName) {
+    const { data } = await admin.auth.admin.getUserById(id)
+    if (data.user?.email) profileMap.set(id, data.user.email)
+  }
 
   // Summary
   const totalCount = logs.length

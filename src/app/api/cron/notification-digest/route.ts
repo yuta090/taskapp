@@ -10,7 +10,11 @@ import {
   type PendingInvitesSummary,
 } from '@/lib/notifications/digest'
 import { jstNow } from '@/lib/datetime/jstNow'
+import { mapWithConcurrency } from '@/lib/admin/concurrency'
 import type { SupabaseClient } from '@supabase/supabase-js'
+
+// GoTrue（auth.usersのメール取得）を一斉に呼んでレート制限に当たらないよう絞る
+const EMAIL_LOOKUP_CONCURRENCY = 8
 
 /**
  * POST /api/cron/notification-digest
@@ -198,15 +202,19 @@ export async function POST(request: NextRequest) {
       const stillMemberSet = new Set(memberships.map((m) => `${m.org_id}:${m.user_id}`))
       const memberUserIds = [...new Set(memberships.map((m) => m.user_id))]
 
-      const { data: memberProfileRows } =
-        memberUserIds.length > 0
-          ? await admin.from('profiles').select('id, email').in('id', memberUserIds)
-          : { data: [] as Array<{ id: string; email: string | null }> }
+      // profilesにemail列は無い（メールの正はauth.users）。管理用の鍵で1人ずつ引く
+      const memberEmailEntries = await mapWithConcurrency(
+        memberUserIds,
+        EMAIL_LOOKUP_CONCURRENCY,
+        async (uid): Promise<[string, string | null]> => {
+          const { data, error } = await admin.auth.admin.getUserById(uid)
+          if (error) return [uid, null]
+          return [uid, data.user?.email?.toLowerCase() ?? null]
+        },
+      )
 
       const memberEmailByUserId = new Map<string, string>(
-        ((memberProfileRows || []) as Array<{ id: string; email: string | null }>)
-          .filter((p): p is { id: string; email: string } => !!p.email)
-          .map((p) => [p.id, p.email.toLowerCase()]),
+        memberEmailEntries.filter((e): e is [string, string] => !!e[1]),
       )
 
       const memberEmailsByOrg = new Map<string, Set<string>>()
