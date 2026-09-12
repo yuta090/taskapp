@@ -1272,7 +1272,7 @@ export function TaskInspector({
                 />
                 <span className="text-xs text-gray-500">時間</span>
               </div>
-            ) : task.actual_hours !== null ? (
+            ) : task.actual_hours != null ? (
               <div className="text-sm text-gray-700">
                 {task.actual_hours}h
               </div>
