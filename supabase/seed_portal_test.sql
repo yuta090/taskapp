@@ -69,34 +69,34 @@ BEGIN
   -- ==========================================================================
 
   -- 完了したマイルストーン
-  INSERT INTO milestones (id, org_id, space_id, name, status, due_date, order_key, created_at)
+  INSERT INTO milestones (id, org_id, space_id, name, due_date, order_key, created_at)
   VALUES
     ('bbbbbbbb-0001-0000-0000-000000000001', v_org_id, v_space_id,
-     '要件定義完了', 'done',
+     '要件定義完了',
      (v_now - interval '30 days')::date, 1, v_now - interval '60 days')
-  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status;
+  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
 
   -- 現在進行中のマイルストーン
-  INSERT INTO milestones (id, org_id, space_id, name, status, due_date, order_key, created_at)
+  INSERT INTO milestones (id, org_id, space_id, name, due_date, order_key, created_at)
   VALUES
     ('bbbbbbbb-0002-0000-0000-000000000001', v_org_id, v_space_id,
-     'UI/UXデザイン完了', 'in_progress',
+     'UI/UXデザイン完了',
      (v_now + interval '7 days')::date, 2, v_now - interval '30 days')
-  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status;
+  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
 
   -- 今後のマイルストーン
-  INSERT INTO milestones (id, org_id, space_id, name, status, due_date, order_key, created_at)
+  INSERT INTO milestones (id, org_id, space_id, name, due_date, order_key, created_at)
   VALUES
     ('bbbbbbbb-0003-0000-0000-000000000001', v_org_id, v_space_id,
-     'フロントエンド実装', 'backlog',
+     'フロントエンド実装',
      (v_now + interval '30 days')::date, 3, v_now - interval '30 days'),
     ('bbbbbbbb-0004-0000-0000-000000000001', v_org_id, v_space_id,
-     'バックエンド実装', 'backlog',
+     'バックエンド実装',
      (v_now + interval '45 days')::date, 4, v_now - interval '30 days'),
     ('bbbbbbbb-0005-0000-0000-000000000001', v_org_id, v_space_id,
-     'テスト・リリース', 'backlog',
+     'テスト・リリース',
      (v_now + interval '60 days')::date, 5, v_now - interval '30 days')
-  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status;
+  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
 
   -- ==========================================================================
   -- 6. タスク - 様々なステータスパターン
