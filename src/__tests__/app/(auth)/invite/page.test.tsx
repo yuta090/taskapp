@@ -217,6 +217,32 @@ describe('InviteAcceptPage — 受諾動線', () => {
     })
   })
 
+  // アカウント自体は作れたのに直後のログインだけ失敗すると、招待は既に受諾済みで
+  // やり直しが利かない（受諾済みトークンは無効になる）。「登録できませんでした」と
+  // 誤解させず、ログイン画面へ進めばよいと分かる案内にする
+  it('アカウント作成後にログインだけ失敗したら、日本語の案内とログイン画面へのリンクを出す', async () => {
+    mockSignInWithPassword.mockResolvedValue({ error: { message: 'Invalid login credentials' } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^パスワードを設定\*?$/)).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントを作成して参加' }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('アカウントは作成しましたが、ログインできませんでした。ログイン画面からログインしてください。')
+      ).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Invalid login credentials')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'ログイン画面へ' })).toHaveAttribute('href', '/login')
+  })
+
   // 回帰: パスワード入力欄への1文字ごとの入力が招待読み込み(getSession/rpc_validate_invite)を
   // 再実行してはならない。acceptInvite が password state を閉じ込めていると、
   // useCallback の参照が毎回変わり、それに依存する読み込み用 useEffect も毎回再実行されてしまう
@@ -357,7 +383,7 @@ describe('InviteAcceptPage — 受諾動線', () => {
   })
 
   // apiMfaGuard.ts は { error: 'mfa_required', message: '二要素認証のコード入力が必要です' }
-  // という形の403を返す。error（合言葉）をそのまま出すと "mfa_required" という英語の
+  // という形の403を返す。error（内部の符号）をそのまま出すと "mfa_required" という英語の
   // 内部符号が画面に出てしまうため、message があればそれを優先して出す
   it('二要素認証の門番に断られたら、"mfa_required" ではなくサーバーのmessageを出し、コード入力画面への案内も出す', async () => {
     mockGetSession.mockResolvedValue(session('invitee@example.com'))
@@ -372,9 +398,11 @@ describe('InviteAcceptPage — 受諾動線', () => {
       expect(screen.getByText('二要素認証のコード入力が必要です')).toBeInTheDocument()
     })
     expect(screen.queryByText('mfa_required')).not.toBeInTheDocument()
+    // コードを入力したあと、いつもの着地点ではなくこの招待ページへ戻す
+    // （戻り先が無いと、コード入力後に招待は受けていないまま取り残される）
     expect(screen.getByRole('link', { name: '認証アプリのコードを入力する' })).toHaveAttribute(
       'href',
-      '/login/mfa'
+      '/login/mfa?redirect=%2Finvite%2Ftok-1'
     )
   })
 

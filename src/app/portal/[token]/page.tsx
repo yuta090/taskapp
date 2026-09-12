@@ -37,6 +37,9 @@ export default function PortalInvitePage({
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [mfaRequired, setMfaRequired] = useState(false)
+  // アカウント自体は作れたのに、直後のログインだけ失敗したとき（招待は既に受諾済みなので
+  // 「登録できませんでした」と誤解させず、ログイン画面へ進めばよいと分かる案内にする）
+  const [signInFailedAfterCreate, setSignInFailedAfterCreate] = useState(false)
   const [loading, setLoading] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -48,6 +51,7 @@ export default function PortalInvitePage({
     setLoading(true)
     setError('')
     setMfaRequired(false)
+    setSignInFailedAfterCreate(false)
 
     try {
       if (!isAutoAccept && password.length < 8) {
@@ -79,7 +83,8 @@ export default function PortalInvitePage({
         })
 
         if (signInError) {
-          setError(signInError.message)
+          setError('アカウントは作成しましたが、ログインできませんでした。ログイン画面からログインしてください。')
+          setSignInFailedAfterCreate(true)
           setLoading(false)
           return
         }
@@ -292,8 +297,19 @@ export default function PortalInvitePage({
                 {mfaRequired && (
                   <>
                     {' '}
-                    <Link href={MFA_CHALLENGE_PATH} className="underline">
+                    <Link
+                      href={`${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent(`/portal/${token}`)}`}
+                      className="underline"
+                    >
                       認証アプリのコードを入力する
+                    </Link>
+                  </>
+                )}
+                {signInFailedAfterCreate && (
+                  <>
+                    {' '}
+                    <Link href="/login" className="underline">
+                      ログイン画面へ
                     </Link>
                   </>
                 )}
