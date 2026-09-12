@@ -1,21 +1,12 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useState, useCallback } from 'react'
 import { Flag, Plus, Trash, PencilSimple, Check, X, DotsSixVertical } from '@phosphor-icons/react'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
-
-interface Milestone {
-  id: string
-  name: string
-  start_date: string | null
-  due_date: string | null
-  completed_at: string | null
-  order_key: number
-}
+import { useMilestones } from '@/lib/hooks/useMilestones'
+import type { Milestone } from '@/types/database'
 
 interface MilestonesSettingsProps {
   orgId: string
@@ -27,9 +18,13 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
   // マイルストーンの作成・編集・削除は milestones の RLS（app_can_write_space と同じ規則）。
   // 役割が未確定の間も canEdit は false（読み取り専用側に倒す）
   const { canEdit } = useCanEditSpace(spaceId, orgId)
-  const [milestones, setMilestones] = useState<Milestone[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+
+  // タスク一覧・ガント・バーンダウン等と同じキャッシュ（['milestones', spaceId]）を共有する。
+  // 以前は useState + useEffect の手書き取得で、開くたびに必ず「読み込み中」が出ていたが、
+  // react-query の永続キャッシュ（IndexedDB）に前回分があればそれをすぐ表示できる。
+  // 作成・更新・削除も useMilestones 側の楽観的更新（保存ボタン無しの方針どおり）にそろえる
+  const { milestones, loading, error, createMilestone, updateMilestone, deleteMilestone } =
+    useMilestones({ spaceId })
 
   // New milestone form
   const [newName, setNewName] = useState('')
@@ -45,39 +40,7 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
   const [editDueDate, setEditDueDate] = useState('')
   const [editDateError, setEditDateError] = useState<string | null>(null)
 
-  const supabase = useMemo(() => createClient(), [])
-
-  const fetchMilestones = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-
-      const { data, error: pgErr } = await (supabase as SupabaseClient)
-        .from('milestones')
-        .select('id, name, start_date, due_date, completed_at, order_key')
-        .eq('space_id' as never, spaceId as never)
-        .order('order_key' as never, { ascending: true })
-
-      if (pgErr) {
-        console.error('Milestone fetch error:', pgErr.message, `(code: ${pgErr.code})`)
-        setError(`マイルストーンの取得に失敗しました: ${pgErr.message}`)
-        return
-      }
-      setMilestones(data || [])
-    } catch (err) {
-      console.error('Failed to fetch milestones:', err)
-      const msg = err instanceof Error ? err.message : String(err)
-      setError(`マイルストーンの取得に失敗しました: ${msg}`)
-    } finally {
-      setLoading(false)
-    }
-  }, [spaceId, supabase])
-
-  useEffect(() => {
-    void fetchMilestones()
-  }, [fetchMilestones])
-
-  const handleCreate = async () => {
+  const handleCreate = useCallback(async () => {
     if (!newName.trim()) return
     if (newStartDate && newDueDate && newStartDate > newDueDate) {
       setDateError('開始日は期限日より前に設定してください')
@@ -86,22 +49,14 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
     setDateError(null)
     setCreating(true)
     try {
-       
-      const { error: err } = await (supabase as SupabaseClient)
-        .from('milestones')
-        .insert({
-          space_id: spaceId,
-          name: newName.trim(),
-          start_date: newStartDate || null,
-          due_date: newDueDate || null,
-          order_key: Date.now(),
-        })
-
-      if (err) throw err
+      await createMilestone({
+        name: newName.trim(),
+        startDate: newStartDate || null,
+        dueDate: newDueDate || null,
+      })
       setNewName('')
       setNewStartDate('')
       setNewDueDate('')
-      await fetchMilestones()
       toast.success('マイルストーンを作成しました')
     } catch (err) {
       console.error('Failed to create milestone:', err)
@@ -109,49 +64,45 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
     } finally {
       setCreating(false)
     }
-  }
+  }, [newName, newStartDate, newDueDate, createMilestone])
 
-  const handleDelete = async (id: string) => {
-    const ok = await confirm({
-      title: 'マイルストーンを削除',
-      message: 'このマイルストーンを削除しますか？',
-      confirmLabel: '削除',
-      variant: 'danger',
-    })
-    if (!ok) return
-    try {
+  const handleDelete = useCallback(
+    async (id: string) => {
+      const ok = await confirm({
+        title: 'マイルストーンを削除',
+        message: 'このマイルストーンを削除しますか？',
+        confirmLabel: '削除',
+        variant: 'danger',
+      })
+      if (!ok) return
+      try {
+        await deleteMilestone(id)
+        toast.success('マイルストーンを削除しました')
+      } catch (err) {
+        console.error('Failed to delete milestone:', err)
+        toast.error('マイルストーンの削除に失敗しました')
+      }
+    },
+    [confirm, deleteMilestone]
+  )
 
-      const { error: err } = await (supabase as SupabaseClient)
-        .from('milestones')
-        .delete()
-        .eq('id' as never, id as never)
-
-      if (err) throw err
-      await fetchMilestones()
-      toast.success('マイルストーンを削除しました')
-    } catch (err) {
-      console.error('Failed to delete milestone:', err)
-      toast.error('マイルストーンの削除に失敗しました')
-    }
-  }
-
-  const startEdit = (ms: Milestone) => {
+  const startEdit = useCallback((ms: Milestone) => {
     setEditingId(ms.id)
     setEditName(ms.name)
     setEditStartDate(ms.start_date || '')
     setEditDueDate(ms.due_date || '')
     setEditDateError(null)
-  }
+  }, [])
 
-  const cancelEdit = () => {
+  const cancelEdit = useCallback(() => {
     setEditingId(null)
     setEditName('')
     setEditStartDate('')
     setEditDueDate('')
     setEditDateError(null)
-  }
+  }, [])
 
-  const saveEdit = async () => {
+  const saveEdit = useCallback(async () => {
     if (!editingId || !editName.trim()) return
     if (editStartDate && editDueDate && editStartDate > editDueDate) {
       setEditDateError('開始日は期限日より前に設定してください')
@@ -159,25 +110,18 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
     }
     setEditDateError(null)
     try {
-       
-      const { error: err } = await (supabase as SupabaseClient)
-        .from('milestones')
-        .update({
-          name: editName.trim(),
-          start_date: editStartDate || null,
-          due_date: editDueDate || null,
-        })
-        .eq('id' as never, editingId as never)
-
-      if (err) throw err
+      await updateMilestone(editingId, {
+        name: editName.trim(),
+        startDate: editStartDate || null,
+        dueDate: editDueDate || null,
+      })
       cancelEdit()
-      await fetchMilestones()
       toast.success('マイルストーンを更新しました')
     } catch (err) {
       console.error('Failed to update milestone:', err)
       toast.error('マイルストーンの更新に失敗しました')
     }
-  }
+  }, [editingId, editName, editStartDate, editDueDate, updateMilestone, cancelEdit])
 
   if (loading) {
     return (
@@ -190,7 +134,7 @@ export function MilestonesSettings({ orgId, spaceId }: MilestonesSettingsProps) 
   if (error) {
     return (
       <div className="p-4 text-sm text-red-600">
-        {error}
+        マイルストーンの取得に失敗しました: {error.message}
       </div>
     )
   }
