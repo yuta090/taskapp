@@ -595,7 +595,12 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       }
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
-      await scheduleSaveRef.current?.(currentContentRef.current)
+      // ここは `?.` で黙って何もしない形にしない。保存せずに移ってしまうと、
+      // 待ち時間の途中だった書きかけがそのまま消える（呼び出し側は「保存できた」と
+      // 思って移動する）。取れないはずの状態だが、取れなければ移動を止める。
+      const scheduleSaveNow = scheduleSaveRef.current
+      if (!scheduleSaveNow) throw new Error('保存できていない変更があります')
+      await scheduleSaveNow(currentContentRef.current)
     }, [canEdit])
 
     useImperativeHandle(
