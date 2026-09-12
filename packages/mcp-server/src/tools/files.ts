@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
 import { ToolUserError } from '../errors.js'
+import { buildFileDownloadLink } from '../lib/appLinks.js'
 
 /**
  * file_* — プロジェクトのファイル（`agentpm file list / upload` の実体）。
@@ -138,7 +139,9 @@ export async function fileList(params: z.infer<typeof fileListSchema>): Promise<
       origin: f.origin as 'internal' | 'client',
       clientVisible: Boolean(f.client_visible),
       createdAt: f.created_at as string,
-      downloadPath: `/api/files/${f.id as string}/download`,
+      // link は他の物（Wiki・議事録・タスク）と名前をそろえたもの。downloadPath は今までどおり残す
+      link: buildFileDownloadLink(f.id as string),
+      downloadPath: buildFileDownloadLink(f.id as string),
     }))
 }
 
@@ -229,7 +232,7 @@ export async function fileUploadComplete(
     throw new Error('権限エラー: 自分がアップロードしたファイルだけ完了にできます')
   }
 
-  const downloadPath = `/api/files/${file.id as string}/download`
+  const downloadPath = buildFileDownloadLink(file.id as string)
   const tablePath = isTabularName(file.name as string)
     ? `/${file.org_id as string}/project/${file.space_id as string}/files/${file.id as string}`
     : null
