@@ -10,6 +10,10 @@
 -- 既存の行は NULL のまま（誰が登録したか分からない）。既定値はログイン中の利用者。
 -- service role からの書き込み（API の meeting_create など）では auth.uid() が NULL になり、そのまま NULL が入る。
 
+-- auth.users への外部キーを足すと auth.users にも一瞬ロック（SHARE ROW EXCLUSIVE）がかかる。
+-- 待ち続けて他の処理を止めないよう、取れなければ諦める（落ちたら流し直す）。
+set local lock_timeout = '5s';
+
 alter table public.meeting_participants
   add column if not exists created_by uuid default auth.uid() references auth.users (id) on delete set null;
 
