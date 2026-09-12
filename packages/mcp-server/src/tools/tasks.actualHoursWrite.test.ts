@@ -27,7 +27,10 @@ function makeTasksChain() {
       eqArgs = { ...eqArgs, [col]: val }
       return chain
     },
-    single: async () => ({ data: { id: TASK, actual_hours: null }, error: null }),
+    single: async () =>
+      taskExistsInSpace
+        ? { data: { id: TASK, actual_hours: null }, error: null }
+        : { data: null, error: { message: 'no rows', code: 'PGRST116' } },
     maybeSingle: async () => {
       spaceChecks.push(eqArgs)
       return { data: taskExistsInSpace ? { id: TASK } : null, error: null }
@@ -137,5 +140,17 @@ describe('task_update — actualHours は task_internal_metrics へ書く', () =
     await expect(taskUpdate({ spaceId: SPACE, taskId: TASK, actualHours: 3 })).rejects.toThrow(
       '実績工数の更新に失敗しました'
     )
+  })
+
+  it('ほかの項目と一緒でも、別の space のタスク ID では書き込まない（エラーを返す）', async () => {
+    taskExistsInSpace = false
+
+    await expect(
+      taskUpdate({ spaceId: OTHER_SPACE, taskId: TASK, title: '新タイトル', actualHours: 5 })
+    ).rejects.toThrow()
+
+    // tasks.update().eq('id',...).eq('space_id',...) 自体が0件になるため、
+    // task_internal_metrics へは一切書き込まない
+    expect(metricsUpserts).toHaveLength(0)
   })
 })
