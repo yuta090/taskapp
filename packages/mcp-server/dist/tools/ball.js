@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
-import { requireActorUserId } from '../auth/scope.js';
+import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js';
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js';
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
@@ -47,6 +47,8 @@ export async function ballPass(params) {
     if (checkError || !existingTask) {
         throw new Error('タスクが見つかりません');
     }
+    // 新しい担当者は、画面の担当者選択肢と同じ範囲（このプロジェクトのメンバー）に限る
+    await assertUsersAreSpaceMembers([...params.clientOwnerIds, ...params.internalOwnerIds], params.spaceId);
     // 誰がボールを渡したか（task_events.actor_id）は、鍵に紐づく利用者から取る
     const actor = requireActorUserId();
     const { error } = await supabase.rpc('rpc_pass_ball_as', {
