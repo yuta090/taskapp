@@ -41,11 +41,21 @@ async function main() {
     type: 'project',
     name: 'CM動画制作プロジェクト',
     agency_mode: true,
-    default_margin_rate: 35.0,
-    vendor_settings: { show_client_name: false, allow_client_comments: false },
   })
   if (spaceErr) console.error('  Space error:', spaceErr.message)
   else console.log('  Space created (agency_mode=true)')
+
+  // 既定の利益率・ベンダーポータル設定は社内専用の別表 space_agency_settings へ
+  const { error: agencySettingsErr } = await supabase.from('space_agency_settings').upsert(
+    {
+      space_id: SPACE_ID,
+      default_margin_rate: 35.0,
+      vendor_settings: { show_client_name: false, allow_client_comments: false },
+    },
+    { onConflict: 'space_id' }
+  )
+  if (agencySettingsErr) console.error('  Agency settings error:', agencySettingsErr.message)
+  else console.log('  Agency settings created (margin_rate=35%)')
 
   // 2. Org Memberships for vendors
   console.log('\nSetting org memberships...')

@@ -620,6 +620,31 @@ describe('useTasks — 実績工数(actual_hours)は task_internal_metrics へ�
 
     expect(result.current.tasks[0].actual_hours).toBe(1)
   })
+
+  it('actualHoursと他の列を同時に更新してupsertだけ失敗した場合(半分だけ保存)、取り直しをかけてサーバーの実際の値に合わせる', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', title: '元のタイトル', actual_hours: 1 })],
+      owners: {},
+      reviewStatuses: {},
+    })
+    mockMetricsUpsert.mockResolvedValue({ error: { message: 'boom' } })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+    expect(mockFetchTasksQuery).toHaveBeenCalledTimes(1)
+
+    // tasks 側の update は成功する(=DBには新タイトルが反映済み)が、続く
+    // task_internal_metrics の upsert が失敗する半分保存のケース
+    await expect(
+      result.current.updateTask('t1', { title: '新タイトル', actualHours: 99 })
+    ).rejects.toThrow()
+
+    // ロールバックだけでなく、サーバーの実際の状態を取り直す
+    await waitFor(() => expect(mockFetchTasksQuery).toHaveBeenCalledTimes(2))
+  })
 })
 
 // タスク詳細の「仕様書連携」は候補を Wiki の全ページに広げた。紐づけで仕様タスク(検討中)にすると

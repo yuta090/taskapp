@@ -309,8 +309,11 @@ export function spaceQueryKey(spaceId: string | null) {
   return ['space', spaceId] as const
 }
 
-/** space_agency_settings が無い space（既定値のまま一度も保存していない）の既定値 */
-const DEFAULT_VENDOR_SETTINGS = {
+/**
+ * space_agency_settings が無い space（既定値のまま一度も保存していない）の既定値。
+ * ここが正本（useAgencyMode もここから import する。値の二重管理を避ける）。
+ */
+export const DEFAULT_VENDOR_SETTINGS = {
   show_client_name: false,
   allow_client_comments: false,
 } as const

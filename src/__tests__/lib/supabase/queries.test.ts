@@ -292,7 +292,15 @@ describe('fetchSpaceRowQuery — 代理店設定(default_margin_rate/vendor_sett
 
   it('space_agency_settings に行が無い space では既定値（マージン無し・ベンダー設定は両方false）で補う', async () => {
     const chain = makeSpaceChain({
-      data: { id: 'space-1', name: 'テスト', space_agency_settings: null },
+      data: {
+        id: 'space-1',
+        name: 'テスト',
+        // 新表に行が無くても、旧列(つなぎ)に値が残っていることがある(C3で削除予定)。
+        // 埋め込みが null なら既定値を出す(旧列の値を画面に出さない)
+        default_margin_rate: 999,
+        vendor_settings: { show_client_name: true, allow_client_comments: true },
+        space_agency_settings: null,
+      },
       error: null,
     })
     const supabase = makeSpaceSupabase(chain)

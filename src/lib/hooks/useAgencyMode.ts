@@ -5,6 +5,7 @@ import { useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceRow, spaceQueryKey, patchSpaceRow, type SpaceRow } from './useSpaceRow'
+import { DEFAULT_VENDOR_SETTINGS } from '@/lib/supabase/queries'
 
 export interface VendorSettings {
   show_client_name: boolean
@@ -15,11 +16,6 @@ export interface AgencyModeData {
   agency_mode: boolean
   default_margin_rate: number | null
   vendor_settings: VendorSettings
-}
-
-const DEFAULT_VENDOR_SETTINGS: VendorSettings = {
-  show_client_name: false,
-  allow_client_comments: false,
 }
 
 const DEFAULT_AGENCY_DATA: AgencyModeData = {

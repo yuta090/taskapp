@@ -5,19 +5,7 @@ import { authorizeAndLog, type ActionType } from '../auth/index.js'
 import { dryRunDelete, confirmDelete } from '../auth/dryrun.js'
 import { withTaskNumber } from '../lib/taskNumber.js'
 import { ToolUserError } from '../errors.js'
-
-/**
- * 実績工数(actual_hours)は社内専用の別表 task_internal_metrics（task_id が主キー・
- * tasks と1:1）にある。tasks.actual_hours（旧列。C3で削除予定のつなぎ経由）ではなく、
- * 埋め込みで読んだ新表の値を actual_hours として使う（呼び出し元から見える形は変えない）。
- */
-function flattenTaskInternalMetrics(row: Task): Task {
-  const { task_internal_metrics, ...rest } = row as unknown as Record<string, unknown>
-  const metrics = (
-    Array.isArray(task_internal_metrics) ? task_internal_metrics[0] : task_internal_metrics
-  ) as { actual_hours: number | null } | null | undefined
-  return { ...rest, actual_hours: metrics?.actual_hours ?? null } as Task
-}
+import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
 
 // Schemas
 export const taskCreateSchema = z.object({
@@ -599,7 +587,7 @@ export async function taskStale(params: z.infer<typeof taskStaleSchema>): Promis
 
   let query = supabase
     .from('tasks')
-    .select('*')
+    .select('*, task_internal_metrics (actual_hours)')
     .eq('space_id', params.spaceId)
     .neq('status', 'done')
     .lt('updated_at', cutoffIso)
@@ -613,7 +601,7 @@ export async function taskStale(params: z.infer<typeof taskStaleSchema>): Promis
   const { data, error } = await query
 
   if (error) throw new Error('滞留タスクの取得に失敗しました')
-  return (data || []) as Task[]
+  return ((data || []) as Task[]).map(flattenTaskInternalMetrics)
 }
 
 // Tool definitions for MCP

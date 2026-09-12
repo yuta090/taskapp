@@ -32,13 +32,17 @@ function chainable(response: unknown, calls: RecordedCall[]) {
   return proxy
 }
 
-// actual_hours lives in task_internal_metrics (task_id 1:1 with tasks), embedded with
-// the matching task via tasks!inner(...). Fixtures model the row shape PostgREST
-// returns: metrics columns at the top level, the joined task under `tasks`.
-interface FixtureMetricsRow {
-  task_id: string
-  actual_hours: number
-  tasks: { id: string; title: string; completed_at: string | null; updated_at: string }
+// actual_hours lives in task_internal_metrics (task_id 1:1 with tasks). The query
+// starts from tasks and inner-joins task_internal_metrics via `task_internal_metrics!inner(...)`
+// so that ordering/limiting applies to the outer tasks rows. Fixtures model the row
+// shape PostgREST returns: task columns at the top level, the joined metrics under
+// `task_internal_metrics`.
+interface FixtureTaskRow {
+  id: string
+  title: string
+  completed_at: string | null
+  updated_at: string
+  task_internal_metrics: { actual_hours: number }
 }
 
 interface FixtureEvent {
@@ -48,17 +52,19 @@ interface FixtureEvent {
   created_at: string
 }
 
-/** Convenience: build a FixtureMetricsRow from the old flat shape used throughout this file. */
-function metricsRow(t: { id: string; title: string; actual_hours: number; completed_at: string | null; updated_at: string }): FixtureMetricsRow {
+/** Convenience: build a FixtureTaskRow from the old flat shape used throughout this file. */
+function metricsRow(t: { id: string; title: string; actual_hours: number; completed_at: string | null; updated_at: string }): FixtureTaskRow {
   return {
-    task_id: t.id,
-    actual_hours: t.actual_hours,
-    tasks: { id: t.id, title: t.title, completed_at: t.completed_at, updated_at: t.updated_at },
+    id: t.id,
+    title: t.title,
+    completed_at: t.completed_at,
+    updated_at: t.updated_at,
+    task_internal_metrics: { actual_hours: t.actual_hours },
   }
 }
 
 function makeSupabase(opts: {
-  tasks: { data: FixtureMetricsRow[] | null; error: { message: string } | null }
+  tasks: { data: FixtureTaskRow[] | null; error: { message: string } | null }
   events?: { data: FixtureEvent[] | null; error: { message: string } | null }
 }) {
   const tasksCalls: RecordedCall[] = []
@@ -67,7 +73,7 @@ function makeSupabase(opts: {
 
   const supabase = {
     from: (table: string) => {
-      if (table === 'task_internal_metrics') return chainable(opts.tasks, tasksCalls)
+      if (table === 'tasks') return chainable(opts.tasks, tasksCalls)
       if (table === 'task_events') return chainable(eventsResponse, eventsCalls)
       throw new Error(`unexpected table in test: ${table}`)
     },
@@ -107,6 +113,34 @@ describe('findSimilarTasks', () => {
 
       const ilikeCall = tasksCalls.find((c) => c.method === 'ilike')
       expect(ilikeCall?.args[1]).toBe('%50\\%\\_off\\\\promo%')
+    })
+  })
+
+  describe('query shape', () => {
+    it('queries from tasks (not the embedded table) and orders by the outer updated_at, not a referencedTable', async () => {
+      const { supabase, tasksCalls } = makeSupabase({ tasks: { data: [], error: null } })
+
+      await findSimilarTasks(supabase, { title: 'ロゴ制作', ...baseParams })
+
+      // Ordering/limiting must apply to the outer tasks rows (the "10 most recently
+      // updated" candidates), not to the embedded task_internal_metrics resource —
+      // `.order(col, { referencedTable })` only reorders rows *within* an embed and
+      // would silently stop limiting the outer result to the most recent 10.
+      const orderCall = tasksCalls.find((c) => c.method === 'order')
+      expect(orderCall?.args[0]).toBe('updated_at')
+      expect(orderCall?.args[1]).toEqual({ ascending: false })
+    })
+
+    it('inner-joins task_internal_metrics and filters its actual_hours, not a top-level column', async () => {
+      const { supabase, tasksCalls } = makeSupabase({ tasks: { data: [], error: null } })
+
+      await findSimilarTasks(supabase, { title: 'ロゴ制作', ...baseParams })
+
+      const selectCall = tasksCalls.find((c) => c.method === 'select')
+      expect(selectCall?.args[0]).toContain('task_internal_metrics!inner(actual_hours)')
+
+      const notCall = tasksCalls.find((c) => c.method === 'not')
+      expect(notCall?.args[0]).toBe('task_internal_metrics.actual_hours')
     })
   })
 
@@ -174,7 +208,7 @@ describe('findSimilarTasks', () => {
     })
 
     it('returns at most 5 similarTasks but computes avgHours from all fetched (up to 10)', async () => {
-      const tasks: FixtureMetricsRow[] = Array.from({ length: 6 }, (_, i) =>
+      const tasks: FixtureTaskRow[] = Array.from({ length: 6 }, (_, i) =>
         metricsRow({
           id: `t${i + 1}`,
           title: `ロゴ制作${i + 1}`,

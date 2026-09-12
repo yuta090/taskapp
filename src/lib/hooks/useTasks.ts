@@ -701,6 +701,10 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (previousData) {
           queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], previousData)
         }
+        // tasks の更新は成功し task_internal_metrics の upsert だけが失敗した場合、
+        // 上のロールバックは「実際にはDBへ反映済みの変更」まで巻き戻してしまう
+        // （半分だけ保存された状態）。取り直しをかけてサーバー側の実際の値に合わせる
+        void queryClient.invalidateQueries({ queryKey: ['tasks', orgId, spaceId] })
         // AI秘書 Stage5 期限リマインド PR-0(§5.2): external権威タスク(due_authority_connection_id
         // 非NULL)の due_date 変更は DB トリガー trg_guard_external_due が拒否し、'due_managed_externally'
         // を含む生のPostgresエラーを返す。ロールバック(上)は既存の汎用経路に乗るが、ユーザーには
