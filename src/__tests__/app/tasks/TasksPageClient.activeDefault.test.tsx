@@ -40,8 +40,10 @@ vi.mock('@/lib/hooks/useTasks', () => ({
   }),
 }))
 
+let mockMilestones: { id: string; name: string; order_key: number; due_date: string | null; completed_at: string | null }[] = []
+
 vi.mock('@/lib/hooks/useMilestones', () => ({
-  useMilestones: () => ({ milestones: [] }),
+  useMilestones: () => ({ milestones: mockMilestones }),
 }))
 
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
@@ -128,6 +130,7 @@ let replaceStateSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   mockTasks = []
+  mockMilestones = []
   mockSearch = ''
   replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
 })
@@ -199,6 +202,24 @@ describe('TasksPageClient — 既定は「アクティブ」', () => {
     renderPage()
 
     expect(screen.getByText('タスクはありません')).toBeInTheDocument()
+  })
+
+  it('マイルストーンの進捗は、既定で隠れている完了タスクも数える', () => {
+    mockMilestones = [
+      { id: 'm1', name: '第1フェーズ', order_key: 1, due_date: null, completed_at: null },
+    ]
+    mockTasks = [
+      makeTask({ id: 'a', title: 'まだのタスク', status: 'in_progress', milestone_id: 'm1' }),
+      makeTask({ id: 'b', title: '終わったタスク1', status: 'done', milestone_id: 'm1' }),
+      makeTask({ id: 'c', title: '終わったタスク2', status: 'done', milestone_id: 'm1' }),
+      makeTask({ id: 'd', title: '終わったタスク3', status: 'done', milestone_id: 'm1' }),
+    ]
+    renderPage()
+
+    // 一覧に出るのは未完了の1件だけでも、見出しは「4件中3件完了＝75%」と出す
+    expect(screen.getByText('第1フェーズ')).toBeInTheDocument()
+    expect(screen.getByText('(4)')).toBeInTheDocument()
+    expect(screen.getByText('75%')).toBeInTheDocument()
   })
 
   it('タスクを開いたまま「すべて」に切り替えても、開いているタスクは URL に残る', () => {
