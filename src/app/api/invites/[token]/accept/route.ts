@@ -241,7 +241,18 @@ export async function POST(
           { status: 409 }
         )
       }
-      return NextResponse.json({ error: acceptError.message }, { status: 400 })
+      // 事前確認（先頭のトークン確認）をすり抜けた場合（受諾リクエストが競合した等）も、
+      // 事前確認と同じ案内にする
+      if (/Invalid or expired invite token/i.test(acceptError.message)) {
+        return NextResponse.json(INVALID_INVITE_ERROR, { status: 404 })
+      }
+      // それ以外は理由を利用者に説明できないため、DBの文言はサーバーログにだけ残し、
+      // 画面には一律の日本語だけを返す
+      console.error('rpc_accept_invite failed:', acceptError.message)
+      return NextResponse.json(
+        { error: '招待の受諾に失敗しました。時間をおいてもう一度お試しください。' },
+        { status: 400 }
+      )
     }
 
     // 招待した人への通知はベストエフォート。失敗しても承諾レスポンス自体は成功のまま返す
