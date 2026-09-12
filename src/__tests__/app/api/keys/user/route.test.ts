@@ -19,11 +19,10 @@ const mockUser = { id: USER_ID }
 
 let authResponse: { data: { user: typeof mockUser | null }; error: { message: string } | null }
 
-let membershipSingleResponse: {
-  data: { spaces: { org_id: string } } | null
+let userSpacesResponse: {
+  data: { space_id: string; role?: string; spaces: { org_id: string } | { org_id: string }[] }[] | null
   error: { message: string } | null
 }
-let userSpacesResponse: { data: { space_id: string; role?: string }[] | null; error: { message: string } | null }
 let insertResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
 let keyLookupResponse: { data: { user_id: string } | null; error: { message: string } | null }
 let deleteResponse: { error: { message: string } | null }
@@ -32,6 +31,8 @@ let listResponse: { data: Record<string, unknown>[] | null; error: { message: st
 let apiKeysSelectColumns: string[] = []
 /** 選ばれたプロジェクトの所属確認で取った列（役割を取っているかの確認用） */
 let accessibleSpaceColumns: string[] = []
+/** space_memberships への .in() に渡された space_id の一覧（絞り込みの確認用） */
+let inCallArgs: string[][] = []
 
 const insertMock = vi.fn((_payload: Record<string, unknown>) => ({
   select: vi.fn(() => ({
@@ -58,22 +59,21 @@ vi.mock('@supabase/supabase-js', () => ({
       if (table !== 'api_keys' && table !== 'space_memberships') return {}
       if (table === 'space_memberships') {
         return {
+          // 選んだspaceの所属確認と、鍵の組織(org_id)の取得を1回のクエリで行う:
+          // select('space_id, role, spaces(org_id)').eq(user_id).in(allowedSpaceIds)
+          // .in() は実際に渡されたspace_idで絞り込む（呼び出し引数も記録する）ので、
+          // userSpacesResponse.data に選んでいない別プロジェクトの行を混ぜても
+          // それは絞り込まれて結果に含まれない
           select: vi.fn((columns: string) => {
-            // membership → org_id lookup: select('spaces(org_id)').eq(user_id).limit(1).single()
-            if (columns.includes('spaces(')) {
-              return {
-                eq: vi.fn(() => ({
-                  limit: vi.fn(() => ({
-                    single: vi.fn(() => Promise.resolve(membershipSingleResponse)),
-                  })),
-                })),
-              }
-            }
-            // accessible-space verification: select('space_id, role').eq(user_id).in(allowedSpaceIds)
             accessibleSpaceColumns.push(columns)
             return {
               eq: vi.fn(() => ({
-                in: vi.fn(() => Promise.resolve(userSpacesResponse)),
+                in: vi.fn((_column: string, ids: string[]) => {
+                  inCallArgs.push(ids)
+                  const allRows = userSpacesResponse.data ?? []
+                  const filtered = allRows.filter((row) => ids.includes(row.space_id))
+                  return Promise.resolve({ data: filtered, error: userSpacesResponse.error })
+                }),
               })),
             }
           }),
@@ -138,8 +138,7 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-secret'
 
   authResponse = { data: { user: mockUser }, error: null }
-  membershipSingleResponse = { data: { spaces: { org_id: 'org-1' } }, error: null }
-  userSpacesResponse = { data: [{ space_id: SPACE_A, role: 'admin' }], error: null }
+  userSpacesResponse = { data: [{ space_id: SPACE_A, role: 'admin', spaces: { org_id: 'org-1' } }], error: null }
   insertResponse = {
     data: { id: 'key-1', user_id: USER_ID, allowed_space_ids: [SPACE_A] },
     error: null,
@@ -148,6 +147,7 @@ beforeEach(() => {
   deleteResponse = { error: null }
   listResponse = { data: [{ id: 'key-1', name: 'CLI Key' }], error: null }
   apiKeysSelectColumns = []
+  inCallArgs = []
 })
 
 describe('POST /api/keys/user', () => {
@@ -162,15 +162,6 @@ describe('POST /api/keys/user', () => {
 
   it('returns 400 when required fields are missing', async () => {
     const response = await callPost({ name: 'x', allowedSpaceIds: [] })
-
-    expect(response.status).toBe(400)
-    expect(insertMock).not.toHaveBeenCalled()
-  })
-
-  it('returns 400 when the user has no space memberships', async () => {
-    membershipSingleResponse = { data: null, error: { message: 'not found' } }
-
-    const response = await callPost(basePostBody)
 
     expect(response.status).toBe(400)
     expect(insertMock).not.toHaveBeenCalled()
@@ -235,8 +226,8 @@ describe('POST /api/keys/user', () => {
   it('returns 403 when a selected project is one the user belongs to as a client', async () => {
     userSpacesResponse = {
       data: [
-        { space_id: SPACE_A, role: 'admin' },
-        { space_id: SPACE_B, role: 'client' },
+        { space_id: SPACE_A, role: 'admin', spaces: { org_id: 'org-1' } },
+        { space_id: SPACE_B, role: 'client', spaces: { org_id: 'org-1' } },
       ],
       error: null,
     }
@@ -248,7 +239,7 @@ describe('POST /api/keys/user', () => {
   })
 
   it('returns 403 when a selected project is one the user belongs to as a vendor', async () => {
-    userSpacesResponse = { data: [{ space_id: SPACE_A, role: 'vendor' }], error: null }
+    userSpacesResponse = { data: [{ space_id: SPACE_A, role: 'vendor', spaces: { org_id: 'org-1' } }], error: null }
 
     const response = await callPost(basePostBody)
 
@@ -267,7 +258,7 @@ describe('POST /api/keys/user', () => {
 
   // 通す役割（admin / editor / viewer）を並べる判定。役割が分からない・新しい役割は断る側に倒す
   it('returns 403 when a selected project has an unknown role', async () => {
-    userSpacesResponse = { data: [{ space_id: SPACE_A, role: 'guest' }], error: null }
+    userSpacesResponse = { data: [{ space_id: SPACE_A, role: 'guest', spaces: { org_id: 'org-1' } }], error: null }
 
     const response = await callPost(basePostBody)
 
@@ -278,8 +269,8 @@ describe('POST /api/keys/user', () => {
   it('creates the key when every selected project is an internal membership', async () => {
     userSpacesResponse = {
       data: [
-        { space_id: SPACE_A, role: 'editor' },
-        { space_id: SPACE_B, role: 'viewer' },
+        { space_id: SPACE_A, role: 'editor', spaces: { org_id: 'org-1' } },
+        { space_id: SPACE_B, role: 'viewer', spaces: { org_id: 'org-1' } },
       ],
       error: null,
     }
@@ -288,6 +279,52 @@ describe('POST /api/keys/user', () => {
 
     expect(response.status).toBe(200)
     expect(insertMock).toHaveBeenCalled()
+  })
+})
+
+// 鍵の組織(org_id)は、選んだspaceそのものから決める
+describe('POST /api/keys/user — the key\'s organization is derived from the selected spaces', () => {
+  it('creates the key scoped to the organization of the selected space', async () => {
+    userSpacesResponse = { data: [{ space_id: SPACE_A, role: 'admin', spaces: { org_id: 'org-selected' } }], error: null }
+
+    const response = await callPost(basePostBody)
+
+    expect(response.status).toBe(200)
+    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({ org_id: 'org-selected' }))
+  })
+
+  it('returns 400 when the selected spaces belong to different organizations', async () => {
+    userSpacesResponse = {
+      data: [
+        { space_id: SPACE_A, role: 'admin', spaces: { org_id: 'org-1' } },
+        { space_id: SPACE_B, role: 'admin', spaces: { org_id: 'org-2' } },
+      ],
+      error: null,
+    }
+
+    const response = await callPost({ ...basePostBody, allowedSpaceIds: [SPACE_A, SPACE_B] })
+    const data = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(data.error).toBe('Selected projects must belong to the same organization')
+    expect(insertMock).not.toHaveBeenCalled()
+  })
+
+  it('only looks at the selected spaces, ignoring the organization of a membership the user has elsewhere', async () => {
+    // ユーザーは SPACE_B(org-other) にも所属しているが、今回選んだのは SPACE_A(org-1) だけ
+    userSpacesResponse = {
+      data: [
+        { space_id: SPACE_A, role: 'admin', spaces: { org_id: 'org-1' } },
+        { space_id: SPACE_B, role: 'admin', spaces: { org_id: 'org-other' } },
+      ],
+      error: null,
+    }
+
+    const response = await callPost({ ...basePostBody, allowedSpaceIds: [SPACE_A] })
+
+    expect(response.status).toBe(200)
+    expect(inCallArgs.at(-1)).toEqual([SPACE_A])
+    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({ org_id: 'org-1' }))
   })
 })
 
