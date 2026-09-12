@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { parseMeetingMinutes } from '@/lib/supabase/rpc'
-import { MinutesConflictError } from '@/lib/hooks/useMeetings'
+import { MinutesConflictError, MINUTES_STALE_MESSAGE } from '@/lib/minutes/errors'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 
@@ -72,6 +72,27 @@ describe('parseMeetingMinutes: 別の場所で更新されていたときの言�
     )
   })
 
+  it('DB の文面が空でも、機械語（minutes_stale）を画面に出さない', async () => {
+    // PostgREST から message も details も空で hint だけ届いた場合。以前は hint がそのまま
+    // 画面の文になり「minutes_stale」と出ていた。
+    const client = makeClient({ error: { message: '', code: 'P0001', details: null, hint: 'minutes_stale' } })
+
+    const promise = parseMeetingMinutes(client, { meetingId: 'm1', minutesMd: '本文' })
+    await expect(promise).rejects.toThrow(MINUTES_STALE_MESSAGE)
+    await expect(promise).rejects.not.toThrow(/minutes_stale/)
+  })
+
+  it('競合と分かったときの文は、DB の文面ではなく決まった日本語を使う', async () => {
+    // DB 側の文面が変わっても画面の文はぶれない（案内の文は1か所で決める）
+    const client = makeClient({
+      error: { message: 'minutes is stale (base mismatch)', code: 'P0001', hint: 'minutes_stale' },
+    })
+
+    await expect(parseMeetingMinutes(client, { meetingId: 'm1', minutesMd: '本文' })).rejects.toThrow(
+      MINUTES_STALE_MESSAGE
+    )
+  })
+
   it('競合以外の失敗（権限が無い等）は MinutesConflictError にしない', async () => {
     const client = makeClient({
       error: { message: 'Not authorized to parse minutes for this meeting', code: 'P0001', hint: null },
@@ -80,6 +101,11 @@ describe('parseMeetingMinutes: 別の場所で更新されていたときの言�
     const promise = parseMeetingMinutes(client, { meetingId: 'm1', minutesMd: '本文' })
     await expect(promise).rejects.toThrow('Not authorized to parse minutes for this meeting')
     await expect(promise).rejects.not.toBeInstanceOf(MinutesConflictError)
+  })
+
+  it('useMeetings からの再輸出は同じ型（既存の import が壊れていない）', async () => {
+    const { MinutesConflictError: ReExported } = await import('@/lib/hooks/useMeetings')
+    expect(ReExported).toBe(MinutesConflictError)
   })
 
   it('成功したときのふるまいは変わらない（結果をそのまま返す）', async () => {

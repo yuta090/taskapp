@@ -13,7 +13,10 @@ import { ArrowLeft, ArrowsIn, ArrowsOut, Info, Notebook, PencilSimple } from '@p
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
-import { MinutesConflictError } from '@/lib/hooks/useMeetings'
+// 競合の型は、フック（useMeetings）ではなく差し替えられない置き場から取る。
+// 画面のテストは useMeetings をまるごとモックすることがあり、そこから取ると
+// 型が undefined になって instanceof が壊れる（理由は errors.ts のコメント）。
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useMinutesPresence, type MinutesPresencePeer } from '@/lib/hooks/useMinutesPresence'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'

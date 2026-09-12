@@ -8,7 +8,8 @@
  *    さらに画面のテストは '@/lib/hooks/useMeetings' をまるごと差し替える(モックする)ため、
  *    そこから型を取ると instanceof の判定が壊れる。
  * 受け取る側（画面）が instanceof で判定できるよう、どちらからも読める場所に1つだけ置く。
- * 既存の `import { MinutesConflictError } from '@/lib/hooks/useMeetings'` は、
+ * **アプリ側のコードは必ずこの置き場から取る**（useMeetings 経由で取らない）。
+ * 既存のテストの `import { MinutesConflictError } from '@/lib/hooks/useMeetings'` は、
  * useMeetings 側の再輸出でそのまま動く（同じクラスなので instanceof も一致する）。
  */
 export class MinutesConflictError extends Error {
@@ -17,3 +18,12 @@ export class MinutesConflictError extends Error {
     this.name = 'MinutesConflictError'
   }
 }
+
+/**
+ * タスク化を DB が断ったときに画面へ出す文。DB から届いた文面はそのまま使わない
+ * ——message が空で hint だけ届くと `minutes_stale` という機械語が画面に出てしまうため
+ * （PostgREST は message・details・hint のどれが入るかが構成で変わる）。
+ * 案内の文はここ1か所で決める。
+ */
+export const MINUTES_STALE_MESSAGE =
+  'この議事録は、別の場所で更新されています。最新を読み込んでからもう一度お試しください'

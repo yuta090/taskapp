@@ -25,6 +25,23 @@ function extractSqlPattern(sql: string, label: string): string {
 }
 
 /**
+ * SQL から、指定した関数の定義だけを切り出す（その定義の始まりから、次の
+ * `create or replace function` の手前まで）。
+ *
+ * ファイル全体に正規表現を当てると `extractSqlPattern` が「ファイル内の最初の1件」を
+ * 拾うため、同じファイルに複数の関数が入っている（20260911143112 は15本）と、別の
+ * 関数の定義をその関数のものだと思い込んで検査が空振りする。見つからなければ黙って
+ * 別の関数を返さず落とす。
+ */
+function sliceFunctionBody(sql: string, fnName: string): string {
+  const head = new RegExp(`create\\s+or\\s+replace\\s+function\\s+(?:public\\.)?${fnName}\\b`, 'i').exec(sql)
+  if (!head) throw new Error(`${fnName} の定義が見つかりません（切り出せませんでした）`)
+  const rest = sql.slice(head.index + head[0].length)
+  const next = /create\s+or\s+replace\s+function/i.exec(rest)
+  return head[0] + (next ? rest.slice(0, next.index) : rest)
+}
+
+/**
  * 指定した RPC の**最新の定義**が入っているマイグレーションを探して読む。
  * ファイル名を決め打ちすると、あとから RPC を作り直す(create or replace)
  * マイグレーションが増えたときに古い定義と突き合わせてしまい、SQL と TS の
@@ -384,6 +401,36 @@ describe('不変条件5: どんな入力でも例外を出さない', () => {
   })
 })
 
+describe('SQL の切り出し: 関数ごとの本体だけを見る', () => {
+  // 1つのマイグレーションに複数の関数が入っている（実際 20260911143112 は15本入っている）。
+  // ファイル全体に正規表現を当てると「ファイル内の最初の1件」を拾い、別の関数の定義を
+  // その関数の定義だと思い込む。下は、見分けが付くように2つの関数へ違うパターンを書いた見本。
+  const TWO_FUNCTIONS = [
+    'create or replace function public.fn_a(p int) returns void as $$',
+    "  if v_line ~ '^A_ONLY$' then",
+    '$$;',
+    '',
+    'create or replace function public.fn_b(p int) returns void as $$',
+    "  if v_line ~ '^B_ONLY$' then",
+    '$$;',
+  ].join('\n')
+
+  it('2つめの関数からは2つめのパターンを取り出す（ファイル先頭の1件で済ませない）', () => {
+    expect(extractSqlPattern(sliceFunctionBody(TWO_FUNCTIONS, 'fn_a'), 'v_line')).toBe('^A_ONLY$')
+    expect(extractSqlPattern(sliceFunctionBody(TWO_FUNCTIONS, 'fn_b'), 'v_line')).toBe('^B_ONLY$')
+  })
+
+  it('切り出した本体には、その関数の定義が1つだけ入っている', () => {
+    const body = sliceFunctionBody(TWO_FUNCTIONS, 'fn_a')
+    expect([...body.matchAll(/create\s+or\s+replace\s+function/gi)]).toHaveLength(1)
+    expect(body).not.toContain('B_ONLY')
+  })
+
+  it('無い関数を切り出そうとしたら、黙って別の関数を返さずに落ちる', () => {
+    expect(() => sliceFunctionBody(TWO_FUNCTIONS, 'fn_missing')).toThrow(/fn_missing/)
+  })
+})
+
 describe('不変条件6: SQL(最新マイグレーション)の正規表現とTS側の定数が一致する', () => {
   /** 有無だけを見る v_has_marker はTS側から捕捉グループを外した形と一致する */
   function expectHasMarkerMatches(sql: string) {
@@ -396,18 +443,21 @@ describe('不変条件6: SQL(最新マイグレーション)の正規表現とTS
   it('rpc_parse_meeting_minutes の SPEC_LINE_REGEX / TASK_MARKER_REGEX と文字列一致する', () => {
     const { file, sql } = readLatestMigrationDefining('rpc_parse_meeting_minutes')
     expect(file).toMatch(/\.sql$/)
-    const specPattern = extractSqlPattern(sql, 'v_line')
-    expect(specPattern).toBe(SPEC_LINE_REGEX.source)
-    expectHasMarkerMatches(sql)
+    const body = sliceFunctionBody(sql, 'rpc_parse_meeting_minutes')
+    expect(extractSqlPattern(body, 'v_line')).toBe(SPEC_LINE_REGEX.source)
+    expectHasMarkerMatches(body)
   })
 
   it('rpc_get_minutes_preview(候補確認)の正規表現も一致する', () => {
     const { file, sql } = readLatestMigrationDefining('rpc_get_minutes_preview')
     expect(file).toMatch(/\.sql$/)
-    expect(extractSqlPattern(sql, 'v_line')).toBe(SPEC_LINE_REGEX.source)
-    expectHasMarkerMatches(sql)
+    // 同じファイルに rpc_parse_meeting_minutes が先に入っているので、preview の本体だけに絞る
+    const body = sliceFunctionBody(sql, 'rpc_get_minutes_preview')
+    expect(body).not.toContain('rpc_parse_meeting_minutes')
+    expect(extractSqlPattern(body, 'v_line')).toBe(SPEC_LINE_REGEX.source)
+    expectHasMarkerMatches(body)
     // 目印の取り出し(substring)は「末尾アンカー無し」でTS側の捕捉グループ部分と一致する
-    const extractMatches = [...sql.matchAll(/substring\(v_line from '(<!--task:\([^']+)'\)/g)]
+    const extractMatches = [...body.matchAll(/substring\(v_line from '(<!--task:\([^']+)'\)/g)]
     expect(extractMatches.length).toBeGreaterThan(0)
     const withoutAnchor = TASK_MARKER_REGEX.source.replace(/\\s\*\$$/, '')
     for (const m of extractMatches) expect(m[1]).toBe(withoutAnchor)

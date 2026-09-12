@@ -4,7 +4,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { MinutesConflictError } from '@/lib/minutes/errors'
+import { MinutesConflictError, MINUTES_STALE_MESSAGE } from '@/lib/minutes/errors'
 import type {
   Database,
   BallSide,
@@ -333,8 +333,9 @@ export async function parseMeetingMinutes(
     },
     // 隙間に入った他の人・AI秘書の書き込みを消さないため、DB は本文が違えば何も書かずに
     // 断る。画面が競合として扱えるよう（帯を出して「最新を読み込む」で復帰できるよう）、
-    // 保存が0行だったときと同じ型に言い換える。
-    (error) => (isMinutesStaleError(error) ? new MinutesConflictError(error.message) : null)
+    // 保存が0行だったときと同じ型に言い換える。文は DB のものを使わず決まった日本語にする
+    // （message が空で hint だけ届くと「minutes_stale」が画面に出てしまう）。
+    (error) => (isMinutesStaleError(error) ? new MinutesConflictError(MINUTES_STALE_MESSAGE) : null)
   )
 }
 
