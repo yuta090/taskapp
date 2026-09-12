@@ -9,8 +9,8 @@
 #   harness/supabase_function_default_acl.sql  本番と同じ関数の既定の実行権
 #   harness/supabase_table_default_acl.sql     本番と同じ表・ビュー・シーケンスの既定の付与（当てる前の形）
 # 本 migration の前に table_privileges_seed.sql（行と、当てる前の形の控え schema snap）を入れる。
-# 当てる前の anon / authenticated / PUBLIC の権限が、本番の棚卸し（2026-09-12）と同じことを確かめてから
-# （base_matches_production）、本 migration を2回適用し、複製で検証する:
+# 当てる前の anon / authenticated / PUBLIC の権限が、控えてある形と同じことを確かめてから
+# （base_matches_recorded_privileges）、本 migration を2回適用し、複製で検証する:
 #   checks          table_privileges_assert.sql（権限の形・既定の付与・新しく作る物の権限・anon / authenticated / service_role の読み書き）
 # 続けて GREEN のときだけ:
 #   red_*           本 migration の前に、chg_* が全て FAIL・same_* が全て PASS
@@ -48,9 +48,12 @@ MIG="$REPO/supabase/migrations"
 SEED="$TST/table_privileges_seed.sql"
 ASSERT="$TST/table_privileges_assert.sql"
 RED="${RED:-0}"
-# 本番の棚卸し（2026-09-12）の anon / authenticated / PUBLIC の権限の md5
+# 本 migration の手前まで流したときの anon / authenticated / PUBLIC の権限の md5
+#   2026-09-12 に本番で確かめた形に、そのあとに入った *_member_directory_superadmin_space_members.sql の
+#   profiles の列の絞りを足した形（本番の今の形とも合う）。
 #   （表・ビュー・シーケンスごとに「名前:anon:authenticated:PUBLIC」を名前の順に | でつないだ物。権限の名前は , で名前の順）
-PROD_DIGEST='f5e7e508dbc187d067e3edf85670685d'
+#   出し直し方: 本 migration の手前まで流した DB で、下の privileges_digest を出す
+RECORDED_DIGEST='2e2a9ff854bccab0f11637e015a8df03'
 # ロールバック節の数と、; で終わる行の数（節 1〜4）
 WANT_RB_BLOCKS=4
 WANT_RB_STMTS=17
@@ -164,7 +167,7 @@ select regexp_replace(x, '\s+', ' ', 'g') from (
 SQL
 }
 
-# anon / authenticated / PUBLIC の権限の md5（PROD_DIGEST と同じ形）
+# anon / authenticated / PUBLIC の権限の md5（RECORDED_DIGEST と同じ形）
 privileges_digest(){
   psql "$(conn "$1")" -qtA -v ON_ERROR_STOP=1 <<'SQL'
 select md5(string_agg(c.relname || ':'
@@ -241,10 +244,10 @@ echo "== seed (rows and the snapshot of the privileges before the target) =="
 apply base "$SEED"
 
 GOT="$(privileges_digest base)"
-if [ "$GOT" = "$PROD_DIGEST" ]; then
-  record "PASS[base_matches_production]: anon / authenticated / PUBLIC privileges are the same as the production inventory"
+if [ "$GOT" = "$RECORDED_DIGEST" ]; then
+  record "PASS[base_matches_recorded_privileges]: anon / authenticated / PUBLIC privileges are the recorded ones"
 else
-  record "FAIL[base_matches_production]: got $GOT, want $PROD_DIGEST"
+  record "FAIL[base_matches_recorded_privileges]: got $GOT, want $RECORDED_DIGEST"
 fi
 
 if [ "$RED" = "1" ]; then
@@ -256,7 +259,7 @@ if [ "$RED" = "1" ]; then
   sed 's/^/  /' "$RES"
   echo "PASS: $(grep -c '^PASS\[' "$RES" || true)  FAIL: $(grep -c '^FAIL\[' "$RES" || true)"
   S="$(shape "$OUT")"
-  if grep -q '^PASS\[base_matches_production\]' "$RES"; then
+  if grep -q '^PASS\[base_matches_recorded_privileges\]' "$RES"; then
     case "$S" in
       red:*) echo ""; echo "RED CONFIRMED: $S (without the migration)"; exit 0 ;;
     esac
@@ -441,10 +444,10 @@ if PGOPTIONS='--client-min-messages=warning' psql "$(conn checks)" -q -v ON_ERRO
     record "FAIL[rollback_restores_schema]: schema differs from pre-migration"
     head -20 "$WORK/fp.diff"
   fi
-  if [ "$(privileges_digest checks)" = "$PROD_DIGEST" ]; then
-    record "PASS[rollback_restores_production_inventory]: privileges are the production inventory again"
+  if [ "$(privileges_digest checks)" = "$RECORDED_DIGEST" ]; then
+    record "PASS[rollback_restores_recorded_privileges]: privileges are the recorded ones again"
   else
-    record "FAIL[rollback_restores_production_inventory]: $(privileges_digest checks)"
+    record "FAIL[rollback_restores_recorded_privileges]: $(privileges_digest checks)"
   fi
   if apply checks "$TARGET"; then
     record "PASS[reapply_after_rollback]: ok"
