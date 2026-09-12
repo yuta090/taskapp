@@ -158,7 +158,7 @@ select test.check('same_column_grants_match_production', (
            where c.relnamespace = 'public'::regnamespace and at.attnum > 0 and not at.attisdropped
              and x.grantee = 'authenticated'::regrole
            group by c.relname) s
-), 'github_issues:13,github_pull_requests:13,integration_connections:21,integration_sinks:14,invites:9,meetings:54,notifications:1');
+), 'github_issues:13,github_pull_requests:13,integration_connections:21,integration_sinks:14,invites:9,meetings:54,notifications:1,profiles:8');
 
 select test.check('same_service_role_unchanged', (
   select ((select md5(string_agg(relname || ':' || privilege_type, ',' order by relname collate "C", privilege_type collate "C"))

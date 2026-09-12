@@ -5,6 +5,7 @@ import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 import { assertUsersInSpaceOrg } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
 import { inviteRoleConflictMessage } from '../lib/inviteRoleConflict.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 import crypto from 'crypto'
 
 /** 招待・space_memberships の組織は、鍵の組織(config.orgId)ではなく space から取る */
@@ -149,7 +150,7 @@ export async function clientInviteCreate(
     if (extendError) {
       const conflict = inviteRoleConflictMessage(extendError)
       if (conflict) throw new ToolUserError(conflict, 409)
-      throw new Error('招待の期限延長に失敗しました: ' + extendError.message)
+      throw hideDbError(extendError, 'client_invite_create (extend)', '招待の期限延長に失敗しました')
     }
     return withInviteUrl(extended as ClientInvite, true)
   }
@@ -174,7 +175,7 @@ export async function clientInviteCreate(
     // 招待の種類が組織の役割と合わない等の決まった断りは、そのまま呼び手に見せる（それ以外は中身を隠す）
     const conflict = inviteRoleConflictMessage(error)
     if (conflict) throw new ToolUserError(conflict, 409)
-    throw new Error('招待の作成に失敗しました: ' + error.message)
+    throw hideDbError(error, 'client_invite_create', '招待の作成に失敗しました')
   }
   return withInviteUrl(data as ClientInvite, false)
 }
@@ -263,7 +264,7 @@ export async function clientList(
 
   const { data: members, error: membersError } = await membersQuery
 
-  if (membersError) throw new Error('クライアント一覧の取得に失敗しました: ' + membersError.message)
+  if (membersError) throw hideDbError(membersError, 'client_list', 'クライアント一覧の取得に失敗しました')
 
   let pendingInvites: ClientInvite[] = []
 
@@ -283,7 +284,7 @@ export async function clientList(
 
     const { data: invites, error: invitesError } = await invitesQuery
 
-    if (invitesError) throw new Error('招待一覧の取得に失敗しました: ' + invitesError.message)
+    if (invitesError) throw hideDbError(invitesError, 'client_list (invites)', '招待一覧の取得に失敗しました')
     pendingInvites = (invites || []) as ClientInvite[]
   }
 
@@ -308,7 +309,7 @@ export async function clientGet(
     .eq('user_id', params.userId)
     .single()
 
-  if (membershipError) throw new Error('クライアントが見つかりません: ' + membershipError.message)
+  if (membershipError) throw notFoundOr(membershipError, 'client_get', 'クライアントが見つかりません', 'クライアントの取得に失敗しました')
 
   // Get space memberships (org_id でフィルタして cross-org 漏洩を防止)
   const { data: orgSpaces } = await supabase
@@ -324,7 +325,7 @@ export async function clientGet(
     .eq('user_id', params.userId)
     .in('space_id', orgSpaceIds.length > 0 ? orgSpaceIds : ['__none__'])
 
-  if (spacesError) throw new Error('スペース情報の取得に失敗しました: ' + spacesError.message)
+  if (spacesError) throw hideDbError(spacesError, 'client_get (spaces)', 'スペース情報の取得に失敗しました')
 
   return {
     membership: membership as OrgMembership,
@@ -384,7 +385,7 @@ export async function clientUpdate(
     .select('*')
     .single()
 
-  if (error) throw new Error('クライアントの更新に失敗しました: ' + error.message)
+  if (error) throw hideDbError(error, 'client_update', 'クライアントの更新に失敗しました')
   return data as SpaceMembership
 }
 
@@ -420,7 +421,7 @@ export async function clientAddToSpace(
     .select('*')
     .single()
 
-  if (error) throw new Error('スペースへの追加に失敗しました: ' + error.message)
+  if (error) throw hideDbError(error, 'client_add_to_space', 'スペースへの追加に失敗しました')
   return data as SpaceMembership
 }
 
@@ -463,7 +464,7 @@ export async function clientInviteList(
 
   const { data, error } = await query
 
-  if (error) throw new Error('招待一覧の取得に失敗しました: ' + error.message)
+  if (error) throw hideDbError(error, 'client_invite_list', '招待一覧の取得に失敗しました')
   return (data || []) as ClientInvite[]
 }
 
@@ -493,7 +494,7 @@ export async function clientInviteResend(
   if (error) {
     const conflict = inviteRoleConflictMessage(error, 'resend')
     if (conflict) throw new ToolUserError(conflict, 409)
-    throw new Error('招待の再送に失敗しました: ' + error.message)
+    throw notFoundOr(error, 'client_invite_resend', '対象の招待が見つかりません', '招待の再送に失敗しました')
   }
   return data as ClientInvite
 }

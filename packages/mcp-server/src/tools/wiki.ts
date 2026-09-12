@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { checkAuth } from '../auth/helpers.js'
 import { toWikiBlocksJson, type WikiBodyFormat } from '../lib/wikiBody.js'
 import { assertInSpace } from '../auth/scope.js'
+import { ToolUserError } from '../errors.js'
 
 const bodyFormatSchema = z
   .enum(['markdown', 'html', 'blocks'])
@@ -146,6 +147,23 @@ export function describeWikiUpdateError(message: string | undefined): string {
   return 'Wikiページの更新に失敗しました'
 }
 
+const WIKI_UPDATE_KNOWN_REASONS = [
+  'wiki parent cycle',
+  'wiki parent chain too deep',
+  'wiki parent must be in the same space',
+  'wiki milestone must be in the same space',
+]
+
+/**
+ * DB が断った理由が見覚えのあるもの（親子・マイルストーンの境界/循環）なら、決まった
+ * 日本語の ToolUserError(400) にする。見覚えのない理由は中身を隠した一般のエラーのまま返す。
+ */
+function toWikiUpdateError(message: string | undefined): Error {
+  const known = WIKI_UPDATE_KNOWN_REASONS.some((reason) => (message ?? '').includes(reason))
+  if (known) return new ToolUserError(describeWikiUpdateError(message), 400)
+  return new Error(describeWikiUpdateError(message))
+}
+
 export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Promise<WikiPage> {
   await checkAuth(params.spaceId, 'write', 'wiki_update', 'wiki', params.pageId)
   const supabase = getSupabaseClient()
@@ -172,7 +190,7 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
     .select('*')
     .single()
 
-  if (error) throw new Error(describeWikiUpdateError(error.message))
+  if (error) throw toWikiUpdateError(error.message)
 
   // Save version snapshot when body changes
   if (params.body !== undefined) {

@@ -103,12 +103,12 @@ export declare const clientInviteListSchema: z.ZodObject<{
     role: z.ZodDefault<z.ZodEnum<["client", "member", "all"]>>;
 }, "strip", z.ZodTypeAny, {
     role: "client" | "member" | "all";
-    status: "pending" | "accepted" | "expired" | "all";
+    status: "expired" | "pending" | "accepted" | "all";
     spaceId?: string | undefined;
 }, {
     spaceId?: string | undefined;
     role?: "client" | "member" | "all" | undefined;
-    status?: "pending" | "accepted" | "expired" | "all" | undefined;
+    status?: "expired" | "pending" | "accepted" | "all" | undefined;
 }>;
 export declare const clientInviteResendSchema: z.ZodObject<{
     inviteId: z.ZodString;
@@ -252,12 +252,12 @@ export declare const clientTools: ({
         role: z.ZodDefault<z.ZodEnum<["client", "member", "all"]>>;
     }, "strip", z.ZodTypeAny, {
         role: "client" | "member" | "all";
-        status: "pending" | "accepted" | "expired" | "all";
+        status: "expired" | "pending" | "accepted" | "all";
         spaceId?: string | undefined;
     }, {
         spaceId?: string | undefined;
         role?: "client" | "member" | "all" | undefined;
-        status?: "pending" | "accepted" | "expired" | "all" | undefined;
+        status?: "expired" | "pending" | "accepted" | "all" | undefined;
     }>;
     handler: typeof clientInviteList;
 } | {

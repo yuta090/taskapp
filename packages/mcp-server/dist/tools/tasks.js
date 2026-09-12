@@ -7,6 +7,7 @@ import { withTaskNumber } from '../lib/taskNumber.js';
 import { ToolUserError } from '../errors.js';
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js';
 import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace } from '../auth/scope.js';
+import { hideDbError } from '../lib/dbErrors.js';
 // 画面の担当者選択肢と同じ範囲: 相手先側は client/vendor、社内側は admin/editor/viewer
 const CLIENT_OWNER_ROLES = ['client', 'vendor'];
 const INTERNAL_OWNER_ROLES = ['admin', 'editor', 'viewer'];
@@ -156,7 +157,7 @@ export async function taskCreate(params) {
         .select('*')
         .single();
     if (taskError)
-        throw new Error(`タスクの作成に失敗しました: ${taskError.message}`);
+        throw hideDbError(taskError, 'task_create', 'タスクの作成に失敗しました');
     // Create owners
     const ownerRows = [
         ...params.clientOwnerIds.map((userId) => ({
@@ -201,12 +202,12 @@ async function resolveAssigneeByEmail(orgId, spaceId, email) {
         .select('user_id')
         .eq('space_id', spaceId);
     if (memberError)
-        throw new Error('メンバーの確認に失敗しました: ' + memberError.message);
+        throw hideDbError(memberError, 'resolveAssigneeByEmail (members)', 'メンバーの確認に失敗しました');
     const memberIds = new Set((members ?? []).map((m) => m.user_id));
     for (let page = 1; page <= 10; page++) {
         const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
         if (error)
-            throw new Error('ユーザー情報の取得に失敗しました: ' + error.message);
+            throw hideDbError(error, 'resolveAssigneeByEmail (listUsers)', 'ユーザー情報の取得に失敗しました');
         const users = data?.users ?? [];
         const hit = users.find((u) => u.email?.toLowerCase() === normalized && memberIds.has(u.id));
         if (hit)
@@ -225,7 +226,7 @@ async function resolveAssigneeByEmail(orgId, spaceId, email) {
         .gt('expires_at', new Date().toISOString())
         .maybeSingle();
     if (inviteError)
-        throw new Error('招待の確認に失敗しました: ' + inviteError.message);
+        throw hideDbError(inviteError, 'resolveAssigneeByEmail (invites)', '招待の確認に失敗しました');
     if (invite)
         return { assignee_id: null, assignee_invite_id: invite.id };
     throw new ToolUserError(`「${email}」はこのプロジェクトのメンバーにも、有効な招待にも見つかりません（先に招待してください）`, 404);

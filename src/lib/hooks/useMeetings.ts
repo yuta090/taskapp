@@ -36,6 +36,17 @@ export interface ParseMinutesResult {
   updatedMinutes: string
 }
 
+/**
+ * 議事録の Web 保存で「開いたときの updated_at のままの行だけ書く」楽観ロックが
+ * 0 行にマッチしたときの失敗（＝別の場所で本文が更新済み）。DB エラーとは区別する。
+ */
+export class MinutesConflictError extends Error {
+  constructor(message = 'この議事録は、別の場所で更新されています') {
+    super(message)
+    this.name = 'MinutesConflictError'
+  }
+}
+
 export interface MinutesPreviewResult {
   newSpecCount: number
   existingSpecCount: number
@@ -75,6 +86,18 @@ interface UseMeetingsReturn {
   parseMinutes: (meetingId: string, minutesMd: string) => Promise<ParseMinutesResult>
   /** AT-005: Preview minutes parsing without creating tasks */
   previewMinutes: (meetingId: string, minutesMd: string) => Promise<MinutesPreviewResult>
+  /**
+   * 議事録の Web 編集を保存する。開いたときの `updated_at`（baseUpdatedAt）と一致する
+   * 行だけを書き換える楽観ロック。0 件なら別の場所（AI・コマンド・ほかの人）で更新済みと
+   * みなし MinutesConflictError を投げる。成功したら更新後の minutes_md と updated_at を返す
+   * （呼び出し側が「サーバーの生の本文」を追跡し、開始/終了操作だけで updated_at が進んだ
+   * 見せかけの競合と、本当に本文が変わった競合を区別できるようにするため）。
+   */
+  updateMinutes: (
+    meetingId: string,
+    minutesMd: string,
+    baseUpdatedAt: string
+  ) => Promise<{ minutesMd: string | null; updatedAt: string }>
 }
 
 export function useMeetings({
@@ -448,6 +471,51 @@ export function useMeetings({
     [supabase]
   )
 
+  // 議事録の Web 編集の保存。`.single()` は使わない — 0 件マッチのとき例外にならず
+  // 「別の場所で更新済みか」を判定できないため、配列のまま長さで見る。
+  // baseUpdatedAt は受け取った文字列をそのまま `.eq()` に渡す（`new Date()` を通すと
+  // 1/1000秒に丸まり、DB は 1/1000000秒のため毎回一致しなくなる）。
+  const updateMinutes = useCallback(
+    async (
+      meetingId: string,
+      minutesMd: string,
+      baseUpdatedAt: string
+    ): Promise<{ minutesMd: string | null; updatedAt: string }> => {
+      const { data, error } = await (supabase as SupabaseClient)
+        .from('meetings')
+        .update({ minutes_md: minutesMd })
+        .eq('id', meetingId)
+        .eq('updated_at', baseUpdatedAt)
+        .select('id, minutes_md, updated_at')
+
+      if (error) throw error
+
+      const rows = (data ?? []) as Array<{ id: string; minutes_md: string | null; updated_at: string }>
+      if (rows.length === 0) {
+        throw new MinutesConflictError()
+      }
+      const updated = rows[0]
+
+      // キャッシュが無い（一覧をまだ一度も取っていない）ときに空の一覧をでっち上げない。
+      // 呼び出し元の画面は詳細取得(fetchMeetingDetail)を別に持つため、ここで作った空配列が
+      // 「会議が0件」の一覧として誤って表示される事故を避ける。
+      queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => {
+        if (!old) return old
+        return {
+          meetings: old.meetings.map((m) =>
+            m.id === meetingId
+              ? { ...m, minutes_md: updated.minutes_md, updated_at: updated.updated_at }
+              : m
+          ),
+          participants: old.participants,
+        }
+      })
+
+      return { minutesMd: updated.minutes_md, updatedAt: updated.updated_at }
+    },
+    [supabase, queryClient, spaceId]
+  )
+
   return {
     meetings,
     participants,
@@ -461,5 +529,6 @@ export function useMeetings({
     endMeeting,
     parseMinutes,
     previewMinutes,
+    updateMinutes,
   }
 }
