@@ -1,6 +1,10 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { mapWithConcurrency } from '@/lib/admin/concurrency'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
+
+// GoTrue（auth.usersのメール取得）を一斉に呼んでレート制限に当たらないよう絞る
+const EMAIL_LOOKUP_CONCURRENCY = 8
 
 interface AuditLogRow {
   id: string
@@ -110,11 +114,17 @@ async function fetchRecentActivity(): Promise<AuditLogRow[]> {
         .map((row) => row.actor_id as string)
     ),
   ]
-  const emailByActorId = new Map<string, string>()
-  for (const id of missingActorIds) {
-    const { data: authUser } = await admin.auth.admin.getUserById(id)
-    if (authUser.user?.email) emailByActorId.set(id, authUser.user.email)
-  }
+  const missingActorEmails = await mapWithConcurrency(
+    missingActorIds,
+    EMAIL_LOOKUP_CONCURRENCY,
+    async (id): Promise<[string, string | null]> => {
+      const { data: authUser } = await admin.auth.admin.getUserById(id)
+      return [id, authUser.user?.email ?? null]
+    },
+  )
+  const emailByActorId = new Map<string, string>(
+    missingActorEmails.filter((e): e is [string, string] => !!e[1]),
+  )
 
   return rows.map((row) => ({
     id: row.id,

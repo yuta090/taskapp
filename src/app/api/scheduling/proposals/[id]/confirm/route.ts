@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { mapWithConcurrency } from '@/lib/admin/concurrency'
 import { videoConferenceRegistry } from '@/lib/video-conference'
 import type { VideoConferenceProviderName } from '@/lib/video-conference'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -8,6 +9,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 
 import { UUID_REGEX } from '@/lib/uuid'
+
+// GoTrue（auth.usersのメール取得）を一斉に呼んでレート制限に当たらないよう絞る
+const EMAIL_LOOKUP_CONCURRENCY = 8
 
 // POST: スロット確定
 export async function POST(
@@ -104,12 +108,16 @@ export async function POST(
           const respondentRows = (respondents as RespondentRow[]) || []
 
           const admin = createAdminClient()
-          const emailByUserId = new Map<string, string>()
-          await Promise.all(
-            respondentRows.map(async (r) => {
-              const { data } = await admin.auth.admin.getUserById(r.user_id)
-              if (data.user?.email) emailByUserId.set(r.user_id, data.user.email)
-            })
+          const respondentEmails = await mapWithConcurrency(
+            respondentRows.map((r) => r.user_id),
+            EMAIL_LOOKUP_CONCURRENCY,
+            async (userId): Promise<[string, string | null]> => {
+              const { data } = await admin.auth.admin.getUserById(userId)
+              return [userId, data.user?.email ?? null]
+            },
+          )
+          const emailByUserId = new Map<string, string>(
+            respondentEmails.filter((e): e is [string, string] => !!e[1]),
           )
 
           const participants = respondentRows

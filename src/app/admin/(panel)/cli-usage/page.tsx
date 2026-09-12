@@ -1,5 +1,9 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { mapWithConcurrency } from '@/lib/admin/concurrency'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+
+// GoTrue（auth.usersのメール取得）を一斉に呼んでレート制限に当たらないよう絞る
+const EMAIL_LOOKUP_CONCURRENCY = 8
 
 interface UsageLog {
   id: string
@@ -139,9 +143,16 @@ async function fetchCliUsageData() {
   const userIdsMissingName = [...new Set(logs.map((l) => l.user_id).filter((id): id is string => !!id))].filter(
     (id) => !profileMap.has(id)
   )
-  for (const id of userIdsMissingName) {
-    const { data } = await admin.auth.admin.getUserById(id)
-    if (data.user?.email) profileMap.set(id, data.user.email)
+  const missingNameEmails = await mapWithConcurrency(
+    userIdsMissingName,
+    EMAIL_LOOKUP_CONCURRENCY,
+    async (id): Promise<[string, string | null]> => {
+      const { data } = await admin.auth.admin.getUserById(id)
+      return [id, data.user?.email ?? null]
+    },
+  )
+  for (const [id, email] of missingNameEmails) {
+    if (email) profileMap.set(id, email)
   }
 
   // Summary
