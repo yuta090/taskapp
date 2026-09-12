@@ -5,7 +5,7 @@
 
 ---
 
-## 前提: 2つのスイッチ
+## 前提: 3つのつまみ
 
 | | 何を表すか | 決めるもの |
 |---|---|---|
@@ -37,28 +37,45 @@ vercel env add STRIPE_SELF_SERVE_ORG_IDS production   # 例: 00000000-0000-0000-
 
 ---
 
-## 1. どこで試すか — Vercel の Preview 環境
+## 1. どこで試すか — 手元（ローカル）で動かす
 
-ローカルの dev サーバーは起動しない環境があるため、**Preview 環境に「テストモードの鍵」を入れて試す**のがいちばん早い。
-Vercel の環境変数は Production / Preview / Development でスコープを分けられるので、**Preview だけ**に入れれば本番は一切変わらない。
+Vercel のプレビューは**ビルド代の節約のため止めてある**（ビルドされるのは main と `release/*` だけ）。
+テストモードの確認は**手元で本番ビルドを動かして**行う。
 
 ```bash
-# Preview だけに入れる（Production には入れない）
-vercel env add STRIPE_SECRET_KEY preview          # sk_test_... を貼る
-vercel env add STRIPE_PRO_PRICE_ID preview        # テストモードで作った price_...
-vercel env add STRIPE_WEBHOOK_SECRET preview      # 下の 3. で取得する whsec_...
-vercel env add STRIPE_SELF_SERVE_ENABLED preview  # true
+npm run build:local    # next build --webpack（約3分）
+npm run start:local    # next start -p 4000 → http://localhost:4000
 ```
 
-> **必ずテストモードの鍵（`sk_test_` で始まる）を使う。**本番の鍵を Preview に入れると、
-> プレビューでの操作が実際の請求になる。
+> **開発モード（`next dev --webpack`）は見た目をさっと見る用**。画面ごとの初回表示に30秒ほどかかり、
+> 受信トレイ・マイタスクは止まることがある。決済の確認は上の本番ビルドで行う。
+
+手元の `.env.local` を、テストモードの値に**一時的に**差し替える。
+
+```
+STRIPE_SECRET_KEY=sk_test_...            # ← 本番の値は退避しておく
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_PRO_PRICE_ID=price_...            # テストモードの価格（下の 2. 参照）
+STRIPE_WEBHOOK_SECRET=whsec_...          # 下の 3. で出てくる値
+STRIPE_SELF_SERVE_ENABLED=true
+NEXT_PUBLIC_APP_URL=http://localhost:4000
+```
+
+> ⚠ **本番の鍵（`sk_live_`）を消さずに退避すること。**終わったら戻す。
+> ⚠ **`NEXT_PUBLIC_APP_URL` も一緒に変える。**変えないと、決済のあとの戻り先が本番URLになる。
+
+> ⚠ **手元で動かしても、見ているデータベースは本番と同じ**（`.env.local` の Supabase が本番を指しているため）。
+> つまり**テスト購入の結果は本物のデータに書き込まれる**。触る前に対象組織の `org_billing` を控え、
+> 終わったら元に戻すこと（→ 「6. 後片付け」）。
 
 ---
 
 ## 2. テストモードで商品と価格を作る
 
-1. Stripe ダッシュボード右上を **テストモード** に切り替える
-2. 商品（Pro）と価格（月額）を作る → `price_...` を控える → `STRIPE_PRO_PRICE_ID`
+すでに作成済みの価格があればそれを使う（サンドボックスに残してある）。無ければ作る。
+
+1. Stripe ダッシュボード右上を **テストモード（サンドボックス）** に切り替える
+2. 商品（Pro）と価格（月額 14,800円）を作る → `price_...` を控える → `STRIPE_PRO_PRICE_ID`
 3. Enterprise の価格は**作らなくてよい**（営業窓口での個別契約で、決済画面を通らないため）
 
 ---
@@ -66,20 +83,16 @@ vercel env add STRIPE_SELF_SERVE_ENABLED preview  # true
 ## 3. Webhook を受け取れるようにする
 
 決済が終わったあと、プランを上げるのは Webhook の仕事。ここを繋がないと
-「払えたのにプランが上がらない」状態になる。
-
-**方法A: Stripe CLI（手元で確認するとき）**
+「払えたのにプランが上がらない」状態になる。手元で動かす場合は Stripe CLI で転送する。
 
 ```bash
-stripe login
-stripe listen --forward-to https://<プレビューのURL>/api/stripe/webhook
-# 表示される whsec_... を STRIPE_WEBHOOK_SECRET に入れる
+brew install stripe/stripe-cli/stripe   # 未インストールの場合
+stripe login                            # ブラウザでサンドボックスを選ぶ
+stripe listen --forward-to http://localhost:4000/api/stripe/webhook
+# 表示される whsec_... を .env.local の STRIPE_WEBHOOK_SECRET に入れて起動し直す
 ```
 
-**方法B: ダッシュボードでエンドポイント登録（プレビューを継続的に使うとき）**
-
-テストモード → 開発者 → Webhook → エンドポイントを追加 → `https://<プレビューのURL>/api/stripe/webhook`
-送るイベント: `checkout.session.completed` / `customer.subscription.created` / `customer.subscription.updated` / `customer.subscription.deleted`
+`stripe listen` は動かしっぱなしにしておく（閉じると Webhook が届かない）。
 
 ---
 
@@ -97,7 +110,7 @@ stripe listen --forward-to https://<プレビューのURL>/api/stripe/webhook
 
 ## 5. 確認する筋道（受け入れ条件）
 
-1. 「設定 → プランと請求」で **「Proにアップグレード」が押せる**（元栓を開けた Preview、または許可リストに入れた組織で）
+1. 「設定 → プランと請求」で **「Proにアップグレード」が押せる**（手元で元栓を開けた状態、または本番で許可リストに入れた組織）
 2. 押す → Stripe の決済画面 → テストカードで支払う → 戻ってくる
 3. **プラン表示が Pro になる**（Webhook が効いている証拠。ならなければ 3. を見直す）
 4. 上限が Pro の値になる（プロジェクト30・メンバー30 など）
@@ -108,7 +121,24 @@ stripe listen --forward-to https://<プレビューのURL>/api/stripe/webhook
 
 ---
 
-## 6. 本番で開けるときの順番（厳守）
+## 6. 後片付け（手元で試したあと・必ずやる）
+
+手元で試しても、書き込まれた先は**本物のデータベース**。放っておくと本番の画面が壊れる。
+
+1. **テスト契約を解約する**（Stripe のサンドボックス側。お金は動かない）
+2. **対象組織の `org_billing` を元に戻す** — 控えておいた値へ戻す。とくに
+   `stripe_customer_id` / `stripe_subscription_id` は **null に戻す**。
+   テストモードの顧客IDが残ると、本番（live の鍵）からその組織のポータルが開けなくなる
+3. `.env.local` を**本番の値に戻す**（`sk_live_` と `NEXT_PUBLIC_APP_URL`）
+4. `stripe listen` を止める。Webhook をダッシュボードに登録した場合は削除する
+
+> 2026-09-11 にデモ組織（`00000000-0000-0000-0000-000000000001`）で通しの確認を行った。
+> そのときの元の値: `plan_id=pro` / `status=active` / Stripe の各IDは `null` /
+> `current_period_end=2027-07-20T14:49:22.085205+00:00`。
+
+---
+
+## 7. 本番で開けるときの順番（厳守）
 
 **元栓は最後に開ける。**途中で開けると、準備が終わる前にお客様が決済画面に進んでしまう。
 
@@ -120,17 +150,19 @@ stripe listen --forward-to https://<プレビューのURL>/api/stripe/webhook
 5. **カスタマーポータルの設定でプラン変更を無効**にし、その設定IDを
    `STRIPE_PORTAL_CONFIGURATION_ID` に入れる（支払い方法・請求書・解約だけを許す）
 6. `/api/stripe/status` を開き、`keysConfigured: true` になっていることを確認
-7. **最後に `STRIPE_SELF_SERVE_ENABLED=true`** を本番に追加してデプロイ
-8. 自分のアカウントで**実際に1回購入 → 返金**して、請求と解約の両方を確認する
+7. **入金（銀行口座）の設定を済ませる** — 決済を受けられても、これが無いと売上を受け取れない
+8. **最後に `STRIPE_SELF_SERVE_ENABLED=true`** を本番に追加してデプロイ
+   （全員に開けたくない場合は、先に `STRIPE_SELF_SERVE_ORG_IDS` で自分の組織だけ開ける → 上の「0.」）
+9. 自分のアカウントで**実際に1回購入 → 返金**して、請求と解約の両方を確認する
 
 > 現在の本番の鍵がテスト用か本番用かは、Vercel 側では暗号化されていて中身が見えない。
 > Stripe ダッシュボードの「開発者 → APIキー」と照合すること。
 
 ---
 
-## 7. 自動テストでどこまで見ているか
+## 8. 自動テストでどこまで見ているか
 
-- **決済そのものは E2E に載せない**（外部サービス・カード情報が絡むため）
+- **決済そのものは E2E に載せない**（外部サービス・カード情報が絡むため）。購入の通し確認は、この文書の手順で人が行う
 - E2E（`tests/e2e/billing.spec.ts`）で見ているのは、**受け付け状態と画面の一致**・
   環境変数名を画面に出していないこと・**API を直接叩いても止まること**・未ログインに設定状況を返さないこと
 - Webhook の処理は単体テスト（`src/__tests__/app/api/stripe/webhook/route.test.ts`）で担保する

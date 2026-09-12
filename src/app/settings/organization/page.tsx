@@ -16,12 +16,11 @@ export default function OrganizationSettingsPage() {
     role: rawRole,
     loading: rawOrgLoading,
   } = useCurrentOrg()
-  // 組織ID(orgId)と読み込み中かどうか(loading)はブラウザのcookieから同期的に読むため、
-  // cookieが既にあるブラウザではハイドレーション時の描画だけサーバーと違う値になる
-  // （サーバーはcookieを読めず必ずloading:true・orgId:null）。hydrationが済むまでは
-  // orgId/loadingをサーバーと同じ「読み込み中」表示に固定する（React #418対策。
-  // orgName/roleはcookie由来ではなく所属一覧の取得結果から決まるが、orgIdがある間に
-  // 表示が中途半端に混ざらないよう合わせて固定する。詳細はuseHydrated参照）
+  // ActiveOrgProvider も hydrationが済むまではcookieの組織IDを使わないが、
+  // 画面側でも念のため、orgId/loadingをhydrationが済むまではサーバーと同じ
+  // 「読み込み中」表示に固定する（React #418対策。orgName/roleはcookie由来では
+  // なく所属一覧の取得結果から決まるが、orgIdがある間に表示が中途半端に混ざら
+  // ないよう合わせて固定する。詳細はuseHydrated参照）
   const hydrated = useHydrated()
   const orgId = hydrated ? rawOrgId : null
   const orgName = hydrated ? rawOrgName : null

@@ -136,7 +136,8 @@ export function TaskCreateSheet({
     orgId: effectiveOrgId,
   })
 
-  // Wiki pages for spec link selector
+  // Wiki pages for spec link selector（一覧を読むだけ。canEdit は渡さない＝既定 false で
+  // 空のWikiの自動作成は行わない）
   const { pages: wikiPages } = useWikiPages({
     orgId: effectiveOrgId,
     spaceId: effectiveSpaceId,

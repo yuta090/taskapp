@@ -11,7 +11,8 @@ import { hydrateRoot } from 'react-dom/client'
  * 決まるため、サーバーでは必ず activeOrgId:null / loading:true（document が無い）
  * だが、cookie が既にあるブラウザではハイドレーション時の最初の描画からこの2つが
  * 確定しうる（orgName・role は cookie 由来ではなく所属一覧の取得結果から決まる値）。
- * このページは hydration が済むまで orgId/loading をサーバーと同じ「読み込み中」
+ * Provider も hydration が済むまでは cookie の組織IDを使わないが、このページ側
+ * でも念のため、hydration が済むまで orgId/loading をサーバーと同じ「読み込み中」
  * 表示に固定し、「読み込み中の枠」と「本体」が一致することをここで確かめる。
  */
 

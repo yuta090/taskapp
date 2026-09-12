@@ -65,6 +65,14 @@ interface TaskInspectorProps {
   parentTasks?: { id: string; title: string }[]
   /** Child tasks of this task */
   childTasks?: Task[]
+  /**
+   * 代理店モードの価格の枠（TaskPricingPanel）を出してよいか。
+   * DB側の書き込み判定（guard_task_pricing_write/delete, 20260308_003）と同じ規則:
+   * その space の space_memberships の行がはっきり admin/editor の人だけ
+   * （行が無い社内メンバーも含めて、それ以外は false）。呼び出し元が
+   * canEditSpaceMoney（spaceRoles.ts）で判定して渡す。既定は false（安全側）。
+   */
+  canEditPricing?: boolean
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -91,6 +99,7 @@ export function TaskInspector({
   onReviewChange,
   parentTasks = [],
   childTasks = [],
+  canEditPricing = false,
 }: TaskInspectorProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -142,12 +151,13 @@ export function TaskInspector({
   const [milestones, setMilestones] = useState<Milestone[]>([])
 
   // Wiki pages for spec link（候補はタグの有無に関係なく全ページ。資料が増えても名前で探せるように）
+  // 空のWikiの自動作成は編集できる人（onUpdate が渡されている）のときだけ行う
   const {
     pages: wikiPages,
     createPage,
     loading: wikiPagesLoading,
     error: wikiPagesError,
-  } = useWikiPages({ orgId: task.org_id, spaceId })
+  } = useWikiPages({ orgId: task.org_id, spaceId, canEdit: !!onUpdate })
   // PR3: タスク詳細から同じマイルストーンの Wiki を引ける導線（補助情報。詳細設定の件数バッジには含めない）
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照（同じ queryKey で一覧側とキャッシュ共有）
   // マイルストーン未設定のタスクではこの情報を一切使わないので取りに行かない
@@ -1345,7 +1355,11 @@ export function TaskInspector({
         )}
 
         {/* Agency Mode: Pricing Panel (admin/editor only) */}
-        {agencyData.agency_mode && isInternalMember && (
+        {/* isInternalMember は viewer も真になるため使わない。onUpdate の有無（社内の編集者なら
+            真）でもない — DB のガード(guard_task_pricing_write/delete)は space_memberships の
+            行がはっきり admin/editor の人だけで、行が無い社内メンバーは対象外（app_can_write_space
+            より狭い）。呼び出し元が canEditSpaceMoney で判定した値を canEditPricing として渡す */}
+        {agencyData.agency_mode && canEditPricing && (
           <TaskPricingPanel
             taskId={task.id}
             orgId={task.org_id}

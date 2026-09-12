@@ -22,7 +22,7 @@ import { buildDueReminderOccurrenceDraftsForTasks } from '@/lib/reminders/dueRem
  * org単位の自動期限リマインドオンオフ（org_channel_policy.due_reminders_enabled・§2）は
  * entitlementとは別に、この cron でも判定する。off の org は新規occurrenceをそもそも
  * 作らない（既に materialize 済みの occurrence の送信抑止は sender 側が担う）。
- * perf是正: 候補タスク自体が `spaces!inner(org_id)` 埋め込みでorgIdを持つため、以前あった
+ * perf是正: 候補タスク自体が `spaces!tasks_space_id_fkey!inner(org_id)` 埋め込みでorgIdを持つため、以前あった
  * space_id→org_id の別クエリ往復（findOrgIdsForSpaces）は廃止した。
  *
  * HIGH-2是正（フェイルクローズ退行防止）: org設定の読み取りに失敗しても materialize 自体は

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getSupabaseClient, Task, TaskOwner } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
+import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
 
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId: string): Promise<string> {
@@ -66,7 +67,7 @@ export async function ballPass(params: z.infer<typeof ballPassSchema>): Promise<
 
   const { data: task, error: taskError } = await supabase
     .from('tasks')
-    .select('*')
+    .select('*, task_internal_metrics (actual_hours)')
     .eq('id', params.taskId)
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
@@ -74,7 +75,7 @@ export async function ballPass(params: z.infer<typeof ballPassSchema>): Promise<
 
   if (taskError) throw new Error('タスクが見つかりません')
 
-  return { ok: true, task: task as Task }
+  return { ok: true, task: flattenTaskInternalMetrics(task as Task) }
 }
 
 export async function ballQuery(params: z.infer<typeof ballQuerySchema>): Promise<{ tasks: Task[]; owners?: Record<string, TaskOwner[]> }> {
@@ -84,7 +85,7 @@ export async function ballQuery(params: z.infer<typeof ballQuerySchema>): Promis
 
   const { data: tasks, error: tasksError } = await supabase
     .from('tasks')
-    .select('*')
+    .select('*, task_internal_metrics (actual_hours)')
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
     .eq('ball', params.ball)
@@ -94,7 +95,7 @@ export async function ballQuery(params: z.infer<typeof ballQuerySchema>): Promis
   if (tasksError) throw new Error('タスクの取得に失敗しました')
 
   const result: { tasks: Task[]; owners?: Record<string, TaskOwner[]> } = {
-    tasks: (tasks || []) as Task[],
+    tasks: ((tasks || []) as Task[]).map(flattenTaskInternalMetrics),
   }
 
   if (params.includeOwners && tasks && tasks.length > 0) {

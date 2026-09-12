@@ -40,8 +40,12 @@ const SPACE_ROW = {
   preset_genre: 'web_production',
   default_video_provider: 'zoom',
   agency_mode: true,
-  default_margin_rate: 0.2,
-  vendor_settings: { show_client_name: true, allow_client_comments: false },
+  // 代理店設定(default_margin_rate/vendor_settings)は社内専用の別表 space_agency_settings
+  // から埋め込みで読む（fetchSpaceRowQuery が平らにする）。
+  space_agency_settings: {
+    default_margin_rate: 0.2,
+    vendor_settings: { show_client_name: true, allow_client_comments: false },
+  },
 }
 
 function createWrapper() {

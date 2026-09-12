@@ -36,6 +36,7 @@ import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import { RiskSummaryBanner } from '@/components/risk/RiskSummaryBanner'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
@@ -184,6 +185,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const { taskIds: myPendingReviewTaskIds } = useMyPendingReviews(orgId)
   const { milestones } = useMilestones({ spaceId })
   const { members, getMemberName } = useSpaceMembers(spaceId)
+  // 閲覧者（viewer）・相手先には編集操作を出さない。判定の正本は canEditSpaceContent。
+  // 組織の役割は URL の orgId（このページが属する組織）で判定する
+  const { canEdit, canEditMoney, resolved: roleResolved } = useCanEditSpace(spaceId, orgId)
 
   // 招待中の人が担当のときは、一覧でもその名前を出す（承諾すると本人に切り替わる）
   const { pendingInvites } = useSpacePendingInvites(spaceId)
@@ -546,26 +550,29 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         onClose={() => {
           syncUrlWithState(isCreateOpen, null, activeFilter)
         }}
-        onPassBall={(ball, clientOwnerIds, internalOwnerIds) => handlePassBall(selectedTask.id, ball, clientOwnerIds, internalOwnerIds)}
-        onUpdate={(updates) => handleUpdateTask(selectedTask.id, updates)}
-        onDelete={() => handleDeleteTask(selectedTask.id)}
-        onDuplicate={() => {
+        // 閲覧者（viewer）・相手先には編集操作を渡さない。TaskInspector は onUpdate 等が
+        // 無ければ表示だけの読み取り専用になる設計（各項目が `onUpdate ? 編集UI : 表示`）
+        onPassBall={canEdit ? (ball, clientOwnerIds, internalOwnerIds) => handlePassBall(selectedTask.id, ball, clientOwnerIds, internalOwnerIds) : undefined}
+        onUpdate={canEdit ? (updates) => handleUpdateTask(selectedTask.id, updates) : undefined}
+        onDelete={canEdit ? () => handleDeleteTask(selectedTask.id) : undefined}
+        onDuplicate={canEdit ? () => {
           setDuplicateSource(selectedTask)
           syncUrlWithState(true, null, activeFilter)
-        }}
-        onUpdateOwners={(clientOwnerIds, internalOwnerIds) =>
+        } : undefined}
+        onUpdateOwners={canEdit ? (clientOwnerIds, internalOwnerIds) =>
           handleUpdateOwners(selectedTask.id, clientOwnerIds, internalOwnerIds)
-        }
+        : undefined}
         onSetSpecState={
-          selectedTask.type === 'spec'
+          canEdit && selectedTask.type === 'spec'
             ? (decisionState) => handleSetSpecState(selectedTask.id, decisionState)
             : undefined
         }
-        onConsideringDecided={fetchTasks}
+        onConsideringDecided={canEdit ? fetchTasks : undefined}
         onReviewChange={handleReviewChange}
+        canEditPricing={canEditMoney}
       />
     )
-  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
@@ -586,9 +593,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     searchInputRef.current?.focus()
   }, [])
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts。「n」は新規作成なので、編集できない人には登録しない
   useKeyboardShortcuts([
-    { key: 'n', handler: handleCreateOpen },
+    ...(canEdit ? [{ key: 'n', handler: handleCreateOpen }] : []),
     { key: '/', handler: handleFocusSearch },
   ])
 
@@ -606,11 +613,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         for (const task of group.tasks) {
           rows.push({ type: 'task', task, indent: showHeader })
         }
-        rows.push({ type: 'inline', milestoneId: group.milestone?.id || null, indent: showHeader, groupKey })
+        // インライン作成行（末尾の「＋ タスクを追加」）は編集できる人だけ
+        if (canEdit) {
+          rows.push({ type: 'inline', milestoneId: group.milestone?.id || null, indent: showHeader, groupKey })
+        }
       }
     }
     return rows
-  }, [taskGroups, collapsedGroups, sortKey])
+  }, [taskGroups, collapsedGroups, sortKey, canEdit])
 
   // Flat visible task IDs for keyboard navigation (respects grouping + collapsed)
   const flatVisibleTaskIds = useMemo(() => {
@@ -919,7 +929,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <InternalOnboardingWalkthrough />
+      <InternalOnboardingWalkthrough canEdit={canEdit} roleResolved={roleResolved} />
       {/* Header */}
       <header className="border-b border-gray-100 flex-shrink-0">
         {/* Top row: Breadcrumb + Settings */}
@@ -937,17 +947,19 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           <div className="flex-1" />
           {/* 常設の作成ボタン。以前は一覧最下段の薄い「＋ タスクを追加」行だけで、サンプルの下に隠れて
               見つからなかった。操作ガイドの第1ステップ(data-walkthrough="task-create")はこのボタンを
-              最初に見つけてハイライトする（DOM順で先頭）。 */}
-          <button
-            type="button"
-            onClick={handleCreateOpen}
-            data-walkthrough="task-create"
-            data-testid="task-create-button"
-            className="mr-1 inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-surface px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <Plus className="text-sm" weight="bold" />
-            タスクを追加
-          </button>
+              最初に見つけてハイライトする（DOM順で先頭）。閲覧者（viewer）には出さない。 */}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleCreateOpen}
+              data-walkthrough="task-create"
+              data-testid="task-create-button"
+              className="mr-1 inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-surface px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Plus className="text-sm" weight="bold" />
+              タスクを追加
+            </button>
+          )}
           <Link
             href={`/portal/preview/${spaceId}`}
             data-testid="client-preview-link"
@@ -1177,22 +1189,24 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             )}
           </div>
 
-          {/* まとめて操作（選択モード） */}
-          <button
-            type="button"
-            onClick={handleToggleSelectMode}
-            aria-pressed={isSelectMode}
-            className={`flex flex-shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs whitespace-nowrap border rounded-lg transition-colors ${
-              isSelectMode
-                ? 'bg-blue-50 border-blue-300 text-blue-700'
-                : 'bg-surface border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300'
-            }`}
-            aria-label="まとめて操作"
-            title="複数のタスクをまとめて完了・担当変更する"
-          >
-            <CheckSquare className="text-sm" />
-            <span className="hidden sm:inline">{isSelectMode ? '選択中' : '選択'}</span>
-          </button>
+          {/* まとめて操作（選択モード）。中身（完了・ボール変更）はどちらも編集操作なので閲覧者には出さない */}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleToggleSelectMode}
+              aria-pressed={isSelectMode}
+              className={`flex flex-shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs whitespace-nowrap border rounded-lg transition-colors ${
+                isSelectMode
+                  ? 'bg-blue-50 border-blue-300 text-blue-700'
+                  : 'bg-surface border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300'
+              }`}
+              aria-label="まとめて操作"
+              title="複数のタスクをまとめて完了・担当変更する"
+            >
+              <CheckSquare className="text-sm" />
+              <span className="hidden sm:inline">{isSelectMode ? '選択中' : '選択'}</span>
+            </button>
+          )}
           </div>
         </div>
       </header>
@@ -1206,8 +1220,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
       <SetupChecklist orgId={orgId} spaceId={spaceId} />
 
-      {/* サンプルタスク一括削除バナー */}
-      {sampleTaskIds.length > 0 && (
+      {/* サンプルタスク一括削除バナー。削除操作なので閲覧者には出さない */}
+      {canEdit && sampleTaskIds.length > 0 && (
         <SampleTaskBanner count={sampleTaskIds.length} onDeleteAll={handleDeleteSampleTasks} />
       )}
 
@@ -1228,7 +1242,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                 >
                   検索をクリア
                 </button>
-              ) : (
+              ) : canEdit ? (
                 <button
                   type="button"
                   onClick={handleCreateOpen}
@@ -1237,7 +1251,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   <Plus />
                   タスクを作成
                 </button>
-              )}
+              ) : undefined}
             />
           </div>
         )}
@@ -1267,7 +1281,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                     isSelected={row.task.id === selectedTaskId}
                     onClick={handleTaskSelect}
                     indent={row.indent}
-                    onStatusChange={handleStatusChange}
+                    onStatusChange={canEdit ? handleStatusChange : undefined}
                     reviewStatus={reviewStatuses[row.task.id]}
                     awaitingMyApproval={myPendingReviewTaskIds.has(row.task.id)}
                     assigneeName={assigneeNameOf(row.task)}
@@ -1275,7 +1289,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                     bulkMode={bulkMode}
                     isChecked={selectedTaskIds.has(row.task.id)}
                     onCheckChange={handleCheckChange}
-                    onContextMenu={handleContextMenu}
+                    onContextMenu={canEdit ? handleContextMenu : undefined}
                     isMobile={isMobile}
                   />
                 )
@@ -1454,7 +1468,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         spaceId={spaceId}
         orgId={orgId}
         spaceName={spaceName}
-        isOpen={isCreateOpen}
+        isOpen={canEdit && isCreateOpen}
         onClose={() => { handleCreateClose(); setDuplicateSource(null) }}
         onSubmit={handleCreateSubmit}
         defaultBall={duplicateSource ? duplicateSource.ball : lastBall}

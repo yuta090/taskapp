@@ -17,6 +17,7 @@ import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import {
   applyWikiListView,
   buildWikiTree,
@@ -62,6 +63,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const savedTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [showPresetApplicator, setShowPresetApplicator] = useState(false)
 
+  // 閲覧者（viewer）・相手先には編集操作を出さない。組織の役割は URL の orgId で判定する
+  const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
+
   const {
     pages,
     loading,
@@ -72,7 +76,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     deletePage,
     fetchPage,
     fetchVersions,
-  } = useWikiPages({ orgId, spaceId })
+    // 空のWikiの自動作成（ホームページ等）は編集できる人のときだけ行う
+  } = useWikiPages({ orgId, spaceId, canEdit })
   const { milestones } = useMilestones({ spaceId })
   const milestonesEmpty = pages.length === 0 ? milestones.length === 0 : null
 
@@ -282,10 +287,11 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         // Mobile: close just hides the info sheet (keeps the editor open).
         // Desktop: close navigates back to the page list (unchanged).
         onClose={() => (isMobile ? setShowInfo(false) : updateQuery({ page: null }))}
-        onUpdate={handleUpdate}
-        onDelete={handleDelete}
+        // 閲覧者（viewer）・相手先には編集操作を渡さない（onUpdate 等が無ければ表示だけになる設計）
+        onUpdate={canEdit ? handleUpdate : undefined}
+        onDelete={canEdit ? handleDelete : undefined}
         onFetchVersions={fetchVersions}
-        onRestoreVersion={handleRestoreVersion}
+        onRestoreVersion={canEdit ? handleRestoreVersion : undefined}
         allPages={pages}
         milestones={milestones}
         taskLinkedMilestones={taskLinkedMilestonesForActivePage}
@@ -296,6 +302,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     isMobile,
     showInfo,
     setInspector,
+    canEdit,
     updatePage,
     deletePage,
     fetchPage,
@@ -398,7 +405,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               key={activePage.id}
               initialContent={activePage.body || undefined}
               onChange={handleEditorChange}
-              editable={true}
+              editable={canEdit}
               orgId={orgId}
               spaceId={spaceId}
             />
@@ -420,13 +427,15 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsCreateSheetOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
-          >
-            <Plus className="text-base" />
-            新規ページ
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setIsCreateSheetOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+            >
+              <Plus className="text-base" />
+              新規ページ
+            </button>
+          )}
           {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
               AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
               モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
@@ -464,8 +473,11 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             <p className="text-gray-500 mb-1">Wikiページがありません</p>
             <p className="text-sm text-gray-400 mb-4">「新規ページ」からページを作成してください</p>
 
-            {/* Template apply CTA — only when both wiki and milestones are empty */}
-            {milestonesEmpty === true && (
+            {/* Template apply CTA — only when both wiki and milestones are empty。
+                内部で使う rpc_apply_preset_to_space は「space_memberships の行がはっきり
+                admin/editor」を求める（canEdit=行が無い社内メンバーも含む、より広い規則）ため、
+                代理店設定・ポータル表示設定と同じ canEditMoney で出し分ける */}
+            {canEditMoney && milestonesEmpty === true && (
               effectiveShowPresetApplicator ? (
                 <div className="w-full max-w-lg text-left">
                   <PresetApplicator
@@ -561,7 +573,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
       {/* Create Sheet */}
       <WikiCreateSheet
-        isOpen={isCreateSheetOpen}
+        isOpen={canEdit && isCreateSheetOpen}
         onClose={() => setIsCreateSheetOpen(false)}
         onSubmit={handleCreatePage}
       />

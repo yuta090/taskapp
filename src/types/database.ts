@@ -269,6 +269,41 @@ export interface Database {
           created_at?: string
         }
       }
+      space_agency_settings: {
+        Row: {
+          space_id: string
+          org_id: string
+          default_margin_rate: number | null
+          vendor_settings: {
+            show_client_name: boolean
+            allow_client_comments: boolean
+          }
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          space_id: string
+          org_id?: string
+          default_margin_rate?: number | null
+          vendor_settings?: {
+            show_client_name: boolean
+            allow_client_comments: boolean
+          }
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          space_id?: string
+          org_id?: string
+          default_margin_rate?: number | null
+          vendor_settings?: {
+            show_client_name: boolean
+            allow_client_comments: boolean
+          }
+          created_at?: string
+          updated_at?: string
+        }
+      }
       space_groups: {
         Row: {
           id: string
@@ -555,6 +590,32 @@ export interface Database {
           side?: BallSide
           user_id?: string
           created_at?: string
+        }
+      }
+      task_internal_metrics: {
+        Row: {
+          task_id: string
+          org_id: string
+          space_id: string
+          actual_hours: number | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          task_id: string
+          org_id?: string
+          space_id?: string
+          actual_hours?: number | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          task_id?: string
+          org_id?: string
+          space_id?: string
+          actual_hours?: number | null
+          created_at?: string
+          updated_at?: string
         }
       }
       task_pricing: {
@@ -1467,6 +1528,7 @@ export type Profile = Tables['profiles']['Row']
 export type Organization = Tables['organizations']['Row']
 export type OrgMembership = Tables['org_memberships']['Row']
 export type Space = Tables['spaces']['Row']
+export type SpaceAgencySettings = Tables['space_agency_settings']['Row']
 export type SpaceMembership = Tables['space_memberships']['Row']
 export type Invite = Tables['invites']['Row']
 export type Plan = Tables['plans']['Row']
@@ -1475,6 +1537,7 @@ export type Task = Tables['tasks']['Row']
 export type TaskInsert = Tables['tasks']['Insert']
 export type TaskUpdate = Tables['tasks']['Update']
 export type TaskOwner = Tables['task_owners']['Row']
+export type TaskInternalMetrics = Tables['task_internal_metrics']['Row']
 export type TaskPricingRow = Tables['task_pricing']['Row']
 export type TaskPricingInsert = Tables['task_pricing']['Insert']
 export type TaskPricingUpdate = Tables['task_pricing']['Update']

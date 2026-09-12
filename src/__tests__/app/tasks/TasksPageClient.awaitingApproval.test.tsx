@@ -57,6 +57,10 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({ members: [], getMemberName: () => null, loading: false, error: null }),
 }))
 
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: true, loading: false }),
+}))
+
 vi.mock('@/lib/hooks/useSpacePendingInvites', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/hooks/useSpacePendingInvites')>()
   return { ...actual, useSpacePendingInvites: () => ({ pendingInvites: [], loading: false }) }

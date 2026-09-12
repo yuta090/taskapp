@@ -3,8 +3,10 @@
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { usePortalVisibility, type PortalVisibleSections } from '@/lib/hooks/usePortalVisibility'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 
 interface PortalSettingsProps {
+  orgId: string
   spaceId: string
 }
 
@@ -13,18 +15,20 @@ interface ToggleItemProps {
   description: string
   checked: boolean
   onChange: (checked: boolean) => void
+  disabled?: boolean
 }
 
-function ToggleItem({ label, description, checked, onChange }: ToggleItemProps) {
+function ToggleItem({ label, description, checked, onChange, disabled = false }: ToggleItemProps) {
   return (
-    <label className="flex items-start gap-3 py-3 px-1 cursor-pointer group">
+    <label className={`flex items-start gap-3 py-3 px-1 group ${disabled ? '' : 'cursor-pointer'}`}>
       <div className="pt-0.5">
         <button
           type="button"
           role="switch"
           aria-checked={checked}
+          disabled={disabled}
           onClick={() => onChange(!checked)}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             checked ? 'bg-indigo-600' : 'bg-gray-200'
           }`}
         >
@@ -53,8 +57,13 @@ const SECTION_CONFIG: { key: keyof PortalVisibleSections; label: string; descrip
   { key: 'history', label: '承認履歴', description: '過去の承認・レビュー履歴' },
 ]
 
-export function PortalSettings({ spaceId }: PortalSettingsProps) {
+export function PortalSettings({ orgId, spaceId }: PortalSettingsProps) {
   const { sections, loading, updateSections } = usePortalVisibility(spaceId)
+  // portal_visible_sections は代理店設定(agency_mode等)と同じ形のDBトリガー
+  // (guard_portal_visible_sections, 20260307_001_portal_sections_write_guard.sql)で、
+  // space_memberships の行がはっきり admin/editor の人だけに絞られている
+  // （行が無い社内メンバーへの editor 扱いフォールバックは無い）。canEditMoney をそのまま使う
+  const { canEditMoney: canEditPortal } = useCanEditSpace(spaceId, orgId)
 
   const handleToggle = useCallback(
     async (key: keyof PortalVisibleSections, checked: boolean) => {
@@ -95,6 +104,7 @@ export function PortalSettings({ spaceId }: PortalSettingsProps) {
             description={item.description}
             checked={sections[item.key]}
             onChange={(checked) => handleToggle(item.key, checked)}
+            disabled={!canEditPortal}
           />
         ))}
       </div>

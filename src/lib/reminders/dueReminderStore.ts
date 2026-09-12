@@ -44,6 +44,10 @@ export interface DueReminderCandidateTaskRow {
  * perf是正（org単位オンオフ判定のIN非有界回避）: `spaces!inner(org_id)` をこのクエリ自体に埋め込み、
  * 別途 space_id → org_id を往復解決する `findOrgIdsForSpaces` は廃止した。呼び出し側
  * （due-reminder-planner route）は返ってきた orgId をそのまま org 単位オンオフ判定に使える。
+ *
+ * tasks → spaces の外部キーは2本ある（space_id の `tasks_space_id_fkey` と、
+ * 20260911155718_space_org_fk.sql の `tasks_space_org_fkey`）。道を指定しないと PostgREST が
+ * 「more than one relationship was found」で失敗するため、`tasks_space_id_fkey` を明示する。
  */
 export async function findDueReminderCandidateTasks(
   now: Date = new Date(),
@@ -58,7 +62,7 @@ export async function findDueReminderCandidateTasks(
 
   const { data, error } = await admin()
     .from('tasks')
-    .select('id, due_date, status, assignee_id, spaces!inner(org_id)')
+    .select('id, due_date, status, assignee_id, spaces!tasks_space_id_fkey!inner(org_id)')
     .not('due_date', 'is', null)
     .neq('status', 'done')
     .not('assignee_id', 'is', null)

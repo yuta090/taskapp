@@ -89,3 +89,65 @@ export const INTERNAL_SPACE_ROLES = ['admin', 'editor', 'viewer'] as const
 export function isInternalSpaceRole(role: string | undefined | null): boolean {
   return (INTERNAL_SPACE_ROLES as readonly string[]).includes(role ?? '')
 }
+
+/**
+ * 組織（org_memberships.role）の役割が「社内」か。owner / admin / member のみ。
+ * client（相手先・vendor も org 側は 'client'）や、まだ取れていない役割は false（社外側に倒す）。
+ * DB 側の判定（app_is_org_internal, 20260703_*_rls_helpers.sql）と同じ規則。
+ */
+const ORG_INTERNAL_ROLES = ['owner', 'admin', 'member'] as const
+
+export function isOrgInternalRole(role: string | undefined | null): boolean {
+  return (ORG_INTERNAL_ROLES as readonly string[]).includes(role ?? '')
+}
+
+const EDITABLE_SPACE_ROLES = ['admin', 'editor'] as const
+
+/**
+ * この space の内容（タスク・ガント・Wiki・見積など）を編集できるか。
+ * DB 側の判定（app_can_write_space, 20260911143112_space_role_boundary.sql）と同じ規則:
+ * 組織の役割が社内（owner/admin/member）で、かつ space の役割が admin/editor か、
+ * space_memberships に行が無い（社内メンバーは editor 扱い）人だけ編集できる。
+ * 閲覧者（viewer）・相手先（client）・vendor、および組織側が社外の人はできない。
+ *
+ * 画面はこの判定だけを唯一の正本にし、直接 role 文字列を比較しないこと（DB の規則が
+ * 変わったらここだけ直せばよい状態を保つ）。
+ */
+export function canEditSpaceContent(
+  spaceRole: string | undefined | null,
+  orgRole: string | undefined | null
+): boolean {
+  if (!isOrgInternalRole(orgRole)) return false
+  return spaceRole == null || (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole)
+}
+
+/**
+ * 「space_memberships の行がはっきり admin/editor の人だけ」という、より狭い規則を課す
+ * DB の門番で守られた操作を行えるか。canEditSpaceContent と違い、行が無い社内メンバーへの
+ * 「editor 扱い」フォールバックは無い（これらの門番はどれも space_memberships を直接引き、
+ * 行が無ければ弾く）。今のところ使う場面（=同じ規則を課す DB の門番）:
+ * - 価格の枠（TaskPricingPanel） … トリガー guard_task_pricing_write・guard_task_pricing_delete
+ *   （20260308_003_task_pricing_write_guard.sql）＋自身の RLS（task_pricing_*_member,
+ *   20260703_011_rls_task_pricing_internal_only.sql の app_is_org_internal・組織の役割も要る）
+ * - 代理店設定（AgencySettings） … トリガー guard_agency_settings
+ *   （20260308_002_agency_settings_write_guard.sql）。実体は spaces の列なので、書き込みは
+ *   RLS（app_can_write_space 経由）の「組織の役割が社内」も同時に満たす必要がある
+ * - ポータル表示設定（PortalSettings, spaces.portal_visible_sections） … トリガー
+ *   guard_portal_visible_sections（20260307_001_portal_sections_write_guard.sql）。agency設定と同じ形
+ * - テンプレート適用（PresetSettings・WikiPageClient の空Wiki CTA, rpc_apply_preset_to_space） …
+ *   RPC 内の確認（20260911143112_space_role_boundary.sql）が app_can_write_space の前に
+ *   space_memberships の行を直接確認する
+ * - Slackチャンネルの連携・解除・自動通知（SlackChannelSettings） … RLS ポリシー
+ *   "space admins can manage slack channels"（20250213_000_slack_integration.sql）
+ *
+ * 名前は canEditSpaceMoney のままだが、上記のとおり価格・代理店設定に限らず同じ規則の
+ * 門番全般に使う（他の作業が同時に AgencySettings・TaskInspector を触っているため、
+ * より汎用的な名前への変更は今回は見送り、後でまとめて行う）。
+ */
+export function canEditSpaceMoney(
+  spaceRole: string | undefined | null,
+  orgRole: string | undefined | null
+): boolean {
+  if (!isOrgInternalRole(orgRole)) return false
+  return (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole ?? '')
+}

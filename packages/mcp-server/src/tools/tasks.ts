@@ -4,6 +4,8 @@ import { config, getAuthContext } from '../config.js'
 import { authorizeAndLog, type ActionType } from '../auth/index.js'
 import { dryRunDelete, confirmDelete } from '../auth/dryrun.js'
 import { withTaskNumber } from '../lib/taskNumber.js'
+import { ToolUserError } from '../errors.js'
+import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
 
 // Schemas
 export const taskCreateSchema = z.object({
@@ -244,6 +246,21 @@ async function resolveAssigneeByEmail(
   )
 }
 
+/**
+ * 完了の関所（DB の enforce_review_gate・check_violation）に止められたときの、呼んだ人向けの理由。
+ * 止めた理由は決まった文言で秘密を含まない。該当しなければ null
+ */
+function completionGateReason(error: { code?: string; message?: string }): string | null {
+  if (error.code !== '23514') return null
+  if (error.message?.includes('review is not approved')) {
+    return 'レビューの承認が済んでいないため、完了にできません。承認されてから完了にしてください'
+  }
+  if (error.message?.includes('spec decision is not made')) {
+    return '仕様の決定（decision_state）が済んでいないため、完了にできません'
+  }
+  return null
+}
+
 export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Promise<Task> {
   // 権限チェック（write権限が必要、リソースIDも渡して所有権チェック）
   await checkAuth(params.spaceId, 'write', 'task_update', params.taskId)
@@ -260,7 +277,6 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
   if (params.clientScope !== undefined) updateData.client_scope = params.clientScope
   if (params.startDate !== undefined) updateData.start_date = params.startDate
   if (params.parentTaskId !== undefined) updateData.parent_task_id = params.parentTaskId
-  if (params.actualHours !== undefined) updateData.actual_hours = params.actualHours
   if (params.milestoneId !== undefined) updateData.milestone_id = params.milestoneId
   if (params.wikiPageId !== undefined) updateData.wiki_page_id = params.wikiPageId
   // 担当者は「本人」か「招待中の招待」のどちらか一方だけ（DB の tasks_single_assignee_chk）。
@@ -280,22 +296,83 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
     updateData.assignee_invite_id = null
   }
 
-  if (Object.keys(updateData).length === 0) {
+  if (Object.keys(updateData).length === 0 && params.actualHours === undefined) {
     throw new Error('更新するフィールドがありません')
   }
 
-  updateData.updated_at = new Date().toISOString()
+  // actualHours(実績工数)は tasks の列ではなく、社内専用の別表 task_internal_metrics
+  // へ書く。それ以外の変更が無ければ tasks 自体は更新しない
+  let data: Task | null = null
+  if (Object.keys(updateData).length > 0) {
+    updateData.updated_at = new Date().toISOString()
 
-  const { data, error } = await supabase
-    .from('tasks')
-    .update(updateData)
-    .eq('id', params.taskId)
-    .eq('space_id', params.spaceId)
-    .select('*')
-    .single()
+    const { data: updated, error } = await supabase
+      .from('tasks')
+      .update(updateData)
+      .eq('id', params.taskId)
+      .eq('space_id', params.spaceId)
+      .select('*, task_internal_metrics (actual_hours)')
+      .single()
 
-  if (error) throw new Error('タスク更新に失敗しました')
-  return data as Task
+    if (error) {
+      const gateReason = completionGateReason(error)
+      if (gateReason) throw new ToolUserError(gateReason, 409)
+      // それ以外の DB の理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
+      console.error('task_update failed:', error.code, error.message)
+      throw new Error('タスク更新に失敗しました')
+    }
+    data = flattenTaskInternalMetrics(updated as Task)
+  }
+
+  if (params.actualHours !== undefined) {
+    // mcp-server は service role（RLSを通らない）で動くため、tasks 自体を更新
+    // しなかった(= data がまだ無い)場合は、このタスクが渡された space に属するかを
+    // 事前に確かめる。tasks の更新が走った場合は既に id・space_id で絞られている
+    if (!data) {
+      const { data: taskInSpace, error: taskCheckError } = await supabase
+        .from('tasks')
+        .select('id')
+        .eq('id', params.taskId)
+        .eq('space_id', params.spaceId)
+        .maybeSingle()
+
+      if (taskCheckError) throw new Error('タスク更新に失敗しました')
+      if (!taskInSpace) throw new Error('タスクが見つかりません')
+    }
+
+    const { error: metricsError } = await supabase
+      .from('task_internal_metrics')
+      .upsert({ task_id: params.taskId, actual_hours: params.actualHours }, { onConflict: 'task_id' })
+
+    if (metricsError) {
+      // tasks 側の更新(あれば)は既にDBへ反映済みで、この呼び出しでは戻せない
+      // （半分だけ保存された状態）。どこまで保存されたかを呼び出し元に伝える
+      throw new Error(
+        data
+          ? 'タイトル等は更新できましたが、実績工数の更新に失敗しました'
+          : '実績工数の更新に失敗しました'
+      )
+    }
+  }
+
+  if (!data) {
+    const { data: fetched, error: fetchError } = await supabase
+      .from('tasks')
+      .select('*, task_internal_metrics (actual_hours)')
+      .eq('id', params.taskId)
+      .eq('space_id', params.spaceId)
+      .single()
+
+    if (fetchError) throw new Error('タスク更新に失敗しました')
+    data = flattenTaskInternalMetrics(fetched as Task)
+  }
+
+  // fetched/updated 行は upsert 前の値を持ちうるため、渡した値で上書きして返す
+  if (params.actualHours !== undefined) {
+    data = { ...data, actual_hours: params.actualHours }
+  }
+
+  return data
 }
 
 export async function taskList(params: z.infer<typeof taskListSchema>): Promise<Task[]> {
@@ -306,7 +383,7 @@ export async function taskList(params: z.infer<typeof taskListSchema>): Promise<
 
   let query = supabase
     .from('tasks')
-    .select('*')
+    .select('*, task_internal_metrics (actual_hours)')
     .eq('space_id', params.spaceId)
     .order('created_at', { ascending: false })
     .range(params.offset, params.offset + params.limit - 1)
@@ -327,7 +404,7 @@ export async function taskList(params: z.infer<typeof taskListSchema>): Promise<
   const { data, error } = await query
 
   if (error) throw new Error('タスク一覧の取得に失敗しました')
-  return ((data || []) as Task[]).map(withTaskNumber)
+  return ((data || []) as Task[]).map((t) => withTaskNumber(flattenTaskInternalMetrics(t)))
 }
 
 export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ task: Task; owners: TaskOwner[] }> {
@@ -338,7 +415,7 @@ export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ 
 
   const { data: task, error: taskError } = await supabase
     .from('tasks')
-    .select('*')
+    .select('*, task_internal_metrics (actual_hours)')
     .eq('id', params.taskId)
     .eq('space_id', params.spaceId)
     .single()
@@ -353,7 +430,10 @@ export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ 
 
   if (ownersError) throw new Error('担当者の取得に失敗しました')
 
-  return { task: withTaskNumber(task as Task), owners: (owners || []) as TaskOwner[] }
+  return {
+    task: withTaskNumber(flattenTaskInternalMetrics(task as Task)),
+    owners: (owners || []) as TaskOwner[],
+  }
 }
 
 export async function taskDelete(params: z.infer<typeof taskDeleteSchema>): Promise<{
@@ -414,7 +494,10 @@ export async function taskListMy(params: z.infer<typeof taskListMySchema>): Prom
 
   // scope='user' でない場合はエラー
   if (ctx.scope !== 'user') {
-    throw new Error('このツールはscope=userのAPIキーでのみ使用できます')
+    throw new ToolUserError(
+      'このツールはscope=userのAPIキーでのみ使用できます（個人用の鍵が必要です。プロジェクト内の一覧は task list を使ってください）',
+      403,
+    )
   }
 
   if (!ctx.userId) {
@@ -455,7 +538,7 @@ export async function taskListMy(params: z.infer<typeof taskListMySchema>): Prom
 
     let query = supabase
       .from('tasks')
-      .select('*')
+      .select('*, task_internal_metrics (actual_hours)')
       .eq('space_id', membership.space_id)
       .order('created_at', { ascending: false })
       .range(params.offset, params.offset + params.limit - 1)
@@ -477,7 +560,7 @@ export async function taskListMy(params: z.infer<typeof taskListMySchema>): Prom
     results.push({
       spaceId: membership.space_id,
       spaceName: spaceData?.name || 'Unknown',
-      tasks: ((tasks || []) as Task[]).map(withTaskNumber),
+      tasks: ((tasks || []) as Task[]).map((t) => withTaskNumber(flattenTaskInternalMetrics(t))),
     })
   }
 
@@ -504,7 +587,7 @@ export async function taskStale(params: z.infer<typeof taskStaleSchema>): Promis
 
   let query = supabase
     .from('tasks')
-    .select('*')
+    .select('*, task_internal_metrics (actual_hours)')
     .eq('space_id', params.spaceId)
     .neq('status', 'done')
     .lt('updated_at', cutoffIso)
@@ -518,7 +601,7 @@ export async function taskStale(params: z.infer<typeof taskStaleSchema>): Promis
   const { data, error } = await query
 
   if (error) throw new Error('滞留タスクの取得に失敗しました')
-  return (data || []) as Task[]
+  return ((data || []) as Task[]).map(flattenTaskInternalMetrics)
 }
 
 // Tool definitions for MCP
