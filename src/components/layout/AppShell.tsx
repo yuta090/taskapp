@@ -19,9 +19,15 @@ import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 
 const LAST_PATH_KEY = 'taskapp:lastPath'
 
+export interface InspectorOptions {
+  /** 既定は 400px。'narrow' は 320px（例: Wiki のページ情報パネル） */
+  size?: 'default' | 'narrow'
+}
+
 interface InspectorContextValue {
   inspector: ReactNode | null
-  setInspector: (node: ReactNode | null) => void
+  inspectorSize: 'default' | 'narrow'
+  setInspector: (node: ReactNode | null, options?: InspectorOptions) => void
 }
 
 const InspectorContext = createContext<InspectorContextValue | null>(null)
@@ -40,9 +46,17 @@ export function useInspector() {
  */
 function InspectorProvider({ children }: { children: ReactNode }) {
   const [inspectorNode, setInspectorNode] = useState<ReactNode | null>(null)
+  const [inspectorSize, setInspectorSize] = useState<'default' | 'narrow'>('default')
+  const setInspector = useCallback(
+    (node: ReactNode | null, options?: InspectorOptions) => {
+      setInspectorNode(node)
+      setInspectorSize(options?.size ?? 'default')
+    },
+    []
+  )
   const contextValue = useMemo(
-    () => ({ inspector: inspectorNode, setInspector: setInspectorNode }),
-    [inspectorNode]
+    () => ({ inspector: inspectorNode, inspectorSize, setInspector }),
+    [inspectorNode, inspectorSize, setInspector]
   )
   return (
     <InspectorContext.Provider value={contextValue}>
@@ -56,12 +70,12 @@ function InspectorProvider({ children }: { children: ReactNode }) {
  * re-renders when the inspector content changes.
  */
 function InspectorPane() {
-  const { inspector } = useInspector()
+  const { inspector, inspectorSize } = useInspector()
   return (
     <aside
       className={`inspector-pane flex-shrink-0 bg-surface ${
         inspector ? 'open' : ''
-      }`}
+      } ${inspectorSize === 'narrow' ? 'inspector-narrow' : ''}`}
     >
       {inspector}
     </aside>
@@ -74,6 +88,8 @@ function InspectorPane() {
  * UI Rules:
  * - Inspector must resize Main, never overlay
  * - Inspector width: 400px (1920px+: 440px, 2560px+: 480px)
+ * - Exception: Wiki のページ情報パネルは 320px（ユーザー要望・2026-09-12）。
+ *   setInspector(node, { size: 'narrow' }) で指定する。他のページは 400px のまま。
  */
 function GlobalShortcuts() {
   const { ShortcutsHelp } = useShortcutsHelp()
@@ -96,11 +112,37 @@ function LastPathRecorder() {
   return null
 }
 
+interface ShellFullscreenContextValue {
+  /** true のあいだ、デスクトップの LeftNav を隠して本文を画面いっぱいに広げる */
+  fullscreen: boolean
+  setFullscreen: (value: boolean) => void
+}
+
+const ShellFullscreenContext = createContext<ShellFullscreenContextValue | null>(null)
+
+/**
+ * ページを画面いっぱいに見せる（Wiki の「全画面」）。重ね表示（fixed）にしないのは、main が
+ * `relative z-0` で重なりの箱を作っていて、その中からは LeftNav の上に出られないため
+ * （実際に本文の左端が LeftNav に隠れた・2026-09-12）。
+ * 使うページは画面を離れるときに必ず false に戻すこと（戻さないとほかの画面で LeftNav が消えたまま）。
+ */
+export function useShellFullscreen() {
+  const context = useContext(ShellFullscreenContext)
+  if (!context) {
+    throw new Error('useShellFullscreen must be used within AppShell')
+  }
+  return context
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   // Mobile (<md): LeftNav collapses into a slide-in drawer behind a hamburger.
   // Desktop (md+): unchanged fixed 3-pane.
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
+
+  // Wiki の「全画面」。setFullscreen は useState の更新関数なので常に同じ参照
+  const [fullscreen, setFullscreen] = useState(false)
+  const fullscreenValue = useMemo(() => ({ fullscreen, setFullscreen }), [fullscreen])
 
   // Escape closes the mobile drawer
   useEffect(() => {
@@ -114,6 +156,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <InspectorProvider>
+      <ShellFullscreenContext.Provider value={fullscreenValue}>
       {/* h-[100dvh] avoids the iOS Safari 100vh/url-bar gap on mobile */}
       <div className="flex h-[100dvh] w-full overflow-hidden bg-surface text-gray-900">
         {/* Mobile header bar (md:hidden) — hamburger + title + bell */}
@@ -161,9 +204,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           </>
         )}
 
-        {/* 1) Left Nav - Fixed 240px on desktop, hidden on mobile */}
-        <Suspense fallback={<div className="hidden md:block w-60 flex-shrink-0 bg-gray-50 border-r border-gray-100" />}>
-          <div className="hidden md:flex">
+        {/* 1) Left Nav - Fixed 240px on desktop, hidden on mobile.
+            Wiki の「全画面」（useShellFullscreen）のあいだはデスクトップでも隠す */}
+        <Suspense
+          fallback={
+            <div
+              className={
+                fullscreen ? 'hidden' : 'hidden md:block w-60 flex-shrink-0 bg-gray-50 border-r border-gray-100'
+              }
+            />
+          }
+        >
+          <div className={fullscreen ? 'hidden' : 'hidden md:flex'}>
             <LeftNav />
           </div>
         </Suspense>
@@ -194,6 +246,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <GlobalShortcuts />
       <LastPathRecorder />
+      </ShellFullscreenContext.Provider>
     </InspectorProvider>
   )
 }

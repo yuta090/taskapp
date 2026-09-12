@@ -18,9 +18,14 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
-vi.mock('@/components/layout', () => ({
-  useInspector: () => ({ setInspector: vi.fn() }),
-}))
+vi.mock('@/components/layout', () => {
+  // 全画面（AppShell）の状態。関数は1つだけ作って使い回す（毎レンダー作ると effect が走り直す）
+  const setFullscreen = vi.fn()
+  return {
+    useInspector: () => ({ setInspector: vi.fn() }),
+    useShellFullscreen: () => ({ fullscreen: false, setFullscreen }),
+  }
+})
 
 vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
