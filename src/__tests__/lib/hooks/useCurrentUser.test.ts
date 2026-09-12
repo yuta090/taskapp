@@ -8,10 +8,14 @@ import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
 import { __resetNavigationLeavingStateForTest } from '@/lib/net/isNavigationAbort'
 
 const mockGetUser = vi.fn()
+// getCachedUser（cached-auth.ts）はロックを避けるため getSession() でトークンを
+// ローカルに読んでから getUser(token) で検証する。既定はログイン中を表す値を返す
+const mockGetSession = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: {
+      getSession: mockGetSession,
       getUser: mockGetUser,
     },
   }),
@@ -27,6 +31,10 @@ function createWrapper(queryClient: QueryClient) {
 describe('useCurrentUser', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetSession.mockResolvedValue({
+      data: { session: { access_token: 'test-token' } },
+      error: null,
+    })
     invalidateCachedUser()
     __resetNavigationLeavingStateForTest()
   })

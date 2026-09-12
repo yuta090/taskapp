@@ -77,7 +77,11 @@ function makeChainable(result: { data: unknown; error: unknown }) {
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { getUser: vi.fn(() => Promise.resolve({ data: { user: null }, error: null })) },
+    auth: {
+      // getCachedUser（cached-auth.ts）はロックを避けるため getSession() を先に読む
+      getSession: vi.fn(() => Promise.resolve({ data: { session: null }, error: null })),
+      getUser: vi.fn(() => Promise.resolve({ data: { user: null }, error: null })),
+    },
     from: vi.fn((table: string) =>
       makeChainable(table === 'tasks' ? { data: mocks.taskRows, error: null } : { data: [], error: null })
     ),

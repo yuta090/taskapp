@@ -98,6 +98,9 @@ function renderPage() {
 beforeEach(() => {
   mockDeleteTask.mockClear()
   mockTasks = []
+  // 初回案内(InternalOnboardingWalkthrough)は本テストの対象外。useOnboardingFlag は
+  // localStorage を先に見るため、既読扱いにしてsupabaseへの問い合わせ自体を発生させない
+  localStorage.setItem('taskapp_internal_onboarded', 'true')
 })
 
 describe('TasksPageClient — サンプルタスク一括削除バナー', () => {
