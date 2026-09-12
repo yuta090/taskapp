@@ -144,7 +144,7 @@ describe('useWikiPages（構造列）', () => {
     let resolveUpdate: (v: { data: Array<{ id: string; updated_at: string }>; error: null }) => void = () => {}
     mockUpdateSelect.mockReturnValue(new Promise(resolve => { resolveUpdate = resolve }))
 
-    let updatePromise: Promise<{ updatedAt: string }> = Promise.resolve({ updatedAt: '' })
+    let updatePromise: Promise<{ updatedAt: string | null }> = Promise.resolve({ updatedAt: '' })
     act(() => {
       updatePromise = result.current.updatePage('p1', { parent_page_id: 'parent-1', pinned_at: '2026-09-08T00:00:00+09:00' })
     })
@@ -203,7 +203,7 @@ describe('useWikiPages（保存の合言葉・楽観ロック）', () => {
     })
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    let returned: { updatedAt: string } | undefined
+    let returned: { updatedAt: string | null } | undefined
     await act(async () => {
       returned = await result.current.updatePage('p1', { body: '新しい本文' }, '2026-09-01T00:00:00+09:00')
     })

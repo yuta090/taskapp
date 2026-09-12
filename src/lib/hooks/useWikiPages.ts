@@ -55,8 +55,11 @@ interface UseWikiPagesReturn {
    * 0行しか更新できなければ WikiConflictError を投げる。渡さない呼び出し（ページ情報
    * パネルの属性更新・版の復元）は今までどおり無条件で上書きする。
    * 戻り値の updatedAt は、次の保存の基準としてそのまま使えるDB上の最新値。
+   * baseUpdatedAt を渡さない呼び出しで対象行が無かった（＝先に削除された等）ときは
+   * null を返す（存在しない基準をでっち上げない。呼び出し側は fetchPage で null を
+   * 確かめて「削除された」扱いにする）。
    */
-  updatePage: (pageId: string, input: UpdateWikiPageInput, baseUpdatedAt?: string) => Promise<{ updatedAt: string }>
+  updatePage: (pageId: string, input: UpdateWikiPageInput, baseUpdatedAt?: string) => Promise<{ updatedAt: string | null }>
   deletePage: (pageId: string) => Promise<void>
   fetchPage: (pageId: string) => Promise<WikiPage | null>
   fetchVersions: (pageId: string) => Promise<WikiPageVersion[]>
@@ -65,9 +68,11 @@ interface UseWikiPagesReturn {
 
 /**
  * Wiki 本文の保存で「基準の updated_at を渡したのに 0 行しか更新できなかった」ことを表す。
- * ＝ 他の人（またはAI）がこのページを先に書き換えていた、という合図（楽観ロックの失敗）。
- * ページ自体が存在しない・権限が無い場合は Supabase が updateError を返すのでここには来ない
- * （0行との区別: updateError が無いのに rows.length === 0 のときだけこの例外にする）。
+ * 0行の原因は主に「他の人（またはAI）がこのページを先に書き換えていた」（楽観ロックの失敗）
+ * だが、それだけとは限らない。Postgres の UPDATE は RLS の条件に合わない・行そのものが
+ * 既に削除されている場合も、エラーを返さず単に0行のまま成功する。つまり「ページが削除
+ * された」場合もこの例外になり得る（updateError では区別できない）。呼び出し側は
+ * fetchPage で読み直し、null なら「削除された」として扱う（"見せかけの競合"と同じ確認手順）。
  */
 export class WikiConflictError extends Error {
   constructor(message = 'このページは、別の場所で更新されています') {
@@ -357,7 +362,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       })
     )
 
-    let updatedAt: string
+    let updatedAt: string | null
     try {
       const { data: authData } = await supabase.auth.getUser()
       const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID
@@ -391,12 +396,14 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
 
       const rows = (updated ?? []) as Array<{ id: string; updated_at: string }>
       if (baseUpdatedAt !== undefined && rows.length === 0) {
-        // updateError が無いのに 0 行 = id/org_id は一致したが updated_at が渡した基準と
-        // ズレていた（＝先に誰かが書き換えた）。行が存在しない・権限が無い場合は上の
-        // updateError で先に弾かれるので、ここに来るのは本当の競合だけ。
+        // updateError が無いのに 0 行。基準の updated_at がズレていた（先に誰かが書き換えた）
+        // ケースだけでなく、ページ自体が既に削除されていた場合もここに来る（区別しない。
+        // どちらも「今のこの内容では上書きできない」という点で同じ扱いにしてよい）。
         throw new WikiConflictError()
       }
-      updatedAt = rows[0]?.updated_at ?? new Date().toISOString()
+      // baseUpdatedAt を渡さない呼び出しで0行なら、更新できる行が無かった（削除済み等）。
+      // 存在しない基準をでっち上げない — null をそのまま返し、呼び出し側の判断に委ねる。
+      updatedAt = rows[0]?.updated_at ?? null
     } catch (err) {
       // Revert optimistic update
       if (previousData) {
