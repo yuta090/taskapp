@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { UUID_REGEX } from '@/lib/uuid'
 import { FILES_LIST_LIMIT } from '@/lib/files/limits'
 import { getKindMatchPatterns, type FileKind } from '@/lib/files/filters'
+import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 
 const MAX_SEARCH_LENGTH = 200
 const KINDS: FileKind[] = ['image', 'pdf', 'document', 'table', 'other']
@@ -161,7 +162,7 @@ export async function GET(request: NextRequest) {
       origin: f.origin,
       clientVisible: f.client_visible,
       uploadedBy: f.uploaded_by,
-      uploaderName: nameMap[f.uploaded_by] || 'メンバー',
+      uploaderName: nameMap[f.uploaded_by] || UNKNOWN_PROFILE_LABEL,
       createdAt: f.created_at,
     }))
 

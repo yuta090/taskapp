@@ -182,6 +182,73 @@ describe('MembersSettingsPage invite form', () => {
   })
 })
 
+// DB 側で他の人のプロフィール（メール）を読める範囲を「一緒に仕事をしている人」に
+// 絞る変更が入ると、owner 以外には email が null で返ってくる。この画面はその
+// 前でも後でも正しく動くこと（メール欄を出さない・「オーナーのみ表示」等の注記も
+// 出さない・検索も落ちない）。
+describe('MembersSettingsPage — メールが読めない(null)メンバーの行', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ invites: [] }) })
+
+    mockUseCurrentOrg.mockReturnValue({
+      orgId: 'org-123',
+      orgName: 'Test Org',
+      role: 'member',
+      loading: false,
+      error: null,
+    })
+
+    mockUseCurrentUser.mockReturnValue({
+      user: { id: 'user-1' },
+      loading: false,
+      error: null,
+    })
+
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({
+          data: [
+            { user_id: 'user-1', display_name: '自分', avatar_url: null, email: null, role: 'member', joined_at: '2026-01-01' },
+            { user_id: 'user-2', display_name: 'Member User', avatar_url: null, email: null, role: 'member', joined_at: '2026-01-02' },
+          ],
+          error: null,
+        })
+      }
+      return Promise.resolve({ data: null, error: null })
+    })
+  })
+
+  it('メールが null の行は、メール欄も「オーナーのみ表示」のような注記も出さない', async () => {
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('Member User')).toBeInTheDocument())
+
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/オーナーのみ表示/)).not.toBeInTheDocument()
+    // 参加日は、メールが無くても出る
+    expect(screen.getAllByText(/参加: /).length).toBeGreaterThan(0)
+  })
+
+  it('メールが無いメンバーがいても、表示名での検索が落ちない', async () => {
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('Member User')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByPlaceholderText('名前・メールで検索'), {
+      target: { value: 'Member' },
+    })
+
+    expect(screen.getByText('Member User')).toBeInTheDocument()
+    expect(screen.queryByText('自分')).not.toBeInTheDocument()
+  })
+})
+
 describe('MembersSettingsPage pending invites section', () => {
   function pendingInvitesFixture() {
     return [

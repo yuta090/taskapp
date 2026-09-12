@@ -7,6 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
 import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
+import { isMfaPendingRpcError } from '@/lib/admin/superadminRpcError'
 
 /** Google ログイン後の戻り先。(panel) layout が旗を確認し、無ければこの画面へ戻す */
 const ADMIN_HOME = '/admin/dashboard'
@@ -34,18 +35,22 @@ export default function AdminLoginPage() {
         const supabase = createClient()
         const { data: { user } } = await supabase.auth.getUser()
         if (!user || cancelled) return
-        const { data: profile } = await (supabase as SupabaseClient)
-          .from('profiles')
-          .select('is_superadmin')
-          .eq('id', user.id)
-          .single()
+        // profiles を直接読まず rpc_is_superadmin() を使う（他の人のプロフィールを読める
+        // 範囲が絞られても運営の判定は影響を受けない。SECURITY DEFINER で自分の
+        // is_superadmin だけを確かめる）
+        const { data: isSuperadmin, error: rpcError } = await (supabase as SupabaseClient).rpc('rpc_is_superadmin')
         if (cancelled) return
-        if (profile?.is_superadmin) {
+        // 登録済み×コード未入力(aal1)は db_pre_request が 42501+message='mfa_required' を
+        // 返す。運営でないのとは別に扱い、(panel) layout の verifySuperadminDetailed に
+        // 進める（そこで /login/mfa?redirect=/admin/dashboard へ回してもらう）
+        if (isSuperadmin || isMfaPendingRpcError(rpcError)) {
           router.replace(ADMIN_HOME)
           return
         }
         setSignedInAs(user.email ?? '')
-        setError('管理者権限がありません')
+        // 42501は「関数の実行権が無い」等、二要素の途中とは別の理由でも返る。それ以外の
+        // 一時的な失敗を「管理者権限がありません」に化けさせない
+        setError(rpcError ? '確認できませんでした。もう一度お試しください。' : '管理者権限がありません')
       } catch {
         // セッション確認に失敗しても通常のログインフォームは使える
       }
@@ -87,16 +92,17 @@ export default function AdminLoginPage() {
       }
 
       if (data.user) {
-        // superadmin チェック
-        const { data: profile } = await (supabase as SupabaseClient)
-          .from('profiles')
-          .select('is_superadmin')
-          .eq('id', data.user.id)
-          .single()
+        // superadmin チェック（rpc_is_superadmin() 経由。checkExistingSession と同じ理由）
+        const { data: isSuperadmin, error: rpcError } = await (supabase as SupabaseClient).rpc('rpc_is_superadmin')
 
-        if (!profile?.is_superadmin) {
+        // 登録済み×コード未入力(aal1)は db_pre_request が 42501+message='mfa_required' を
+        // 返す。運営でないのとは別に扱い、サインアウトせず ADMIN_HOME へ進める（(panel)
+        // layout の verifySuperadminDetailed が /login/mfa?redirect=/admin/dashboard へ回す）
+        if (!isSuperadmin && !isMfaPendingRpcError(rpcError)) {
           await supabase.auth.signOut()
-          setError('管理者権限がありません')
+          // 42501は「関数の実行権が無い」等、二要素の途中とは別の理由でも返る。それ以外の
+          // 一時的な失敗を「管理者権限がありません」に化けさせない
+          setError(rpcError ? '確認できませんでした。もう一度お試しください。' : '管理者権限がありません')
           setLoading(false)
           return
         }

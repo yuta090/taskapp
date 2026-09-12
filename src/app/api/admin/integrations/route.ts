@@ -1,26 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { invalidateCache } from '@/lib/integrations/system-config'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
 const VALID_PROVIDERS = ['github', 'slack', 'google_calendar', 'zoom', 'teams'] as const
-
-async function verifySuperadmin(): Promise<string | null> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: profile } = await (supabase as SupabaseClient)
-    .from('profiles')
-    .select('is_superadmin')
-    .eq('id', user.id)
-    .single()
-
-  return profile?.is_superadmin ? user.id : null
-}
 
 function getEncryptionKey(): string {
   const key = process.env.SYSTEM_ENCRYPTION_KEY
