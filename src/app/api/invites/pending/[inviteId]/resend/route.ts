@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
 import { canManageInvite } from '@/lib/invites/canManage'
+import { inviteRoleConflictMessage } from '@/lib/invites/roleConflictMessage'
 
 interface InviteRow {
   id: string
@@ -91,8 +92,18 @@ export async function POST(
       .eq('id', inviteId)
 
     if (updateError) {
+      // 相手がその間に別の種類（社内 / 相手先）で組織に参加していた等、DB の決まりで断られた場合は
+      // 次にできることが分かる日本語＋409 に畳む（IRC01 / IRC02 / IRC03）
+      const conflict = inviteRoleConflictMessage(updateError, 'resend')
+      if (conflict) {
+        return NextResponse.json({ error: conflict }, { status: 409 })
+      }
+      // それ以外は理由を利用者に説明できないため、DB の文言はサーバーログにだけ残す
       console.error('Failed to extend invite expiry:', updateError)
-      return NextResponse.json({ error: 'Failed to resend invite' }, { status: 500 })
+      return NextResponse.json(
+        { error: '招待を送り直せませんでした。時間をおいてもう一度お試しください。' },
+        { status: 500 }
+      )
     }
 
     const [orgResult, spaceResult, profileResult] = await Promise.all([

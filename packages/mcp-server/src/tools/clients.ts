@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 import { assertUsersInSpaceOrg } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
+import { inviteRoleConflictMessage } from '../lib/inviteRoleConflict.js'
 import crypto from 'crypto'
 
 /** 招待・space_memberships の組織は、鍵の組織(config.orgId)ではなく space から取る */
@@ -145,7 +146,11 @@ export async function clientInviteCreate(
       .eq('id', (existing as ClientInvite).id)
       .select('*')
       .single()
-    if (extendError) throw new Error('招待の期限延長に失敗しました: ' + extendError.message)
+    if (extendError) {
+      const conflict = inviteRoleConflictMessage(extendError)
+      if (conflict) throw new ToolUserError(conflict, 409)
+      throw new Error('招待の期限延長に失敗しました: ' + extendError.message)
+    }
     return withInviteUrl(extended as ClientInvite, true)
   }
 
@@ -165,7 +170,12 @@ export async function clientInviteCreate(
     .select('*')
     .single()
 
-  if (error) throw new Error('招待の作成に失敗しました: ' + error.message)
+  if (error) {
+    // 招待の種類が組織の役割と合わない等の決まった断りは、そのまま呼び手に見せる（それ以外は中身を隠す）
+    const conflict = inviteRoleConflictMessage(error)
+    if (conflict) throw new ToolUserError(conflict, 409)
+    throw new Error('招待の作成に失敗しました: ' + error.message)
+  }
   return withInviteUrl(data as ClientInvite, false)
 }
 
@@ -199,27 +209,41 @@ export async function clientInviteBulkCreate(
   const expiresAt = new Date()
   expiresAt.setDate(expiresAt.getDate() + params.expiresInDays)
 
-  const inviteRecords = params.emails.map((email) => ({
-    org_id: orgId,
-    space_id: params.spaceId,
-    email: email.toLowerCase(),
-    role: 'client' as const,
-    token: generateToken(),
-    expires_at: expiresAt.toISOString(),
-    created_by: actorId,
-  }))
+  // 1件ずつ入れる。DB は「招待の種類はその人の組織の役割と合わせる」決まりを持っているので、
+  // 1文でまとめて入れると1件の断りで全件止まる。断られた宛先だけ理由をつけて failed に返す
+  const emails = [...new Set(params.emails.map((email) => email.toLowerCase()))]
+  const invites: ClientInvite[] = []
+  const failed: string[] = []
 
-  const { data, error } = await supabase
-    .from('invites')
-    .insert(inviteRecords)
-    .select('*')
+  for (const email of emails) {
+    const { data, error } = await supabase
+      .from('invites')
+      .insert({
+        org_id: orgId,
+        space_id: params.spaceId,
+        email,
+        role: 'client' as const,
+        token: generateToken(),
+        expires_at: expiresAt.toISOString(),
+        created_by: actorId,
+      })
+      .select('*')
+      .single()
 
-  if (error) throw new Error('一括招待の作成に失敗しました: ' + error.message)
+    if (error) {
+      // 見せてよいのは決まった文言だけ。それ以外は理由を隠して記録に残す
+      const conflict = inviteRoleConflictMessage(error)
+      if (!conflict) console.error('client_invite_bulk_create insert failed:', error.message)
+      failed.push(`${email}: ${conflict ?? '招待を作成できませんでした'}`)
+      continue
+    }
+    invites.push(data as ClientInvite)
+  }
 
   return {
-    created: data?.length || 0,
-    failed: [],
-    invites: (data || []) as ClientInvite[],
+    created: invites.length,
+    failed,
+    invites,
   }
 }
 
@@ -466,7 +490,11 @@ export async function clientInviteResend(
     .select('*')
     .single()
 
-  if (error) throw new Error('招待の再送に失敗しました: ' + error.message)
+  if (error) {
+    const conflict = inviteRoleConflictMessage(error, 'resend')
+    if (conflict) throw new ToolUserError(conflict, 409)
+    throw new Error('招待の再送に失敗しました: ' + error.message)
+  }
   return data as ClientInvite
 }
 

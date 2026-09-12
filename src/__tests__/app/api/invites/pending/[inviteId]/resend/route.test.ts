@@ -21,7 +21,7 @@ let authResponse: { data: { user: typeof mockUser | null } }
 let orgMembershipResponse: { data: { role: string } | null }
 let spaceMembershipResponse: { data: { role: string } | null }
 let inviteLookupResponse: { data: InviteRow | null; error: { message: string } | null }
-let updateResponse: { error: { message: string } | null }
+let updateResponse: { error: { message: string; code?: string; details?: string } | null }
 let organizationResponse: { data: { name: string } | null }
 let spaceResponse: { data: { name: string } | null }
 let profileResponse: { data: { display_name: string } | null }
@@ -236,6 +236,22 @@ describe('POST /api/invites/pending/[inviteId]/resend', () => {
 
     expect(data.email_sent).toBe(true)
     expect(data.invite_url).toBeUndefined()
+  })
+
+  // 相手がその間に別の種類で組織に参加していたら、DB が決まった符号で断る。
+  // 画面には「招待を取り消してください」が分かる日本語＋409 を返す（生の文言は出さない）
+  it('別の種類で参加済みの相手には、409＋日本語で送り直せないと返す', async () => {
+    updateResponse = {
+      error: { message: 'invite_org_role_conflict', code: 'IRC01', details: 'org_role=client invite_role=member' },
+    }
+
+    const response = await callResend(VALID_INVITE_ID)
+    const data = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(data.error).toContain('送り直せません')
+    expect(data.error).not.toMatch(/invite_org_role_conflict/)
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
   })
 
   it('returns 500 when the expires_at update fails', async () => {
