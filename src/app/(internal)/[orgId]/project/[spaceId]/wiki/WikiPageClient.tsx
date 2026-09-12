@@ -390,6 +390,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
     const handleRestoreVersion = (version: WikiPageVersion) => {
       const pageId = activePage.id
+      // performSave と同じ世代ガード。updatePage → fetchPage の2往復のあいだにページを
+      // 切り替えられても気づけるようにする（レビュー指摘）。切り替え後は書かない。
+      const epoch = pageEpochRef.current
       // 【高】1: 保留中の本文の自動保存があれば必ず止める。止めないと、この後で基準を
       // 復元後の値に差し替えたあとにその保存が発火し、復元前の古い書きかけが新しい基準で
       // 保存に成功して「版の復元」自体が黙って取り消される。
@@ -401,7 +404,13 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       const base = baseUpdatedAtRef.current ?? undefined
       updatePage(pageId, { body: version.body, title: version.title }, base)
         .then(async () => {
+          // updatePage が返ってくるまでの間にページが切り替わっていたら、この続きの
+          // fetchPage も含めて何もしない（読み直した「前のページ」の内容が「今見ている
+          // 別のページ」の画面に書き込まれるのを防ぐ）。
+          if (pageEpochRef.current !== epoch) return
           const fresh = await fetchPage(pageId)
+          // 読み直している間にも切り替わり得るので、書く直前でもう一度確かめる。
+          if (pageEpochRef.current !== epoch) return
           if (fresh === null) {
             // 復元しようとした直後にページ自体が無くなっていた（削除された）
             conflictRef.current = true
@@ -418,6 +427,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           setEditorReloadToken(t => t + 1)
         })
         .catch((err) => {
+          if (pageEpochRef.current !== epoch) return
           if (err instanceof WikiConflictError) {
             conflictRef.current = true
             setConflict(true)
@@ -662,6 +672,10 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   const handleReloadLatest = useCallback(async () => {
     if (!activePage) return
+    // performSave と同じ世代ガード。fetchPage の間にページを切り替えられても気づけるように
+    // する（レビュー指摘）。切り替え後は、読み直した「前のページ」の内容を「今見ている
+    // 別のページ」の画面(activePage・基準・本文・競合状態・エディタの作り直し)へ書かない。
+    const epoch = pageEpochRef.current
     // 【高】1: 保留中の（まだ発火していない）自動保存があれば必ず止める。止めないと、
     // この後で基準を最新に差し替えたあとにこのタイマーが発火し、読み込む前の古い
     // 書きかけが新しい基準で保存に成功して相手の最新の内容を黙って上書きしてしまう。
@@ -671,6 +685,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     pendingSaveRequestRef.current = null
 
     const fresh = await fetchPage(activePage.id)
+    if (pageEpochRef.current !== epoch) return
     if (fresh === null) {
       // 【中】5: 読み直した先でページ自体が無くなっていた（削除された）。帯は下ろさず
       // 文面だけ切り替える。conflict はそのまま true のままにする（安定した終端状態にし、

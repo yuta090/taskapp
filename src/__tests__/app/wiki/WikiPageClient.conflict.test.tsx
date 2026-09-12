@@ -696,6 +696,129 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
     expect(screen.queryByTestId('wiki-conflict-banner')).not.toBeInTheDocument()
   })
 
+  // レビュー指摘: handleReloadLatest は updatePage を経由しない(performSave の世代ガードの
+  // 外)。fetchPage が返ってくるまでの間にページを切り替えられると、前のページ(A)の本文・
+  // 基準が「今見ている」Bの画面に書き込まれ、Bのエディタが理由なく作り直されてしまう。
+  it('「最新を読み込む」の読み直し中(fetchPage未解決)にページを切り替えたら、前のページの本文・基準がBの画面に書かれない', async () => {
+    mockFetchPage.mockImplementation(async (id: string) => {
+      if (id === 'p1') return INITIAL_PAGE
+      if (id === 'p2') return PAGE_B
+      return null
+    })
+
+    const { rerender } = render(<WikiPageClient orgId="org1" spaceId="space1" />)
+    await waitFor(() => {
+      expect(screen.getByTestId('wiki-editor-stub')).toBeInTheDocument()
+      expect(mountCount.current).toBeGreaterThan(0)
+    })
+
+    // A で競合を起こし、「最新を読み込む」を出す
+    mockUpdatePage.mockRejectedValueOnce(new WikiConflictError())
+    mockFetchPage.mockResolvedValueOnce(page({ body: '他の人が書いた本文', updated_at: '2026-09-13T00:08:00+09:00' }))
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-type'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(screen.getByTestId('wiki-conflict-banner')).toBeInTheDocument()
+
+    // 「最新を読み込む」の fetchPage を意図的に未解決のままにする
+    let resolveReloadFetch: (v: WikiPage) => void = () => {}
+    mockFetchPage.mockImplementationOnce(() => new Promise((resolve) => { resolveReloadFetch = resolve }))
+    fireEvent.click(screen.getByText('最新を読み込む')) // 未解決のまま(await しない)
+
+    // 読み直しが返ってくる前に B へ切り替える
+    searchParamsPageId.current = 'p2'
+    await act(async () => {
+      rerender(<WikiPageClient orgId="org1" spaceId="space1" />)
+    })
+    await waitFor(() => expect(screen.getByText('ページB')).toBeInTheDocument())
+    const mountCountAfterBLoaded = mountCount.current
+
+    // ここで A の読み直しが遅れて返ってくる(A の本文・基準を持って)
+    await act(async () => {
+      resolveReloadFetch(page({ body: 'Aの最新本文', updated_at: '2026-09-13T00:09:00+09:00' }))
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // 画面は B のまま(A の本文に戻っていない)。エディタも余計に作り直されていない
+    // (setActivePage・setEditorReloadToken が B の画面に対して効いていないことの裏付け)。
+    expect(screen.getByText('ページB')).toBeInTheDocument()
+    expect(mountCount.current).toBe(mountCountAfterBLoaded)
+    expect(screen.queryByTestId('wiki-conflict-banner')).not.toBeInTheDocument()
+
+    // B で実際に編集すると、B自身の基準(PAGE_B.updated_at)で送られる(Aの読み直しに汚染されない)
+    mockUpdatePage.mockClear()
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-type-2'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(mockUpdatePage).toHaveBeenCalledWith('p2', { body: STUB_CONTENT_2 }, PAGE_B.updated_at)
+  })
+
+  // 版の復元でも同じ穴がある(updatePage→fetchPageの2往復・performSaveの外)。
+  it('版の復元の読み直し中(fetchPage未解決)にページを切り替えたら、前のページの本文・基準がBの画面に書かれない', async () => {
+    mockFetchPage.mockImplementation(async (id: string) => {
+      if (id === 'p1') return INITIAL_PAGE
+      if (id === 'p2') return PAGE_B
+      return null
+    })
+
+    const { rerender } = render(<WikiPageClient orgId="org1" spaceId="space1" />)
+    await waitFor(() => {
+      expect(screen.getByTestId('wiki-editor-stub')).toBeInTheDocument()
+      expect(mountCount.current).toBeGreaterThan(0)
+    })
+
+    // 版の復元を開始する(updatePage は成功させ、続く fetchPage を未解決のままにする)
+    mockUpdatePage.mockResolvedValueOnce({ updatedAt: '2026-09-13T00:09:00+09:00' })
+    let resolveRestoreFetch: (v: WikiPage) => void = () => {}
+    mockFetchPage.mockImplementationOnce(() => new Promise((resolve) => { resolveRestoreFetch = resolve }))
+
+    const inspectorElement = getLastInspectorElement()
+    act(() => {
+      inspectorElement.props.onRestoreVersion({
+        id: 'v1',
+        org_id: 'org1',
+        page_id: 'p1',
+        title: '復元タイトル',
+        body: 'restored-body',
+        created_by: 'user1',
+        created_at: '2026-09-13T00:05:00+09:00',
+      })
+    })
+    // updatePage の解決分だけマイクロタスクを流す(fetchPage はまだ未解決のまま)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // 復元の fetchPage が返ってくる前に B へ切り替える
+    searchParamsPageId.current = 'p2'
+    await act(async () => {
+      rerender(<WikiPageClient orgId="org1" spaceId="space1" />)
+    })
+    await waitFor(() => expect(screen.getByText('ページB')).toBeInTheDocument())
+    const mountCountAfterBLoaded = mountCount.current
+
+    // ここで復元の読み直しが遅れて返ってくる(復元後の本文・基準を持って)
+    await act(async () => {
+      resolveRestoreFetch(page({ body: 'restored-body', title: '復元タイトル', updated_at: '2026-09-13T00:09:00+09:00' }))
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // 画面は B のまま。エディタも余計に作り直されていない
+    expect(screen.getByText('ページB')).toBeInTheDocument()
+    expect(mountCount.current).toBe(mountCountAfterBLoaded)
+    expect(screen.queryByTestId('wiki-conflict-banner')).not.toBeInTheDocument()
+
+    // B で実際に編集すると、B自身の基準(PAGE_B.updated_at)で送られる
+    mockUpdatePage.mockClear()
+    fireEvent.click(screen.getByTestId('wiki-editor-stub-type-2'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(mockUpdatePage).toHaveBeenCalledWith('p2', { body: STUB_CONTENT_2 }, PAGE_B.updated_at)
+  })
+
   // 【中】4: 保存が同時に2本走ると、到着順の入れ替わりで古い内容が新しい基準で書かれ得る。
   it('【中】4: 保存中に来た編集は二重送信にならず、最後の内容で1回だけ届く', async () => {
     let resolveFirst: (v: { updatedAt: string }) => void = () => {}
