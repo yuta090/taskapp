@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import NextLink from 'next/link'
 import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye, BookOpen, PushPin } from '@phosphor-icons/react'
 import { TaskReminderField } from './TaskReminderField'
-import { AmberBadge, Hint, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
+import { AmberBadge, Hint, LinkifiedText, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useSpacePendingInvites, pendingInviteLabel } from '@/lib/hooks/useSpacePendingInvites'
@@ -753,7 +753,7 @@ export function TaskInspector({
             >
               {task.description ? (
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                  {task.description}
+                  <LinkifiedText text={task.description} />
                 </p>
               ) : (
                 <p className="text-sm text-gray-400">クリックして説明を追加...</p>
@@ -761,7 +761,7 @@ export function TaskInspector({
             </div>
           ) : task.description ? (
             <p className="text-sm text-gray-700 whitespace-pre-wrap">
-              {task.description}
+              <LinkifiedText text={task.description} />
             </p>
           ) : null}
         </div>

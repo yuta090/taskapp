@@ -101,3 +101,37 @@ AI 向けの手引きは `src/lib/cli-skill.ts`（`agentpm` スキル）の
 3. 受け取る側（`WikiPageClient` の `?page=`、`TasksPageClient` の `?task=`、
    `MeetingsPageClient` の `?meeting=`）も同じ綴りか確かめる
 4. CLI の説明（`src/lib/cli-manifest.ts`）と手引き（`src/lib/cli-skill.ts`）を直す
+
+---
+
+## 6. タスクの説明文の中のリンク（v1.1・2026-09-13）
+
+タスクの説明文は Markdown ではなく**ただの文字**として表示する。CLI が返す `link` を書いても
+押せなかったので、**文字の中の URL だけを押せるようにする**（説明欄をエディタにはしない）。
+
+- 部品: `src/components/shared/LinkifiedText.tsx`／拾う所の判定: `src/lib/navigation/linkifyText.ts`
+- 出している場所: `TaskInspector`（社内・編集できる側と読み取り専用の2か所）、
+  `PortalTaskInspector`、`PortalTaskDetailClient`（相手先）
+
+### 拾う形（拾いすぎない）
+
+アプリの中のリンクは **`appLinks.ts` が作る形だけ**を認める。`9/13` のような日付や `A/B` まで
+リンクになると事故るため。形を増やすときは `appLinks.ts` と両方そろえる。
+
+| 書いたもの | どうなるか |
+|---|---|
+| `/{orgId}/project/{spaceId}`（＋ `?task=` `/wiki?page=` `/meetings?meeting=`） | 同じタブで開く（`next/link`・戻るで戻れる） |
+| `/api/files/{fileId}/download` | 新しいタブ（ダウンロード） |
+| `https://…` | 新しいタブ（`rel="noopener noreferrer"`） |
+| `/foo/bar`・`9/13`・`javascript:…`・`//example.com` | 押せない（ただの文字） |
+
+URL の後ろの句読点・閉じ括弧はリンクに含めない（`（https://example.com/a）。` で括弧まで飲まない）。
+
+### 決めごと
+
+- **相手先ポータルでは `inApp={false}`**。社内の画面へのリンクは押せるようにしない
+  （相手先は開けない。押して弾かれるより、ただの文字のほうがよい）。外部サイトは押せる
+- リンクを押したときは **`stopPropagation`**。説明文の囲みは押すと編集に入る作りなので、
+  伝わると「リンク先へ行きながら編集も開く」ことになる
+- **CLI から書くときは Markdown にしない**。`[名前](link)` と書くと記号がそのまま出る。
+  `link` の値だけを書く（`src/lib/cli-skill.ts` に明記）

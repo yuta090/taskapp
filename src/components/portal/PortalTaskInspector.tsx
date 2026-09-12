@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { LinkifiedText } from '@/components/shared'
 import {
   X,
   Calendar,
@@ -173,7 +174,8 @@ export function PortalTaskInspector({
           <h2 className="text-lg font-semibold text-gray-900">{task.title}</h2>
           {task.description ? (
             <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">
-              {task.description}
+              {/* 相手先は社内の画面を開けないので inApp={false}（外部サイトだけ押せる） */}
+              <LinkifiedText text={task.description} inApp={false} />
             </p>
           ) : (
             <p className="mt-2 text-sm text-gray-400 italic">説明はありません</p>
