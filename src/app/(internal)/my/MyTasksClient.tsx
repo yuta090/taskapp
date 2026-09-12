@@ -677,10 +677,10 @@ export default function MyTasksClient() {
             parent_task_id: data.parentTaskId ?? null,
             created_by: uid,
         }
-        // wiki_page_id column may not exist yet (migration pending)
-        const myWikiPageId = data.type === 'spec' ? data.wikiPageId : undefined
-        if (myWikiPageId) {
-          myInsertData.wiki_page_id = myWikiPageId
+        // Wiki のページはふつうのタスクにも紐づけられる（参考資料としてリンクだけ。
+        // 仕様タスクにするかは data.type で決まる＝useTasks.createTask と同じ扱い）
+        if (data.wikiPageId) {
+          myInsertData.wiki_page_id = data.wikiPageId
         }
 
         const { data: created, error: createError } = await (supabase as SupabaseClient)
