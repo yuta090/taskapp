@@ -126,20 +126,23 @@ describe('task_update — actualHours は task_internal_metrics へ書く', () =
     expect(spaceChecks).toHaveLength(0)
   })
 
-  it('タイトル等の更新後にupsertだけ失敗すると、tasks側は保存済みであることが分かるメッセージにする', async () => {
+  it('タイトル等の更新後にupsertだけ失敗すると、tasks側は保存済みであることが分かるToolUserErrorにする', async () => {
     metricsUpsertShouldFail = true
 
-    await expect(
-      taskUpdate({ spaceId: SPACE, taskId: TASK, title: '新タイトル', actualHours: 3 })
-    ).rejects.toThrow('タイトル等は更新できましたが')
+    const err = await taskUpdate({ spaceId: SPACE, taskId: TASK, title: '新タイトル', actualHours: 3 }).catch(
+      (e: unknown) => e
+    )
+    // ToolUserError でないと /api/tools が中身を隠した500に潰してしまい、CLI/AIに理由が届かない
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 400 })
+    expect((err as Error).message).toContain('タイトル等は更新できましたが')
   })
 
-  it('actualHoursだけの更新でupsertが失敗したときは、tasks側は変えていない旨のメッセージにする', async () => {
+  it('actualHoursだけの更新でupsertが失敗したときは、tasks側は変えていない旨のToolUserErrorにする', async () => {
     metricsUpsertShouldFail = true
 
-    await expect(taskUpdate({ spaceId: SPACE, taskId: TASK, actualHours: 3 })).rejects.toThrow(
-      '実績工数の更新に失敗しました'
-    )
+    const err = await taskUpdate({ spaceId: SPACE, taskId: TASK, actualHours: 3 }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 400 })
+    expect((err as Error).message).toBe('実績工数の更新に失敗しました')
   })
 
   it('ほかの項目と一緒でも、別の space のタスク ID では書き込まない（エラーを返す）', async () => {

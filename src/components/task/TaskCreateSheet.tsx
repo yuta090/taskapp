@@ -482,6 +482,10 @@ export function TaskCreateSheet({
                   setInternalOwnerIds([])
                   setClientOwnerIds([])
                   estimation.clear()
+                  // Wikiページは選んだプロジェクトのものだけを紐づける
+                  // （マイルストーン・担当者と同じく、選び直したら空にする）
+                  setWikiPageId('')
+                  setWikiPageIsSpec(null)
                 }}
                 data-testid="task-create-space"
                 className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"

@@ -307,4 +307,20 @@ describe('GanttChart initial scroll position (今日にセンタリング)', () 
     expect(dateWrapper!.className).toContain('flex-shrink-0')
     expect(dateWrapper!.className).not.toContain('overflow-hidden')
   })
+
+  it('groups a task pointing at a milestone that no longer exists under "マイルストーン未設定" instead of dropping it', () => {
+    // 回帰: マイルストーンを削除した直後、タスク側のキャッシュがまだ古い milestone_id を
+    // 持っている一瞬（取り直しが終わるまで）でも、タスクが一覧から消えて見えないようにする
+    const taskWithDeletedMilestone: Task = {
+      ...mockTasks[0],
+      id: 'task-orphaned',
+      title: 'Task orphaned by deleted milestone',
+      milestone_id: 'milestone-deleted',
+    }
+
+    render(<GanttChart tasks={[taskWithDeletedMilestone]} milestones={mockMilestones} />)
+
+    expect(screen.getByText('マイルストーン未設定')).toBeInTheDocument()
+    expect(screen.getByText('Task orphaned by deleted milestone')).toBeInTheDocument()
+  })
 })

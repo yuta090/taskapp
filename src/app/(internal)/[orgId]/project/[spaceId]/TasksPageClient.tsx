@@ -415,10 +415,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
     // Group by milestone
     const groups: TaskGroup[] = []
+    // 削除済みなど、一覧に無いマイルストーンを指すタスクは「未設定」扱いにする
+    // （タスク側キャッシュの取り直しが終わるまでの一瞬、タスクが消えて見えるのを防ぐ）
+    const knownMilestoneIds = new Set(milestones.map((m) => m.id))
     const tasksByMilestone = new Map<string | null, Task[]>()
 
     filteredTasks.forEach((task) => {
-      const key = task.milestone_id || null
+      const key = task.milestone_id && knownMilestoneIds.has(task.milestone_id) ? task.milestone_id : null
       if (!tasksByMilestone.has(key)) {
         tasksByMilestone.set(key, [])
       }

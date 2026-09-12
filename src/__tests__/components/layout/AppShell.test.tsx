@@ -1,7 +1,7 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { AppShell, useInspector } from '@/components/layout'
+import { AppShell, useInspector, useShellFullscreen } from '@/components/layout'
 
 // Heavy children mocked to keep the shell contract in focus
 vi.mock('@/components/layout/LeftNav', () => ({
@@ -23,6 +23,29 @@ function InspectorTrigger() {
   return (
     <button type="button" onClick={() => setInspector(<div>INSPECTOR_CONTENT</div>)}>
       open-inspector
+    </button>
+  )
+}
+
+/** Test consumer that pushes a node into the inspector with the narrow size option */
+function NarrowInspectorTrigger() {
+  const { setInspector } = useInspector()
+  return (
+    <button
+      type="button"
+      onClick={() => setInspector(<div>NARROW_CONTENT</div>, { size: 'narrow' })}
+    >
+      open-narrow-inspector
+    </button>
+  )
+}
+
+/** Test consumer that turns the shell's full-screen mode on/off (Wiki の「全画面」が使う) */
+function FullscreenTrigger() {
+  const { fullscreen, setFullscreen } = useShellFullscreen()
+  return (
+    <button type="button" onClick={() => setFullscreen(!fullscreen)}>
+      toggle-fullscreen
     </button>
   )
 }
@@ -109,5 +132,41 @@ describe('AppShell — モバイルシェル (PR1)', () => {
     const { container } = renderShell()
     const center = container.querySelector('#main-content')!.closest('.justify-center')!
     expect(center.className).toContain('min-w-0')
+  })
+
+  it('setInspector(node)（既定）はinspector-narrowを持たない', () => {
+    const { container } = renderShell()
+    fireEvent.click(screen.getByText('open-inspector'))
+    const pane = container.querySelector('.inspector-pane')!
+    expect(pane.classList.contains('inspector-narrow')).toBe(false)
+  })
+
+  it('setInspector(node, { size: "narrow" })でinspector-narrowが付く', () => {
+    const { container } = render(
+      <AppShell>
+        <NarrowInspectorTrigger />
+      </AppShell>
+    )
+    fireEvent.click(screen.getByText('open-narrow-inspector'))
+    const pane = container.querySelector('.inspector-pane')!
+    expect(pane.classList.contains('open')).toBe(true)
+    expect(pane.classList.contains('inspector-narrow')).toBe(true)
+  })
+
+  // 全画面は重ね表示にしない（main の z-0 の中からは LeftNav の上に出られず、本文の左端が隠れた）。
+  // 代わりに枠がデスクトップの LeftNav を外し、本文を画面いっぱいに広げる
+  it('全画面にするとデスクトップの LeftNav を隠し、戻すと出す（Wiki の「全画面」）', () => {
+    render(
+      <AppShell>
+        <FullscreenTrigger />
+      </AppShell>
+    )
+    expect(screen.getByTestId('left-nav').parentElement!.className).toContain('md:flex')
+
+    fireEvent.click(screen.getByText('toggle-fullscreen'))
+    expect(screen.getByTestId('left-nav').parentElement!.className).not.toContain('md:flex')
+
+    fireEvent.click(screen.getByText('toggle-fullscreen'))
+    expect(screen.getByTestId('left-nav').parentElement!.className).toContain('md:flex')
   })
 })

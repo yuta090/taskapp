@@ -2,8 +2,8 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BookOpen, Plus, ArrowLeft, Sparkle, Info } from '@phosphor-icons/react'
-import { useInspector } from '@/components/layout'
+import { BookOpen, Plus, ArrowLeft, Sparkle, Info, ArrowsOut, ArrowsIn } from '@phosphor-icons/react'
+import { useInspector, useShellFullscreen } from '@/components/layout'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { WikiPageRow, type WikiRowMember } from '@/components/wiki/WikiPageRow'
 import { WikiListToolbar } from '@/components/wiki/WikiListToolbar'
@@ -56,6 +56,10 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   // On mobile, opening a page shows the editor directly; the page-info inspector
   // is opened on demand (info button) instead of auto-overlaying the editor.
   const [showInfo, setShowInfo] = useState(false)
+  // 全画面表示（デスクトップのみ）。状態は画面の枠（AppShell）が持ち、デスクトップの LeftNav を隠す。
+  // 重ね表示（fixed）にしないのは、main の z-0 の中からは LeftNav の上に出られず本文の左端が隠れたため。
+  // ページ切り替え・Wikiから離脱で必ずOFFに戻す（戻さないとほかの画面で LeftNav が消えたままになる）。
+  const { fullscreen: isFullscreen, setFullscreen: setIsFullscreen } = useShellFullscreen()
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false)
   const [activePage, setActivePage] = useState<WikiPage | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -220,6 +224,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset state when no page selected
       setActivePage(null)
       setInspector(null)
+      // Wikiページから離れたら全画面表示も解除する
+      setIsFullscreen(false)
       return
     }
 
@@ -227,8 +233,10 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     setSaveStatus('idle')
-     
+
     setShowInfo(false)
+    // ページを切り替えたら全画面表示は必ず解除する
+    setIsFullscreen(false)
 
     let cancelled = false
     const load = async () => {
@@ -239,7 +247,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }
     load()
     return () => { cancelled = true }
-  }, [selectedPageId, fetchPage, setInspector])
+  }, [selectedPageId, fetchPage, setInspector, setIsFullscreen])
 
   // ページ情報パネルの「タスクからの参照」（読み取り専用）。手動選択(milestone_id)は含めず、
   // タスク参照だけを渡す（手動選択は上のセレクトで既に見えているため）。
@@ -252,11 +260,12 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   }, [activePage, linksByPageId, milestones])
 
   // Set inspector when active page changes.
-  // Desktop: inspector sits alongside the editor (auto-open).
+  // Desktop: inspector sits alongside the editor (auto-open), narrow (320px) so the page reads wider.
   // Mobile: inspector is a full-screen sheet, so only open it on demand (showInfo)
   // to avoid it covering the editor the moment a page is opened.
+  // Full-size mode (desktop only) closes the inspector; leaving full-size restores it (isFullscreen dep below).
   useEffect(() => {
-    if (!activePage || (isMobile && !showInfo)) {
+    if (!activePage || (isMobile && !showInfo) || isFullscreen) {
       setInspector(null)
       return
     }
@@ -295,12 +304,14 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         allPages={pages}
         milestones={milestones}
         taskLinkedMilestones={taskLinkedMilestonesForActivePage}
-      />
+      />,
+      { size: 'narrow' }
     )
   }, [
     activePage,
     isMobile,
     showInfo,
+    isFullscreen,
     setInspector,
     canEdit,
     updatePage,
@@ -312,6 +323,24 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     milestones,
     taskLinkedMilestonesForActivePage,
   ])
+
+  // 全画面表示中はEscで抜ける（IME変換確定やエディタ内のメニュー操作は妨げない）
+  useEffect(() => {
+    if (!isFullscreen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return
+      if (e.key === 'Escape') setIsFullscreen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isFullscreen, setIsFullscreen])
+
+  const handleToggleFullscreen = useCallback(() => {
+    setIsFullscreen(!isFullscreen)
+  }, [isFullscreen, setIsFullscreen])
+
+  // Wiki の画面を離れたら全画面を解除する
+  useEffect(() => () => setIsFullscreen(false), [setIsFullscreen])
 
   // memo 化した WikiPageRow に渡すため安定参照にする
   const handleSelectPage = useCallback((pageId: string) => {
@@ -359,18 +388,22 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   if (selectedPageId && activePage) {
     return (
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Editor Header */}
+        {/* Editor Header — 全画面時はページ名＋閉じるボタンだけの簡易バーに切り替える
+            （エディタ本体(WikiEditorDynamic)の位置・key はどちらの状態でも変えない = 再マウントしない） */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-surface flex-shrink-0">
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleBackToList}
-              className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            >
-              <ArrowLeft className="text-lg" />
-            </button>
+            {!isFullscreen && (
+              <button
+                onClick={handleBackToList}
+                className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <ArrowLeft className="text-lg" />
+              </button>
+            )}
             <h1 className="text-lg font-semibold text-gray-900 truncate">{activePage.title}</h1>
           </div>
           <div className="flex items-center gap-2">
+            {/* 保存の状態は全画面でも出す（全画面で書いていても保存されたか分かるように） */}
             {saveStatus === 'saving' && (
               <span className="text-xs text-gray-400 flex items-center gap-1">
                 <span className={`w-1.5 h-1.5 ${SAVING.dot} rounded-full animate-pulse`} />
@@ -380,18 +413,45 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             {saveStatus === 'saved' && (
               <span className="text-xs text-green-500">保存済み</span>
             )}
-            {/* Mobile: open page-info inspector on demand (desktop shows it alongside) */}
-            <button
-              type="button"
-              onClick={() => setShowInfo(true)}
-              className="md:hidden p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-              aria-label="ページ情報"
-            >
-              <Info className="text-lg" />
-            </button>
+            {!isFullscreen && (
+              <>
+                {/* Mobile: open page-info inspector on demand (desktop shows it alongside) */}
+                <button
+                  type="button"
+                  onClick={() => setShowInfo(true)}
+                  className="md:hidden p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                  aria-label="ページ情報"
+                >
+                  <Info className="text-lg" />
+                </button>
+                {/* 全画面表示（デスクトップのみ）。ユーザー要望・2026-09-12: Wikiページが狭く読みにくいため */}
+                <button
+                  type="button"
+                  onClick={handleToggleFullscreen}
+                  aria-pressed={isFullscreen}
+                  data-testid="wiki-fullscreen-toggle"
+                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <ArrowsOut className="text-base" />
+                  全画面
+                </button>
+              </>
+            )}
+            {isFullscreen && (
+              <button
+                type="button"
+                onClick={handleToggleFullscreen}
+                data-testid="wiki-fullscreen-close"
+                className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <ArrowsIn className="text-base" />
+                全画面を閉じる
+              </button>
+            )}
             {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
                 AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
-                モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+                モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。
+                全画面でも出す（出さないと AppShell の「ベルだけの1行」が現れる）。 */}
             <div data-header-bell className="hidden md:block -my-1">
               <AnnouncementBell />
             </div>
@@ -400,7 +460,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
         {/* Editor */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-4xl mx-auto py-6 px-4">
+          <div className={isFullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}>
             <WikiEditorDynamic
               key={activePage.id}
               initialContent={activePage.body || undefined}

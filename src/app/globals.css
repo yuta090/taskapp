@@ -237,6 +237,25 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
   }
 }
 
+/* Narrow variant (desktop only) — e.g. Wiki page-info panel (2026-09-12 user request) */
+@media (min-width: 768px) {
+  .inspector-pane.open.inspector-narrow {
+    width: 320px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .inspector-pane.open.inspector-narrow {
+    width: 340px;
+  }
+}
+
+@media (min-width: 2560px) {
+  .inspector-pane.open.inspector-narrow {
+    width: 360px;
+  }
+}
+
 /* Mobile (<md): the "never overlay" rule does NOT apply — the inspector
    becomes a full-screen sheet on top of Main instead of resizing it.
    100dvh avoids the iOS Safari url-bar gap. */
