@@ -11,12 +11,23 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
  * ポリシー）は **private チャネルにしか効かない** ため、`private: true` は必須。
  * 付け忘れるとポリシーが評価されず、誰でも覗ける公開チャネルになってしまう。
  *
+ * ポリシーは authenticated（ログインした本人）にしか効かない。そのため購読の前に
+ * 本人のアクセストークンを取り、`setAuth(token)` へ **引数として渡す**。引数なしの
+ * `setAuth()` は、auth の初期化（INITIAL_SESSION）が済む前だと生成時の anon キーを
+ * 使ってしまい、ポリシーに当たらず CHANNEL_ERROR になる（本番で帯が出ない原因だった）。
+ *
  * 失敗しても画面は壊さない・編集は止めない（console.warn だけで黙って諦める）。
  * 同時に書けてしまったときの最後の砦は、これまで通り保存の楽観ロック。
  */
 
 /** 何もしないまま「書いています」を下ろすまでの時間 */
 const IDLE_MS = 60_000
+
+/**
+ * つながらなかったときにやり直すまでの待ち時間。
+ * 要素の数だけやり直す（= 最大2回。3回目の失敗で諦める）。
+ */
+const RETRY_DELAYS_MS = [2_000, 6_000]
 
 const TOPIC_PREFIX = 'meeting-minutes:'
 
@@ -160,6 +171,9 @@ export function useMinutesPresence({
 
     let disposed = false
     let channel: RealtimeChannel | null = null
+    /** 何回目の購読か（1 が最初。RETRY_DELAYS_MS の数だけやり直す） */
+    let attempt = 0
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
 
     const syncOthers = () => {
       const current = channel
@@ -183,26 +197,61 @@ export function useMinutesPresence({
       }
     }
 
-    const teardown = () => {
-      clearIdleTimer()
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimer = null
+      }
+    }
+
+    /** いま使っているチャネルを閉じる（やり直しの前にも呼ぶ） */
+    const closeChannel = () => {
       const current = channel
       channel = null
       channelRef.current = null
+      // 送っていないうちは消すものが無い（つながらなかったチャネルに投げない）
+      const hadTracked = trackedRef.current !== null
       trackedRef.current = null
       editingRef.current = false
       if (!current) return
-      try {
-        void Promise.resolve(current.untrack()).catch((err) => {
+      if (hadTracked) {
+        try {
+          void Promise.resolve(current.untrack()).catch((err) => {
+            warnPresence('在席を消せませんでした', err)
+          })
+        } catch (err) {
           warnPresence('在席を消せませんでした', err)
-        })
-      } catch (err) {
-        warnPresence('在席を消せませんでした', err)
+        }
       }
       try {
         supabase.removeChannel(current)
       } catch (err) {
         warnPresence('チャネルを閉じられませんでした', err)
       }
+    }
+
+    const teardown = () => {
+      clearIdleTimer()
+      clearRetryTimer()
+      closeChannel()
+    }
+
+    /** つながらなかったとき、少し待ってやり直す（回数は RETRY_DELAYS_MS まで） */
+    const scheduleRetry = (status: string) => {
+      const delay = RETRY_DELAYS_MS[attempt - 1]
+      if (delay === undefined) {
+        warnPresence(`在席を共有できませんでした (${status})。やり直してもつながらないので諦めます`)
+        return
+      }
+      warnPresence(`在席を共有できませんでした (${status})。${delay / 1000}秒後にやり直します`)
+      clearRetryTimer()
+      retryTimer = setTimeout(() => {
+        retryTimer = null
+        if (disposed) return
+        // 古いチャネルを片付け、鍵の取得からやり直す（鍵が新しくなっていることがある）
+        closeChannel()
+        void start()
+      }, delay)
     }
 
     const handleVisibilityChange = () => {
@@ -215,11 +264,27 @@ export function useMinutesPresence({
     }
 
     const start = async () => {
-      // private チャネルのポリシー判定に使う鍵を渡し直す保険（購読の前に1回だけ）
+      attempt += 1
+
+      // private チャネルのポリシーは本人（authenticated）にしか効かない。
+      // 生成時の anon キーのままつなぎに行かないよう、鍵を取って明示的に渡す
+      let token: string | null = null
       try {
-        await supabase.realtime.setAuth()
+        const { data } = await supabase.auth.getSession()
+        token = data.session?.access_token ?? null
       } catch (err) {
-        warnPresence('鍵を渡し直せませんでした', err)
+        warnPresence('鍵を取れませんでした', err)
+      }
+      if (disposed) return
+      if (!token) {
+        // anon の鍵ではポリシーに当たらず必ず失敗するので、つなぎに行かない
+        warnPresence('鍵が取れなかったため、在席の共有は始めません')
+        return
+      }
+      try {
+        await supabase.realtime.setAuth(token)
+      } catch (err) {
+        warnPresence('鍵を渡せませんでした', err)
       }
       if (disposed) return
 
@@ -233,8 +298,10 @@ export function useMinutesPresence({
           .on('presence', { event: 'join' }, syncOthers)
           .on('presence', { event: 'leave' }, syncOthers)
           .subscribe((status) => {
-            if (disposed) return
+            // 閉じたあと・やり直しで作り替えたあとの古い知らせは無視する
+            if (disposed || channel !== created) return
             if (status === 'SUBSCRIBED') {
+              clearRetryTimer()
               channelRef.current = created
               trackedRef.current = null
               pushTrack()
@@ -246,7 +313,7 @@ export function useMinutesPresence({
               channelRef.current = null
               trackedRef.current = null
               setOthers((prev) => (prev.length === 0 ? prev : EMPTY_PEERS))
-              warnPresence(`在席を共有できませんでした (${status})`)
+              scheduleRetry(status)
             }
           })
       } catch (err) {

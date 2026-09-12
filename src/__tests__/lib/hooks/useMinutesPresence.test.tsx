@@ -6,6 +6,9 @@ import { useMinutesPresence } from '@/lib/hooks/useMinutesPresence'
 //
 // - Realtime の presence（在席）を使う。DB 側のポリシーは private チャネルにしか効かない
 //   ため、`private: true` を付け忘れると誰でも覗ける公開チャネルになってしまう。
+// - ポリシーは「ログインした本人」にしか効かない。購読の前に本人の鍵（アクセストークン）を
+//   取り、setAuth に**引数として**渡す。引数なしだと auth の初期化前は anon キーのままで、
+//   本番では CHANNEL_ERROR になっていた。
 // - 在席は「状態が変わったとき」だけ送る（打つたびに送らない）。
 // - 失敗しても画面は壊さない・編集は止めない（console.warn だけで黙って諦める）。
 
@@ -60,15 +63,25 @@ const mockChannel = vi.fn((topic: string, options: unknown) => {
   return channel
 })
 const mockRemoveChannel = vi.fn()
-const mockSetAuth = vi.fn(async () => {
+const mockSetAuth = vi.fn(async (token?: string | null) => {
   order.push('setAuth')
+  return token
 })
+
+type FakeSession = { access_token: string } | null
+const mockGetSession = vi.fn(
+  async (): Promise<{ data: { session: FakeSession }; error: null }> => ({
+    data: { session: { access_token: 'jwt-self' } },
+    error: null,
+  })
+)
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     channel: (topic: string, options: unknown) => mockChannel(topic, options),
     removeChannel: (channel: unknown) => mockRemoveChannel(channel),
-    realtime: { setAuth: () => mockSetAuth() },
+    auth: { getSession: () => mockGetSession() },
+    realtime: { setAuth: (token?: string | null) => mockSetAuth(token) },
   }),
 }))
 
@@ -80,12 +93,16 @@ function renderPresence(overrides: Partial<Parameters<typeof useMinutesPresence>
   )
 }
 
+/** 鍵の取得 → setAuth → subscribe まで（await の連鎖）を進める */
+async function flush(): Promise<void> {
+  await act(async () => {
+    for (let i = 0; i < 6; i += 1) await Promise.resolve()
+  })
+}
+
 /** 購読が始まり SUBSCRIBED になるところまで進める */
 async function subscribed(): Promise<FakeChannel> {
-  await act(async () => {
-    await Promise.resolve()
-    await Promise.resolve()
-  })
+  await flush()
   const channel = channels[0]
   await act(async () => {
     channel.emitStatus('SUBSCRIBED')
@@ -145,6 +162,141 @@ describe('useMinutesPresence 購読するかどうか', () => {
     expect(mockChannel).toHaveBeenCalledWith('meeting-minutes:m1', {
       config: { private: true, presence: { key: 'u-self' } },
     })
+  })
+})
+
+describe('useMinutesPresence 本人の鍵を渡す', () => {
+  it('自分のアクセストークンを取り、setAuth に引数として渡す', async () => {
+    renderPresence()
+    await subscribed()
+
+    expect(mockGetSession).toHaveBeenCalledTimes(1)
+    expect(mockSetAuth).toHaveBeenCalledWith('jwt-self')
+    expect(order).toEqual(['setAuth', 'subscribe'])
+  })
+
+  it('鍵が取れないときは、つなぎに行かない（anon では必ず失敗するため）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockGetSession.mockResolvedValueOnce({ data: { session: null }, error: null })
+
+    const { result } = renderPresence()
+    await flush()
+
+    expect(mockSetAuth).not.toHaveBeenCalled()
+    expect(mockChannel).not.toHaveBeenCalled()
+    expect(result.current.others).toEqual([])
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('鍵の取得で例外が出ても画面は壊さない（つなぎには行かない）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockGetSession.mockRejectedValueOnce(new Error('boom'))
+
+    const { result } = renderPresence()
+    await flush()
+
+    expect(mockChannel).not.toHaveBeenCalled()
+    expect(result.current.others).toEqual([])
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+})
+
+describe('useMinutesPresence つながらなかったときのやり直し', () => {
+  /** つながらない状態を1回起こす */
+  async function failOnce(index: number) {
+    await act(async () => {
+      channels[index].emitStatus('CHANNEL_ERROR')
+      await Promise.resolve()
+    })
+  }
+
+  /** 待ち時間を進めて、やり直しの購読を始めさせる */
+  async function waitRetry(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+    await flush()
+  }
+
+  it('2秒後にやり直し、2回目でつながれば在席を送る', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderPresence()
+    await flush()
+    expect(mockChannel).toHaveBeenCalledTimes(1)
+
+    await failOnce(0)
+    expect(mockChannel).toHaveBeenCalledTimes(1)
+
+    await waitRetry(2_000)
+
+    // 古いチャネルを片付けてから、鍵を取り直してつなぎ直す
+    expect(mockRemoveChannel).toHaveBeenCalledWith(channels[0])
+    expect(mockChannel).toHaveBeenCalledTimes(2)
+    expect(mockGetSession).toHaveBeenCalledTimes(2)
+    expect(mockSetAuth).toHaveBeenLastCalledWith('jwt-self')
+
+    await act(async () => {
+      channels[1].emitStatus('SUBSCRIBED')
+      await Promise.resolve()
+    })
+    expect(channels[1].track).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('3回つながらなかったら、それ以上やり直さない', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderPresence()
+    await flush()
+
+    await failOnce(0)
+    await waitRetry(2_000)
+    expect(mockChannel).toHaveBeenCalledTimes(2)
+
+    await failOnce(1)
+    await waitRetry(6_000)
+    expect(mockChannel).toHaveBeenCalledTimes(3)
+
+    await failOnce(2)
+    await waitRetry(60_000)
+    expect(mockChannel).toHaveBeenCalledTimes(3)
+
+    // 諦めたことが分かる記録を残す
+    expect(warn.mock.calls.some((call) => String(call[0]).includes('諦め'))).toBe(true)
+    warn.mockRestore()
+  })
+
+  it('アンマウントすると、待っているやり直しは走らない', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { unmount } = renderPresence()
+    await flush()
+    await failOnce(0)
+
+    await act(async () => {
+      unmount()
+      await Promise.resolve()
+    })
+    await waitRetry(10_000)
+
+    expect(mockChannel).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('ページを離れても、待っているやり直しは走らない', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderPresence()
+    await flush()
+    await failOnce(0)
+
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+      await Promise.resolve()
+    })
+    await waitRetry(10_000)
+
+    expect(mockChannel).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
   })
 })
 
@@ -312,10 +464,7 @@ describe('useMinutesPresence 失敗しても画面を壊さない', () => {
   it('CHANNEL_ERROR を受けても例外にならず、在席は空のまま', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { result } = renderPresence()
-    await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    await flush()
 
     await act(async () => {
       channels[0].emitStatus('CHANNEL_ERROR')
@@ -330,10 +479,7 @@ describe('useMinutesPresence 失敗しても画面を壊さない', () => {
   it('TIMED_OUT でも例外にならない', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { result } = renderPresence()
-    await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    await flush()
     await act(async () => {
       channels[0].emitStatus('TIMED_OUT')
       await Promise.resolve()
@@ -349,10 +495,7 @@ describe('useMinutesPresence 失敗しても画面を壊さない', () => {
     })
 
     const { result } = renderPresence()
-    await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    await flush()
 
     expect(result.current.others).toEqual([])
     expect(warn).toHaveBeenCalled()
