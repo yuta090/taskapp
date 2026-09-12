@@ -4,6 +4,7 @@ import { checkAuth } from '../auth/helpers.js'
 import { getAuthContext } from '../config.js'
 import { ToolUserError } from '../errors.js'
 import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js'
+import { mapRaiseExceptionError } from '../lib/rpcErrors.js'
 
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId: string): Promise<string> {
@@ -125,7 +126,7 @@ export async function meetingStart(params: z.infer<typeof meetingStartSchema>): 
     p_meeting_id: params.meetingId,
   })
 
-  if (error) throw new Error('会議の開始に失敗しました')
+  if (error) throw mapRaiseExceptionError(error.message, '会議の開始に失敗しました')
 
   const { data: meeting, error: meetingError } = await supabase
     .from('meetings')
@@ -179,7 +180,7 @@ export async function meetingEnd(params: z.infer<typeof meetingEndSchema>): Prom
     p_meeting_id: params.meetingId,
   })
 
-  if (error) throw new Error('会議の終了に失敗しました')
+  if (error) throw mapRaiseExceptionError(error.message, '会議の終了に失敗しました')
 
   const { data: meeting, error: meetingError } = await supabase
     .from('meetings')

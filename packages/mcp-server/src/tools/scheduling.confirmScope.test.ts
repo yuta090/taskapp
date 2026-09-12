@@ -68,7 +68,7 @@ describe('confirm_proposal_slot — proposalId は渡された space のもの�
       (e: unknown) => e
     )
 
-    expect(err).toBeInstanceOf(Error)
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 404 })
     expect(rpcCalls).toHaveLength(0)
   })
 })

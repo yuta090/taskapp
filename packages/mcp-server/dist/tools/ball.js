@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
 import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js';
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js';
+import { mapRaiseExceptionError } from '../lib/rpcErrors.js';
 // 画面の担当者選択肢と同じ役割の範囲（task_create/task_update と同じ）
 const CLIENT_OWNER_ROLES = ['client', 'vendor'];
 const INTERNAL_OWNER_ROLES = ['admin', 'editor', 'viewer'];
@@ -66,7 +67,7 @@ export async function ballPass(params) {
         p_meeting_id: null,
     });
     if (error)
-        throw new Error('ボール移動に失敗しました');
+        throw mapRaiseExceptionError(error.message, 'ボール移動に失敗しました');
     const { data: task, error: taskError } = await supabase
         .from('tasks')
         .select('*, task_internal_metrics (actual_hours)')
