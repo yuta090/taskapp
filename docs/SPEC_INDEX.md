@@ -28,6 +28,7 @@
 | **Scheduling** | `spec/SCHEDULING_SPEC.md` | 日程調整・ビデオ会議・Google Calendar連携 (Phase 1-4) |
 | **Project Presets** | `spec/PRESET_SYSTEM_SPEC.md` | ジャンル別プリセット（Wiki+マイルストーン自動生成） |
 | **Internal Ops** | `spec/INTERNAL_OPS_SPEC.md` | クライアント不在時の内部運用対応（レビューUI・ラベル抽象化） |
+| **決定の記録** | `spec/DECISION_RECORD_SPEC.md` | 確定するのはページでなく決定1件 v1.0（決める札の紐づけ方で完了の可否が決まる・確定時点の控えに名札・「凍結」は編集を止めない） |
 | **Doc Links (Wiki/議事録)** | `spec/DOC_LINK_SPEC.md` | 本文からファイル・Wiki・議事録・タスクへリンクを貼る v1.1（画面と CLI/API で同じ形・同じタブで開いて戻れる・タスクの説明文の URL も押せる） |
 | **Co-editing（同時編集）** | `spec/COEDITING_SPEC.md` | 議事録・Wiki の同時編集 v1.0（Yjs・正本は今の列のまま・器は編集中だけ・保存は書記1人）**設計のみ・未実装** |
 | **Data Table View** | `spec/DATA_TABLE_VIEW_SPEC.md` | ファイル(CSV/TSV)→表ビュー v0.1（読み取り専用）＋リッチ編集 v1.0 方針 |

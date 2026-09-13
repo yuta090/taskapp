@@ -3,8 +3,14 @@
 import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
 import { X, Trash, Clock, Tag, PencilSimple, Check } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import type { Milestone, WikiPage, WikiPageVersion } from '@/types/database'
+import type { Milestone, WikiPage } from '@/types/database'
+import type { WikiPageVersionSummary } from '@/lib/hooks/useWikiPages'
 import { descendantIds } from '@/lib/wiki/listView'
+import {
+  hasChangedSinceDecision,
+  latestDecisionVersion,
+  versionKindLabel,
+} from '@/lib/wiki/decisionVersions'
 
 const SPEC_TAG = '仕様書'
 
@@ -21,8 +27,8 @@ interface WikiPageInspectorProps {
   onClose: () => void
   onUpdate?: (updates: WikiPageUpdates) => Promise<void>
   onDelete?: () => Promise<void>
-  onFetchVersions?: (pageId: string) => Promise<WikiPageVersion[]>
-  onRestoreVersion?: (version: WikiPageVersion) => void
+  onFetchVersions?: (pageId: string) => Promise<WikiPageVersionSummary[]>
+  onRestoreVersion?: (version: WikiPageVersionSummary) => void
   /** 親ページ候補・循環候補の除外に使う同一スペースの全ページ。省略時は「整理」の親ページ欄を出さない。 */
   allPages?: WikiPage[]
   /** 紐づけ候補のマイルストーン。省略時は「整理」のマイルストーン欄を出さない。 */
@@ -45,7 +51,27 @@ export function WikiPageInspector({
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(page.title)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [versions, setVersions] = useState<WikiPageVersion[]>([])
+  const [versions, setVersions] = useState<WikiPageVersionSummary[]>([])
+  /**
+   * 確定した時点の控えと、そのあと本文が変わったか。版を読んだときにしか分からないので、
+   * バージョン履歴を開いたときだけ出す（毎回取りに行くと、パネルを開くたびに1往復増える）。
+   *
+   * 判定に `page.updated_at` は使わない。理由が2つある（page-perf レビュー指摘）:
+   *   - 本文の自動保存では `page`(activePage) が差し替わらないので、いちばん出したい
+   *     「確定したあとに本文を直した」場面で出ない。
+   *   - ピン留めやタグを変えただけでも `updated_at` はトリガーで進むので、本文が
+   *     変わっていないのに出てしまう。
+   * 版は本文を保存するたびに必ず1行積まれるので、同じ列どうしを比べるほうが正しい。
+   */
+  const lastDecision = useMemo(() => latestDecisionVersion(versions), [versions])
+  const latestVersionAt = useMemo(
+    () => versions.reduce<string | null>((a, v) => (a === null || v.created_at > a ? v.created_at : a), null),
+    [versions]
+  )
+  const changedSinceDecision = useMemo(
+    () => hasChangedSinceDecision(latestVersionAt, lastDecision),
+    [latestVersionAt, lastDecision]
+  )
   const [showVersions, setShowVersions] = useState(false)
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [tagInput, setTagInput] = useState('')
@@ -417,22 +443,48 @@ export function WikiPageInspector({
               ) : versions.length === 0 ? (
                 <div className="text-xs text-gray-400 py-2">バージョン履歴はありません</div>
               ) : (
-                versions.map(version => (
-                  <div
-                    key={version.id}
-                    className="flex items-center justify-between px-2 py-1.5 text-xs rounded hover:bg-gray-50 group"
-                  >
-                    <span className="text-gray-600">{formatDate(version.created_at)}</span>
-                    {onRestoreVersion && (
-                      <button
-                        onClick={() => onRestoreVersion(version)}
-                        className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-medium"
+                <>
+                  {changedSinceDecision && lastDecision && (
+                    // amber は「相手先に見える」印に予約されている。警告はこの画面の
+                    // 競合帯（WikiPageClient）と同じ orange に合わせる（ダークでも読める）
+                    <p
+                      data-testid="wiki-changed-since-decision"
+                      className="px-2 py-1.5 text-xs rounded bg-orange-50 border border-orange-200 text-orange-ink"
+                    >
+                      確定したあとに本文が変わっています（最終確定 {formatDate(lastDecision.created_at)}
+                      {latestVersionAt !== null && <>／最終更新 {formatDate(latestVersionAt)}</>}）
+                    </p>
+                  )}
+                  {versions.map(version => {
+                    const kindLabel = versionKindLabel(version.kind)
+                    return (
+                      <div
+                        key={version.id}
+                        className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs rounded hover:bg-gray-50 group"
                       >
-                        復元
-                      </button>
-                    )}
-                  </div>
-                ))
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-gray-600">{formatDate(version.created_at)}</span>
+                          {kindLabel && (
+                            <span
+                              data-testid="wiki-version-kind"
+                              className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-ink"
+                            >
+                              {kindLabel}
+                            </span>
+                          )}
+                        </span>
+                        {onRestoreVersion && (
+                          <button
+                            onClick={() => onRestoreVersion(version)}
+                            className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-medium flex-shrink-0"
+                          >
+                            復元
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </>
               )}
             </div>
           )}
