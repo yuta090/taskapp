@@ -103,7 +103,7 @@ export function WikiEditor({
         ],
         query
       ),
-    [editor, orgId, spaceId]
+    [editor, orgId, spaceId, openLinkPicker]
   )
 
   // Insert meetings block with orgId/spaceId (toolbar button below the editor)

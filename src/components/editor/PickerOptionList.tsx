@@ -62,6 +62,9 @@ export function PickerOptionList<T extends Searchable>({
   const { matches, total } = useMemo(() => search(query, MAX_OPTIONS), [search, query])
   const hiddenCount = total - matches.length
   const hasOptions = !loading && matches.length > 0
+  // 裏で取り直して件数が減ったとき、無い候補を指したままにしない
+  // （Enter が無反応になり、読み上げが実在しない行を指す）
+  const activeSafe = matches.length ? Math.min(activeIndex, matches.length - 1) : 0
 
   const changeQuery = useCallback((next: string) => {
     setQuery(next)
@@ -73,13 +76,13 @@ export function PickerOptionList<T extends Searchable>({
   // 動かしてパネルごとずれるので、一覧の中だけを動かす
   useEffect(() => {
     const list = listRef.current
-    const option = list?.children[activeIndex] as HTMLElement | undefined
+    const option = list?.children[activeSafe] as HTMLElement | undefined
     if (!list || !option) return
     const top = option.offsetTop
     const bottom = top + option.offsetHeight
     if (top < list.scrollTop) list.scrollTop = top
     else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight
-  }, [activeIndex, matches.length])
+  }, [activeSafe, matches])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     // 日本語の変換中のキーは奪わない（確定の Enter で候補を選んでしまわない。Safari は keyCode 229）
@@ -96,7 +99,7 @@ export function PickerOptionList<T extends Searchable>({
         return
       case 'Enter': {
         event.preventDefault()
-        const item = matches[activeIndex]
+        const item = matches[activeSafe]
         if (item) onSelect(item)
         return
       }
@@ -104,7 +107,7 @@ export function PickerOptionList<T extends Searchable>({
     }
   }
 
-  const activeId = hasOptions ? `${baseId}-option-${activeIndex}` : undefined
+  const activeId = hasOptions ? `${baseId}-option-${activeSafe}` : undefined
 
   return (
     <>
@@ -136,11 +139,14 @@ export function PickerOptionList<T extends Searchable>({
         ref={listRef}
         id={listId}
         role="listbox"
+        // 押しても検索欄からフォーカスを外さない。外れると ↑↓ と Enter が効かなくなり、
+        // 画面全体のショートカット（`?` など）が誤って効く場所にカーソルが移る
+        onMouseDown={(e) => e.preventDefault()}
         className="min-h-0 flex-1 space-y-0.5 overflow-y-auto"
       >
         {matches.map((item, index) => {
           const view = renderOption(item)
-          const selected = index === activeIndex
+          const selected = index === activeSafe
           return (
             <li
               key={item.id}

@@ -146,6 +146,39 @@ describe('PickerOptionList — 読み上げソフト向け', () => {
   })
 })
 
+describe('PickerOptionList — フォーカスを検索欄から外さない', () => {
+  it('候補を押しても、検索欄からフォーカスが外れない', () => {
+    renderList()
+    // 既定動作を止めていれば、押してもフォーカスは動かない。
+    // 外れると ↑↓ と Enter が効かなくなり、画面全体のショートカットが誤って効く
+    const notPrevented = fireEvent.mouseDown(options()[1])
+    expect(notPrevented).toBe(false)
+  })
+
+  it('件数が減っても、無い候補を指したままにしない', () => {
+    const { rerender } = renderList()
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(options()[2]).toHaveAttribute('aria-selected', 'true')
+
+    rerender(
+      <PickerOptionList<Item>
+        placeholder="名前で探す"
+        loading={false}
+        emptyMessage="ありません"
+        items={[ITEMS[0]]}
+        renderOption={(item) => ({ label: item.title })}
+        onSelect={onSelect}
+      />
+    )
+    expect(options()).toHaveLength(1)
+    expect(options()[0]).toHaveAttribute('aria-selected', 'true')
+    expect(input().getAttribute('aria-activedescendant')).toBe(options()[0].id)
+
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onSelect).toHaveBeenCalledWith(ITEMS[0])
+  })
+})
+
 describe('PickerOptionList — 使い方の案内', () => {
   it('キーの案内を出す', () => {
     renderList()

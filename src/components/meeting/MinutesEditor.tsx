@@ -265,7 +265,7 @@ function MinutesEditorImpl({
         ],
         query
       ),
-    [editor]
+    [editor, openLinkPicker]
   )
 
   /**
@@ -352,7 +352,7 @@ function MinutesEditorImpl({
             orgId={orgId}
             spaceId={spaceId}
             openKind={linkPicker?.kind ?? null}
-              openSeq={linkPicker?.seq}
+            openSeq={linkPicker?.seq}
             onToggle={() => (linkPicker ? closeLinkPicker() : openLinkPicker('file'))}
             onClose={closeLinkPicker}
             onSelect={handleSelectLink}
