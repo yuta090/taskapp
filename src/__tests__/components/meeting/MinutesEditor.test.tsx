@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { MinutesEditor, TaskMarkerChip } from '@/components/meeting/MinutesEditor'
-import type { AppLink } from '@/lib/navigation/appLinks'
+import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 
 const ORG_ID = 'org-1'
 const SPACE_ID = 'space-1'
@@ -13,10 +13,12 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockInsertInlineContent = vi.fn()
+const mockEditorFocus = vi.fn()
 const mockDocument: unknown[] = [{ type: 'paragraph', content: [] }]
 const mockUseCreateBlockNote = vi.fn((_opts: unknown) => ({
   document: mockDocument,
   insertInlineContent: mockInsertInlineContent,
+  focus: mockEditorFocus,
 }))
 
 /**
@@ -60,9 +62,9 @@ vi.mock('@blocknote/mantine', () => ({
   ),
 }))
 
-let capturedOnSelect: ((link: AppLink) => void) | undefined
+let capturedOnSelect: ((selection: AppLinkSelection) => void) | undefined
 vi.mock('@/components/editor/AppLinkPicker', () => ({
-  AppLinkPicker: ({ onSelect }: { onSelect: (link: AppLink) => void }) => {
+  AppLinkPicker: ({ onSelect }: { onSelect: (selection: AppLinkSelection) => void }) => {
     capturedOnSelect = onSelect
     return <div data-testid="app-link-picker" />
   },
@@ -107,26 +109,30 @@ describe('MinutesEditor のリンク差し込み', () => {
     await screen.findByTestId('app-link-picker')
 
     act(() =>
-      capturedOnSelect?.({ href: `/${ORG_ID}/project/${SPACE_ID}/wiki?page=page-1`, label: '議事録テンプレ' })
+      capturedOnSelect?.({ link: { href: `/${ORG_ID}/project/${SPACE_ID}/wiki?page=page-1`, label: '議事録テンプレ' } })
     )
 
     expect(mockInsertInlineContent).toHaveBeenCalledWith([
       { type: 'link', href: `/${ORG_ID}/project/${SPACE_ID}/wiki?page=page-1`, content: '議事録テンプレ' },
     ])
     expect(screen.queryByTestId('app-link-picker')).not.toBeInTheDocument()
+    // そのまま書き続けられるよう、本文にカーソルを戻す
+    expect(mockEditorFocus).toHaveBeenCalled()
   })
 
-  it('ファイルを選んだときはパネルを開いたままにする（社内のみの注意を読めるように）', async () => {
+  it('社内のみのファイルを選んだときだけパネルを開いたままにする', async () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     fireEvent.click(screen.getByText('リンクを挿入'))
     await screen.findByTestId('app-link-picker')
 
-    act(() => capturedOnSelect?.({ href: '/api/files/file-42/download', label: '仕様書.pdf' }))
+    act(() => capturedOnSelect?.({ link: { href: '/api/files/file-42/download', label: '仕様書.pdf' }, keepOpen: true }))
 
     expect(mockInsertInlineContent).toHaveBeenCalledWith([
       { type: 'link', href: '/api/files/file-42/download', content: '仕様書.pdf' },
     ])
     expect(await screen.findByTestId('app-link-picker')).toBeInTheDocument()
+    // 注意を読んでもらう間は本文に戻さない
+    expect(mockEditorFocus).not.toHaveBeenCalled()
   })
 })
 

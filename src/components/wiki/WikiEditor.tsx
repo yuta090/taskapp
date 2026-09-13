@@ -11,10 +11,11 @@ import { ja as jaLocale } from '@blocknote/core/locales'
 import { Notebook } from '@phosphor-icons/react'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
+import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { EditorToolbarButton } from '@/components/editor/EditorToolbarButton'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
-import type { AppLink, AppLinkKind } from '@/lib/navigation/appLinks'
+import type { AppLinkKind } from '@/lib/navigation/appLinks'
 
 interface WikiEditorProps {
   initialContent?: string
@@ -60,8 +61,16 @@ export function WikiEditor({
 }: WikiEditorProps) {
   const isInternalApp = Boolean(orgId && spaceId)
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate, isInternalApp)
-  // 開いているリンクの種類。null なら閉じている（「/」から種類を指定して開ける）
-  const [linkPickerKind, setLinkPickerKind] = useState<AppLinkKind | null>(null)
+  /**
+   * 開いているリンクの種類と、開いた回数。null なら閉じている。
+   * 回数を持つのは、**同じ種類で開き直したとき**にもパネルを作り直して検索欄に
+   * カーソルを戻すため（持たないと「/」から呼んでも何も起きないように見える）
+   */
+  const [linkPicker, setLinkPicker] = useState<{ kind: AppLinkKind; seq: number } | null>(null)
+  const openLinkPicker = useCallback((kind: AppLinkKind) => {
+    setLinkPicker((prev) => ({ kind, seq: (prev?.seq ?? 0) + 1 }))
+  }, [])
+  const closeLinkPicker = useCallback(() => setLinkPicker(null), [])
   // 本文の JSON を読み直すのは最初の1回だけ。`useCreateBlockNote` は初回しか
   // initialContent を見ないので、描き直しのたびに parse すると丸ごと捨てる仕事になる
   // （挿入パネルの開閉で描き直しが増えたため、ここで1回に絞る）。
@@ -86,7 +95,7 @@ export function WikiEditor({
       filterSuggestionItems(
         [
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
-          ...(orgId && spaceId ? buildInsertLinkMenuItems(setLinkPickerKind) : []),
+          ...(orgId && spaceId ? buildInsertLinkMenuItems(openLinkPicker) : []),
           // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
           ...getDefaultReactSlashMenuItems(editor).filter(
             item => !HIDDEN_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
@@ -110,14 +119,21 @@ export function WikiEditor({
     )
   }
 
-  // カーソル位置にアプリの中へのリンクを差し込む。社内のみのファイルのときは、
-  // 「相手先には開けない」という注意を読んでもらうためパネルを開いたままにする
-  const handleSelectLink = (link: AppLink) => {
-    insertAppLink(editor, link)
-    if (!link.href.startsWith('/api/files/')) {
-      setLinkPickerKind(null)
-    }
-  }
+  /**
+   * カーソル位置にアプリの中へのリンクを差し込む。
+   * 社内のみのファイルのときだけ、「相手先には開けない」という注意を読んでもらうため
+   * パネルを開いたままにする（以前は**ファイル全部**で開いたままになっていた）。
+   * 閉じるときは本文にカーソルを戻して、そのまま書き続けられるようにする
+   */
+  const handleSelectLink = useCallback(
+    ({ link, keepOpen }: AppLinkSelection) => {
+      insertAppLink(editor, link)
+      if (keepOpen) return
+      setLinkPicker(null)
+      editor.focus()
+    },
+    [editor]
+  )
 
   return (
     <div className="wiki-editor" ref={editorContainerRef}>
@@ -142,9 +158,10 @@ export function WikiEditor({
             <InsertLinkControl
               orgId={orgId}
               spaceId={spaceId}
-              openKind={linkPickerKind}
-              onToggle={() => setLinkPickerKind(prev => (prev ? null : 'file'))}
-              onClose={() => setLinkPickerKind(null)}
+              openKind={linkPicker?.kind ?? null}
+              openSeq={linkPicker?.seq}
+              onToggle={() => (linkPicker ? closeLinkPicker() : openLinkPicker('file'))}
+              onClose={closeLinkPicker}
               onSelect={handleSelectLink}
               excludeWikiPageId={currentPageId}
             />

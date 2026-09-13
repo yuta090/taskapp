@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { LinkSimple } from '@phosphor-icons/react'
 import dynamic from 'next/dynamic'
 import { EditorToolbarButton } from './EditorToolbarButton'
-import type { AppLink, AppLinkKind } from '@/lib/navigation/appLinks'
+import type { AppLinkKind } from '@/lib/navigation/appLinks'
+import type { AppLinkSelection } from './AppLinkPicker'
 
 /** パネルの高さの上限と、画面の端との余白 */
 const PANEL_MAX_HEIGHT = 320
@@ -37,11 +38,13 @@ interface InsertLinkControlProps {
   spaceId: string
   /** 開いている種類。null なら閉じている */
   openKind: AppLinkKind | null
+  /** 開くたびに増える番号。同じ種類で開き直したときも作り直すために使う */
+  openSeq?: number
   /** ツールバーのボタンを押したとき */
   onToggle: () => void
   /** Esc・パネルの外を押したときなど、閉じてほしいとき */
   onClose: () => void
-  onSelect: (link: AppLink) => void
+  onSelect: (selection: AppLinkSelection) => void
   /** 候補から外す Wiki ページ。いま開いているページ自身へのリンクは要らない */
   excludeWikiPageId?: string
 }
@@ -58,6 +61,7 @@ export function InsertLinkControl({
   orgId,
   spaceId,
   openKind,
+  openSeq = 0,
   onToggle,
   onClose,
   onSelect,
@@ -117,6 +121,7 @@ export function InsertLinkControl({
         icon={<LinkSimple />}
         label="リンクを挿入"
         data-testid="editor-insert-link"
+        aria-expanded={isOpen}
         onClick={onToggle}
       />
       {isOpen && (
@@ -126,7 +131,7 @@ export function InsertLinkControl({
         >
           <AppLinkPicker
             // 種類が変わったら作り直す（defaultKind は開いた時点の値しか見ない）
-            key={openKind}
+            key={`${openKind}-${openSeq}`}
             orgId={orgId}
             spaceId={spaceId}
             onSelect={onSelect}

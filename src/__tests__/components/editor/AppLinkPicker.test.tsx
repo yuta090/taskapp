@@ -47,7 +47,12 @@ function switchTo(kind: string) {
 
 /** 最後に選ばれたリンク */
 function lastLink() {
-  return onSelect.mock.calls.at(-1)?.[0]
+  return onSelect.mock.calls.at(-1)?.[0]?.link
+}
+
+/** 最後の選択でパネルを開いたままにするか */
+function lastKeepOpen() {
+  return onSelect.mock.calls.at(-1)?.[0]?.keepOpen
 }
 
 beforeEach(() => {
@@ -89,11 +94,33 @@ describe('AppLinkPicker — 4種類のリンクを同じ操作で差し込める
     expect(lastLink()).toEqual({ href: '/api/files/f1/download', label: '要件定義.pdf' })
   })
 
-  it('社内のみのファイルを選ぶと、相手先には開けないと伝える', () => {
+  it('社内のみのファイルを選ぶと、相手先には開けないと伝えてパネルを開いたままにする', () => {
     renderPicker()
     expect(screen.queryByText(/相手先には開けません/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByText('社内メモ.txt'))
     expect(screen.getByText(/相手先には開けません/)).toBeInTheDocument()
+    expect(lastKeepOpen()).toBe(true)
+  })
+
+  it('相手先に見せてよいファイルは、注意も出さず開いたままにもしない', () => {
+    renderPicker()
+    fireEvent.click(screen.getByText('要件定義.pdf'))
+    expect(screen.queryByText(/相手先には開けません/)).not.toBeInTheDocument()
+    expect(lastKeepOpen()).toBe(false)
+  })
+
+  it('種別を切り替えると、前に出した注意書きを消す', () => {
+    renderPicker()
+    fireEvent.click(screen.getByText('社内メモ.txt'))
+    expect(screen.getByText(/相手先には開けません/)).toBeInTheDocument()
+    switchTo('wiki')
+    expect(screen.queryByText(/相手先には開けません/)).not.toBeInTheDocument()
+  })
+
+  it('種別のタブは、選ばれているかを読み上げに伝える', () => {
+    renderPicker()
+    expect(screen.getByTestId('app-link-picker-kind-file')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('app-link-picker-kind-task')).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('Wikiページを選ぶとそのページを開くリンクになる', () => {
@@ -147,6 +174,14 @@ describe('AppLinkPicker — 4種類のリンクを同じ操作で差し込める
     switchTo('task')
     expect(screen.getByTestId('app-link-picker-input')).toHaveValue('')
     expect(screen.getByText(/トップページを作る/)).toBeInTheDocument()
+  })
+
+  it('キーボードだけで選べる（↑↓ と Enter）', () => {
+    renderPicker()
+    switchTo('task')
+    fireEvent.keyDown(screen.getByTestId('app-link-picker-input'), { key: 'ArrowDown' })
+    fireEvent.keyDown(screen.getByTestId('app-link-picker-input'), { key: 'Enter' })
+    expect(lastLink()?.label).toBe('番号のないタスク')
   })
 
   it('候補が多いときは件数を伝える', () => {

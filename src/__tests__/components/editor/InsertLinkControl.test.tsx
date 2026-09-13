@@ -22,7 +22,7 @@ const onToggle = vi.fn()
 const onClose = vi.fn()
 const onSelect = vi.fn()
 
-function renderControl(openKind: 'file' | 'task' | 'wiki' | 'meeting' | null) {
+function renderControl(openKind: 'file' | 'task' | 'wiki' | 'meeting' | null, openSeq = 0) {
   return render(
     <div>
       <button type="button" data-testid="outside-button">
@@ -32,6 +32,7 @@ function renderControl(openKind: 'file' | 'task' | 'wiki' | 'meeting' | null) {
         orgId="org-1"
         spaceId="space-1"
         openKind={openKind}
+        openSeq={openSeq}
         onToggle={onToggle}
         onClose={onClose}
         onSelect={onSelect}
@@ -88,6 +89,37 @@ describe('InsertLinkControl — 開け閉め', () => {
 
     fireEvent.mouseDown(screen.getByTestId('editor-insert-link'))
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('同じ種類で開き直したら、パネルを作り直す（押しても無反応に見えないように）', async () => {
+    const view = renderControl('file', 1)
+    const first = await screen.findByTestId('app-link-picker')
+
+    // 「/」からもう一度「ファイルへのリンク」を選んだ状態
+    view.rerender(
+      <div>
+        <button type="button" data-testid="outside-button">
+          外のボタン
+        </button>
+        <InsertLinkControl
+          orgId="org-1"
+          spaceId="space-1"
+          openKind="file"
+          openSeq={2}
+          onToggle={onToggle}
+          onClose={onClose}
+          onSelect={onSelect}
+        />
+      </div>
+    )
+    const second = await screen.findByTestId('app-link-picker')
+    expect(second).not.toBe(first)
+  })
+
+  it('開いているかを読み上げに伝える', async () => {
+    renderControl('file')
+    await screen.findByTestId('app-link-picker')
+    expect(screen.getByTestId('editor-insert-link')).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('閉じているときは Esc も外側の操作も拾わない', () => {
