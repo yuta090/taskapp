@@ -6,6 +6,8 @@ const ACTION_LABELS: Record<string, string> = {
   TASK_UPDATE: '更新',
   PASS_BALL: 'ボールを渡した',
   SET_OWNERS: '担当を変更',
+  // 議事録のタスク化で作られた決める札。辞書に無いと生の SPEC_CREATED が表示される
+  SPEC_CREATED: '議事録から作成',
   CONSIDERING_DECIDE: '決定を登録',
   SPEC_DECIDE: '仕様を決定',
   SPEC_IMPLEMENT: '実装済みにした',

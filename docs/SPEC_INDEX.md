@@ -82,7 +82,7 @@
 
 | Document | Path | Description |
 |----------|------|-------------|
-| **Meeting Minutes** | `spec/MEETING_MINUTES_TEMPLATE.md` | 議事録テンプレート |
+| **Meeting Minutes** | `spec/MEETING_MINUTES_TEMPLATE.md` | 議事録から札（タスク）を作る v1.1（チェックリスト行に Wiki ページのリンクを差し込む方式。「仕様書として扱う」の有無で決める札／ふつうのタスクが決まる。旧 `SPEC(/spec/…#…)` も動く） |
 | **Review Spec Template** | `spec/REVIEW_SPEC_TEMPLATE.md` | レビュー仕様テンプレート |
 | **UI Rules Template** | `spec/UI_RULES_AND_SCREENS_TEMPLATE.md` | UI仕様テンプレート |
 
