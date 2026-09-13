@@ -16,9 +16,10 @@ import { filterSuggestionItems } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { CheckCircle } from '@phosphor-icons/react'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
+import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
-import { buildTaskHref, type AppLink, type AppLinkKind } from '@/lib/navigation/appLinks'
+import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
 
 /**
@@ -214,8 +215,16 @@ function MinutesEditorImpl({
   registerApi,
 }: MinutesEditorProps) {
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
-  // 開いているリンクの種類。null なら閉じている（「/」から種類を指定して開ける）
-  const [linkPickerKind, setLinkPickerKind] = useState<AppLinkKind | null>(null)
+  /**
+   * 開いているリンクの種類と、開いた回数。null なら閉じている。
+   * 回数を持つのは、**同じ種類で開き直したとき**にもパネルを作り直して検索欄に
+   * カーソルを戻すため（持たないと「/」から呼んでも何も起きないように見える）
+   */
+  const [linkPicker, setLinkPicker] = useState<{ kind: AppLinkKind; seq: number } | null>(null)
+  const openLinkPicker = useCallback((kind: AppLinkKind) => {
+    setLinkPicker((prev) => ({ kind, seq: (prev?.seq ?? 0) + 1 }))
+  }, [])
+  const closeLinkPicker = useCallback(() => setLinkPicker(null), [])
   const schema = useMinutesSchema(orgId, spaceId)
 
   // 例外が出ないはずのところへの念のための守り。parseMinutesMarkdown が万一例外を
@@ -248,7 +257,7 @@ function MinutesEditorImpl({
       filterSuggestionItems(
         [
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
-          ...buildInsertLinkMenuItems(setLinkPickerKind),
+          ...buildInsertLinkMenuItems(openLinkPicker),
           // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
           ...getDefaultReactSlashMenuItems(editor).filter((item) =>
             ALLOWED_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
@@ -256,17 +265,24 @@ function MinutesEditorImpl({
         ],
         query
       ),
-    [editor]
+    [editor, openLinkPicker]
   )
 
-  // カーソル位置にアプリの中へのリンクを差し込む。社内のみのファイルのときは、
-  // 「相手先には開けない」という注意を読んでもらうためパネルを開いたままにする
-  const handleSelectLink = (link: AppLink) => {
-    insertAppLink(editor, link)
-    if (!link.href.startsWith('/api/files/')) {
-      setLinkPickerKind(null)
-    }
-  }
+  /**
+   * カーソル位置にアプリの中へのリンクを差し込む。
+   * 社内のみのファイルのときだけ、「相手先には開けない」という注意を読んでもらうため
+   * パネルを開いたままにする（以前は**ファイル全部**で開いたままになっていた）。
+   * 閉じるときは本文にカーソルを戻して、そのまま書き続けられるようにする
+   */
+  const handleSelectLink = useCallback(
+    ({ link, keepOpen }: AppLinkSelection) => {
+      insertAppLink(editor, link)
+      if (keepOpen) return
+      setLinkPicker(null)
+      editor.focus()
+    },
+    [editor]
+  )
 
   /**
    * AI秘書の末尾追記との自動合流用。Markdown を今の文書の最後のブロックの後ろに
@@ -335,9 +351,10 @@ function MinutesEditorImpl({
           <InsertLinkControl
             orgId={orgId}
             spaceId={spaceId}
-            openKind={linkPickerKind}
-            onToggle={() => setLinkPickerKind((prev) => (prev ? null : 'file'))}
-            onClose={() => setLinkPickerKind(null)}
+            openKind={linkPicker?.kind ?? null}
+            openSeq={linkPicker?.seq}
+            onToggle={() => (linkPicker ? closeLinkPicker() : openLinkPicker('file'))}
+            onClose={closeLinkPicker}
             onSelect={handleSelectLink}
           />
         </div>
