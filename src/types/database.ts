@@ -28,6 +28,9 @@ export type BallSide = 'client' | 'internal' | 'agency' | 'vendor'
 // Comment visibility
 export type CommentVisibility = 'client' | 'internal' | 'vendor' | 'agency_only'
 
+/** Wiki の版の種類。確定したときの控えだけを見分けるための名札 */
+export type WikiVersionKind = 'autosave' | 'decided' | 'implemented'
+
 // Task type
 export type TaskType = 'task' | 'spec'
 
@@ -1101,7 +1104,13 @@ export interface Database {
           body: string
           created_by: string
           created_at: string
+          /** autosave=自動保存の控え / decided・implemented=札を確定したときの控え */
+          kind: WikiVersionKind
+          /** kind が autosave でないとき、その確定を行った札 */
+          task_id: string | null
         }
+        // kind / task_id は画面から入れられない（列ごとの権限で SECURITY DEFINER の
+        // RPC だけに許している）。偽の「確定時点の控え」を作らせないため
         Insert: {
           id?: string
           org_id: string

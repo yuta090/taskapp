@@ -13,7 +13,7 @@ import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { EmptyState } from '@/components/shared'
-import { useWikiPages, WikiConflictError, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages'
+import { useWikiPages, WikiConflictError, type UpdateWikiPageInput, type WikiPageVersionSummary } from '@/lib/hooks/useWikiPages'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -33,7 +33,7 @@ import {
   EMPTY_MILESTONE_LIST,
 } from '@/lib/wiki/listView'
 import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
-import type { Milestone, WikiPage, WikiPageVersion } from '@/types/database'
+import type { Milestone, WikiPage } from '@/types/database'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { SAVING } from '@/lib/design/tokens'
 
@@ -170,6 +170,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     deletePage,
     fetchPage,
     fetchVersions,
+    fetchVersionBody,
     // 空のWikiの自動作成（ホームページ等）は編集できる人のときだけ行う
   } = useWikiPages({ orgId, spaceId, canEdit })
   const { milestones } = useMilestones({ spaceId })
@@ -546,7 +547,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       updateQuery({ page: null })
     }
 
-    const handleRestoreVersion = (version: WikiPageVersion) => {
+    const handleRestoreVersion = (version: WikiPageVersionSummary) => {
       const pageId = activePage.id
       // savePendingBody と同じ世代ガード。updatePage → fetchPage の2往復のあいだにページを
       // 切り替えられても気づけるようにする。切り替え後は書かない。
@@ -561,8 +562,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       // 版の復元も基準(baseUpdatedAt)を渡す。復元は人の明示操作なので、競合したら
       // 本文保存と同じ帯にそのまま乗せてよい（見せかけの競合の確認・自動やり直しまでは行わない）。
       const base = baseUpdatedAtRef.current ?? undefined
-      updatePage(pageId, { body: version.body, title: version.title }, base)
-        .then(async () => {
+      // 一覧は本文を持っていない（全件の全文を取ると重い）。戻す1件だけここで取る。
+      fetchVersionBody(version.id)
+        .then((restored) => {
+          if (pageEpochRef.current !== epoch) return null
+          if (restored === null) {
+            toast.error('この版を読み込めませんでした')
+            return null
+          }
+          return updatePage(pageId, { body: restored.body, title: restored.title }, base)
+        })
+        .then(async (result) => {
+          if (result == null) return
           // updatePage が返ってくるまでの間にページが切り替わっていたら、この続きの
           // fetchPage も含めて何もしない（読み直した「前のページ」の内容が「今見ている
           // 別のページ」の画面に書き込まれるのを防ぐ）。
@@ -622,6 +633,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     deletePage,
     fetchPage,
     fetchVersions,
+    fetchVersionBody,
     updateQuery,
     pages,
     milestones,
