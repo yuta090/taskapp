@@ -503,6 +503,9 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 .minutes-editor .bn-block-content a[href],
 .minutes-editor [data-content-type] a[href],
 .minutes-editor a[href] {
+  /* 編集中の本文なのでカーソルは既定が I 字。押すと画面が移るので指の形にする
+     （押せることが見た目から分からない、という指摘。2026-09-13） */
+  cursor: pointer;
   color: #4f46e5 !important;
   text-decoration: underline !important;
   text-decoration-color: #a5b4fc !important;
