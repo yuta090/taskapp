@@ -109,7 +109,11 @@ describe('findActiveUserLinkForUser', () => {
     expect(fromMock).toHaveBeenCalledWith('channel_user_links')
     const call = fromMock.mock.results[0].value
     expect(call.select).toHaveBeenCalledWith(expect.stringContaining('dm_unreachable_at'))
-    expect(call.select).toHaveBeenCalledWith(expect.stringContaining('channel_accounts!inner(status)'))
+    // channel_user_links → channel_accounts の FK は2本あるため、外部キー名を指定しないと
+    // PGRST201（曖昧な関係）で失敗する
+    expect(call.select).toHaveBeenCalledWith(
+      expect.stringContaining('channel_accounts!channel_user_links_channel_account_id_fkey!inner(status)'),
+    )
     expect(call.eq).toHaveBeenCalledWith('org_id', 'org-1')
     expect(call.eq).toHaveBeenCalledWith('user_id', 'user-1')
     expect(call.is).toHaveBeenCalledWith('revoked_at', null)
@@ -163,7 +167,11 @@ describe('findUserIdsWithActiveLink（batch版・digest安全網のper-task DM�
     await store.findUserIdsWithActiveLink('org-1', ['u-1'])
 
     const call = fromMock.mock.results[0].value
-    expect(call.select).toHaveBeenCalledWith(expect.stringContaining('channel_accounts!inner(status)'))
+    // channel_user_links → channel_accounts の FK は2本あるため、外部キー名を指定しないと
+    // PGRST201（曖昧な関係）で失敗する
+    expect(call.select).toHaveBeenCalledWith(
+      expect.stringContaining('channel_accounts!channel_user_links_channel_account_id_fkey!inner(status)'),
+    )
     expect(call.select).toHaveBeenCalledWith(expect.stringContaining('dm_unreachable_at'))
   })
 
@@ -208,5 +216,15 @@ describe('listActiveOrgDmLinks（LINE 到達性照合ジョブの入力）', () 
     await store.listActiveOrgDmLinks()
     const call = fromMock.mock.results[0].value
     expect(call.eq).toHaveBeenCalledWith('channel_accounts.channel', 'line')
+  })
+
+  it('channel_user_links → channel_accounts の FK は2本あるため、外部キー名を指定する', async () => {
+    fromResponse = { data: [], error: null }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    await store.listActiveOrgDmLinks()
+    const call = fromMock.mock.results[0].value
+    expect(call.select).toHaveBeenCalledWith(
+      expect.stringContaining('channel_accounts!channel_user_links_channel_account_id_fkey!inner('),
+    )
   })
 })

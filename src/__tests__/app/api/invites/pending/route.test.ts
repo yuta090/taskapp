@@ -179,6 +179,14 @@ describe('GET /api/invites/pending', () => {
     expect(invitesQueryChain.is).toHaveBeenCalledWith('accepted_at', null)
     expect(invitesQueryChain.gt).toHaveBeenCalledWith('expires_at', expect.any(String))
   })
+
+  it('spaces の埋め込みは外部キー名を指定する（invites→spaces のFKが2本あるため、無指定だとPGRST201で失敗する）', async () => {
+    await callGet(VALID_ORG_ID)
+
+    expect(invitesQueryChain.select).toHaveBeenCalledWith(
+      expect.stringContaining('spaces!invites_space_id_fkey('),
+    )
+  })
 })
 
 describe('GET /api/invites/pending — プロジェクト単位', () => {

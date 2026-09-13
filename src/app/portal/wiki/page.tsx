@@ -36,30 +36,21 @@ export default async function PortalWikiPage({ searchParams }: PageProps) {
 
   const clientSpaceIds = projects.map((p) => p.id)
 
-  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, currentProject.id, 'wiki'))) {
-    redirect('/portal')
-  }
+  // isPortalSectionEnabled・milestone_publications・actionCountは互いに依存しない
+  // ので並べて読む(セクションが無効なときは問い合わせが2本無駄になるが、稀な経路
+  // なので許容する)。wiki_page_publicationsとmilestone_publicationsの間には外部
+  // キーが無い(どちらもmilestones/organizationsを指すだけ)ため、埋め込みでは
+  // 絞れない。先に公開中のマイルストーンIDを引いてから、それでwiki_page_publications
+  // 側を絞る
+  const [sectionEnabled, milestonePubsResult, actionCountResult] = await Promise.all([
+    isPortalSectionEnabled(supabase as SupabaseClient, currentProject.id, 'wiki'),
 
-  // wikiPages と actionCount を並列取得
-  const [wikiResult, actionCountResult] = await Promise.all([
-     
     (supabase as SupabaseClient)
-      .from('wiki_page_publications')
-      .select(`
-        id,
-        org_id,
-        published_title,
-        published_body,
-        published_at,
-        source_page_id,
-        wiki_pages!inner ( space_id ),
-        milestone_publications!inner ( is_published )
-      `)
+      .from('milestone_publications')
+      .select('milestone_id')
       .eq('org_id', currentProject.orgId)
-      .eq('milestone_publications.is_published', true)
-      .in('wiki_pages.space_id', clientSpaceIds)
-      .order('published_at', { ascending: false }),
-     
+      .eq('is_published', true),
+
     (supabase as SupabaseClient)
       .from('tasks')
       .select('id', { count: 'exact', head: true })
@@ -68,9 +59,37 @@ export default async function PortalWikiPage({ searchParams }: PageProps) {
       .neq('status', 'done'),
   ])
 
+  if (!sectionEnabled) {
+    redirect('/portal')
+  }
+
   // エラーログ（graceful degradation: 空データで続行）
-  if (wikiResult.error) console.error('[Portal Wiki] wiki query error:', wikiResult.error)
+  if (milestonePubsResult.error) console.error('[Portal Wiki] milestone_publications query error:', milestonePubsResult.error)
   if (actionCountResult.error) console.error('[Portal Wiki] actionCount query error:', actionCountResult.error)
+
+  const publishedMilestoneIds = (milestonePubsResult.data || []).map((m) => m.milestone_id)
+
+  const wikiResult = publishedMilestoneIds.length === 0
+    ? { data: [] as unknown[], error: null }
+    : await (supabase as SupabaseClient)
+        .from('wiki_page_publications')
+        .select(`
+          id,
+          org_id,
+          published_title,
+          published_body,
+          published_at,
+          source_page_id,
+          wiki_pages!inner ( space_id )
+        `)
+        .eq('org_id', currentProject.orgId)
+        // 未公開のマイルストーンのWikiを止めているのはこの絞り込み自体(RLSではない)。
+        // 社内の人がこのページを開いた場合にも未公開が漏れないよう、意図して残す
+        .in('milestone_id', publishedMilestoneIds)
+        .in('wiki_pages.space_id', clientSpaceIds)
+        .order('published_at', { ascending: false })
+
+  if (wikiResult.error) console.error('[Portal Wiki] wiki query error:', wikiResult.error)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const serializedPages = (wikiResult.data || []).map((p: any) => ({

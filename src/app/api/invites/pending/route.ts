@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient() as SupabaseClient
     let query = admin
       .from('invites')
-      .select('id, email, invitee_name, role, space_id, created_at, expires_at, accepted_at, spaces(name)')
+      .select('id, email, invitee_name, role, space_id, created_at, expires_at, accepted_at, spaces!invites_space_id_fkey(name)')
 
     query = spaceId ? query.eq('space_id', spaceId) : query.eq('org_id', targetOrgId!)
 
