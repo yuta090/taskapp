@@ -206,7 +206,10 @@ describe('MinutesEditor の「/」メニュー', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
     expect(items.map((item) => item.key)).toEqual([
-      'insert_app_link',
+      'insert_link_task',
+      'insert_link_file',
+      'insert_link_wiki',
+      'insert_link_meeting',
       'heading',
       'bullet_list',
       'check_list',
