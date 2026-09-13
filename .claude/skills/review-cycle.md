@@ -13,6 +13,8 @@ description: レビューの開始から承認/ブロック、ボール移動ま
 MCP `review_open` でタスクにレビューを開始。
 - レビュアーを1名以上指定
 - タスクのステータスは自動で `in_review` に遷移
+  （DB のトリガー `trg_sync_task_status_on_review_open`。`done` のタスクは戻さない。
+  2026-09-14 より前はこの遷移が無く、この記述だけが先にあった）
 
 ### 2. レビュー状態確認
 MCP `review_get` で各レビュアーの承認状態を確認。

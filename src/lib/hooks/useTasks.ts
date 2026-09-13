@@ -4,6 +4,7 @@ import { useRef, useCallback, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { applyReviewChange } from '@/lib/tasks/reviewStatusSync'
 import { toast } from 'sonner'
 import { rpc } from '@/lib/supabase/rpc'
 import { fireNotification } from '@/lib/slack/notify'
@@ -883,17 +884,10 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
   const handleReviewChange = useCallback((taskId: string, status: string | null) => {
     queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
       if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
-      const nextReviews = { ...old.reviewStatuses }
-      if (!status) {
-        delete nextReviews[taskId]
-      } else {
-        nextReviews[taskId] = status as ReviewStatus
-      }
-      return {
-        tasks: old.tasks,
-        owners: old.owners,
-        reviewStatuses: nextReviews,
-      }
+      // 依頼が open になったらタスクも「社内承認中」にする。DB 側のトリガー
+      // （trg_sync_task_status_on_review_open）と同じ判断を、サーバーの返事を待たずに
+      // 一覧へ先出しする。揃えないと、依頼したのに一覧の状態が変わらない。
+      return applyReviewChange(old, taskId, status)
     })
     // 一覧の「あなたの承認待ち」も取り直す。承認者が複数いると依頼は open のままなので、上の状態だけでは
     // 自分が返事をしても印が消えない
