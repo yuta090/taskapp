@@ -16,9 +16,9 @@ import { filterSuggestionItems } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { CheckCircle } from '@phosphor-icons/react'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
-import { buildInsertLinkMenuItem, insertAppLink } from '@/components/editor/appLink'
+import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
-import { buildTaskHref, type AppLink } from '@/lib/navigation/appLinks'
+import { buildTaskHref, type AppLink, type AppLinkKind } from '@/lib/navigation/appLinks'
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
 
 /**
@@ -214,7 +214,8 @@ function MinutesEditorImpl({
   registerApi,
 }: MinutesEditorProps) {
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
-  const [isLinkPickerOpen, setIsLinkPickerOpen] = useState(false)
+  // 開いているリンクの種類。null なら閉じている（「/」から種類を指定して開ける）
+  const [linkPickerKind, setLinkPickerKind] = useState<AppLinkKind | null>(null)
   const schema = useMinutesSchema(orgId, spaceId)
 
   // 例外が出ないはずのところへの念のための守り。parseMinutesMarkdown が万一例外を
@@ -247,7 +248,7 @@ function MinutesEditorImpl({
       filterSuggestionItems(
         [
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
-          buildInsertLinkMenuItem(() => setIsLinkPickerOpen(true)),
+          ...buildInsertLinkMenuItems(setLinkPickerKind),
           // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
           ...getDefaultReactSlashMenuItems(editor).filter((item) =>
             ALLOWED_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
@@ -263,7 +264,7 @@ function MinutesEditorImpl({
   const handleSelectLink = (link: AppLink) => {
     insertAppLink(editor, link)
     if (!link.href.startsWith('/api/files/')) {
-      setIsLinkPickerOpen(false)
+      setLinkPickerKind(null)
     }
   }
 
@@ -334,8 +335,9 @@ function MinutesEditorImpl({
           <InsertLinkControl
             orgId={orgId}
             spaceId={spaceId}
-            isOpen={isLinkPickerOpen}
-            onToggle={() => setIsLinkPickerOpen((prev) => !prev)}
+            openKind={linkPickerKind}
+            onToggle={() => setLinkPickerKind((prev) => (prev ? null : 'file'))}
+            onClose={() => setLinkPickerKind(null)}
             onSelect={handleSelectLink}
           />
         </div>
