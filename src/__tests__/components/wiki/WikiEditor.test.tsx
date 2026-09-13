@@ -146,9 +146,13 @@ describe('WikiEditor slash menu and Japanese texts', () => {
   it('lists the default items except video and audio, which cannot play on this page', async () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
-    // 先頭は自前の「リンクを挿入」。そのあとが BlockNote の既定（video/audio を除く）
+    // 先頭は自前のリンク4種。そのあとが BlockNote の既定（video/audio を除く）
     expect(items.map(item => item.key)).toEqual([
-      'insert_app_link', 'heading', 'bullet_list', 'image', 'file',
+      'insert_link_task',
+      'insert_link_file',
+      'insert_link_wiki',
+      'insert_link_meeting',
+      'heading', 'bullet_list', 'image', 'file',
     ])
   })
 

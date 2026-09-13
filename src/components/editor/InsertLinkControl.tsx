@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { LinkSimple } from '@phosphor-icons/react'
 import dynamic from 'next/dynamic'
 import { EditorToolbarButton } from './EditorToolbarButton'
-import type { AppLink } from '@/lib/navigation/appLinks'
+import type { AppLink, AppLinkKind } from '@/lib/navigation/appLinks'
 
 /** パネルの高さの上限と、画面の端との余白 */
 const PANEL_MAX_HEIGHT = 320
@@ -35,8 +35,12 @@ const DEFAULT_PLACEMENT: Placement = { above: true, maxHeight: PANEL_MAX_HEIGHT 
 interface InsertLinkControlProps {
   orgId: string
   spaceId: string
-  isOpen: boolean
+  /** 開いている種類。null なら閉じている */
+  openKind: AppLinkKind | null
+  /** ツールバーのボタンを押したとき */
   onToggle: () => void
+  /** Esc・パネルの外を押したときなど、閉じてほしいとき */
+  onClose: () => void
   onSelect: (link: AppLink) => void
   /** 候補から外す Wiki ページ。いま開いているページ自身へのリンクは要らない */
   excludeWikiPageId?: string
@@ -50,9 +54,45 @@ interface InsertLinkControlProps {
  * 測るのはパネルが実際に置かれた瞬間（ref が付いたとき）。effect の中で state を
  * 動かすと描き直しが連鎖するため、ここでは ref のコールバックで1回だけ決める。
  */
-export function InsertLinkControl({ orgId, spaceId, isOpen, onToggle, onSelect, excludeWikiPageId }: InsertLinkControlProps) {
+export function InsertLinkControl({
+  orgId,
+  spaceId,
+  openKind,
+  onToggle,
+  onClose,
+  onSelect,
+  excludeWikiPageId,
+}: InsertLinkControlProps) {
   const anchorRef = useRef<HTMLDivElement>(null)
   const [placement, setPlacement] = useState<Placement>(DEFAULT_PLACEMENT)
+  const isOpen = openKind !== null
+
+  // Esc と「パネルの外を押す」で閉じる。ボタンをもう一度押す以外に閉じ方が無いと、
+  // 開きっぱなしで本文が隠れる。ボタン自身は onToggle が担当するので、ここでは拾わない
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current()
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target
+      if (target instanceof Node && anchorRef.current?.contains(target)) return
+      onCloseRef.current()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [isOpen])
 
   const measurePlacement = useCallback((node: HTMLDivElement | null) => {
     if (!node) return
@@ -85,9 +125,12 @@ export function InsertLinkControl({ orgId, spaceId, isOpen, onToggle, onSelect, 
           className={`absolute left-0 z-10 ${placement.above ? 'bottom-full mb-2' : 'top-full mt-2'}`}
         >
           <AppLinkPicker
+            // 種類が変わったら作り直す（defaultKind は開いた時点の値しか見ない）
+            key={openKind}
             orgId={orgId}
             spaceId={spaceId}
             onSelect={onSelect}
+            defaultKind={openKind ?? undefined}
             maxHeight={placement.maxHeight}
             excludeWikiPageId={excludeWikiPageId}
           />

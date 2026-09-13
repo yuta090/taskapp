@@ -12,9 +12,9 @@ import { Notebook } from '@phosphor-icons/react'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import { EditorToolbarButton } from '@/components/editor/EditorToolbarButton'
-import { buildInsertLinkMenuItem, insertAppLink } from '@/components/editor/appLink'
+import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
-import type { AppLink } from '@/lib/navigation/appLinks'
+import type { AppLink, AppLinkKind } from '@/lib/navigation/appLinks'
 
 interface WikiEditorProps {
   initialContent?: string
@@ -60,7 +60,8 @@ export function WikiEditor({
 }: WikiEditorProps) {
   const isInternalApp = Boolean(orgId && spaceId)
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate, isInternalApp)
-  const [isLinkPickerOpen, setIsLinkPickerOpen] = useState(false)
+  // 開いているリンクの種類。null なら閉じている（「/」から種類を指定して開ける）
+  const [linkPickerKind, setLinkPickerKind] = useState<AppLinkKind | null>(null)
   // 本文の JSON を読み直すのは最初の1回だけ。`useCreateBlockNote` は初回しか
   // initialContent を見ないので、描き直しのたびに parse すると丸ごと捨てる仕事になる
   // （挿入パネルの開閉で描き直しが増えたため、ここで1回に絞る）。
@@ -85,7 +86,7 @@ export function WikiEditor({
       filterSuggestionItems(
         [
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
-          ...(orgId && spaceId ? [buildInsertLinkMenuItem(() => setIsLinkPickerOpen(true))] : []),
+          ...(orgId && spaceId ? buildInsertLinkMenuItems(setLinkPickerKind) : []),
           // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
           ...getDefaultReactSlashMenuItems(editor).filter(
             item => !HIDDEN_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
@@ -114,7 +115,7 @@ export function WikiEditor({
   const handleSelectLink = (link: AppLink) => {
     insertAppLink(editor, link)
     if (!link.href.startsWith('/api/files/')) {
-      setIsLinkPickerOpen(false)
+      setLinkPickerKind(null)
     }
   }
 
@@ -141,8 +142,9 @@ export function WikiEditor({
             <InsertLinkControl
               orgId={orgId}
               spaceId={spaceId}
-              isOpen={isLinkPickerOpen}
-              onToggle={() => setIsLinkPickerOpen(prev => !prev)}
+              openKind={linkPickerKind}
+              onToggle={() => setLinkPickerKind(prev => (prev ? null : 'file'))}
+              onClose={() => setLinkPickerKind(null)}
               onSelect={handleSelectLink}
               excludeWikiPageId={currentPageId}
             />
