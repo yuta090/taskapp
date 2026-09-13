@@ -1,6 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+// バレル（@/components/shared）を経由すると、相手先には開けない CommandPalette や
+// ショートカット一覧まで同じチャンクに載る（実測 +6.3KB gzip・リクエスト1本）。直接指す
+import { LinkifiedText } from '@/components/shared/LinkifiedText'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -259,7 +262,8 @@ export function PortalTaskDetailClient({
             <div className="mt-6 pt-6 border-t border-gray-100">
               <h3 className="text-sm font-medium text-gray-700 mb-2">説明</h3>
               <div className="text-sm text-gray-600 whitespace-pre-wrap">
-                {task.description}
+                {/* 相手先は社内の画面を開けないので inApp={false}（外部サイトだけ押せる） */}
+                <LinkifiedText text={task.description} inApp={false} />
               </div>
             </div>
           )}

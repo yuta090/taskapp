@@ -948,6 +948,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     date: '2026-09-13',
     message: 'タスク・Wikiページ・議事録・ファイルの一覧と詳細に link（画面で開くURL）が入るようになりました。Wiki や議事録の本文に [名前](link) の形で貼ると、そのまま開けます。画面側の「リンクを挿入」と同じ形です',
   },
+  {
+    id: '2026-09-13-task-description-links',
+    date: '2026-09-13',
+    message: 'タスクの説明文に書いた URL が押せるようになりました。link の値をそのまま書いてください（説明文はただの文字なので [名前](link) の形にはしない）: agentpm task update --task-id <id> --description "仕様は /<org>/project/<space>/wiki?page=<id> を参照"',
+  },
 ]
 
 function computeChecksum(commands: ManifestCommand[]): string {
