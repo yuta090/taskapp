@@ -1,0 +1,234 @@
+# 同時編集（Google ドキュメント式）の設計 v1.0
+
+> **状態**: 設計のみ（**未実装・着手はユーザーの指示待ち**）
+> **最終更新**: 2026-09-14
+> **対象**: 議事録（`meetings.minutes_md`）→ Wiki（`wiki_pages.body`）
+
+## 0. この文書の位置づけと、着手の条件
+
+2026-09-13 に「同時に書いても黙って消えない」ための歯止めを本番へ入れた（[3 章](#3-いまの床2026-09-13-に本番へ入れた歯止め)）。そのうえでユーザーから「**不具合が出そうなので、Google ドキュメント式の設計を先に考えておきたい**」という指示が出たため、この文書を書いた。**実装は別途の指示を待つ。**
+
+**着手の条件（ここが決まらないと作らない）**
+
+> **「会議中に、2人以上が同じ議事録を同時に打つ」場面を製品として狙うのか。**
+
+- **狙うなら作る価値がある。** いまの床では、2人が同時に打つと1〜2秒ごとに競合の帯が出て実用にならない。
+- **狙わない（1人が書いて、AI秘書が末尾に足すだけ）なら作らない。** その形はいまの床で足りている。
+
+後者なら、この文書のうち **PR0（外からの全文差し替えに合言葉を付ける）だけ**を出して止めるのが正しい。
+
+---
+
+## 1. 決定
+
+**議事録から入れる。正本はいまの列（`meetings.minutes_md`）のまま変えない。Y.Doc（CRDT の器）は「編集している間だけ生きる合流の器」とし、DB には積まない。運びは Supabase Realtime の broadcast（既存の private チャネルに相乗り）。列への書き込みは参加者のうち1人（＝書記）だけが行い、外からの書き込みは書記が代表して取り込む。**
+
+### 前回（2026-09-13）の裁定から判断を変えた理由
+
+前回は「CRDT は入れない。書き手を1人に寄せる」だった。変わった前提は3つ。
+
+1. **新しい依存が要らない。** `yjs@13.6.29` / `y-prosemirror` / `y-protocols` は **BlockNote 0.46.2 の依存として既に入っている**（`npm ls yjs` で1本に重複排除されていることを確認済み）。BlockNote 自身が `collaboration` オプションを持つ。
+2. **「正本が二重になる」が起きない形がある。** Y.Doc を永続化しなければ、DB から見た正本は列1つのまま（案 ii）。前回の却下理由はこの案には当たらない。
+3. **落ちる先の床ができた。** 楽観ロック・世代ガード・タスク化の検査が本番に入った。同時編集はその上に載せる層で、外せば床に戻る。
+
+---
+
+## 2. いまの正本と、外から本文を書く経路
+
+| | 正本 | 形 | 機械が読む契約 |
+|---|---|---|---|
+| 議事録 | `meetings.minutes_md` | Markdown のテキスト1列 | **ある**（下記） |
+| Wiki | `wiki_pages.body` | BlockNote のブロック JSON 文字列 | 無い |
+
+**議事録の Markdown の契約**（壊すとタスク化が壊れる）
+
+- `- [ ] SPEC(パス): 決めること` の行を DB 関数 `rpc_parse_meeting_minutes` が1行ずつ正規表現で読んでタスクを作る。
+- 作成済みの行は**行末の `<!--task:uuid-->`** で判別する（二重作成防止）。TS の `SPEC_LINE_REGEX` / `TASK_MARKER_REGEX` と SQL のパターンが一致していることをテストで検査している。
+- Markdown ⇄ ブロックの変換は自前の決定的な純関数 `src/lib/minutes/markdown.ts`。
+
+**外から本文を書く経路（全部生きている）**
+
+| 経路 | 書き方 | 版の確認 |
+|---|---|---|
+| MCP/CLI `minutes_update` / `wikiUpdate` | 全文差し替え | **無し** |
+| MCP/CLI `minutes_append` → `rpc_minutes_append` | `本文 || E'\n\n' || 追記` | 無し（追記なので衝突しない） |
+| チャット秘書（LINE/Slack） | 同上 | 同上 |
+| `rpc_parse_meeting_minutes`（タスク化） | 全文を書き戻す | **あり**（2026-09-13 に追加。渡された本文が DB と違えば止める） |
+| `rpc_set_spec_state`（Wiki） | 本文の末尾にブロックを追記 | 無し |
+| 相手先ポータル | 読むだけ | — |
+
+---
+
+## 3. いまの床（2026-09-13 に本番へ入れた歯止め）
+
+同時編集を入れても**この床は残す**。外したら床に戻るだけ、という関係にする。
+
+- **議事録**: `updated_at` の楽観ロック（BEFORE UPDATE トリガーあり）。競合したら帯＋「書きかけをコピー」「最新を読み込む」。AI秘書の末尾追記だけは自動で取り込む（`theirs.startsWith(base + '\n\n')` のときだけ、生きているエディタの末尾へ `editor.insertBlocks` で差し込む）。タスク化の DB 関数は渡された本文が DB と違えば何も書かずに止める。
+- **Wiki**: 本文保存の楽観ロック・ページの世代ガード・「開いたとき／直前の保存と同じ内容なら保存しない」比較（キー順を揃えてから）・削除されたページの判別。
+- **在席表示**: private チャネル `meeting-minutes:<meetingId>`、`realtime.messages` に `extension='presence'` の select/insert ポリシー（`app_can_track_meeting_minutes(topic)` ＝ `app_can_write_space` ＋ MFA）。購読前に `supabase.realtime.setAuth(token)` へ本人の JWT を**引数で**渡す。
+- 議事録・Wiki とも**編集は止めない**（知らせるだけ）。
+
+---
+
+## 4. 却下した案
+
+| 案 | 却下の理由 |
+|---|---|
+| Y.Doc を正本にし、列は射影にする | DB 関数と MCP の書き込み経路をすべて Node 側に作り替えることになる。公開済みの CLI/MCP も壊れる |
+| Y.Doc を永続化しつつ列にも射影を書き続ける | 正本が2つになる。外から列だけ変わったときに器を作り直す必要が残る（前回の却下理由がそのまま残る） |
+| 常駐の WebSocket サーバー（Hocuspocus 等）を建てる | 権威と順序は得られるが、ホスト・監視・費用が新規に発生する。実害が未観測の段階では過大。**差し替え口だけ残す**（`CollabTransport`） |
+| 参加者が各自で列に保存する | 楽観ロックで互いを弾き合う。書記1人に集約する |
+| Realtime を使わず行単位の3方向マージ | 「打っている途中で相手の文字が見える」にならない。求めている形ではない |
+| Wiki から先に入れる | 同時に打つ場面は会議の議事録。土台（チャネル・ポリシー・差し込み口）も議事録側に既にある |
+
+---
+
+## 5. 設計
+
+### 5.1 データモデル（新しい表は作らない）
+
+変えるのは3点だけで、いずれも捨てられる。
+
+1. **`realtime.messages` のポリシーの条件を広げる**。既存2本の `extension = 'presence'` を `extension in ('presence','broadcast')` に。判定関数 `app_can_track_meeting_minutes(text)` はそのまま使い回す。Wiki は3段目で `app_can_track_wiki_page(text)`（topic `wiki-page:<uuid>`・`app_can_write_space(page.space_id, page.org_id)` ＋ `mfa_satisfied()`）を同形で足す。
+2. **MCP/CLI に合言葉を足す**（PR0）。`minutes_get` が `updated_at` を返し、`minutes_update` / `wikiUpdate` が任意の `expected_updated_at` を受ける。不一致なら 409。まず任意にし、CLI の版が行き渡ってから必須へ。
+3. **機能フラグ**。1段目は環境変数 `NEXT_PUBLIC_COLLAB_MINUTES_ORG_IDS`（org ID の CSV）。列は足さない。2段目で space 単位にするなら `spaces.collab_enabled boolean default false` を1列。
+
+### 5.2 モジュール構成（`src/lib/collab/`・React 非依存）
+
+| ファイル | 役割 |
+|---|---|
+| `transport.ts` | `CollabTransport`（`join` / `leave` / `send` / `on`）と Supabase 実装。チャネルは既存の `meeting-minutes:<id>`、`config: { private: true, broadcast: { self: false, ack: false } }`。購読前に `setAuth(token)`。バイト列は base64 |
+| `session.ts` | Y.Doc の生涯。イベントは `y-sync1`（状態ベクトル）/ `y-sync2`（差分）/ `y-update` / `y-aware`。更新は 150ms でまとめて送る（`Y.mergeUpdates`）。受信の `Y.applyUpdate` は try/catch で包み、壊れた更新は捨てる |
+| `seed.ts` | 列から Y.Doc への**決定的な**種まき（5.3） |
+| `scribe.ts` | 書記の選出と保存（5.4） |
+| — | `meta`（Y.Map）に `seedHash` / `savedAt`（列の updated_at）/ `savedHash` / `freeze` を持ち、全員に伝える |
+
+**遅れて参加した人**: `y-sync1` を送り、**書記だけ**が `y-sync2` で返す（全員が返すと人数倍になる）。2秒で返事が無ければ1回だけ再送、それでも無ければ列から種をまく。
+
+### 5.3 種まきの決定性（ここが Yjs でいちばん踏みやすい穴）
+
+2人が同時に列から別々に Y.Doc を作って合流すると、**本文が二重になる**。
+
+**対策**: 同じ本文からは byte 単位で同じ更新を作る。専用の `seedDoc` を作り、`seedDoc.clientID = fnv32(sha256(本文))` に固定してから種をまく。Yjs は `(clientID, clock)` が同じ構造体を重複として捨てるので、同じ本文から作られた2つの種は合流しても1つになる。
+
+**変換の経路は実物で確認済み**（2026-09-14）:
+
+```
+minutes_md
+  → parseMinutesMarkdown()            // src/lib/minutes/markdown.ts（自前・決定的）
+  → BlockNote のブロック
+  → blockToNode()                     // @blocknote/core が export している
+  → ProseMirror のノード
+  → prosemirrorToYXmlFragment()       // y-prosemirror が export している
+  → Y.XmlFragment
+```
+
+`meta.seedHash` に本文のハッシュを書き、**合流後に異なる `seedHash` が2つ見えたら「種が2つある」と検知**して、書記が列から作り直す（帯を出す）。
+
+### 5.4 書記（列に保存する1人）
+
+- **選び方**: presence の参加順がいちばん古い人。全員が同じ presence 状態から同じ答えを出すので、投票も合意形成も要らない。
+- **保存**: Y.Doc の変更から 1.5 秒静止で `serializeMinutesBlocks(editor.document)` → 既存の保存経路（`.eq('updated_at', meta.savedAt)`）。成功したら `meta.savedAt` / `meta.savedHash` を更新する。
+- 書記以外は保存しない。ただし `pagehide` のとき、自分の内容が `savedHash` と違えば保存を試みる。
+- 競合しても、DB の本文が自分の内容と**等しければ競合扱いしない**。
+- 書記が消えたら、presence の離脱で次の人が引き継ぎ、**即時に1回保存する**。
+
+### 5.5 外からの書き込みがセッション中に来たとき（この設計の核心）
+
+**検知**: (a) 書記の保存が0行（競合）、または (b) 書記が10秒ごとに `updated_at` だけを読む軽い問い合わせ。2段目では `realtime.send`（**本番の DB に存在することを確認済み**）を `meetings` の after update トリガーから呼び、ポーリングをやめる。
+
+検知したら、**書記が代表して**次の順で処理する。
+
+| 相手 | DB の本文の形 | 書記の処理 | 失われるもの |
+|---|---|---|---|
+| `rpc_minutes_append`（秘書・MCP の追記） | `base + '\n\n' + 追記` | 既存の `appendMarkdown` を**書記だけ**が呼んで Y.Doc に差し込む（全員に伝わる） | なし |
+| タスク化の書き戻し | base と**行末の目印だけ**が違う | `diffTaskMarkers(base, theirs)` で `[{行の本文, taskId}]` を取り出し、同じ本文で目印の無い最初のブロックに差す。1つでも差せなければ下の全文差し替えへ落とす | なし |
+| `rpc_set_spec_state`（Wiki・3段目） | `base のブロック列 + 末尾ブロック` | 末尾のブロックを書記が `insertBlocks` | なし |
+| MCP の全文差し替え | 上のどれでもない | Y.Doc の内容が `savedHash` と同じなら黙って置き換える。違えば置き換えたうえで**いまの帯**（「書きかけをコピー」）を全員に出す | 最後の保存からの1.5秒以内の分。帯とコピーがあるので黙っては消えない |
+
+### 5.6 権限の境界
+
+- 送受信できるのは `app_can_track_meeting_minutes` が true の人だけ（社内の admin/editor ＋ MFA 済み）。**相手先（client）・閲覧者（viewer）・他組織・未ログインは当てはまるポリシーが無いので参加できない**（いまの在席表示と同じ仕組み）。
+- Supabase は private チャネルの判定を**参加時**に行い、トークンの更新まで持ち越す。**役割を落とされた人が最長1時間、更新を受け取り続ける**。ただし列への保存は表の RLS で止まるので正本は守られる。**この残りは受け入れる**（仕様として明記する）。
+- サーバー側の権威は無い（壊れた更新を送られても防げない）。ただし**同じ組織の editor はいまでも本文を丸ごと上書きできる**ので、権限の拡大にはならない。壊れた更新は `applyUpdate` の例外で捨て、直列化に失敗したら縮退する。
+
+### 5.7 Markdown の契約を壊さない保証
+
+Y.Doc が扱うのは BlockNote のブロック木で、`- [ ] SPEC(...)` はチェックリストのブロック、`<!--task:uuid-->` は**それ以上分割されない inline ノード**（`taskMarker`）。同時に打っても、目印が分裂したり中身が変わることはない。
+
+不変条件は **Y.Doc から列への唯一の出口＝書記の保存**に集める。保存の直前に `assertMinutesInvariants(md)` を通す。
+
+1. 同じ `task:uuid` が2回出ない
+2. 目印は行末にしかない
+3. `serializeMinutesBlocks(parseMinutesMarkdown(md)) === md`（往復で変わらない）
+
+1つでも破れたら**保存せず帯を出して縮退する**。
+
+**タスク化の最中だけ順序を固定する**: 書記が `meta.freeze = 'parsing'` を立てて全員のエディタを一時的に読み取り専用（2秒以内）→ 保存を流し切る → RPC → 目印を差す → `freeze` を下ろす。この間に誰かが行を編集して目印が迷子になる窓を消す。MCP/CLI からタスク化を呼ばれた場合は `freeze` が効かない（その場合は 5.5 の2行目の取り込みに落ちる）。
+
+### 5.8 縮退（いまの床へ落ちる道）
+
+次のどれかで「1人で書くいまの形」へ落とし、帯で知らせる。
+
+- Realtime に5秒以内に繋がらない／`CHANNEL_ERROR`／切断が30秒続く → 自分の Y.Doc の内容を持ったまま、いまの保存経路（楽観ロック）に切り替える。再接続できたら `y-sync1` から合流し直す
+- 参加者が8人を超えたら、9人目以降はいまの形（読めるが輪に入らない）
+- 直列化・不変条件の検査に失敗 → その端末だけ縮退。書記なら次の人へ譲る
+- 本文が10万字を超える議事録は最初から同時編集を切る
+
+---
+
+## 6. 段階
+
+| 段 | 中身 | できるようになること |
+|---|---|---|
+| **PR0** | MCP の `updated_at` 返却＋`expected_updated_at`（任意） | 同時編集が無くても、**外からの全文差し替えが黙って上書きしなくなる** |
+| **PR1** | `src/lib/collab/` ＋ `MinutesEditor` の collaboration 化＋ポリシー拡張の migration。org 単位の環境変数フラグ | **同じ議事録を開いた社内メンバーが、互いのカーソルと文字を見ながら打てる**（保存は書記1人）。対象はデモ組織と自社だけ |
+| **PR2** | `meetings` の after update トリガーから `realtime.send`。space 単位のスイッチ | **秘書やタスク化の書き戻しが数秒以内に全員の画面に出る**（10秒ポーリングをやめる） |
+| **PR3** | 同じモジュールを `WikiEditor` に載せる。`wiki-page:<id>` のポリシー、`rpc_set_spec_state` の取り込み、版の履歴の間引き | **Wiki も同じ形で同時編集できる** |
+
+**見積り**: 全体 Medium（PR0: Quick / PR1: Medium / PR2: Short / PR3: Short〜Medium）。PR1 が本体で、`session.ts` と `scribe.ts` を偽の transport で2つ動かし、収束・書記の交代・種の重複の検知をテストするところに時間がかかる。
+
+---
+
+## 7. やらないこと（期待させない範囲）
+
+オフライン編集／スマホ（`md` 未満はいまの1人用エディタのまま）／10万字を超える文書／人をまたぐ「元に戻す」（各自のローカルだけ）／版単位の巻き戻し／コメント・提案モード／相手先ポータルからの参加／常駐サーバー／ブロック単位の権限。
+
+---
+
+## 8. 本番で確かめること
+
+1. 社内の editor 2人が同じ段落を60秒打ち続けて、両方の画面が一致し、3秒後の `minutes_md` が両画面と一致し、競合の帯が出ない
+2. セッション中に LINE から秘書が追記 → 両方の画面に**1回だけ**出る（二重にならない）
+3. セッション中に MCP の全文差し替え → 帯が1回出て、「書きかけをコピー」で取れる
+4. セッション中にタスク化 → 両方の画面に目印が出て、もう一度押しても重複したタスクが作られない
+5. viewer と client のアカウントで購読が `CHANNEL_ERROR` になり、更新が届かない。MFA 未入力（aal1）も同じ
+6. 2つのタブを同時に開いて（回線を遅くして）本文が二重にならない
+7. 書記のタブを閉じて30秒以内に、残った人が保存する
+8. wss を遮断すると帯が出て、1人用の保存（楽観ロック）が動く。再接続で合流する
+9. 3人で打っているときの Realtime のメッセージ/秒が、プランの上限の半分以下
+10. `scripts/verify-migrations-from-scratch.sh` が通る。`npm ls yjs` で yjs が1本だけ
+
+---
+
+## 9. 着手前に実測が要ること
+
+| 項目 | 状態 |
+|---|---|
+| `yjs` / `y-prosemirror` / `y-protocols` が入っているか | **確認済み**（yjs 13.6.29・1本に重複排除） |
+| ブロック → Y.XmlFragment の変換経路 | **確認済み**（`blockToNode` → `prosemirrorToYXmlFragment`） |
+| 本番の DB に `realtime.send` があるか | **確認済み**（`realtime.send(payload, event, topic, private)` が存在） |
+| `wiki_page_versions` を書いているのは誰か | **確認済み**（トリガーは0本＝画面側のコードが書いている。間引きは画面側に置く） |
+| Supabase のプランと Realtime の上限（メッセージ/秒・ペイロード） | **未確認**。150ms のまとめ幅と8人の上限はこれを見てから確定する |
+| `collaboration` を指定したとき `initialContent` がどう扱われるか | **未確認**。種まきの実装前に実機で確かめる |
+| タスク化の RPC を MCP/CLI から呼べるか | 実行権は `authenticated` と `service_role`。呼べる前提で `freeze` が効かない旨を書いてある |
+
+---
+
+## 10. 関連
+
+- `docs/spec/MEETING_MINUTES_TEMPLATE.md`（議事録のひな形）
+- `docs/spec/DOC_LINK_SPEC.md`（本文からのリンク・エディタの共通部品 `src/components/editor/*`）
+- `src/lib/minutes/markdown.ts`（Markdown ⇄ ブロックの決定的な変換）
+- `src/lib/hooks/useMinutesPresence.ts`（private チャネルの購読・`setAuth(token)` の作法）
+- `supabase/migrations/20260912120140_meeting_minutes_presence.sql`（`realtime.messages` のポリシーと判定関数）
