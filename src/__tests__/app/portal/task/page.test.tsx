@@ -30,6 +30,7 @@ let membershipResponse: { data: { id: string; role: string } | null }
 let taskDeferred: Deferred<{ data: unknown; error: unknown }>
 let commentsDeferred: Deferred<{ data: unknown; error: unknown }>
 let projectsDeferred: Deferred<unknown>
+let profilesResponse: { data: Array<{ id: string; display_name: string | null }> }
 let callLog: string[]
 let membershipEqArgs: unknown[][]
 
@@ -130,6 +131,16 @@ vi.mock('@/lib/supabase/server', () => ({
             })),
           }
         }
+        if (table === 'profiles') {
+          return {
+            select: vi.fn(() => ({
+              in: vi.fn(() => {
+                callLog.push('profiles-start')
+                return Promise.resolve(profilesResponse)
+              }),
+            })),
+          }
+        }
         throw new Error(`Unexpected table: ${table}`)
       }),
     })
@@ -167,6 +178,7 @@ describe('PortalTaskDetailPage loading order', () => {
     taskDeferred = createDeferred()
     commentsDeferred = createDeferred()
     projectsDeferred = createDeferred()
+    profilesResponse = { data: [] }
   })
 
   it('starts the task/comments/projects reads together, without waiting on each other', async () => {
@@ -244,16 +256,43 @@ describe('PortalTaskDetailPage loading order', () => {
     taskDeferred.resolve({ data: taskRow, error: null })
     commentsDeferred.resolve({
       data: [
-        { id: 'c1', body: 'こんにちは', created_at: '2026-01-01T00:00:00', actor_id: 'ghost-1', profiles: null },
+        { id: 'c1', body: 'こんにちは', created_at: '2026-01-01T00:00:00', actor_id: 'ghost-1' },
       ],
       error: null,
     })
     projectsDeferred.resolve([])
+    // profiles側のRLSで読めない想定(該当行が返らない)
+    profilesResponse = { data: [] }
 
     const result = await renderPromise
 
     expect((result as { props: { comments: Array<{ author: string }> } }).props.comments).toEqual([
       expect.objectContaining({ author: '（メンバー外）' }),
     ])
+  })
+
+  // task_comments→profilesの外部キーが無いため埋め込みは使えない。別問い合わせで
+  // 引いたprofilesから正しく名前を突き合わせられること
+  it('コメントの書き手の表示名を、別問い合わせで引いたprofilesから突き合わせる', async () => {
+    const renderPromise = renderPage()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    taskDeferred.resolve({ data: taskRow, error: null })
+    commentsDeferred.resolve({
+      data: [
+        { id: 'c1', body: 'こんにちは', created_at: '2026-01-01T00:00:00', actor_id: 'user-1' },
+      ],
+      error: null,
+    })
+    projectsDeferred.resolve([])
+    profilesResponse = { data: [{ id: 'user-1', display_name: '太郎' }] }
+
+    const result = await renderPromise
+
+    expect((result as { props: { comments: Array<{ author: string }> } }).props.comments).toEqual([
+      expect.objectContaining({ author: '太郎' }),
+    ])
+    expect(callLog).toContain('profiles-start')
   })
 })

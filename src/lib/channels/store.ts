@@ -2951,7 +2951,7 @@ export async function findActiveUserLinkForUser(
   // 候補を全部取ってから選ぶ（DB 側で status/マークは絞らない。絞るとフォールバック先が消える）
   const { data, error } = await admin()
     .from('channel_user_links')
-    .select('id, channel_account_id, external_user_id, linked_at, dm_unreachable_at, channel_accounts!inner(status)')
+    .select('id, channel_account_id, external_user_id, linked_at, dm_unreachable_at, channel_accounts!channel_user_links_channel_account_id_fkey!inner(status)')
     .eq('org_id', orgId)
     .eq('user_id', userId)
     .is('revoked_at', null)
@@ -2996,7 +2996,7 @@ export async function findUserIdsWithActiveLink(orgId: string, userIds: string[]
   // 使える口座を選ぶ条件とちょうど一致する（両者が食い違うと DM にも digest にも出ない）。
   const { data, error } = await admin()
     .from('channel_user_links')
-    .select('user_id, dm_unreachable_at, channel_accounts!inner(status)')
+    .select('user_id, dm_unreachable_at, channel_accounts!channel_user_links_channel_account_id_fkey!inner(status)')
     .eq('org_id', orgId)
     .in('user_id', unique)
     .is('revoked_at', null)
@@ -3118,7 +3118,7 @@ export async function listActiveOrgDmLinks(): Promise<ActiveOrgDmLink[]> {
   const { data, error } = await admin()
     .from('channel_user_links')
     .select(
-      'org_id, channel_account_id, external_user_id, dm_unreachable_at, channel_accounts!inner(id, org_id, channel, display_name, credentials_encrypted, status, owner_type)',
+      'org_id, channel_account_id, external_user_id, dm_unreachable_at, channel_accounts!channel_user_links_channel_account_id_fkey!inner(id, org_id, channel, display_name, credentials_encrypted, status, owner_type)',
     )
     .is('revoked_at', null)
     .eq('channel_accounts.owner_type', 'org')

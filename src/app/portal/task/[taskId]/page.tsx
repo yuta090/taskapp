@@ -66,11 +66,7 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
         id,
         body,
         created_at,
-        actor_id,
-        profiles!task_comments_actor_id_fkey (
-          id,
-          display_name
-        )
+        actor_id
       `)
       .eq('task_id', taskId)
       .eq('visibility', 'client')
@@ -89,20 +85,34 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
     notFound()
   }
 
-  // Verify user has client access to this task's space
-  // Note: Return notFound() instead of redirect to prevent task ID probing
+  // task_comments→profilesの外部キーは無いため埋め込みは使えず、書き手の表示名は
+  // 別問い合わせでまとめて引く。見えるかの確認(membership)とは互いに依存しないので
+  // 並べて読む
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const commentActorIds = [...new Set(((comments || []) as any[]).map((c) => c.actor_id).filter((id): id is string => !!id))]
 
-  const { data: membership } = await (supabase as SupabaseClient)
-    .from('space_memberships')
-    .select('id, role')
-    .eq('space_id', task.space_id)
-    .eq('user_id', user.id)
-    .eq('role', 'client')
-    .single()
+  const [{ data: membership }, { data: commentProfiles }] = await Promise.all([
+    // Verify user has client access to this task's space
+    // Note: Return notFound() instead of redirect to prevent task ID probing
+    (supabase as SupabaseClient)
+      .from('space_memberships')
+      .select('id, role')
+      .eq('space_id', task.space_id)
+      .eq('user_id', user.id)
+      .eq('role', 'client')
+      .single(),
+    commentActorIds.length > 0
+      ? (supabase as SupabaseClient).from('profiles').select('id, display_name').in('id', commentActorIds)
+      : Promise.resolve({ data: [] as { id: string; display_name: string | null }[] }),
+  ])
 
   if (!membership) {
     notFound()
   }
+
+  const profileNameByActorId = new Map<string, string | null>(
+    (commentProfiles || []).map((p) => [p.id, p.display_name]),
+  )
 
   const currentProject = projects.find((p) => p.id === task.space_id) || projects[0]
 
@@ -134,7 +144,7 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
     id: c.id,
     content: c.body,
     createdAt: c.created_at,
-    author: c.profiles?.display_name || UNKNOWN_PROFILE_LABEL,
+    author: (c.actor_id && profileNameByActorId.get(c.actor_id)) || UNKNOWN_PROFILE_LABEL,
   }))
 
   return (

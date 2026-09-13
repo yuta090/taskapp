@@ -10,6 +10,11 @@ import type { WikiPage } from '@/types/database'
  *
  * **どのページの本文かを覚えておくこと**が肝心。覚えないと、ページを切り替えたあとに
  * 確定したときに、前のページの本文で今のページを丸ごと上書きしてしまう。
+ *
+ * 別ストリームの直し(保存の合言葉=楽観ロック)と合流した際に、updatePage の呼び出しに
+ * 基準(baseUpdatedAt)が3つ目の引数として付くように揃えた（渡さないと、この
+ * flushPendingSave 経由の保存だけ楽観ロックを素通りしてしまうため）。テストの意図
+ * （そのページ宛てに1回だけ・移動前に確定・失敗時は例外で移動を止める）は変えていない。
  */
 
 function page(overrides: Partial<WikiPage> = {}): WikiPage {
@@ -65,19 +70,24 @@ vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
 const mockUpdatePage = vi.hoisted(() => vi.fn())
 const mockFetchPage = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/hooks/useWikiPages', () => ({
-  useWikiPages: () => ({
-    pages: [PAGE_A],
-    loading: false,
-    autoCreatedPageId: null,
-    fetchPages: vi.fn(),
-    createPage: vi.fn(),
-    updatePage: mockUpdatePage,
-    deletePage: vi.fn(),
-    fetchPage: mockFetchPage,
-    fetchVersions: vi.fn(),
-  }),
-}))
+vi.mock('@/lib/hooks/useWikiPages', async () => {
+  // WikiConflictError は本物を使う（WikiPageClient 側の instanceof 判定に必要）。
+  const actual = await vi.importActual<typeof import('@/lib/hooks/useWikiPages')>('@/lib/hooks/useWikiPages')
+  return {
+    WikiConflictError: actual.WikiConflictError,
+    useWikiPages: () => ({
+      pages: [PAGE_A],
+      loading: false,
+      autoCreatedPageId: null,
+      fetchPages: vi.fn(),
+      createPage: vi.fn(),
+      updatePage: mockUpdatePage,
+      deletePage: vi.fn(),
+      fetchPage: mockFetchPage,
+      fetchVersions: vi.fn(),
+    }),
+  }
+})
 
 vi.mock('@/lib/hooks/useMilestones', () => ({ useMilestones: () => ({ milestones: [], loading: false }) }))
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({ useSpaceMembers: () => ({ members: [] }) }))
@@ -130,7 +140,9 @@ async function renderOpened() {
 beforeEach(() => {
   vi.clearAllMocks()
   captured.onBeforeNavigate = null
-  mockUpdatePage.mockResolvedValue(undefined)
+  // 本文保存の戻り値は { updatedAt } の形（レビュー指摘: 楽観ロックの基準として使うため、
+  // 実物の useWikiPages と同じ形に揃える）
+  mockUpdatePage.mockResolvedValue({ updatedAt: '2026-09-01T00:05:00+09:00' })
 })
 
 afterEach(() => {
@@ -148,7 +160,7 @@ describe('WikiPageClient — 移る前に保存を確定させる', () => {
       await captured.onBeforeNavigate?.()
     })
 
-    expect(mockUpdatePage).toHaveBeenCalledWith('p1', { body: 'ページAの本文' })
+    expect(mockUpdatePage).toHaveBeenCalledWith('p1', { body: 'ページAの本文' }, PAGE_A.updated_at)
   })
 
   it('1.5秒たてば、押さなくても保存する（今までどおり）', async () => {
@@ -159,7 +171,7 @@ describe('WikiPageClient — 移る前に保存を確定させる', () => {
       vi.advanceTimersByTime(1600)
     })
 
-    expect(mockUpdatePage).toHaveBeenCalledWith('p1', { body: 'ページAの本文' })
+    expect(mockUpdatePage).toHaveBeenCalledWith('p1', { body: 'ページAの本文' }, PAGE_A.updated_at)
   })
 
   it('同じ中身を二重に保存しない', async () => {

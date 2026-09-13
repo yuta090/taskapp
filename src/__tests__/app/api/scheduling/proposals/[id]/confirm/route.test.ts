@@ -20,6 +20,7 @@ let proposalLookupResponse: { data: Record<string, unknown> | null }
 let membershipResponse: { data: { id: string } | null; error: null }
 let confirmRpcResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
 let respondentsResponse: { data: Array<Record<string, unknown>> | null }
+let profilesResponse: { data: Array<Record<string, unknown>> | null }
 let proposalsUpdateCall: Record<string, unknown> | undefined
 let meetingsUpdateCall: Record<string, unknown> | undefined
 let getUserByIdImpl: (id: string) => Promise<{ data: { user: { email: string } | null } }>
@@ -79,6 +80,7 @@ vi.mock('@/lib/supabase/server', () => ({
         }
         if (table === 'space_memberships') return chain(membershipResponse)
         if (table === 'proposal_respondents') return chain(respondentsResponse)
+        if (table === 'profiles') return chain(profilesResponse)
         if (table === 'meetings') {
           const builder = chain({ data: null, error: null })
           builder.update = vi.fn((args: Record<string, unknown>) => {
@@ -128,10 +130,14 @@ describe('POST /api/scheduling/proposals/[id]/confirm', () => {
       data: { ok: true, meeting_id: 'meeting-1', slot_start: '2026-08-01T10:00:00+09:00', slot_end: '2026-08-01T11:00:00+09:00' },
       error: null,
     }
-    // profilesにemail列は無いため、respondentsのjoinはdisplay_nameだけを返す。
+    // proposal_respondents→profilesの外部キーは無いため埋め込みでは引けない。
+    // respondentsはuser_idだけを取り、profilesは別問い合わせでまとめて引く。
     // メールは管理用の鍵(auth.admin.getUserById)で解決する
     respondentsResponse = {
-      data: [{ user_id: CREATOR_ID, profiles: { display_name: 'Taro' } }],
+      data: [{ user_id: CREATOR_ID }],
+    }
+    profilesResponse = {
+      data: [{ id: CREATOR_ID, display_name: 'Taro' }],
     }
     getUserByIdImpl = (id: string) => Promise.resolve({ data: { user: { email: `${id}@example.com` } } })
   })
@@ -240,8 +246,14 @@ describe('POST /api/scheduling/proposals/[id]/confirm', () => {
     proposalLookupResponse = { data: { ...baseProposal, video_provider: 'google_meet' } }
     respondentsResponse = {
       data: [
-        { user_id: CREATOR_ID, profiles: { display_name: 'Taro' } },
-        { user_id: OTHER_USER_ID, profiles: { display_name: 'NoEmail' } },
+        { user_id: CREATOR_ID },
+        { user_id: OTHER_USER_ID },
+      ],
+    }
+    profilesResponse = {
+      data: [
+        { id: CREATOR_ID, display_name: 'Taro' },
+        { id: OTHER_USER_ID, display_name: 'NoEmail' },
       ],
     }
     // OTHER_USER_ID はメールを引けない(退会済み等)想定
@@ -250,6 +262,24 @@ describe('POST /api/scheduling/proposals/[id]/confirm', () => {
     await callPost(PROPOSAL_ID, { slotId: SLOT_ID })
     expect(createMeetingMock).toHaveBeenCalledWith(
       expect.objectContaining({ participants: [{ email: 'taro@example.com', name: 'Taro' }] })
+    )
+  })
+
+  // proposal_respondents→profilesに外部キーが無いため埋め込みをやめ、別問い合わせに
+  // した。profilesの行を読める範囲(一緒に仕事をしている人だけ)は招待メールの対象と
+  // 無関係なので、名前が引けなくてもメールがあれば会議には招待する（名前は空欄）
+  it('respondentの名前が読めなくても、メールがあれば会議に招待する', async () => {
+    proposalLookupResponse = { data: { ...baseProposal, video_provider: 'google_meet' } }
+    respondentsResponse = {
+      data: [{ user_id: OTHER_USER_ID }],
+    }
+    // profiles側のRLSで読めない想定(該当行が返らない)
+    profilesResponse = { data: [] }
+    getUserByIdImpl = () => Promise.resolve({ data: { user: { email: 'other@example.com' } } })
+
+    await callPost(PROPOSAL_ID, { slotId: SLOT_ID })
+    expect(createMeetingMock).toHaveBeenCalledWith(
+      expect.objectContaining({ participants: [{ email: 'other@example.com', name: '' }] })
     )
   })
 
