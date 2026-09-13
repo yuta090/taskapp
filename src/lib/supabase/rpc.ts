@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { MinutesConflictError, MINUTES_STALE_MESSAGE } from '@/lib/minutes/errors'
+import type { RawMinutesPreview } from '@/lib/minutes/preview'
 import type {
   Database,
   BallSide,
@@ -348,19 +349,12 @@ export interface GetMinutesPreviewParams {
   minutesMd: string
 }
 
-interface SpecPreviewItem {
-  line_number: number
-  spec_path: string
-  title: string
-  task_id?: string
-}
-
-interface GetMinutesPreviewResult {
-  new_spec_count: number
-  existing_spec_count: number
-  new_specs: SpecPreviewItem[]
-  existing_specs: SpecPreviewItem[]
-}
+/**
+ * 候補の1行は、旧来の SPEC 行（`spec_path`）と、Wiki ページへのリンクが入った行
+ * （`wiki_page_id` / `wiki_page_title` / `is_spec`）の2種類があり、入る鍵が違う。
+ * 形の定義は @/lib/minutes/preview に置き、画面用へは `toMinutesPreview` で直す。
+ */
+type GetMinutesPreviewResult = RawMinutesPreview
 
 export async function getMinutesPreview(
   client: Client,

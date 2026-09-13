@@ -7,6 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
 import { getCachedUser } from '@/lib/supabase/cached-auth'
 import { MinutesConflictError } from '@/lib/minutes/errors'
+import { toMinutesPreview, type MinutesPreviewView } from '@/lib/minutes/preview'
 import { fetchMeetingsQuery, MEETING_DETAIL_COLUMNS } from '@/lib/supabase/queries'
 import type { MeetingsQueryData } from '@/lib/supabase/queries'
 import type { Meeting, MeetingParticipant } from '@/types/database'
@@ -45,21 +46,11 @@ export interface ParseMinutesResult {
  */
 export { MinutesConflictError }
 
-export interface MinutesPreviewResult {
-  newSpecCount: number
-  existingSpecCount: number
-  newSpecs: Array<{
-    lineNumber: number
-    specPath: string
-    title: string
-  }>
-  existingSpecs: Array<{
-    lineNumber: number
-    specPath: string
-    title: string
-    taskId: string
-  }>
-}
+/**
+ * タスク化の候補。中身の形は @/lib/minutes/preview に集約している
+ * （旧来の SPEC 行と、Wiki ページへのリンクが入った行の2種類をそろえて扱うため）。
+ */
+export type MinutesPreviewResult = MinutesPreviewView
 
 // MEETING_LIST_COLUMNS and MeetingsQueryData are imported from @/lib/supabase/queries
 
@@ -447,21 +438,7 @@ export function useMeetings({
           minutesMd,
         })
 
-        return {
-          newSpecCount: result.new_spec_count,
-          existingSpecCount: result.existing_spec_count,
-          newSpecs: result.new_specs.map((s) => ({
-            lineNumber: s.line_number,
-            specPath: s.spec_path,
-            title: s.title,
-          })),
-          existingSpecs: result.existing_specs.map((s) => ({
-            lineNumber: s.line_number,
-            specPath: s.spec_path,
-            title: s.title,
-            taskId: s.task_id || '',
-          })),
-        }
+        return toMinutesPreview(result)
       } catch (err) {
         throw err instanceof Error ? err : new Error('Failed to preview minutes')
       }
