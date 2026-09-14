@@ -23,6 +23,16 @@ describe('PortalMinutesDocument', () => {
     expect(screen.queryByText(/toggle/)).not.toBeInTheDocument()
   })
 
+  it('会議メモに書いた日時があれば、小さく添える', () => {
+    render(<PortalMinutesDocument md={'<!--note:2026-09-15T14:30-->その場で出た補足'} />)
+    expect(screen.getByTestId('portal-minutes-meeting-note-time')).toHaveTextContent('9/15 14:30')
+  })
+
+  it('日時の無い会議メモには何も添えない', () => {
+    render(<PortalMinutesDocument md={'<!--note-->日時なし'} />)
+    expect(screen.queryByTestId('portal-minutes-meeting-note-time')).not.toBeInTheDocument()
+  })
+
   it('会議メモは色の付いた囲みとして出す', () => {
     render(<PortalMinutesDocument md={'<!--note-->その場で出た補足'} />)
     const note = screen.getByTestId('portal-minutes-meeting-note')

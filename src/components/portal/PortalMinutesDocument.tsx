@@ -15,6 +15,7 @@ import {
   type MinutesTextInline,
 } from '@/lib/minutes/markdown'
 import { stripInternalLinks } from '@/lib/minutes/internalLinks'
+import { formatNoteStampLabel } from '@/lib/minutes/noteStamp'
 
 /**
  * このアプリのホスト名。社内の人がアドレスバーからコピーした絶対URL
@@ -277,13 +278,23 @@ function renderToggle(block: MinutesBlock, key: React.Key): ReactNode {
 /** 会議メモ。編集画面と同じ色の囲みで出す（会議中に足した補足だと分かるように）。 */
 function renderMeetingNote(block: MinutesBlock, key: React.Key): ReactNode {
   const items = Array.isArray(block.content) ? block.content : []
+  const createdAt = block.props?.createdAt
+  const label = formatNoteStampLabel(typeof createdAt === 'string' ? createdAt : undefined)
   return (
     <div
       key={key}
       data-testid="portal-minutes-meeting-note"
-      className="my-2 rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2 text-sm text-gray-700 leading-[1.8] whitespace-pre-wrap"
+      className="my-2 flex items-start gap-2 rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2 text-sm text-gray-700 leading-[1.8]"
     >
-      {renderInline(items)}
+      <div className="min-w-0 flex-1 whitespace-pre-wrap">{renderInline(items)}</div>
+      {label && (
+        <span
+          data-testid="portal-minutes-meeting-note-time"
+          className="shrink-0 pt-1 text-[10px] text-gray-400"
+        >
+          {label}
+        </span>
+      )}
     </div>
   )
 }

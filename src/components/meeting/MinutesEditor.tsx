@@ -28,6 +28,7 @@ import {
   TASK_MARKER_TYPE,
   TOGGLE_TYPE,
 } from '@/lib/minutes/markdown'
+import { formatNoteStamp } from '@/lib/minutes/noteStamp'
 import { meetingNoteSpec, toggleListItemSpec } from './minutesBlocks'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
@@ -405,7 +406,11 @@ function MinutesEditorImpl({
    * 「/」メニューからも、本文の下のボタンからも同じ入口を使う。
    */
   const insertMeetingNote = useCallback(() => {
-    insertOrUpdateBlockForSlashMenu(editor, { type: MEETING_NOTE_TYPE, props: {} })
+    // 書いた日時をその場で焼き付ける。あとから本文を直しても日時は動かない
+    insertOrUpdateBlockForSlashMenu(editor, {
+      type: MEETING_NOTE_TYPE,
+      props: { createdAt: formatNoteStamp() },
+    })
     editor.focus()
   }, [editor])
 
