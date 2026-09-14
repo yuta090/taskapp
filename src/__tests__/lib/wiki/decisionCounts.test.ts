@@ -11,7 +11,7 @@ const row = (wiki_page_id: string, decision_state: SpecTaskRow['decision_state']
 })
 
 describe('buildDecisionCounts', () => {
-  it('ページごとに「決める札の数」と「確定した数」を数える', () => {
+  it('ページごとに「決定事項のタスクの数」と「確定した数」を数える', () => {
     const counts = buildDecisionCounts([
       row('p1', 'considering'),
       row('p1', 'decided'),
@@ -27,7 +27,7 @@ describe('buildDecisionCounts', () => {
     expect(counts['p1']).toEqual({ total: 1, decided: 1 })
   })
 
-  it('決める札が無いページは出てこない', () => {
+  it('決定事項のタスクが無いページは出てこない', () => {
     const counts = buildDecisionCounts([row('p1', 'considering')])
     expect(counts['p2']).toBeUndefined()
   })
@@ -51,7 +51,7 @@ describe('buildDecisionCounts', () => {
 })
 
 describe('decisionChipLabel', () => {
-  it('決める札が無ければ印を出さない', () => {
+  it('決定事項のタスクが無ければ印を出さない', () => {
     expect(decisionChipLabel(undefined)).toBeNull()
     expect(decisionChipLabel({ total: 0, decided: 0 })).toBeNull()
   })

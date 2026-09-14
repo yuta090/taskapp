@@ -102,11 +102,11 @@ export interface WikiPageVersion {
   created_at: string
   /**
    * 版の種類。autosave=本文の自動保存でできた控え /
-   * decided・implemented=札を確定したときの控え（＝確定した瞬間の内容）。
-   * 書けるのはサーバー側の rpc_set_spec_state だけ（画面・CLI からは名札を付けられない）。
+   * decided・implemented=タスクを確定したときの控え（＝確定した瞬間の内容）。
+   * 書けるのはサーバー側の rpc_set_spec_state だけ（画面・CLI からは印を付けられない）。
    */
   kind: 'autosave' | 'decided' | 'implemented'
-  /** kind が autosave でないとき、その確定を行った札（タスク） */
+  /** kind が autosave でないとき、その確定を行ったタスク（タスク） */
   task_id: string | null
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Wiki 一覧の「確定 2/5」の印に使う、決める札の数え上げ。
+ * Wiki 一覧の「確定 2/5」の印に使う、決定事項のタスクの数え上げ。
  *
  * `useWikiMilestoneLinks` に列を足す案は採らなかった。あちらは
  * `milestone_id is not null` で絞っているので、ゆるめると**その space の Wiki ページに
@@ -11,7 +11,7 @@
  * 使う側（TaskInspector）が気づかないまま重くなる。
  *
  * こちらは一覧専用の別フックにして、`type='spec'` と `wiki_page_id is not null` の
- * 2条件で絞る。決める札は Wiki ページに紐づくものだけなので行数は小さい
+ * 2条件で絞る。決定事項のタスクは Wiki ページに紐づくものだけなので行数は小さい
  * （2026-09-14 の本番実測: `wiki_pages` は全社61行・最大の space で57行、
  * `type='spec'` かつ `wiki_page_id` ありは0行）。列も3つしか取らない。
  * 埋め込み（関連表の同時取得）は使わない — `wiki_pages` は `spaces` への外部キーが
@@ -30,7 +30,7 @@ import {
 import { collectRemainingPages, TASKS_PAGE_SIZE } from '@/lib/supabase/queries'
 
 interface UseWikiDecisionCountsResult {
-  /** pageId → { total, decided }。決める札が無いページは入らない */
+  /** pageId → { total, decided }。決定事項のタスクが無いページは入らない */
   countsByPageId: Map<string, DecisionCount>
   loading: boolean
 }

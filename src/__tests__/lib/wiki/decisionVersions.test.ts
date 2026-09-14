@@ -71,12 +71,12 @@ describe('hasChangedSinceDecision', () => {
 })
 
 describe('versionKindLabel', () => {
-  it('確定・実装の控えには名札を出す', () => {
+  it('確定・実装の控えには印を出す', () => {
     expect(versionKindLabel('decided')).toBe('確定時点')
     expect(versionKindLabel('implemented')).toBe('実装時点')
   })
 
-  it('自動保存には名札を出さない', () => {
+  it('自動保存には印を出さない', () => {
     expect(versionKindLabel('autosave')).toBeNull()
   })
 

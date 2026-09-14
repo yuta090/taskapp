@@ -44,7 +44,7 @@ describe('findWikiTaskCandidate: 拾う行', () => {
     expect(findWikiTaskCandidate(line)).toMatchObject({ pageId: PAGE_ID })
   })
 
-  it('先頭の Wiki リンクを採る（1行に2つあっても札は1つ）', () => {
+  it('先頭の Wiki リンクを採る（1行に2つあってもタスクは1つ）', () => {
     const line = `- [ ] 決める [A](${href(PAGE_ID)}) [B](${href(OTHER_PAGE_ID)})`
     expect(findWikiTaskCandidate(line)).toMatchObject({ pageId: PAGE_ID })
   })
@@ -81,7 +81,7 @@ describe('findWikiTaskCandidate: 拾わない行', () => {
     expect(findWikiTaskCandidate('- [ ] 決める [間取り](/o/project/s/wiki)')).toBeNull()
   })
 
-  it('題名もリンクの文字も空なら拾わない（札の名前が作れない）', () => {
+  it('題名もリンクの文字も空なら拾わない（タスクの名前が作れない）', () => {
     expect(findWikiTaskCandidate(`- [ ] [](${href(PAGE_ID)})`)).toBeNull()
   })
 })

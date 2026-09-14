@@ -78,10 +78,10 @@ describe('task_update — wikiPageId は同じ space のページだけ紐づけ
 /**
  * 画面（useTasks の specChangesForWikiLink）と同じ規則で、紐づけたときに
  * type / decision_state も揃える。揃えないと CLI から仕様書ページを紐づけても
- * 「決める札」にならず、「決まるまで完了できない」歯止めが効かない。
+ * 「決定事項のタスク」にならず、「決まるまで完了できない」歯止めが効かない。
  */
-describe('task_update — 紐づけたページの種類で決める札になる', () => {
-  it('「仕様書」タグのページなら、決める札にして検討中を入れる', async () => {
+describe('task_update — 紐づけたページの種類で決定事項のタスクになる', () => {
+  it('「仕様書」タグのページなら、決定事項のタスクにして検討中を入れる', async () => {
     wikiPageTags = ['仕様書']
     await taskUpdate({ spaceId: SPACE, taskId: TASK, wikiPageId: WIKI_PAGE })
     expect(tasksUpdates[0]).toMatchObject({

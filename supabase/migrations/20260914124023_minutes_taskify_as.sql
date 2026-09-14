@@ -1,7 +1,7 @@
 -- CLI / API からも議事録をタスク化できるようにする
 --
 -- 画面には会議の「タスク化」タブがあるのに、CLI・AI秘書には相当する道具が無かった。
--- そのため「議事録は CLI で書けるのに、札を作るところだけ画面を開く」という行き来が要る。
+-- そのため「議事録は CLI で書けるのに、タスクを作るところだけ画面を開く」という行き来が要る。
 --
 -- 20260912134823 / 20260914100928 と同じ型で、本体を _impl（実行者を引数で受ける）に出し、
 -- 画面用（auth.uid()）と道具用（_as）で包む。本体の中身は 20260914065219 の定義をそのまま
@@ -112,7 +112,7 @@ BEGIN
       v_page_id := substring(v_body from '/wiki\?page=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})');
 
       IF v_page_id IS NOT NULL THEN
-        -- 同じ org / space のページに限る（別の場所のページを指す札を作らない）
+        -- 同じ org / space のページに限る（別の場所のページを指すタスクを作らない）
         SELECT w.title, w.tags INTO v_page_title, v_page_tags
         FROM wiki_pages w
         WHERE w.id = v_page_id::uuid
@@ -306,7 +306,7 @@ BEGIN
         v_page_id := substring(v_body from '/wiki\?page=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})');
 
         IF v_page_id IS NOT NULL THEN
-          -- 同じ org / space のページに限る（別の場所のページを指す札を作らない）
+          -- 同じ org / space のページに限る（別の場所のページを指すタスクを作らない）
           SELECT w.title, w.tags INTO v_page_title, v_page_tags
           FROM wiki_pages w
           WHERE w.id = v_page_id::uuid
@@ -336,7 +336,7 @@ BEGIN
                 v_meeting.space_id,
                 v_title,
                 CASE WHEN v_is_spec THEN 'considering' ELSE 'todo' END,
-                -- 決める札は相手先に返す（既存の SPEC 行の作り方に合わせる）。
+                -- 決定事項のタスクは相手先に返す（既存の SPEC 行の作り方に合わせる）。
                 -- 参考資料を紐づけただけのふつうのタスクは社内のまま。
                 CASE WHEN v_is_spec THEN 'client' ELSE 'internal' END,
                 'internal',
@@ -352,7 +352,7 @@ BEGIN
                 org_id, space_id, task_id, actor_id, meeting_id, action, payload
               ) VALUES (
                 v_meeting.org_id, v_meeting.space_id, v_new_task_id, v_actor_id, p_meeting_id,
-                -- 決める札は既存の SPEC 行と同じ 'SPEC_CREATED'。ふつうのタスクは
+                -- 決定事項のタスクは既存の SPEC 行と同じ 'SPEC_CREATED'。ふつうのタスクは
                 -- 既に使われている 'TASK_CREATE' に合わせる（似た名前を増やさない）
                 CASE WHEN v_is_spec THEN 'SPEC_CREATED' ELSE 'TASK_CREATE' END,
                 jsonb_build_object(
@@ -477,8 +477,8 @@ REVOKE ALL ON FUNCTION public.rpc_parse_meeting_minutes_as(uuid, uuid, text)
 GRANT EXECUTE ON FUNCTION public.rpc_parse_meeting_minutes_as(uuid, uuid, text) TO service_role;
 
 -- 適用後の確認:
---   1. 画面の会議「タスク化」タブがこれまでどおり動く（候補が出る・押すと札ができる）。
---   2. `agentpm minutes taskify --meeting-id <id>` で同じ札ができ、task_events.actor_id が
+--   1. 画面の会議「タスク化」タブがこれまでどおり動く（候補が出る・押すとタスクができる）。
+--   2. `agentpm minutes taskify --meeting-id <id>` で同じタスクができ、task_events.actor_id が
 --      鍵の持ち主になる。
 --   3. 本文がずれていると「別の場所で更新されています」で止まり、tasks が1件も増えない。
 --   4. authenticated が _as を呼ぶと権限エラーになる。

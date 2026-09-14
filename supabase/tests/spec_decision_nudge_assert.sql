@@ -54,22 +54,22 @@ begin
   -- ---- 2) ボールを持つ側の担当に届く ----
   if not exists (select 1 from notifications where to_user_id = v_cli and type = 'spec_decision_needed'
                   and payload->>'task_id' = v_over::text) then
-    raise exception '2) 相手先ボールの札が相手先に届いていない';
+    raise exception '2) 相手先ボールのタスクが相手先に届いていない';
   end if;
   if not exists (select 1 from notifications where to_user_id = v_owner and type = 'spec_decision_needed'
                   and payload->>'task_id' = v_mtgT::text) then
-    raise exception '2) 社内ボールの札が社内に届いていない';
+    raise exception '2) 社内ボールのタスクが社内に届いていない';
   end if;
   raise notice 'PASS 2) ボールを持つ側の担当に届く';
 
   -- ---- 3) 決定済み・担当なし・ふつうのタスクには届かない ----
   if exists (select 1 from notifications where type = 'spec_decision_needed'
               and payload->>'task_id' in (v_done::text, v_noown::text, v_plain::text)) then
-    raise exception '3) 届いてはいけない札に届いている';
+    raise exception '3) 届いてはいけないタスクに届いている';
   end if;
   raise notice 'PASS 3) 決定済み・担当なし・ふつうのタスクには届かない';
 
-  -- ---- 4) もう一度流しても増えない（札と人で1回だけ） ----
+  -- ---- 4) もう一度流しても増えない（タスクと人で1回だけ） ----
   v_n := public.process_spec_decision_nudges();
   if v_n <> 0 then raise exception '4) 2回目で %件 増えた（期待 0件）', v_n; end if;
   select count(*) into v_n from notifications where type = 'spec_decision_needed';
@@ -90,9 +90,9 @@ begin
   delete from notifications where type = 'spec_decision_needed';
   v_n := public.process_spec_decision_nudges();
   if exists (select 1 from notifications where payload->>'task_id' = v_mtgT::text) then
-    raise exception '6) 決まった札にまだ届いている';
+    raise exception '6) 決まったタスクにまだ届いている';
   end if;
-  raise notice 'PASS 6) 決まった札には届かない';
+  raise notice 'PASS 6) 決まったタスクには届かない';
 
   raise notice '=== 決めてくださいの通知 全項目 PASS ===';
 end $$;

@@ -51,12 +51,12 @@ begin
   end if;
   raise notice 'PASS 2) 道具用のタスク化が動き、実行者が記録される';
 
-  -- ---- 3) 仕様書タグの有無で、決める札とふつうのタスクに分かれる ----
+  -- ---- 3) 仕様書タグの有無で、決定事項のタスクとふつうのタスクに分かれる ----
   if (select decision_state from tasks where title = '玄関の向きを決める') <> 'considering' then
-    raise exception '3) 仕様書ページの行が決める札になっていない';
+    raise exception '3) 仕様書ページの行が決定事項のタスクになっていない';
   end if;
   if (select type from tasks where title = '間取り案を3つ作る') <> 'task' then
-    raise exception '3) タグ無しの行が決める札になってしまっている';
+    raise exception '3) タグ無しの行が決定事項のタスクになってしまっている';
   end if;
   if (select wiki_page_id from tasks where title = '間取り案を3つ作る') <> v_ref then
     raise exception '3) 参考資料として紐づいていない';

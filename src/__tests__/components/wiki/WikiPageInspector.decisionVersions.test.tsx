@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { WikiPageInspector } from '@/components/wiki/WikiPageInspector'
 import type { WikiPage, WikiPageVersion } from '@/types/database'
 
-// 確定した時点の控えに名札を出し、そのあと本文が変わったら知らせる。
+// 確定した時点の控えに印を出し、そのあと本文が変わったら知らせる。
 // ユーザーの言う「凍結」は編集を止めることではなく、控えが残って変化が分かること。
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
@@ -48,7 +48,7 @@ function openVersions() {
 }
 
 describe('WikiPageInspector 確定時点の控え', () => {
-  it('確定の控えには名札を出す', async () => {
+  it('確定の控えには印を出す', async () => {
     const onFetchVersions = vi.fn().mockResolvedValue([
       version({ created_at: '2026-09-14T11:00:00+09:00' }),
       version({ created_at: '2026-09-14T10:00:00+09:00', kind: 'decided', task_id: 'task-1' }),
@@ -62,7 +62,7 @@ describe('WikiPageInspector 確定時点の控え', () => {
 
     expect(await screen.findByText('確定時点')).toBeTruthy()
     expect(screen.getByText('実装時点')).toBeTruthy()
-    // 自動保存の控えには名札を出さない（数が多く、印の意味が薄れる）
+    // 自動保存の控えには印を出さない（数が多く、印の意味が薄れる）
     expect(screen.getAllByTestId('wiki-version-kind')).toHaveLength(2)
   })
 

@@ -4,7 +4,7 @@ import { join } from 'path'
 import { computeSpecLinkChanges } from '../../../packages/mcp-server/src/lib/specLink'
 
 /**
- * Wiki ページを紐づけたときの「決める札になるか」の規則は、画面（useTasks の
+ * Wiki ページを紐づけたときの「決定事項のタスクになるか」の規則は、画面（useTasks の
  * specChangesForWikiLink）と CLI（packages/mcp-server の computeSpecLinkChanges）の
  * **2か所にある**。片方だけ直すと、同じ操作なのに画面と CLI で結果が変わり、
  * CLI から紐づけたときだけ「決まるまで完了できない」歯止めが効かなくなる。
@@ -20,7 +20,7 @@ describe('computeSpecLinkChanges: 画面と同じ規則', () => {
     ).toEqual({ type: 'task', decision_state: null })
   })
 
-  it('仕様書のページを紐づけると、決める札にして検討中を入れる', () => {
+  it('仕様書のページを紐づけると、決定事項のタスクにして検討中を入れる', () => {
     expect(
       computeSpecLinkChanges({ wikiPageId: 'p1', isSpecPage: true, currentDecisionState: null })
     ).toEqual({ type: 'spec', decision_state: 'considering' })

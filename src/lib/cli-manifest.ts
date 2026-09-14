@@ -306,19 +306,19 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     ],
   },
 
-  // ── Spec decision（決める札の確定） ──
+  // ── Spec decision（決定事項のタスクの確定） ──
   {
     name: 'spec',
-    description: '決める札（決定事項）の確定',
+    description: '決定事項のタスクの確定',
     subcommands: [
       {
         name: 'decide',
         description:
-          '決める札を確定する（画面の「決定にする」と同じ）。紐づく Wiki ページに決定行が入り、確定時点の本文が控えとして残る',
+          '決定事項のタスクを確定する（画面の「決定にする」と同じ）。紐づく Wiki ページに決定行が入り、確定時点の本文が控えとして残る',
         tool: 'spec_decide',
         options: [
           spaceOpt,
-          { flags: '--task-id <uuid>', description: '決める札のUUID', param: 'taskId', required: true },
+          { flags: '--task-id <uuid>', description: '決定事項のタスクのUUID', param: 'taskId', required: true },
           {
             flags: '--state <state>',
             description: 'considering=検討中に戻す / decided=確定 / implemented=実装済み',
@@ -853,7 +853,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       {
         name: 'taskify',
         description:
-          '議事録から札（タスク）を作る。画面の会議「タスク化」タブと同じ。未チェックのチェックリスト行に Wiki ページのリンクがあるものを拾う',
+          '議事録からタスク（タスク）を作る。画面の会議「タスク化」タブと同じ。未チェックのチェックリスト行に Wiki ページのリンクがあるものを拾う',
         tool: 'minutes_taskify',
         examples: [
           'agentpm minutes taskify --meeting-id <id> --dry-run   # まず候補を見る',
@@ -872,7 +872,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'taskify-preview',
-        description: '議事録から作れる札の候補を、作らずに見る',
+        description: '議事録から作れるタスクの候補を、作らずに見る',
         tool: 'minutes_taskify_preview',
         options: [
           spaceOpt,

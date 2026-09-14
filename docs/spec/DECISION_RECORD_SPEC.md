@@ -9,26 +9,26 @@
 長い資料は、決まったことと検討中のことが混ざるのが普通で、**ページ全体を確定にできる日は来ない**。
 だから確定の単位を「◯◯を決める」という決定1件にする。
 
-- 決定1件 = `type='spec'` のタスク（以下「決める札」）。`decision_state` が
+- 決定1件 = `type='spec'` のタスク（以下「決定事項のタスク」）。`decision_state` が
   `considering` → `decided` → `implemented` と進む。
-- 決める札は `tasks.wiki_page_id` で Wiki ページを1枚指す。
-- 1枚のページに決める札を何枚でも紐づけられる。「玄関の向き」「リビングの広さ」など。
+- 決定事項のタスクは `tasks.wiki_page_id` で Wiki ページを1枚指す。
+- 1枚のページに決定事項のタスクを何枚でも紐づけられる。「玄関の向き」「リビングの広さ」など。
 - **決まった中身が残る場所はページ**。決めるたびにページへ決定行が書き足され、積み上がる。
-  札は決めるための道具で、使い捨て。
+  タスクは決めるための道具で、使い捨て。
 
 ### タスクを完了にしてよいかは、紐づけ方で決まる
 
 画面（タスク詳細の「仕様書連携」）と議事録のタスク化で共通の規則。
 
-| 紐づけた Wiki ページ | 札の種類 | 完了 |
+| 紐づけた Wiki ページ | タスクの種類 | 完了 |
 |---|---|---|
-| 「仕様書として扱う」（`仕様書` タグ）が入っている | 決める札（`type='spec'`） | `decision_state='considering'` の間は完了できない |
+| 「仕様書として扱う」（`仕様書` タグ）が入っている | 決定事項のタスク（`type='spec'`） | `decision_state='considering'` の間は完了できない |
 | 入っていない | ふつうのタスク（参考資料として紐づく） | 止めない |
 
 歯止めは DB 側のトリガー `enforce_review_gate`
 （`Cannot complete task: spec decision is not made`）。画面と CLI は同じ文言を先出しする。
 
-資料をつくる札と、決める札は分ける。一緒にすると「資料はできたが決まっていない」ときに
+資料をつくるタスクと、決定事項のタスクは分ける。一緒にすると「資料はできたが決まっていない」ときに
 完了の可否を人が判断することになる。
 
 ## 「凍結」= 確定時点の控えが残ること
@@ -43,19 +43,19 @@
 ### 控えの作られ方
 
 `rpc_set_spec_state` が `decided` / `implemented` にするとき、**決定行を書き足す前の本文**を
-`wiki_page_versions` に控える。名札が2つ付く。
+`wiki_page_versions` に控える。印が2つ付く。
 
 | 列 | 中身 |
 |---|---|
 | `kind` | `autosave`（本文の自動保存）／ `decided` ／ `implemented` |
-| `task_id` | その確定を行った札 |
+| `task_id` | その確定を行ったタスク |
 
-名札は **SECURITY DEFINER の RPC だけが書ける**。
+印は **SECURITY DEFINER の RPC だけが書ける**。
 
 - 画面と CLI に許した insert は `org_id / page_id / title / body / created_by` の5列だけ
   （列ごとの `GRANT INSERT`）。
 - **update と delete は取り上げた**（ポリシーも削除）。insert だけ列で絞っても、
-  5列で控えを作ったあと `update … set kind='decided'` で名札を後付けできてしまうため。
+  5列で控えを作ったあと `update … set kind='decided'` で印を後付けできてしまうため。
   控えは作ったら変えない・消さないもの。
 
 検証は `supabase/tests/run_wiki_decision_versions.sh`（8項目）。
@@ -97,10 +97,10 @@
 決定: 玄関の向きを決める (2026/09/14)
 ```
 
-「玄関の向きを決める」の部分はその札へのリンク（`/{orgId}/project/{spaceId}?task={taskId}`）で、
-押すと札が開く。以前は絵文字（✅ / 🚀）付きでリンクも無かった。
+「玄関の向きを決める」の部分はそのタスクへのリンク（`/{orgId}/project/{spaceId}?task={taskId}`）で、
+押すとタスクが開く。以前は絵文字（✅ / 🚀）付きでリンクも無かった。
 
-**入る場所はページの末尾**で、該当の見出しの下ではない。札はページ単位までしか覚えていないため。
+**入る場所はページの末尾**で、該当の見出しの下ではない。タスクはページ単位までしか覚えていないため。
 見出しの指定は別途。
 
 ## 実装の場所
@@ -109,18 +109,18 @@
 |---|---|
 | 決定・控え・決定行 | `rpc_set_spec_state`（最新は `supabase/migrations/20260914072915_wiki_decision_versions.sql`） |
 | 完了の歯止め | `enforce_review_gate`（`20260706013654_review_integrity.sql`） |
-| 紐づけで札の種類が変わる | `src/lib/hooks/useTasks.ts` の `specChangesForWikiLink` |
+| 紐づけでタスクの種類が変わる | `src/lib/hooks/useTasks.ts` の `specChangesForWikiLink` |
 | 控えの判定（画面） | `src/lib/wiki/decisionVersions.ts` |
 | 表示 | `src/components/wiki/WikiPageInspector.tsx`（バージョン履歴） |
-| 議事録から札を作る | `docs/spec/MEETING_MINUTES_TEMPLATE.md` |
+| 議事録からタスクを作る | `docs/spec/MEETING_MINUTES_TEMPLATE.md` |
 
 ## 一覧の「確定 2/5」の印
 
-Wiki 一覧の行に、そのページに紐づく決める札の進み具合を出す。
+Wiki 一覧の行に、そのページに紐づく決定事項のタスクの進み具合を出す。
 
 - **`wiki_pages` に列は足さない。** 確定の単位は決定1件なので、ページに状態を持たせると
-  決定側と必ずずれて正本が2つになる。紐づく札（`type='spec'` かつ `wiki_page_id`）を数える。
-- 決める札が1件も無いページには**印を出さない**（検討資料・議事メモに「検討中」を貼ると
+  決定側と必ずずれて正本が2つになる。紐づくタスク（`type='spec'` かつ `wiki_page_id`）を数える。
+- 決定事項のタスクが1件も無いページには**印を出さない**（検討資料・議事メモに「検討中」を貼ると
   印の意味が薄れる）。
 - `decided` と `implemented` を「確定した」に数える。状態が入っていない行も総数には数える
   （印を実態より良く見せない）。
@@ -145,7 +145,7 @@ agentpm spec decide --task-id <id> --state decided --note "9/14の定例で合�
 ```
 
 - 紐づけも画面と同じ規則。`task create --type spec --wiki-page-id <id>` / `task update --wiki-page-id <id>`
-  で決める札になる（「仕様書として扱う」のページなら。タグ無しなら参考資料のまま）。
+  で決定事項のタスクになる（「仕様書として扱う」のページなら。タグ無しなら参考資料のまま）。
   規則は2か所（画面 `useTasks.ts` / CLI `packages/mcp-server/src/lib/specLink.ts`）にあり、
   `src/__tests__/lib/specLinkParity.test.ts` が突き合わせる。
 - `rpc_set_spec_state` は `_impl` ＋ 画面用（`auth.uid()`）＋ 道具用（`_as`・実行者を明示）に分けた
@@ -192,17 +192,17 @@ AI秘書や別の人が先に書いていても成功として返る。議事録
 その場で決められるパネル）。**お知らせを作る側がどこにも無く**、テスト用のデータでしか
 出なかった。決め忘れが起きても誰も気づかない。
 
-`process_spec_decision_nudges()` が15分ごとに動き、未決の決める札について届ける。
+`process_spec_decision_nudges()` が15分ごとに動き、未決の決定事項のタスクについて届ける。
 
 | きっかけ | 条件 |
 |---|---|
 | 期限を過ぎた | `due_date < 今日（日本時間）` かつ未決 |
-| 会議が終わった | その札を作った会議が直近24時間のうちに終わった |
+| 会議が終わった | そのタスクを作った会議が直近24時間のうちに終わった |
 
 - 届くのは**ボールを持っている側の担当**（`task_owners.side = tasks.ball`）。
-  相手先が決めることなら相手先に、社内なら社内に。担当が1人もいない札は届かない
+  相手先が決めることなら相手先に、社内なら社内に。担当が1人もいないタスクは届かない
   （作成者へは送らない＝「自分で決めろ」という催促にしない）。
-- **1つの決定につき1回だけ。** `dedupe_key` が `spec_decision_needed:<札>:<人>` なので、
+- **1つの決定につき1回だけ。** `dedupe_key` が `spec_decision_needed:<タスク>:<人>` なので、
   会議終了で届いたものは期限超過で重ねて届かない。
 - 決定済み・完了・ふつうのタスクには届かない。
 
@@ -216,5 +216,5 @@ AI秘書や別の人が先に書いていても成功として返る。議事録
 
 ## まだ無いもの
 
-- Wiki ページから「このページを参照している札」を見る導線
+- Wiki ページから「このページを参照しているタスク」を見る導線
 - 決定行を該当の見出しの下に入れる（見出しの指定の仕組みから要る）

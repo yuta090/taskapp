@@ -186,7 +186,7 @@ describe('TaskCreateSheet — モバイル: 高さ制約とスクロール構造
 })
 
 // タスク詳細の「仕様書連携」と同じく、1つの入力欄で Wiki のページを探す／無ければ作る。
-// 仕様タスク（検討中→決定まで完了できない）にするのは「仕様書」の名札つきのページだけ。
+// 仕様タスク（検討中→決定まで完了できない）にするのは「仕様書」の印つきのページだけ。
 describe('TaskCreateSheet — Wiki のページの紐づけ（探す＋その場で作る）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -216,7 +216,7 @@ describe('TaskCreateSheet — Wiki のページの紐づけ（探す＋その場
     fireEvent.click(screen.getByTestId('task-create-submit'))
   }
 
-  it('仕様書の名札がないページも探して選べ、ふつうのタスクとしてリンクだけ送る', async () => {
+  it('仕様書の印がないページも探して選べ、ふつうのタスクとしてリンクだけ送る', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     renderSheet(onSubmit)
     openAdvanced()
@@ -235,7 +235,7 @@ describe('TaskCreateSheet — Wiki のページの紐づけ（探す＋その場
     )
   })
 
-  it('仕様書の名札つきのページを選ぶと、仕様ステータスが出て仕様タスクとして送る', async () => {
+  it('仕様書の印つきのページを選ぶと、仕様ステータスが出て仕様タスクとして送る', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     renderSheet(onSubmit)
     openAdvanced()
@@ -251,7 +251,7 @@ describe('TaskCreateSheet — Wiki のページの紐づけ（探す＋その場
     )
   })
 
-  it('見つからない名前はその場でページを作り、ふつうのタスクとしてリンクだけ送る（名札は付けない）', async () => {
+  it('見つからない名前はその場でページを作り、ふつうのタスクとしてリンクだけ送る（印は付けない）', async () => {
     wikiMock.createPage.mockImplementation(async ({ title }: { title: string }) => {
       const page = { id: 'w9', title, tags: [] as string[] }
       wikiMock.pages = [page, ...wikiMock.pages]
