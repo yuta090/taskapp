@@ -54,6 +54,25 @@
 
 ---
 
+## CLI / API から作る
+
+画面の会議「タスク化」タブと同じことができる。
+
+```
+agentpm minutes taskify --meeting-id <id> --dry-run   # まず候補を見る（作らない）
+agentpm minutes taskify --meeting-id <id>             # 作る
+```
+
+- 道具用の RPC は `rpc_get_minutes_preview_as` / `rpc_parse_meeting_minutes_as`
+  （`20260914124023_minutes_taskify_as.sql`）。本体は `_impl` に出し、画面用は
+  `auth.uid()`、道具用は実行者を明示する。`task_events.actor_id` は画面と同じ意味になる。
+- **権限の確認は `_actor_can_write_space`**。`app_can_write_space` は中で `auth.uid()` を
+  見るので、鍵で動く道具から呼ぶと必ず弾かれる（`20260914100928` で踏んだのと同じ罠）。
+- CLI は呼ぶ直前に本文を読み、それをそのまま渡す。DB 側が「渡された本文＝いまの本文」を
+  確かめ、違えば何も書かずに止める（隙間に入った他の人・AI秘書の書き込みを消さないため）。
+
+検証は `supabase/tests/run_minutes_taskify_as.sh`（6項目）。
+
 ## 実装の場所
 
 | 何 | どこ |

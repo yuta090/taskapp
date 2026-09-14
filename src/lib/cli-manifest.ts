@@ -851,6 +851,35 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         ],
       },
       {
+        name: 'taskify',
+        description:
+          '議事録から札（タスク）を作る。画面の会議「タスク化」タブと同じ。未チェックのチェックリスト行に Wiki ページのリンクがあるものを拾う',
+        tool: 'minutes_taskify',
+        examples: [
+          'agentpm minutes taskify --meeting-id <id> --dry-run   # まず候補を見る',
+          'agentpm minutes taskify --meeting-id <id>             # 作る',
+        ],
+        options: [
+          spaceOpt,
+          { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
+          {
+            flags: '--dry-run',
+            description: '作らずに候補を数えるだけ',
+            param: 'dryRun',
+            type: 'bool',
+          },
+        ],
+      },
+      {
+        name: 'taskify-preview',
+        description: '議事録から作れる札の候補を、作らずに見る',
+        tool: 'minutes_taskify_preview',
+        options: [
+          spaceOpt,
+          { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
+        ],
+      },
+      {
         name: 'append',
         description: 'Append to meeting minutes',
         tool: 'minutes_append',

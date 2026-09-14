@@ -117,8 +117,13 @@ function sliceFunctionBody(sql: string, fnName: string): string {
   return head[0] + (next ? rest.slice(0, next.index) : rest)
 }
 
+/**
+ * 行の判定は `_impl`（実行者を引数で受ける本体）に入っている。画面用 `rpc_*` と
+ * 道具用 `rpc_*_as` はそれを呼ぶだけの包みなので、正規表現は本体側を見る
+ * （20260914124023 で分割した。分けた直後にこの検査が落ちて気づけた）。
+ */
 describe('SQL と共有するパターン', () => {
-  for (const fn of ['rpc_get_minutes_preview', 'rpc_parse_meeting_minutes']) {
+  for (const fn of ['_get_minutes_preview_impl', '_parse_meeting_minutes_impl']) {
     it(`${fn} が同じ Wiki リンクのパターンを持つ`, () => {
       const { sql } = readLatestMigrationDefining(fn)
       expect(sliceFunctionBody(sql, fn)).toContain(WIKI_PAGE_HREF_PATTERN)
@@ -127,6 +132,19 @@ describe('SQL と共有するパターン', () => {
     it(`${fn} が同じ未チェック行のパターンを持つ`, () => {
       const { sql } = readLatestMigrationDefining(fn)
       expect(sliceFunctionBody(sql, fn)).toContain(UNCHECKED_ITEM_PATTERN)
+    })
+  }
+
+  // 包みが本体を呼んでいること（呼び忘れると、判定はあるのに誰も通らない）
+  for (const [wrapper, impl] of [
+    ['rpc_get_minutes_preview', '_get_minutes_preview_impl'],
+    ['rpc_get_minutes_preview_as', '_get_minutes_preview_impl'],
+    ['rpc_parse_meeting_minutes', '_parse_meeting_minutes_impl'],
+    ['rpc_parse_meeting_minutes_as', '_parse_meeting_minutes_impl'],
+  ]) {
+    it(`${wrapper} が ${impl} を呼ぶ`, () => {
+      const { sql } = readLatestMigrationDefining(wrapper)
+      expect(sliceFunctionBody(sql, wrapper)).toContain(`public.${impl}(`)
     })
   }
 })
