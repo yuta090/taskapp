@@ -357,7 +357,7 @@ BEGIN
                 v_meeting.space_id,
                 v_title,
                 CASE WHEN v_is_spec THEN 'considering' ELSE 'todo' END,
-                -- 決める札は相手先に返す（既存の SPEC 行の作り方に合わせる）。
+                -- 決定事項のタスクは相手先に返す（既存の SPEC 行の作り方に合わせる）。
                 -- 参考資料を紐づけただけのふつうのタスクは社内のまま。
                 CASE WHEN v_is_spec THEN 'client' ELSE 'internal' END,
                 'internal',
@@ -373,7 +373,7 @@ BEGIN
                 org_id, space_id, task_id, actor_id, meeting_id, action, payload
               ) VALUES (
                 v_meeting.org_id, v_meeting.space_id, v_new_task_id, v_actor_id, p_meeting_id,
-                -- 決める札は既存の SPEC 行と同じ 'SPEC_CREATED'。ふつうのタスクは
+                -- 決定事項のタスクは既存の SPEC 行と同じ 'SPEC_CREATED'。ふつうのタスクは
                 -- 既に使われている 'TASK_CREATE' に合わせる（似た名前を増やさない）
                 CASE WHEN v_is_spec THEN 'SPEC_CREATED' ELSE 'TASK_CREATE' END,
                 jsonb_build_object(
