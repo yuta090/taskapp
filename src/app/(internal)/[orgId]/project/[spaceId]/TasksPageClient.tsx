@@ -303,7 +303,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     (
       create: boolean,
       task: string | null,
-      filter: FilterKey
+      filter: FilterKey,
+      // 詳細の子タスクへ移るときだけ履歴に積み、ブラウザの「戻る」で親タスクに戻れるようにする
+      options?: { push?: boolean }
     ) => {
       const params = new URLSearchParams()
       if (create) {
@@ -317,7 +319,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       }
       const query = params.toString()
       const newUrl = query ? `${projectBasePath}?${query}` : projectBasePath
-      window.history.replaceState(null, '', newUrl)
+      if (options?.push) {
+        window.history.pushState(null, '', newUrl)
+      } else {
+        window.history.replaceState(null, '', newUrl)
+      }
     },
     [projectBasePath]
   )
@@ -580,6 +586,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         owners={owners[selectedTask.id] || []}
         parentTasks={parentTasks}
         childTasks={childTasks}
+        onOpenTask={(taskId) => syncUrlWithState(isCreateOpen, taskId, activeFilter, { push: true })}
         onClose={() => {
           syncUrlWithState(isCreateOpen, null, activeFilter)
         }}

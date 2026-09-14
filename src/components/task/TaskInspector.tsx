@@ -29,6 +29,7 @@ import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatTaskNumber } from '@/lib/tasks/taskNumber'
 import { SPACE_ROLE_LABELS } from '@/lib/roles/spaceRoles'
+import { buildTaskHref } from '@/lib/navigation/appLinks'
 
 interface TaskInspectorProps {
   task: Task
@@ -67,6 +68,12 @@ interface TaskInspectorProps {
   /** Child tasks of this task */
   childTasks?: Task[]
   /**
+   * 子タスクを普通にクリックしたときに呼ぶ。今の画面のまま、そのタスクの詳細に切り替えるのに使う。
+   * 渡さなければリンク（プロジェクトのタスク一覧でそのタスクを開く）としてそのまま移動する。
+   * 編集ではないので、閲覧者にも渡してよい
+   */
+  onOpenTask?: (taskId: string) => void
+  /**
    * 代理店モードの価格の枠（TaskPricingPanel）を出してよいか。
    * DB側の書き込み判定（guard_task_pricing_write/delete, 20260308_003）と同じ規則:
    * その space の space_memberships の行がはっきり admin/editor の人だけ
@@ -100,6 +107,7 @@ export function TaskInspector({
   onReviewChange,
   parentTasks = [],
   childTasks = [],
+  onOpenTask,
   canEditPricing = false,
 }: TaskInspectorProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
@@ -1432,9 +1440,19 @@ export function TaskInspector({
                 </label>
                 <div className="space-y-1">
                   {childTasks.map((child) => (
-                    <div
+                    <NextLink
                       key={child.id}
-                      className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded text-sm"
+                      href={buildTaskHref(child.org_id, child.space_id, child.id)}
+                      prefetch={false}
+                      data-testid="task-inspector-child-link"
+                      onClick={(e) => {
+                        // 普通のクリックだけ今の画面のまま詳細を切り替える。Cmd/Ctrl/Shift/Alt 付きは
+                        // ブラウザに任せ、別タブ・別ウィンドウで開けるようにする
+                        if (!onOpenTask || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                        e.preventDefault()
+                        onOpenTask(child.id)
+                      }}
+                      className="group flex items-center gap-2 px-2 py-1.5 bg-gray-50 hover:bg-gray-100 rounded text-sm"
                     >
                       <div
                         className="w-2 h-2 rounded-full flex-shrink-0"
@@ -1443,10 +1461,10 @@ export function TaskInspector({
                             child.ball === 'client' ? '#F59E0B' : '#3B82F6',
                         }}
                       />
-                      <TruncatedText className={`flex-1 ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                      <TruncatedText className={`flex-1 group-hover:underline ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
                         {child.title}
                       </TruncatedText>
-                    </div>
+                    </NextLink>
                   ))}
                 </div>
               </div>
