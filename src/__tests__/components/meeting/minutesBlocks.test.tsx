@@ -5,6 +5,7 @@
  * 「入れたものが、保存して読み直しても同じ形で残る」こと。
  */
 import { describe, expect, it } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import {
   BlockNoteEditor,
   BlockNoteSchema,
@@ -20,7 +21,7 @@ import {
   TASK_MARKER_TYPE,
   TOGGLE_TYPE,
 } from '@/lib/minutes/markdown'
-import { meetingNoteSpec, toggleListItemSpec } from '@/components/meeting/minutesBlocks'
+import { MeetingNoteBlock, meetingNoteSpec, toggleListItemSpec } from '@/components/meeting/minutesBlocks'
 
 const taskMarkerSpec = createInlineContentSpec(
   {
@@ -114,5 +115,38 @@ describe('議事録の会議メモ', () => {
 
   it('文字を持てる（あとから書き足せる）', () => {
     expect(meetingNoteSpec.config.content).toBe('inline')
+  })
+
+  it('書いた日時も読み込んで書き出せる', () => {
+    const md = '<!--note:2026-09-15T14:30-->その場で出た補足'
+    expect(roundTrip(md)).toBe(md)
+  })
+
+  it('BlockNote 側にも書いた日時が残る', () => {
+    const editor = BlockNoteEditor.create({
+      schema: minutesSchema,
+      initialContent: parseMinutesMarkdown('<!--note:2026-09-15T14:30-->補足') as never,
+    })
+    expect((editor.document[0].props as { createdAt?: string }).createdAt).toBe('2026-09-15T14:30')
+  })
+})
+
+describe('会議メモの見た目', () => {
+  it('書いた日時を小さく添える', () => {
+    render(<MeetingNoteBlock createdAt="2026-09-15T14:30" contentRef={() => {}} />)
+    const time = screen.getByTestId('minutes-meeting-note-time')
+    expect(time).toHaveTextContent('9/15 14:30')
+    // 本文と一緒に消してしまわないよう、打てない場所に置く
+    expect(time).toHaveAttribute('contenteditable', 'false')
+  })
+
+  it('日時が無ければ何も添えない', () => {
+    render(<MeetingNoteBlock contentRef={() => {}} />)
+    expect(screen.queryByTestId('minutes-meeting-note-time')).not.toBeInTheDocument()
+  })
+
+  it('壊れた日時のときも何も添えない', () => {
+    render(<MeetingNoteBlock createdAt="こわれた" contentRef={() => {}} />)
+    expect(screen.queryByTestId('minutes-meeting-note-time')).not.toBeInTheDocument()
   })
 })

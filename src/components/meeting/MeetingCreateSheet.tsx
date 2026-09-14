@@ -11,6 +11,13 @@ interface MeetingCreateSheetProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (meeting: MeetingCreateData) => void | Promise<void>
+  /**
+   * 「記録だけの議事録」として開く。聞くのはタイトルだけにして、日時と参加者は伏せる。
+   *
+   * 予定を立てずに、話した内容だけ残したい場面がある。今までも日時と参加者は
+   * 空のまま作れたが、画面が「予定を決める表」に見えるせいで作れないと思われていた。
+   */
+  minutesOnly?: boolean
 }
 
 export interface MeetingCreateData {
@@ -27,6 +34,7 @@ export function MeetingCreateSheet({
   isOpen,
   onClose,
   onSubmit,
+  minutesOnly = false,
 }: MeetingCreateSheetProps) {
   const [title, setTitle] = useState('')
   const [heldAt, setHeldAt] = useState('')
@@ -40,7 +48,8 @@ export function MeetingCreateSheet({
     internalMembers,
     loading: membersLoading,
     error: membersError,
-  } = useSpaceMembers(isOpen ? spaceId : null)
+    // 記録だけの議事録では参加者の欄を出さないので、名簿も取りに行かない
+  } = useSpaceMembers(isOpen && !minutesOnly ? spaceId : null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const prevIsOpenRef = useRef(false)
@@ -117,7 +126,9 @@ export function MeetingCreateSheet({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-          <h2 className="text-sm font-medium text-gray-900">新規会議</h2>
+          <h2 className="text-sm font-medium text-gray-900">
+            {minutesOnly ? '記録だけの議事録' : '新規会議'}
+          </h2>
           <button
             onClick={onClose}
             data-testid="meeting-create-close"
@@ -138,9 +149,17 @@ export function MeetingCreateSheet({
             </div>
           )}
 
+          {minutesOnly && (
+            <p data-testid="meeting-create-minutes-only-note" className="text-xs text-gray-500">
+              名前だけで作れます。日時は今の時刻が入り、参加者はあとから足せます。
+            </p>
+          )}
+
           {/* Title */}
           <div>
-            <label className="text-xs font-medium text-gray-500">会議タイトル</label>
+            <label className="text-xs font-medium text-gray-500">
+              {minutesOnly ? '議事録の名前' : '会議タイトル'}
+            </label>
             <input
               ref={inputRef}
               type="text"
@@ -152,112 +171,117 @@ export function MeetingCreateSheet({
             />
           </div>
 
-          {/* Date/Time */}
-          <div>
-            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-              <Calendar className="text-sm" />
-              開催日時
-            </label>
-            <input
-              type="datetime-local"
-              value={heldAt}
-              onChange={(e) => setHeldAt(e.target.value)}
-              data-testid="meeting-create-held-at"
-              className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* Client participants (optional) */}
-          <div className="p-3 rounded-lg border bg-amber-50 border-amber-200">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-amber-700 flex items-center gap-1">
-                <Users className="text-sm" />
-                外部参加者
+          {/* 記録だけの議事録では、日時と参加者は聞かない（あとから足せる） */}
+          {!minutesOnly && (
+            <>
+            {/* Date/Time */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                <Calendar className="text-sm" />
+                開催日時
               </label>
-              <AmberBadge>
-                {clientParticipantIds.length}名選択
-              </AmberBadge>
+              <input
+                type="datetime-local"
+                value={heldAt}
+                onChange={(e) => setHeldAt(e.target.value)}
+                data-testid="meeting-create-held-at"
+                className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
 
-            <div className="mt-3">
-              {membersLoading && (
-                <div className="text-xs text-amber-600">読み込み中...</div>
-              )}
-              {membersError && (
-                <div className="text-xs text-red-600">{membersError}</div>
-              )}
-              {!membersLoading && !membersError && clientMembers.length === 0 && (
-                <div className="text-xs text-amber-600">
-                  外部メンバーが見つかりません。先にメンバーを招待してください。
-                </div>
-              )}
-              {!membersLoading && clientMembers.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {clientMembers.map((member) => {
-                    const isSelected = clientParticipantIds.includes(member.id)
-                    return (
-                      <button
-                        key={member.id}
-                        type="button"
-                        onClick={() => toggleClientParticipant(member.id)}
-                        data-testid={`meeting-create-client-${member.id}`}
-                        className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                          isSelected
-                            ? 'bg-amber-200 border-amber-400 text-amber-800 font-medium'
-                            : 'bg-surface border-amber-300 text-amber-700 hover:bg-amber-100'
-                        }`}
-                      >
-                        {member.displayName}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+            {/* Client participants (optional) */}
+            <div className="p-3 rounded-lg border bg-amber-50 border-amber-200">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-amber-700 flex items-center gap-1">
+                  <Users className="text-sm" />
+                  外部参加者
+                </label>
+                <AmberBadge>
+                  {clientParticipantIds.length}名選択
+                </AmberBadge>
+              </div>
 
-          {/* Internal participants */}
-          <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <Users className="text-sm" />
-                社内参加者
-              </label>
-              <span className="text-xs text-gray-500">
-                {internalParticipantIds.length}名選択
-              </span>
+              <div className="mt-3">
+                {membersLoading && (
+                  <div className="text-xs text-amber-600">読み込み中...</div>
+                )}
+                {membersError && (
+                  <div className="text-xs text-red-600">{membersError}</div>
+                )}
+                {!membersLoading && !membersError && clientMembers.length === 0 && (
+                  <div className="text-xs text-amber-600">
+                    外部メンバーが見つかりません。先にメンバーを招待してください。
+                  </div>
+                )}
+                {!membersLoading && clientMembers.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {clientMembers.map((member) => {
+                      const isSelected = clientParticipantIds.includes(member.id)
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => toggleClientParticipant(member.id)}
+                          data-testid={`meeting-create-client-${member.id}`}
+                          className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                            isSelected
+                              ? 'bg-amber-200 border-amber-400 text-amber-800 font-medium'
+                              : 'bg-surface border-amber-300 text-amber-700 hover:bg-amber-100'
+                          }`}
+                        >
+                          {member.displayName}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="mt-3">
-              {!membersLoading && internalMembers.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {internalMembers.map((member) => {
-                    const isSelected = internalParticipantIds.includes(member.id)
-                    return (
-                      <button
-                        key={member.id}
-                        type="button"
-                        onClick={() => toggleInternalParticipant(member.id)}
-                        data-testid={`meeting-create-internal-${member.id}`}
-                        className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                          isSelected
-                            ? 'bg-gray-200 border-gray-400 text-gray-800 font-medium'
-                            : 'bg-surface border-gray-300 text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        {member.displayName}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-              {!membersLoading && internalMembers.length === 0 && (
-                <div className="text-xs text-gray-500">
-                  社内メンバーが見つかりません
-                </div>
-              )}
+            {/* Internal participants */}
+            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                  <Users className="text-sm" />
+                  社内参加者
+                </label>
+                <span className="text-xs text-gray-500">
+                  {internalParticipantIds.length}名選択
+                </span>
+              </div>
+
+              <div className="mt-3">
+                {!membersLoading && internalMembers.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {internalMembers.map((member) => {
+                      const isSelected = internalParticipantIds.includes(member.id)
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => toggleInternalParticipant(member.id)}
+                          data-testid={`meeting-create-internal-${member.id}`}
+                          className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                            isSelected
+                              ? 'bg-gray-200 border-gray-400 text-gray-800 font-medium'
+                              : 'bg-surface border-gray-300 text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          {member.displayName}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                {!membersLoading && internalMembers.length === 0 && (
+                  <div className="text-xs text-gray-500">
+                    社内メンバーが見つかりません
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+            </>
+          )}
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
@@ -271,7 +295,8 @@ export function MeetingCreateSheet({
             </button>
             <button
               type="submit"
-              disabled={!title.trim() || membersLoading || isSubmitting}
+              // 記録だけの議事録は名簿を使わないので、その読み込みを待たせない
+              disabled={!title.trim() || (!minutesOnly && membersLoading) || isSubmitting}
               data-testid="meeting-create-submit"
               className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
             >

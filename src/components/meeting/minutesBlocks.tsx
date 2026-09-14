@@ -3,6 +3,7 @@
 import { createReactBlockSpec } from '@blocknote/react'
 import { createExtension, defaultBlockSpecs } from '@blocknote/core'
 import { MEETING_NOTE_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
+import { formatNoteStampLabel } from '@/lib/minutes/noteStamp'
 
 /**
  * 議事録だけで使うブロックの定義。`MinutesEditor` から切り出してあるのは、
@@ -20,28 +21,48 @@ import { MEETING_NOTE_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
  * 予約している）。文字色は指定しない（背景のトークンが明暗どちらでも切り替わり、
  * 本文の色そのままで読める）。
  */
-export function MeetingNoteBlock({ contentRef }: { contentRef: (node: HTMLElement | null) => void }) {
+export function MeetingNoteBlock({
+  createdAt,
+  contentRef,
+}: {
+  createdAt?: string
+  contentRef: (node: HTMLElement | null) => void
+}) {
+  const label = formatNoteStampLabel(createdAt)
   return (
     <div
       data-testid="minutes-meeting-note"
-      className="w-full rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2"
-      ref={contentRef}
-    />
+      className="flex w-full items-start gap-2 rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2"
+    >
+      {/* 文字を持てるのはこの中だけ。日時は外に置き、打てないようにする */}
+      <div className="min-w-0 flex-1" ref={contentRef} />
+      {label && (
+        <span
+          contentEditable={false}
+          data-testid="minutes-meeting-note-time"
+          className="shrink-0 select-none pt-0.5 text-[10px] text-gray-400"
+        >
+          {label}
+        </span>
+      )}
+    </div>
   )
 }
 
 /**
  * 会議メモ。Markdown では行頭の `<!--note-->` で表す（`markdown.ts` 側と対）。
- * 見た目だけのブロックなので props は持たせない（持たせても Markdown に残せない）。
+ * 書いた日時を持つときは `<!--note:2026-09-15T14:30-->` になる。
  */
 export const meetingNoteSpec = createReactBlockSpec(
   {
     type: MEETING_NOTE_TYPE,
-    propSchema: {},
+    propSchema: { createdAt: { default: '' } },
     content: 'inline',
   } as const,
   {
-    render: (props) => <MeetingNoteBlock contentRef={props.contentRef} />,
+    render: (props) => (
+      <MeetingNoteBlock createdAt={props.block.props.createdAt} contentRef={props.contentRef} />
+    ),
   }
 )() // createReactBlockSpec が返すのは「作る関数」。1回呼んで仕様そのものにする
 

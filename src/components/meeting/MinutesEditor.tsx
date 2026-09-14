@@ -1,6 +1,7 @@
 'use client'
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import '@blocknote/core/fonts/inter.css'
@@ -15,7 +16,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { CheckCircle, NotePencil } from '@phosphor-icons/react'
+import { CheckCircle, Checks, NotePencil } from '@phosphor-icons/react'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
@@ -28,10 +29,30 @@ import {
   TASK_MARKER_TYPE,
   TOGGLE_TYPE,
 } from '@/lib/minutes/markdown'
+import { formatNoteStamp } from '@/lib/minutes/noteStamp'
+import { buildTaskLineBlock, findTopLevelAncestor, type TaskLineDraft } from '@/lib/minutes/taskLine'
+/**
+ * パネルは押したときだけ読み込む。中で Wiki の取得層（`useWikiPages`）と
+ * `WikiPageLinkPicker` をまとめて参照するので、置いておくと議事録を開いただけで
+ * 一式が載る（リンクのパネルを遅延読み込みにしているのと同じ理由）。
+ */
+const MinutesTaskLinePanel = dynamic(
+  () => import('./MinutesTaskLinePanel').then((m) => m.MinutesTaskLinePanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="mt-2 rounded border border-gray-200 bg-surface p-3 text-xs text-gray-400">
+        読み込み中...
+      </div>
+    ),
+  }
+)
 import { meetingNoteSpec, toggleListItemSpec } from './minutesBlocks'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
 import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
+import { completeFailureMessage } from '@/lib/minutes/taskActions'
+import { MinutesCompleteError } from '@/lib/hooks/useMinutesTaskActions'
 
 /**
  * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
@@ -365,6 +386,8 @@ function MinutesEditorImpl({
    * カーソルを戻すため（持たないと「/」から呼んでも何も起きないように見える）
    */
   const [linkPicker, setLinkPicker] = useState<{ kind: AppLinkKind; seq: number } | null>(null)
+  /** 「タスクにする行」のパネルを開いているか */
+  const [taskLineOpen, setTaskLineOpen] = useState(false)
   const openLinkPicker = useCallback((kind: AppLinkKind) => {
     setLinkPicker((prev) => ({ kind, seq: (prev?.seq ?? 0) + 1 }))
   }, [])
@@ -404,8 +427,31 @@ function MinutesEditorImpl({
    * 今の行を「会議メモ」に変える（空の行なら、その行がそのまま会議メモになる）。
    * 「/」メニューからも、本文の下のボタンからも同じ入口を使う。
    */
+  /**
+   * 「タスクにする行」を入れる。**いちばん外側の行の後ろ**に入れるのが要点。
+   * 折りたたみや箇条書きの中に入ると字下げされ、その行はタスク化の候補に出なくなる
+   * （DB 側は行頭の `- [ ]` だけを見るため）。
+   */
+  const insertTaskLine = useCallback(
+    (draft: TaskLineDraft) => {
+      const block = buildTaskLineBlock(draft, orgId, spaceId)
+      if (!block) return
+      const cursorId = editor.getTextCursorPosition()?.block?.id
+      const anchor = findTopLevelAncestor(editor.document, cursorId)
+      if (!anchor) return
+      editor.insertBlocks([block] as never, anchor as never, 'after')
+      setTaskLineOpen(false)
+      editor.focus()
+    },
+    [editor, orgId, spaceId]
+  )
+
   const insertMeetingNote = useCallback(() => {
-    insertOrUpdateBlockForSlashMenu(editor, { type: MEETING_NOTE_TYPE, props: {} })
+    // 書いた日時をその場で焼き付ける。あとから本文を直しても日時は動かない
+    insertOrUpdateBlockForSlashMenu(editor, {
+      type: MEETING_NOTE_TYPE,
+      props: { createdAt: formatNoteStamp() },
+    })
     editor.focus()
   }, [editor])
 
@@ -413,6 +459,15 @@ function MinutesEditorImpl({
     async (query: string) =>
       filterSuggestionItems(
         [
+          {
+            key: 'insert_task_line',
+            title: 'タスクにする行',
+            subtext: 'やること・期限・資料を選ぶと、タスク化できる形で1行入る',
+            aliases: ['task', 'todo', 'タスク', 'やること', '決めること', '期限'],
+            group: jaLocale.slash_menu.paragraph.group,
+            icon: <Checks size={18} />,
+            onItemClick: () => setTaskLineOpen(true),
+          },
           {
             key: 'insert_meeting_note',
             title: '会議メモ',
@@ -502,6 +557,34 @@ function MinutesEditorImpl({
   const lastMarkdownRef = useRef(minutesMd)
 
   /**
+   * その印が付いた行のチェックを付け外しする。
+   * 字下げした行も拾うので入れ子まで辿る（トップ階層だけ見ると見つからない）。
+   * 画面を離れた後に呼ばれることがあるので、触れなければ黙って諦める。
+   */
+  const setChecked = useCallback(
+    (taskId: string, checked: boolean) => {
+      try {
+        editor.forEachBlock((block) => {
+          if (block.type !== 'checkListItem') return true
+          const hasMarker = (block.content as unknown[] | undefined)?.some(
+            (c) =>
+              (c as { type?: string }).type === TASK_MARKER_TYPE &&
+              (c as { props?: { taskId?: string } }).props?.taskId === taskId
+          )
+          if (!hasMarker) return true
+          editor.updateBlock(block, {
+            props: { ...(block.props as Record<string, unknown>), checked },
+          } as Parameters<typeof editor.updateBlock>[1])
+          return false
+        })
+      } catch {
+        // エディタが既に外れている等。チェックは動かせないが、理由はトーストで伝わる
+      }
+    },
+    [editor]
+  )
+
+  /**
    * チェックを入れたら、そのタスクを完了にする（タスクが既にある行だけ）。
    * 外したときは何もしない（完了の取り消しは事故が痛いのでタスク側で行う）。
    * 完了できないとき（未決・承認待ち）は理由を出し、**チェックを元に戻す**。
@@ -519,32 +602,39 @@ function MinutesEditorImpl({
 
       for (const taskId of taskIds) {
         void resolver.run(taskId, 'complete').catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : 'このタスクは完了にできませんでした'
-          toast.error(message)
-          // チェックを戻す。付いたままだと「完了した」と誤解するため。
-          // 画面を離れた後に失敗が返ることがあるので、触れなければ黙って諦める
-          try {
-            // 字下げした行も拾うので、入れ子まで辿る（トップ階層だけ見ると戻せない）
-            editor.forEachBlock((block) => {
-              if (block.type !== 'checkListItem') return true
-              const hasMarker = (block.content as unknown[] | undefined)?.some(
-                (c) =>
-                  (c as { type?: string }).type === TASK_MARKER_TYPE &&
-                  (c as { props?: { taskId?: string } }).props?.taskId === taskId
-              )
-              if (!hasMarker) return true
-              editor.updateBlock(block, {
-                props: { ...(block.props as Record<string, unknown>), checked: false },
-              } as Parameters<typeof editor.updateBlock>[1])
-              return false
+          setChecked(taskId, false)
+          const kind = err instanceof MinutesCompleteError ? err.kind : 'unknown'
+          const message = err instanceof Error ? err.message : completeFailureMessage('unknown')
+
+          // まだ決まっていないだけなら、ここから2手を1回で進められるようにする。
+          // 決めるのは人の仕事なので、自動では決めない（押してもらう）
+          if (kind === 'spec_undecided') {
+            toast.error(message, {
+              action: {
+                label: '決定にして完了にする',
+                onClick: () => {
+                  const now = resolverRef.current
+                  if (!now) return
+                  void now
+                    .run(taskId, 'decide')
+                    .then(() => now.run(taskId, 'complete'))
+                    .then(() => {
+                      setChecked(taskId, true)
+                      toast.success('決定にして、完了にしました')
+                    })
+                    .catch((e: unknown) => {
+                      toast.error(e instanceof Error ? e.message : completeFailureMessage('unknown'))
+                    })
+                },
+              },
             })
-          } catch {
-            // エディタが既に外れている等。チェックは戻せないが、理由は上のトーストで伝わる
+            return
           }
+          toast.error(message)
         })
       }
     },
-    [editor]
+    [setChecked]
   )
 
   return (
@@ -572,6 +662,16 @@ function MinutesEditorImpl({
           {/* 会議中に一番よく使うので、「/」を知らなくても押せる場所に出す */}
           <button
             type="button"
+            data-testid="minutes-insert-task-line"
+            onClick={() => setTaskLineOpen((v) => !v)}
+            aria-expanded={taskLineOpen}
+            className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            <Checks size={14} />
+            タスクにする行
+          </button>
+          <button
+            type="button"
             data-testid="minutes-insert-meeting-note"
             onClick={insertMeetingNote}
             className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
@@ -589,6 +689,14 @@ function MinutesEditorImpl({
             onSelect={handleSelectLink}
           />
         </div>
+      )}
+      {effectiveEditable && taskLineOpen && (
+        <MinutesTaskLinePanel
+          orgId={orgId}
+          spaceId={spaceId}
+          onInsert={insertTaskLine}
+          onClose={() => setTaskLineOpen(false)}
+        />
       )}
     </div>
   )

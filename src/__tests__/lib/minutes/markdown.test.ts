@@ -185,6 +185,44 @@ describe('会議メモ', () => {
     expect(parseMinutesMarkdown(md)).toEqual([{ type: 'meetingNote', content: [t('- 箇条書きに見える')] }])
   })
 
+  it('書いた日時を持つ会議メモを読める', () => {
+    expect(parseMinutesMarkdown('<!--note:2026-09-15T14:30-->その場で出た補足')).toEqual([
+      { type: 'meetingNote', props: { createdAt: '2026-09-15T14:30' }, content: [t('その場で出た補足')] },
+    ])
+  })
+
+  it('日時は1行目だけに付け、続きの行には付けない', () => {
+    const out = serializeMinutesBlocks([
+      { type: 'meetingNote', props: { createdAt: '2026-09-15T14:30' }, content: [t('1行目\n2行目')] },
+    ])
+    expect(out).toBe('<!--note:2026-09-15T14:30-->1行目\n<!--note-->2行目')
+  })
+
+  it('日時付きの会議メモも、読み込み→書き出しで形が変わらない', () => {
+    const md = '<!--note:2026-09-15T14:30-->1行目\n<!--note-->2行目'
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+  })
+
+  it('日時付きの行が続いたら、別の会議メモとして分ける', () => {
+    const blocks = parseMinutesMarkdown('<!--note:2026-09-15T14:30-->前半\n<!--note:2026-09-15T15:00-->後半')
+    expect(blocks).toEqual([
+      { type: 'meetingNote', props: { createdAt: '2026-09-15T14:30' }, content: [t('前半')] },
+      { type: 'meetingNote', props: { createdAt: '2026-09-15T15:00' }, content: [t('後半')] },
+    ])
+  })
+
+  it('壊れた日時は無視して、ただの会議メモとして読む', () => {
+    expect(parseMinutesMarkdown('<!--note:こわれた-->本文')).toEqual([
+      { type: 'meetingNote', content: [t('本文')] },
+    ])
+  })
+
+  it('日時の無い会議メモはこれまでどおり', () => {
+    const md = '<!--note-->日時なし'
+    expect(parseMinutesMarkdown(md)).toEqual([{ type: 'meetingNote', content: [t('日時なし')] }])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+  })
+
   it('行末のタスクの印は会議メモでも拾う', () => {
     const blocks = parseMinutesMarkdown('<!--note-->決めた <!--task:11111111-1111-1111-1111-111111111111-->')
     expect(blocks).toEqual([

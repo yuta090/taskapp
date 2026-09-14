@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import {
   findWikiTaskCandidate,
+  DUE_IN_TITLE_PATTERN,
   UNCHECKED_ITEM_PATTERN,
   WIKI_PAGE_HREF_PATTERN,
 } from '@/lib/minutes/wikiTaskCandidate'
@@ -135,6 +136,11 @@ describe('SQL と共有するパターン', () => {
       const { sql } = readLatestMigrationDefining(fn)
       expect(sliceFunctionBody(sql, fn)).toContain(UNCHECKED_ITEM_PATTERN)
     })
+
+    it(`${fn} が同じ「期限を題名から外す」パターンを持つ`, () => {
+      const { sql } = readLatestMigrationDefining(fn)
+      expect(sliceFunctionBody(sql, fn)).toContain(DUE_IN_TITLE_PATTERN)
+    })
   }
 
   // 包みが本体を呼んでいること（呼び忘れると、判定はあるのに誰も通らない）
@@ -189,5 +195,65 @@ describe('findWikiTaskCandidate: リンクの無い行', () => {
 
   it('旧来の SPEC 行は、これまでどおりそちらの経路が扱う', () => {
     expect(findWikiTaskCandidate('- [ ] SPEC(/spec/A.md#x): タイトル')).toBeNull()
+  })
+})
+
+/**
+ * 「期限: 9/20」の書き方は、期限として読み取るだけで**題名には残さない**。
+ * 残ると一覧に「見積を出す（期限: 9/20）」と出てしまい、あとで期限を変えたときに
+ * 名前だけ古い日付のままになる。
+ */
+describe('findWikiTaskCandidate: 期限の書き方は題名に残さない', () => {
+  it('半角の括弧で囲まれた期限を外す', () => {
+    expect(findWikiTaskCandidate('- [ ] 見積を出す(期限: 9/20)')?.title).toBe('見積を出す')
+  })
+
+  it('全角の括弧で囲まれた期限を外す', () => {
+    expect(findWikiTaskCandidate('- [ ] 見積を出す（期限: 9/20）')?.title).toBe('見積を出す')
+  })
+
+  it('括弧が無くても外す', () => {
+    expect(findWikiTaskCandidate('- [ ] 見積を出す 期限: 9/20')?.title).toBe('見積を出す')
+  })
+
+  it('年まで書いてあっても外す', () => {
+    expect(findWikiTaskCandidate('- [ ] 見積を出す（期限: 2026/9/20）')?.title).toBe('見積を出す')
+  })
+
+  it('行の途中にあっても外す', () => {
+    expect(findWikiTaskCandidate('- [ ] 資料を送る（期限: 9/20）と、見積も出す')?.title).toBe(
+      '資料を送ると、見積も出す'
+    )
+  })
+
+  it('行の先頭にあっても外す', () => {
+    expect(findWikiTaskCandidate('- [ ] 期限: 9/20 見積を出す')?.title).toBe('見積を出す')
+  })
+
+  it('期限が無い行はそのまま', () => {
+    expect(findWikiTaskCandidate('- [ ] 見積を出す')?.title).toBe('見積を出す')
+  })
+
+  it('日付が入っていない「期限: 未定」は外さない（期限としても読めない）', () => {
+    expect(findWikiTaskCandidate('- [ ] 見積を出す（期限: 未定）')?.title).toBe(
+      '見積を出す（期限: 未定）'
+    )
+  })
+
+  it('Wiki ページのリンクと一緒でも、題名だけ残る', () => {
+    const line = `- [ ] 玄関の向きを決める（期限: 9/20） [家の間取り](${href(PAGE_ID)})`
+    expect(findWikiTaskCandidate(line)).toMatchObject({
+      pageId: PAGE_ID,
+      title: '玄関の向きを決める',
+    })
+  })
+
+  it('期限だけの行は拾わない（タスクの名前が残らない）', () => {
+    expect(findWikiTaskCandidate('- [ ] （期限: 9/20）')).toBeNull()
+  })
+
+  it('期限だけでもリンクがあれば、リンクの文字を題名にする', () => {
+    const line = `- [ ] （期限: 9/20）[水回りの位置](${href(PAGE_ID)})`
+    expect(findWikiTaskCandidate(line)).toMatchObject({ pageId: PAGE_ID, title: '水回りの位置' })
   })
 })

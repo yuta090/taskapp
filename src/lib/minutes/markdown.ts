@@ -190,6 +190,24 @@ export const TOGGLE_MARKER = '<!--toggle-->'
  */
 export const MEETING_NOTE_MARKER = '<!--note-->'
 
+/**
+ * 会議メモの目印。書いた日時を持つときは `<!--note:2026-09-15T14:30-->` の形になる。
+ * 日時は**1行目だけ**に付ける（2行目以降は同じブロックの続きなので付けない）。
+ */
+const MEETING_NOTE_LINE_RE = /^<!--note(?::([^>]*))?-->/
+
+/**
+ * 書いた日時の形（JST の壁時計）。この形でない文字が入っていたら、日時が無いものとして
+ * 扱う（人や AI が手で書いた議事録でも画面を壊さない）。
+ */
+const MEETING_NOTE_STAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
+
+/** 目印から書いた日時を取り出す。形が違えば null。 */
+function readNoteStamp(marker: string | undefined): string | null {
+  if (!marker) return null
+  return MEETING_NOTE_STAMP_RE.test(marker) ? marker : null
+}
+
 /** 折りたたみのブロック種別（BlockNote 既定の折りたたみと同じ名前）。 */
 export const TOGGLE_TYPE = 'toggleListItem'
 
@@ -652,7 +670,7 @@ function isBlockTriggerLine(line: string, lines: string[], idx: number, depth: n
   if (HEADING_RE.test(line)) return true
   if (CHECK_RE.test(line) || BULLET_RE.test(line) || NUMBERED_RE.test(line)) return true
   // 会議メモは段落の途中からでも始められる（段落をここで切る）
-  if (line.startsWith(MEETING_NOTE_MARKER)) return true
+  if (MEETING_NOTE_LINE_RE.test(line)) return true
   if (
     /^\|/.test(line) &&
     idx + 1 < end &&
@@ -852,16 +870,23 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
     // 会議メモ。続けて書かれた `<!--note-->` の行はまとめて1ブロックにする
     // （段落と同じで、1ブロックの中に複数行を持てる）。ここは箇条書きより先に
     // 見る必要はないが、段落として飲み込まれる前に捕まえる必要がある。
-    if (line.startsWith(MEETING_NOTE_MARKER)) {
-      const noteTextLines: string[] = []
-      let j = i
+    const noteMatch = MEETING_NOTE_LINE_RE.exec(line)
+    if (noteMatch) {
+      const createdAt = readNoteStamp(noteMatch[1])
+      const noteTextLines: string[] = [line.slice(noteMatch[0].length)]
+      let j = i + 1
       while (j < end && lineIndentChars(lines[j]) === depth) {
         const noteLine = stripIndent(lines[j], depth)
-        if (!noteLine.startsWith(MEETING_NOTE_MARKER)) break
-        noteTextLines.push(noteLine.slice(MEETING_NOTE_MARKER.length))
+        const next = MEETING_NOTE_LINE_RE.exec(noteLine)
+        // 日時を持つ行は「別の会議メモの1行目」。ここで切らないと、続けて書かれた
+        // 2つの会議メモが1つに溶ける
+        if (!next || next[1] !== undefined) break
+        noteTextLines.push(noteLine.slice(next[0].length))
         j++
       }
-      blocks.push({ type: MEETING_NOTE_TYPE, content: tokenizeLinesWithMarker(noteTextLines) })
+      const block: MinutesBlock = { type: MEETING_NOTE_TYPE, content: tokenizeLinesWithMarker(noteTextLines) }
+      if (createdAt) block.props = { createdAt }
+      blocks.push(block)
       i = j
       continue
     }
@@ -1225,10 +1250,14 @@ function textToLines(text: string): string[] {
  * 目印より前には何も無く、読み込み側は目印を見た時点で「ここから先は本文」と
  * 決めるので、`- ` や `#` で始まる文でも逃がし（`\`）は要らない。
  */
-function noteLines(text: string): string[] {
+function noteLines(text: string, createdAt: string | null): string[] {
   return collapseEmbeddedBlankLines(text)
     .split('\n')
-    .map((line) => MEETING_NOTE_MARKER + line)
+    .map((line, index) =>
+      // 日時は1行目だけ。2行目以降にも付けると、読み戻したとき行ごとに
+      // 別の会議メモへ割れてしまう
+      index === 0 && createdAt ? `<!--note:${createdAt}-->${line}` : MEETING_NOTE_MARKER + line
+    )
 }
 
 function itemLines(marker: string, text: string): string[] {
@@ -1278,7 +1307,10 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
     case 'paragraph':
       return textToLines(contentArrayToText(block.content))
     case MEETING_NOTE_TYPE:
-      return noteLines(contentArrayToText(block.content))
+      return noteLines(
+        contentArrayToText(block.content),
+        typeof block.props.createdAt === 'string' ? readNoteStamp(block.props.createdAt) : null
+      )
     case TOGGLE_TYPE:
       // 箇条書きと同じ形に目印を挟むだけ。1行目には逃がし(`\`)が付かないので、
       // 何度往復しても目印はそのまま残る
