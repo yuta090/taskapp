@@ -306,6 +306,33 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     ],
   },
 
+  // ── Spec decision（決める札の確定） ──
+  {
+    name: 'spec',
+    description: '決める札（決定事項）の確定',
+    subcommands: [
+      {
+        name: 'decide',
+        description:
+          '決める札を確定する（画面の「決定にする」と同じ）。紐づく Wiki ページに決定行が入り、確定時点の本文が控えとして残る',
+        tool: 'spec_decide',
+        options: [
+          spaceOpt,
+          { flags: '--task-id <uuid>', description: '決める札のUUID', param: 'taskId', required: true },
+          {
+            flags: '--state <state>',
+            description: 'considering=検討中に戻す / decided=確定 / implemented=実装済み',
+            param: 'state',
+            choices: ['considering', 'decided', 'implemented'],
+            default: 'decided',
+          },
+          { flags: '--note <text>', description: '決定の補足（監査ログに残る）', param: 'note' },
+          { flags: '--meeting-id <uuid>', description: 'この決定を行った会議のUUID', param: 'meetingId' },
+        ],
+      },
+    ],
+  },
+
   // ── Review ──
   {
     name: 'review',
@@ -742,7 +769,8 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'update',
-        description: 'Update a wiki page',
+        description:
+          'Wikiページを更新する。本文を差し替えるときは、直前の wiki get の updated_at を --expected-updated-at に渡すこと（渡さないと他の人の更新を黙って消す）',
         tool: 'wiki_update',
         stdinMode: true,
         stdinFormat: 'text',
@@ -760,6 +788,12 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--milestone-id <id>', description: 'Link to a milestone. Use "none" to unlink', param: 'milestoneId' },
           { flags: '--pinned', description: 'Pin to the top of the list', param: 'pinned', type: 'bool' },
           { flags: '--no-pinned', description: 'Unpin', param: 'pinned', type: 'negatable' },
+          {
+            flags: '--expected-updated-at <ts>',
+            description:
+              '直前の wiki get で返った updated_at。その版のままのときだけ書き換える（省略すると無条件に上書き）',
+            param: 'expectedUpdatedAt',
+          },
         ],
       },
       {
@@ -801,12 +835,19 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'update',
-        description: 'Update meeting minutes (overwrite)',
+        description:
+          '議事録を丸ごと差し替える。直前の minutes get の updated_at を --expected-updated-at に渡すこと（渡さないと他の人の更新を黙って消す）',
         tool: 'minutes_update',
         options: [
           spaceOpt,
           { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
           { flags: '--minutes-md <md>', description: 'Minutes content (Markdown)', param: 'minutesMd', required: true },
+          {
+            flags: '--expected-updated-at <ts>',
+            description:
+              '直前の minutes get で返った updated_at。その版のままのときだけ書き換える（省略すると無条件に上書き）',
+            param: 'expectedUpdatedAt',
+          },
         ],
       },
       {

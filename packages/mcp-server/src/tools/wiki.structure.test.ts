@@ -21,9 +21,8 @@ const wikiPagesChain = {
       eq: () => ({
         eq: () => ({
           eq: () => ({
-            select: () => ({
-              single: async () => ({ data: { id: 'p-1', title: 'ページ' }, error: null }),
-            }),
+            // wiki_update は .single() を使わず select() の結果を await する（0行の区別のため）
+            select: async () => ({ data: [{ id: 'p-1', title: 'ページ' }], error: null }),
           }),
         }),
       }),

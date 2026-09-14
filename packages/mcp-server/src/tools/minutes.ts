@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { assertWriteApplied } from '../lib/staleWrite.js'
 import { getSupabaseClient, Meeting } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
 
@@ -13,6 +14,12 @@ const minutesUpdateSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   meetingId: z.string().describe('会議ID'),
   minutesMd: z.string().describe('議事録本文（Markdown）'),
+  expectedUpdatedAt: z
+    .string()
+    .optional()
+    .describe(
+      '直前の minutes_get で受け取った updated_at をそのまま渡す。渡すと、その版のままのときだけ書き換える。渡さないと、他の人やAIが先に書いた内容を黙って上書きする（議事録には控えが無く元に戻せない）'
+    ),
 })
 
 const minutesAppendSchema = z.object({
@@ -47,7 +54,7 @@ async function getMeetingScoped(meetingId: string, spaceId: string, orgId: strin
 
 // ── Handlers ─────────────────────────────────────────────
 
-export async function minutesGet(params: z.infer<typeof minutesGetSchema>): Promise<{ meeting_id: string; title: string; status: string; minutes_md: string | null }> {
+export async function minutesGet(params: z.infer<typeof minutesGetSchema>): Promise<{ meeting_id: string; title: string; status: string; minutes_md: string | null; updated_at: string }> {
   await checkAuth(params.spaceId, 'read', 'minutes_get', 'meeting', params.meetingId)
   const orgId = await getOrgId(params.spaceId)
   const meeting = await getMeetingScoped(params.meetingId, params.spaceId, orgId)
@@ -56,6 +63,9 @@ export async function minutesGet(params: z.infer<typeof minutesGetSchema>): Prom
     title: meeting.title,
     status: meeting.status,
     minutes_md: meeting.minutes_md,
+    // 書き換えるときに expectedUpdatedAt として渡すための版。これが無いと
+    // 「先に誰かが書いていたら断る」を使いたくても値が取れない
+    updated_at: meeting.updated_at,
   }
 }
 
@@ -67,17 +77,24 @@ export async function minutesUpdate(params: z.infer<typeof minutesUpdateSchema>)
   // Verify meeting exists and belongs to org/space
   await getMeetingScoped(params.meetingId, params.spaceId, orgId)
 
-  const { data, error } = await supabase
+  // expectedUpdatedAt を渡されたときだけ、その版のままの行に限って書く（楽観ロック）。
+  // .single() は使わない — 0行のとき例外になり、競合と「見つからない」を区別できないため。
+  let query = supabase
     .from('meetings')
     .update({ minutes_md: params.minutesMd })
     .eq('id', params.meetingId)
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
-    .select('*')
-    .single()
+  if (params.expectedUpdatedAt !== undefined) {
+    query = query.eq('updated_at', params.expectedUpdatedAt)
+  }
 
+  const { data, error } = await query.select('*')
   if (error) throw new Error('議事録の更新に失敗しました')
-  return data as Meeting
+
+  const rows = (data ?? []) as Meeting[]
+  assertWriteApplied(rows.length, params.expectedUpdatedAt, '会議が見つかりません')
+  return rows[0] as Meeting
 }
 
 export async function minutesAppend(params: z.infer<typeof minutesAppendSchema>): Promise<Meeting> {

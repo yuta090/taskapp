@@ -13,8 +13,10 @@ const ORG = 'org-1'
 let updateError: { message: string } | null = null
 
 function chain() {
+  // wiki_update は .single() を使わず select() の結果をそのまま await する
+  // （0行を競合と「見つからない」で区別するため）。select() 自体を待てる形にする。
   const obj: Record<string, unknown> = {
-    select: () => obj,
+    select: () => Object.assign(Promise.resolve({ data: null, error: updateError }), obj),
     eq: () => obj,
     update: () => obj,
     single: async () => ({ data: null, error: updateError }),

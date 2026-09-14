@@ -136,9 +136,58 @@ Wiki 一覧の行に、そのページに紐づく決める札の進み具合を
 `range` を明示して読み切る。付けないと PostgREST の `max_rows`（1000）で黙って打ち切られ、
 「確定 2/5」が嘘になる。判定は `src/lib/wiki/decisionCounts.ts`。
 
+## CLI / API から決定する
+
+画面の「決定にする」と同じことを `agentpm spec decide` でできる。
+
+```
+agentpm spec decide --task-id <id> --state decided --note "9/14の定例で合意"
+```
+
+- 紐づけも画面と同じ規則。`task create --type spec --wiki-page-id <id>` / `task update --wiki-page-id <id>`
+  で決める札になる（「仕様書として扱う」のページなら。タグ無しなら参考資料のまま）。
+  規則は2か所（画面 `useTasks.ts` / CLI `packages/mcp-server/src/lib/specLink.ts`）にあり、
+  `src/__tests__/lib/specLinkParity.test.ts` が突き合わせる。
+- `rpc_set_spec_state` は `_impl` ＋ 画面用（`auth.uid()`）＋ 道具用（`_as`・実行者を明示）に分けた
+  （`20260912134823_mcp_rpc_as.sql` と同じ型）。誰が決めたかは画面と同じく `task_events.actor_id` に残る。
+
+### 分割のときに踏んだ落とし穴
+
+**`app_can_write_space` は中で `auth.uid()` を見る。** 本体をそのまま `_impl` に移すと、
+鍵で動く道具（`_as` 経由・ログイン中の利用者がいない）からは**必ず弾かれる**。
+`_actor_can_write_space(p_actor, space, org)` に差し替える。判定の中身は同じ。
+
+同じ形で `_as` を足すときは、**中で `auth.uid()` を見ている関数を呼んでいないか**を必ず確かめる。
+
+### 決定行は「末尾に足すだけ」を保つ
+
+同時編集の設計（`docs/spec/COEDITING_SPEC.md`）が、`rpc_set_spec_state` が本文の
+**末尾にブロックを1つ足すだけ**であることに寄りかかっている（増えた末尾だけを生きている
+エディタへ合流させる設計）。本文を組み直して全部書き戻す形に変えると、この合流ができなくなる。
+変えるときは先に相談する。検証は `supabase/tests/run_spec_state_as.sh` の3項目
+（ブロック数が「もとの1つ＋決定行2つ＝3」）。
+
+## CLI からの全文差し替えを、黙って上書きさせない
+
+`minutes_update` / `wiki_update` は本文を丸ごと差し替えるが、版を見ずに上書きしていた。
+AI秘書や別の人が先に書いていても成功として返る。議事録には控えが無いので復旧できない。
+
+**任意の `expectedUpdatedAt`** を足した。渡すとその版のままの行だけを書き、違えば
+「この内容は、別の場所で更新されています」で断る。**省略時はこれまでどおり**（既存の呼び出しを壊さない）。
+
+任意のままだと誰も渡さないので、**AI と人が読むところ全部に渡す理由を書く**
+（MCP のスキーマ・`cli-manifest.ts`・`cli-skill.ts`）。AI は説明文しか読まないため、
+ここに書かないと存在しないのと同じ。`src/__tests__/lib/staleWriteGuard.test.ts` が
+3か所すべてに書いてあることを検査する。
+
+`minutes_append` には付けない（末尾に足すだけなので衝突しない。付けると往復が増えるだけ）。
+
+**必須に上げる条件**: `agentpm` の新しい版が行き渡り、`minutes_update` /
+`wiki_update` の呼び出しで `expectedUpdatedAt` が付いている割合が十分になったら必須にする。
+判断は CLI 利用のログ（`audit_logs` の道具名）で見る。それまでは任意のまま。
+
 ## まだ無いもの
 
 - Wiki ページから「このページを参照している札」を見る導線
 - 決定行を該当の見出しの下に入れる（見出しの指定の仕組みから要る）
-- CLI から確定にする（`rpc_set_spec_state` に当たる道具が無い）
 - 「決めてください」の受信トレイ通知（表示側だけあり、作る側が無い）
