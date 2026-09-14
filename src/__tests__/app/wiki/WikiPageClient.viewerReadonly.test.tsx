@@ -84,6 +84,11 @@ vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
   useWikiMilestoneLinks: () => ({ linksByPageId: new Map(), loading: false }),
 }))
 
+// 一覧の「確定 n/m」の印に使う取得。ここでは印を検証しないので空で返す
+vi.mock('@/lib/hooks/useWikiDecisionCounts', () => ({
+  useWikiDecisionCounts: () => ({ countsByPageId: new Map(), loading: false }),
+}))
+
 // エディタ本体(Tiptap)は重いので、editable の値だけを検証できるように差し替える
 vi.mock('@/components/wiki/WikiEditorDynamic', () => ({
   WikiEditorDynamic: ({ editable }: { editable: boolean }) => (

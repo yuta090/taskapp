@@ -18,6 +18,7 @@ import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
+import { useWikiDecisionCounts } from '@/lib/hooks/useWikiDecisionCounts'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import {
   applyWikiListView,
@@ -174,6 +175,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     // 空のWikiの自動作成（ホームページ等）は編集できる人のときだけ行う
   } = useWikiPages({ orgId, spaceId, canEdit })
   const { milestones } = useMilestones({ spaceId })
+  // 一覧の「確定 2/5」。一覧の取得と並列に走る軽い1本（select 2列・type='spec' 限定）
+  const { countsByPageId } = useWikiDecisionCounts(orgId, spaceId)
   const milestonesEmpty = pages.length === 0 ? milestones.length === 0 : null
 
   // Wiki 一覧の絞り込み・並べ替え・表示項目（PR1: 一覧強化）
@@ -192,6 +195,10 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const getPageMilestones = useCallback(
     (pageId: string): Milestone[] => milestonesByPageId.get(pageId) ?? EMPTY_PAGE_MILESTONES,
     [milestonesByPageId]
+  )
+  const getPageDecisions = useCallback(
+    (pageId: string) => countsByPageId.get(pageId),
+    [countsByPageId]
   )
 
   const memberMap = useMemo(() => {
@@ -1021,6 +1028,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 columns={prefs.columns}
                 getMember={getMember}
                 milestones={getPageMilestones(page.id)}
+                decisionCount={getPageDecisions(page.id)}
                 depth={depth}
                 hasChildren={hasChildren}
                 collapsed={collapsed}
@@ -1044,6 +1052,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                     columns={prefs.columns}
                     getMember={getMember}
                     milestones={getPageMilestones(page.id)}
+                    decisionCount={getPageDecisions(page.id)}
                     duplicatedInOtherGroups={Math.max(0, getPageMilestones(page.id).length - 1)}
                   />
                 ))}
@@ -1061,6 +1070,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 columns={prefs.columns}
                 getMember={getMember}
                 milestones={getPageMilestones(page.id)}
+                decisionCount={getPageDecisions(page.id)}
               />
             ))}
           </div>
