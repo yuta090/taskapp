@@ -356,3 +356,62 @@ describe('WikiPageRow', () => {
     })
   })
 })
+
+// 「確定 2/5」の印。確定の単位はページではなく決定1件なので、そのページに紐づく
+// 決める札を数えて出す。札が無いページには出さない。
+describe('WikiPageRow 確定の印', () => {
+  const renderRow = (decisionCount?: { total: number; decided: number }) =>
+    render(
+      <WikiPageRow
+        page={page()}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={['tags']}
+        getMember={getMember}
+        decisionCount={decisionCount}
+      />
+    )
+
+  it('決める札が無ければ印を出さない', () => {
+    renderRow(undefined)
+    expect(screen.queryByTestId('wiki-decision-chip')).toBeNull()
+  })
+
+  it('0件でも印を出さない', () => {
+    renderRow({ total: 0, decided: 0 })
+    expect(screen.queryByTestId('wiki-decision-chip')).toBeNull()
+  })
+
+  it('途中なら「確定 2/5」を出す', () => {
+    renderRow({ total: 5, decided: 2 })
+    expect(screen.getByTestId('wiki-decision-chip').textContent).toBe('確定 2/5')
+  })
+
+  it('全部そろったら塗りつぶす', () => {
+    renderRow({ total: 3, decided: 3 })
+    const chip = screen.getByTestId('wiki-decision-chip')
+    expect(chip.textContent).toBe('確定 3/3')
+    expect(chip.className).toContain('bg-indigo-600')
+  })
+
+  it('途中は枠だけにする（塗りつぶさない）', () => {
+    renderRow({ total: 3, decided: 1 })
+    const chip = screen.getByTestId('wiki-decision-chip')
+    expect(chip.className).toContain('border-indigo-200')
+    expect(chip.className).not.toContain('bg-indigo-600')
+  })
+
+  it('表示項目の設定に関わらず出す（確定の見分けは常に要る）', () => {
+    render(
+      <WikiPageRow
+        page={page()}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        decisionCount={{ total: 2, decided: 1 }}
+      />
+    )
+    expect(screen.getByTestId('wiki-decision-chip').textContent).toBe('確定 1/2')
+  })
+})

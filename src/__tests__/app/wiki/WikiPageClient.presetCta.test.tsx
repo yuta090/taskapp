@@ -59,6 +59,11 @@ vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
   useWikiMilestoneLinks: () => ({ linksByPageId: new Map(), loading: false }),
 }))
 
+// 一覧の「確定 n/m」の印に使う取得。ここでは印を検証しないので空で返す
+vi.mock('@/lib/hooks/useWikiDecisionCounts', () => ({
+  useWikiDecisionCounts: () => ({ countsByPageId: new Map(), loading: false }),
+}))
+
 let mockCanEditMoney = true
 vi.mock('@/lib/hooks/useCanEditSpace', () => ({
   useCanEditSpace: () => ({ canEdit: true, canEditMoney: mockCanEditMoney, resolved: true, loading: false }),

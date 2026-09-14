@@ -118,6 +118,11 @@ vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
   useWikiMilestoneLinks: () => ({ linksByPageId: mockLinksByPageId.current, loading: false }),
 }))
 
+// 一覧の「確定 n/m」の印に使う取得。ここでは印を検証しないので空で返す
+vi.mock('@/lib/hooks/useWikiDecisionCounts', () => ({
+  useWikiDecisionCounts: () => ({ countsByPageId: new Map(), loading: false }),
+}))
+
 function setup() {
   render(<WikiPageClient orgId="org1" spaceId="space1" />)
 }

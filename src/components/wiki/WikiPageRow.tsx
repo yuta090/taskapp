@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { CaretDown, CaretRight, Flag, PushPin, Tag } from '@phosphor-icons/react'
 import { TruncatedText } from '@/components/shared'
 import type { Milestone, WikiPage } from '@/types/database'
+import { decisionChipLabel, type DecisionCount } from '@/lib/wiki/decisionCounts'
 import type { WikiListColumn } from '@/lib/wiki/listPrefs'
 import { formatWikiAbsoluteTime, formatWikiRelativeTime, formatWikiShortDate } from '@/lib/wiki/listView'
 
@@ -29,6 +30,11 @@ interface WikiPageRowProps {
    * みなし、milestones のチップは出さない（そのグループの見出しで所属が自明なため）。
    */
   duplicatedInOtherGroups?: number
+  /**
+   * このページに紐づく「決める札」の数（確定した数 / 全体）。省略または total=0 なら印を出さない。
+   * 確定の単位はページではなく決定1件なので、ページ自身に状態は持たせない。
+   */
+  decisionCount?: DecisionCount
   /** フォルダ表示のインデント深さ。省略時は 0（インデント無し・一覧/マイルストーン表示）。 */
   depth?: number
   /**
@@ -84,6 +90,7 @@ function WikiPageRowInner({
   columns,
   getMember,
   milestones,
+  decisionCount,
   duplicatedInOtherGroups,
   depth,
   hasChildren,
@@ -102,6 +109,28 @@ function WikiPageRowInner({
     },
     [onToggleCollapse, page.id]
   )
+
+  // 「確定 2/5」。決める札が1件も無いページには出さない（検討資料・議事メモに
+  // 「検討中」を貼ると印の意味が薄れる）。列の表示設定には載せない — 確定の見分けは
+  // 常に要るものなので、消せる項目にしない。
+  const decisionChip = decisionChipLabel(decisionCount)
+  if (decisionChip) {
+    metaItems.push(
+      <span
+        key="decisions"
+        data-testid="wiki-decision-chip"
+        title={decisionChip.complete ? 'このページの決めることは全部決まっています' : '決めることが残っています'}
+        className={
+          'px-1.5 py-0.5 text-[10px] font-medium rounded ' +
+          (decisionChip.complete
+            ? 'bg-indigo-600 text-white'
+            : 'border border-indigo-200 text-indigo-ink')
+        }
+      >
+        {decisionChip.text}
+      </span>
+    )
+  }
 
   if (columns.includes('tags') && page.tags.length > 0) {
     metaItems.push(

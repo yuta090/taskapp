@@ -114,9 +114,30 @@
 | 表示 | `src/components/wiki/WikiPageInspector.tsx`（バージョン履歴） |
 | 議事録から札を作る | `docs/spec/MEETING_MINUTES_TEMPLATE.md` |
 
+## 一覧の「確定 2/5」の印
+
+Wiki 一覧の行に、そのページに紐づく決める札の進み具合を出す。
+
+- **`wiki_pages` に列は足さない。** 確定の単位は決定1件なので、ページに状態を持たせると
+  決定側と必ずずれて正本が2つになる。紐づく札（`type='spec'` かつ `wiki_page_id`）を数える。
+- 決める札が1件も無いページには**印を出さない**（検討資料・議事メモに「検討中」を貼ると
+  印の意味が薄れる）。
+- `decided` と `implemented` を「確定した」に数える。状態が入っていない行も総数には数える
+  （印を実態より良く見せない）。
+- 途中は枠だけ、全部そろったら塗りつぶし。**表示項目の設定では消せない**
+  （確定の見分けは常に要るため）。
+- 旧 `spec_path` だけの仕様タスクは数えない（`wiki_page_id` を持たないため）。
+
+取得は一覧専用の別フック（`useWikiDecisionCounts`・`queryKey: ['wikiDecisionCounts', orgId, spaceId]`）。
+`useWikiMilestoneLinks` に列を足す案は採らなかった — あちらは `milestone_id is not null` で
+絞っており、ゆるめると返る行が桁で増えるうえ、`TaskInspector` が同じキーを共有しているため
+タスクを開くたびにその量を取ることになる。
+
+`range` を明示して読み切る。付けないと PostgREST の `max_rows`（1000）で黙って打ち切られ、
+「確定 2/5」が嘘になる。判定は `src/lib/wiki/decisionCounts.ts`。
+
 ## まだ無いもの
 
-- 一覧に「確定 2/5」の印（紐づく札の `decision_state` を数えて出す。列は足さない）
 - Wiki ページから「このページを参照している札」を見る導線
 - 決定行を該当の見出しの下に入れる（見出しの指定の仕組みから要る）
 - CLI から確定にする（`rpc_set_spec_state` に当たる道具が無い）
