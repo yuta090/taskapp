@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Notebook, CalendarCheck, Plus, CaretDown, FunnelSimple, CalendarBlank, X } from '@phosphor-icons/react'
+import { Notebook, NotePencil, CalendarCheck, Plus, CaretDown, FunnelSimple, CalendarBlank, X } from '@phosphor-icons/react'
 import { useInspector, useShellFullscreen } from '@/components/layout'
 import { toast } from 'sonner'
 import { Breadcrumb, ErrorRetry } from '@/components/shared'
@@ -59,6 +59,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const isMobile = useIsMobile()
   const { canEdit } = useCanEditSpace(spaceId, orgId)
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false)
+  const [isMinutesOnlyCreateOpen, setIsMinutesOnlyCreateOpen] = useState(false)
   const [isProposalCreateOpen, setIsProposalCreateOpen] = useState(false)
   const [proposalDetail, setProposalDetail] = useState<ProposalDetail | null>(null)
   const [showCreateMenu, setShowCreateMenu] = useState(false)
@@ -653,6 +654,19 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
                 <Notebook className="text-base text-gray-400" />
                 会議を直接作成
               </button>
+              {/* 予定を立てずに、話した内容だけ残したいとき。名前だけで作れる */}
+              <button
+                type="button"
+                data-testid="create-minutes-only"
+                onClick={() => {
+                  setIsMinutesOnlyCreateOpen(true)
+                  setShowCreateMenu(false)
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              >
+                <NotePencil className="text-base text-gray-400" />
+                記録だけの議事録
+              </button>
             </div>
           )}
         </div>
@@ -734,6 +748,15 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         spaceId={spaceId}
         isOpen={isCreateSheetOpen}
         onClose={() => setIsCreateSheetOpen(false)}
+        onSubmit={handleCreateMeeting}
+      />
+
+      {/* 記録だけの議事録。中身は同じで、聞くのは名前だけにする */}
+      <MeetingCreateSheet
+        spaceId={spaceId}
+        isOpen={isMinutesOnlyCreateOpen}
+        minutesOnly
+        onClose={() => setIsMinutesOnlyCreateOpen(false)}
         onSubmit={handleCreateMeeting}
       />
 
