@@ -440,20 +440,22 @@ describe('不変条件6: SQL(最新マイグレーション)の正規表現とTS
     for (const m of hasMarkerMatches) expect(m[1]).toBe(withoutGroup)
   }
 
-  it('rpc_parse_meeting_minutes の SPEC_LINE_REGEX / TASK_MARKER_REGEX と文字列一致する', () => {
-    const { file, sql } = readLatestMigrationDefining('rpc_parse_meeting_minutes')
+  // 正規表現は `_impl`（本体）に入っている。画面用 rpc_* と道具用 rpc_*_as は
+  // それを呼ぶだけの包み（20260914124023 で分割）。本体側を見る。
+  it('_parse_meeting_minutes_impl の SPEC_LINE_REGEX / TASK_MARKER_REGEX と文字列一致する', () => {
+    const { file, sql } = readLatestMigrationDefining('_parse_meeting_minutes_impl')
     expect(file).toMatch(/\.sql$/)
-    const body = sliceFunctionBody(sql, 'rpc_parse_meeting_minutes')
+    const body = sliceFunctionBody(sql, '_parse_meeting_minutes_impl')
     expect(extractSqlPattern(body, 'v_line')).toBe(SPEC_LINE_REGEX.source)
     expectHasMarkerMatches(body)
   })
 
-  it('rpc_get_minutes_preview(候補確認)の正規表現も一致する', () => {
-    const { file, sql } = readLatestMigrationDefining('rpc_get_minutes_preview')
+  it('_get_minutes_preview_impl(候補確認)の正規表現も一致する', () => {
+    const { file, sql } = readLatestMigrationDefining('_get_minutes_preview_impl')
     expect(file).toMatch(/\.sql$/)
-    // 同じファイルに rpc_parse_meeting_minutes が先に入っているので、preview の本体だけに絞る
-    const body = sliceFunctionBody(sql, 'rpc_get_minutes_preview')
-    expect(body).not.toContain('rpc_parse_meeting_minutes')
+    // 同じファイルに複数の関数が入っているので、preview の本体だけに絞る
+    const body = sliceFunctionBody(sql, '_get_minutes_preview_impl')
+    expect(body).not.toContain('_parse_meeting_minutes_impl')
     expect(extractSqlPattern(body, 'v_line')).toBe(SPEC_LINE_REGEX.source)
     expectHasMarkerMatches(body)
     // 目印の取り出し(substring)は「末尾アンカー無し」でTS側の捕捉グループ部分と一致する
