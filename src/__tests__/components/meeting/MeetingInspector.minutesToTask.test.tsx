@@ -184,7 +184,7 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     expect(screen.queryByTestId('minutes-taskify-button')).toBeNull()
   })
 
-  it('候補が0件のとき、Wiki のページを差し込む書き方の案内を出す（非技術者向け）', async () => {
+  it('候補が0件のとき、書き方の案内を出す（非技術者向け）', async () => {
     const onPreviewMinutes = vi.fn().mockResolvedValue({
       newSpecCount: 0,
       existingSpecCount: 0,
@@ -196,7 +196,10 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     )
     openMinutesTab()
     await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalled())
-    expect(await screen.findByText(/Wiki のページを差し込む/)).toBeTruthy()
+    // まず「タスクにする行」という入口を案内する（書式を覚えなくてよい道）
+    expect(await screen.findByText(/タスクにする行/)).toBeTruthy()
+    // 字下げした行は候補に出ない、という落とし穴も伝える
+    expect(await screen.findByText(/字下げした行は候補に出ません/)).toBeTruthy()
     // 「仕様書として扱う」を入れると決定事項のタスクになる、という違いも案内する
     expect(await screen.findByText(/決まるまで/)).toBeTruthy()
   })

@@ -22,11 +22,24 @@ const mockDocument: unknown[] = [{ type: 'paragraph', content: [] }]
  * （`useLoadSuggestionMenuItems` は `getItems` の参照が変わるたびに取り直す）。
  * 実機と同じく、1つを使い回す。
  */
+const mockInsertBlocks = vi.fn()
+let mockCursorBlockId: string | undefined
 const mockEditor = {
   document: mockDocument,
   insertInlineContent: mockInsertInlineContent,
+  insertBlocks: mockInsertBlocks,
+  getTextCursorPosition: () => ({ block: { id: mockCursorBlockId } }),
   focus: mockEditorFocus,
 }
+
+/** 「タスクにする行」のパネルは Wiki の一覧を読むので、ここでは差し替えて入口だけ見る */
+let capturedTaskLineInsert: ((draft: { title: string; due?: string }) => void) | undefined
+vi.mock('@/components/meeting/MinutesTaskLinePanel', () => ({
+  MinutesTaskLinePanel: ({ onInsert }: { onInsert: (draft: { title: string }) => void }) => {
+    capturedTaskLineInsert = onInsert
+    return <div data-testid="minutes-task-line-panel" />
+  },
+}))
 const mockUseCreateBlockNote = vi.fn((_opts: unknown) => mockEditor)
 
 /**
@@ -221,6 +234,7 @@ describe('MinutesEditor の「/」メニュー', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
     expect(items.map((item) => item.key)).toEqual([
+      'insert_task_line',
       'insert_meeting_note',
       'insert_link_task',
       'insert_link_file',
@@ -276,6 +290,56 @@ describe('MinutesEditor の「/」メニュー', () => {
     const first = capturedSlashMenuProps!.getItems
     rerender(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} onChange={() => {}} />)
     expect(capturedSlashMenuProps!.getItems).toBe(first)
+  })
+
+  describe('タスクにする行', () => {
+    beforeEach(() => {
+      mockInsertBlocks.mockClear()
+      capturedTaskLineInsert = undefined
+      mockCursorBlockId = undefined
+      // 折りたたみ(b)の中(b1)にカーソルがある文書
+      mockDocument.splice(0, mockDocument.length, { id: 'a' }, { id: 'b', children: [{ id: 'b1' }] })
+    })
+
+    it('ボタンでパネルを開け閉めできる', () => {
+      render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+      expect(screen.queryByTestId('minutes-task-line-panel')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      expect(screen.getByTestId('minutes-task-line-panel')).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      expect(screen.queryByTestId('minutes-task-line-panel')).not.toBeInTheDocument()
+    })
+
+    it('読み取り専用のときはボタンを出さない', () => {
+      render(<MinutesEditor minutesMd="" editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
+      expect(screen.queryByTestId('minutes-insert-task-line')).not.toBeInTheDocument()
+    })
+
+    it('入れ子の中で押しても、字下げされない場所に入れる', () => {
+      mockCursorBlockId = 'b1'
+      render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+      fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      capturedTaskLineInsert!({ title: '見積を出す' })
+      const [blocks, anchor, placement] = mockInsertBlocks.mock.calls[0]
+      // 入れ子の b1 ではなく、その大元の b の後ろに入れる
+      expect((anchor as { id: string }).id).toBe('b')
+      expect(placement).toBe('after')
+      expect(blocks[0]).toMatchObject({ type: 'checkListItem', props: { checked: false } })
+    })
+
+    it('入れたらパネルを閉じる', () => {
+      render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+      fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      act(() => capturedTaskLineInsert!({ title: '見積を出す' }))
+      expect(screen.queryByTestId('minutes-task-line-panel')).not.toBeInTheDocument()
+    })
+
+    it('やることが空なら何も入れない', () => {
+      render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+      fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      act(() => capturedTaskLineInsert!({ title: '   ' }))
+      expect(mockInsertBlocks).not.toHaveBeenCalled()
+    })
   })
 
   it('読み取り専用のときはメニューを出さない', () => {

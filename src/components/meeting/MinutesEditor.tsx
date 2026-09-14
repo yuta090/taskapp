@@ -15,7 +15,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { CheckCircle, NotePencil } from '@phosphor-icons/react'
+import { CheckCircle, Checks, NotePencil } from '@phosphor-icons/react'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
@@ -29,6 +29,8 @@ import {
   TOGGLE_TYPE,
 } from '@/lib/minutes/markdown'
 import { formatNoteStamp } from '@/lib/minutes/noteStamp'
+import { buildTaskLineBlock, findTopLevelAncestor, type TaskLineDraft } from '@/lib/minutes/taskLine'
+import { MinutesTaskLinePanel } from './MinutesTaskLinePanel'
 import { meetingNoteSpec, toggleListItemSpec } from './minutesBlocks'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
@@ -366,6 +368,8 @@ function MinutesEditorImpl({
    * カーソルを戻すため（持たないと「/」から呼んでも何も起きないように見える）
    */
   const [linkPicker, setLinkPicker] = useState<{ kind: AppLinkKind; seq: number } | null>(null)
+  /** 「タスクにする行」のパネルを開いているか */
+  const [taskLineOpen, setTaskLineOpen] = useState(false)
   const openLinkPicker = useCallback((kind: AppLinkKind) => {
     setLinkPicker((prev) => ({ kind, seq: (prev?.seq ?? 0) + 1 }))
   }, [])
@@ -405,6 +409,25 @@ function MinutesEditorImpl({
    * 今の行を「会議メモ」に変える（空の行なら、その行がそのまま会議メモになる）。
    * 「/」メニューからも、本文の下のボタンからも同じ入口を使う。
    */
+  /**
+   * 「タスクにする行」を入れる。**いちばん外側の行の後ろ**に入れるのが要点。
+   * 折りたたみや箇条書きの中に入ると字下げされ、その行はタスク化の候補に出なくなる
+   * （DB 側は行頭の `- [ ]` だけを見るため）。
+   */
+  const insertTaskLine = useCallback(
+    (draft: TaskLineDraft) => {
+      const block = buildTaskLineBlock(draft, orgId, spaceId)
+      if (!block) return
+      const cursorId = editor.getTextCursorPosition()?.block?.id
+      const anchor = findTopLevelAncestor(editor.document, cursorId)
+      if (!anchor) return
+      editor.insertBlocks([block] as never, anchor as never, 'after')
+      setTaskLineOpen(false)
+      editor.focus()
+    },
+    [editor, orgId, spaceId]
+  )
+
   const insertMeetingNote = useCallback(() => {
     // 書いた日時をその場で焼き付ける。あとから本文を直しても日時は動かない
     insertOrUpdateBlockForSlashMenu(editor, {
@@ -418,6 +441,15 @@ function MinutesEditorImpl({
     async (query: string) =>
       filterSuggestionItems(
         [
+          {
+            key: 'insert_task_line',
+            title: 'タスクにする行',
+            subtext: 'やること・期限・資料を選ぶと、タスク化できる形で1行入る',
+            aliases: ['task', 'todo', 'タスク', 'やること', '決めること', '期限'],
+            group: jaLocale.slash_menu.paragraph.group,
+            icon: <Checks size={18} />,
+            onItemClick: () => setTaskLineOpen(true),
+          },
           {
             key: 'insert_meeting_note',
             title: '会議メモ',
@@ -577,6 +609,16 @@ function MinutesEditorImpl({
           {/* 会議中に一番よく使うので、「/」を知らなくても押せる場所に出す */}
           <button
             type="button"
+            data-testid="minutes-insert-task-line"
+            onClick={() => setTaskLineOpen((v) => !v)}
+            aria-expanded={taskLineOpen}
+            className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            <Checks size={14} />
+            タスクにする行
+          </button>
+          <button
+            type="button"
             data-testid="minutes-insert-meeting-note"
             onClick={insertMeetingNote}
             className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
@@ -594,6 +636,14 @@ function MinutesEditorImpl({
             onSelect={handleSelectLink}
           />
         </div>
+      )}
+      {effectiveEditable && taskLineOpen && (
+        <MinutesTaskLinePanel
+          orgId={orgId}
+          spaceId={spaceId}
+          onInsert={insertTaskLine}
+          onClose={() => setTaskLineOpen(false)}
+        />
       )}
     </div>
   )

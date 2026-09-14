@@ -11,7 +11,7 @@
  * 旧来の書き方 `- [ ] SPEC(/spec/FILE.md#anchor): 題名` は開発用の仕様書ファイルしか
  * 指せない。そちらは既存の経路が扱うので、この判定では拾わない。
  *
- * 下の 2 つのパターン文字列は **SQL 側（rpc_get_minutes_preview /
+ * 下の `export` したパターン文字列は **SQL 側（rpc_get_minutes_preview /
  * rpc_parse_meeting_minutes）と同じ文字列**を使う。片方だけ直すと、画面に出る候補一覧と
  * 実際に作られるタスクが食い違う。`src/__tests__/lib/minutes/wikiTaskCandidate.test.ts`
  * が最新のマイグレーションから探して突き合わせる。
@@ -35,6 +35,18 @@ const TASK_MARKER_PATTERN = '<!--task:[^>]+-->\\s*$'
 
 /** Markdown のリンク `[文字](先)`。題名を組み立てるときに取り除く。 */
 const MARKDOWN_LINK_PATTERN = '\\[([^\\]]*)\\]\\(([^)]*)\\)'
+
+/**
+ * 行に書かれた期限（`期限: 9/20` `期限: 2026/9/20`）。**題名からは取り除く**。
+ *
+ * 期限そのものは行の文字から別に読み取って日付の欄に入る。題名にも残すと一覧に
+ * 「見積を出す（期限: 9/20）」と出てしまい、あとで期限を変えても名前だけ古い日付の
+ * ままになる。前後の丸括弧（半角・全角）も一緒に外す。括弧が無くても外す。
+ *
+ * 日付の形は、期限として読み取る側（SQL の `期限:\s*(\d+/\d+(?:/\d+)?)`）と同じにする。
+ * 揃えておかないと「題名からは消えたのに期限が入らない」行が出る。
+ */
+export const DUE_IN_TITLE_PATTERN = '\\s*[（(]?\\s*期限:\\s*\\d+/\\d+(?:/\\d+)?\\s*[）)]?'
 
 export interface WikiTaskCandidate {
   /** 紐づける Wiki ページの ID */
@@ -78,6 +90,8 @@ export function findWikiTaskCandidate(line: string): WikiTaskCandidate | null {
   const title = body
     .replace(new RegExp(TASK_MARKER_PATTERN), '')
     .replace(new RegExp(MARKDOWN_LINK_PATTERN, 'g'), '')
+    // 期限は日付の欄に入るので、題名には残さない
+    .replace(new RegExp(DUE_IN_TITLE_PATTERN, 'g'), '')
     .replace(/\s+/g, ' ')
     .trim()
 
