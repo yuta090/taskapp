@@ -30,7 +30,10 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
     loading: wikiPagesLoading,
     error: wikiPagesError,
     createPage,
-  } = useWikiPages({ orgId, spaceId, canEdit: true })
+    // canEdit は渡さない。**渡すと「Wiki が空なら既定のページを自動で作る」が動く**
+    // （useWikiPages の中の仕掛け）。会議中にこのパネルを開いただけで、誰も頼んで
+    // いないページが数枚できてしまう。ここは探す・作るだけで、自動作成は要らない
+  } = useWikiPages({ orgId, spaceId })
 
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')

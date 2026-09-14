@@ -68,3 +68,27 @@ export function buildMinutesTaskActions(state: MinutesTaskState): MinutesTaskAct
   items.push({ action: 'open', label: 'タスクを開く', disabledReason: null })
   return items
 }
+
+/**
+ * 完了にできなかった理由。DB のトリガー（enforce_review_gate）が返すのは英語なので、
+ * そのまま画面に出すと「Cannot complete task: ...」と出てしまう（実際に出ていた）。
+ * ここで見分けて、日本語と次にすることに置き換える。
+ */
+export type CompleteFailureKind = 'spec_undecided' | 'review_pending' | 'unknown'
+
+/** DB のメッセージから理由を読み取る。前置きが付いていても拾えるよう部分一致で見る。 */
+export function classifyCompleteFailure(message: string): CompleteFailureKind {
+  if (message.includes('spec decision is not made')) return 'spec_undecided'
+  if (message.includes('review is not approved')) return 'review_pending'
+  return 'unknown'
+}
+
+export function completeFailureMessage(kind: CompleteFailureKind): string {
+  if (kind === 'spec_undecided') {
+    return 'これは「決定事項のタスク」です。先に「決定にする」を押してから完了にできます'
+  }
+  if (kind === 'review_pending') {
+    return '社内の承認が終わっていないので、まだ完了にできません'
+  }
+  return 'このタスクを完了にできませんでした'
+}

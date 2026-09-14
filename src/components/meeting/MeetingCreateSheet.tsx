@@ -48,7 +48,8 @@ export function MeetingCreateSheet({
     internalMembers,
     loading: membersLoading,
     error: membersError,
-  } = useSpaceMembers(isOpen ? spaceId : null)
+    // 記録だけの議事録では参加者の欄を出さないので、名簿も取りに行かない
+  } = useSpaceMembers(isOpen && !minutesOnly ? spaceId : null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const prevIsOpenRef = useRef(false)
@@ -294,7 +295,8 @@ export function MeetingCreateSheet({
             </button>
             <button
               type="submit"
-              disabled={!title.trim() || membersLoading || isSubmitting}
+              // 記録だけの議事録は名簿を使わないので、その読み込みを待たせない
+              disabled={!title.trim() || (!minutesOnly && membersLoading) || isSubmitting}
               data-testid="meeting-create-submit"
               className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
             >

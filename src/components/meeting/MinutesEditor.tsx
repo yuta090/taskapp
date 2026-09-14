@@ -1,6 +1,7 @@
 'use client'
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import '@blocknote/core/fonts/inter.css'
@@ -30,11 +31,28 @@ import {
 } from '@/lib/minutes/markdown'
 import { formatNoteStamp } from '@/lib/minutes/noteStamp'
 import { buildTaskLineBlock, findTopLevelAncestor, type TaskLineDraft } from '@/lib/minutes/taskLine'
-import { MinutesTaskLinePanel } from './MinutesTaskLinePanel'
+/**
+ * パネルは押したときだけ読み込む。中で Wiki の取得層（`useWikiPages`）と
+ * `WikiPageLinkPicker` をまとめて参照するので、置いておくと議事録を開いただけで
+ * 一式が載る（リンクのパネルを遅延読み込みにしているのと同じ理由）。
+ */
+const MinutesTaskLinePanel = dynamic(
+  () => import('./MinutesTaskLinePanel').then((m) => m.MinutesTaskLinePanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="mt-2 rounded border border-gray-200 bg-surface p-3 text-xs text-gray-400">
+        読み込み中...
+      </div>
+    ),
+  }
+)
 import { meetingNoteSpec, toggleListItemSpec } from './minutesBlocks'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
 import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
+import { completeFailureMessage } from '@/lib/minutes/taskActions'
+import { MinutesCompleteError } from '@/lib/hooks/useMinutesTaskActions'
 
 /**
  * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
@@ -539,6 +557,34 @@ function MinutesEditorImpl({
   const lastMarkdownRef = useRef(minutesMd)
 
   /**
+   * その印が付いた行のチェックを付け外しする。
+   * 字下げした行も拾うので入れ子まで辿る（トップ階層だけ見ると見つからない）。
+   * 画面を離れた後に呼ばれることがあるので、触れなければ黙って諦める。
+   */
+  const setChecked = useCallback(
+    (taskId: string, checked: boolean) => {
+      try {
+        editor.forEachBlock((block) => {
+          if (block.type !== 'checkListItem') return true
+          const hasMarker = (block.content as unknown[] | undefined)?.some(
+            (c) =>
+              (c as { type?: string }).type === TASK_MARKER_TYPE &&
+              (c as { props?: { taskId?: string } }).props?.taskId === taskId
+          )
+          if (!hasMarker) return true
+          editor.updateBlock(block, {
+            props: { ...(block.props as Record<string, unknown>), checked },
+          } as Parameters<typeof editor.updateBlock>[1])
+          return false
+        })
+      } catch {
+        // エディタが既に外れている等。チェックは動かせないが、理由はトーストで伝わる
+      }
+    },
+    [editor]
+  )
+
+  /**
    * チェックを入れたら、そのタスクを完了にする（タスクが既にある行だけ）。
    * 外したときは何もしない（完了の取り消しは事故が痛いのでタスク側で行う）。
    * 完了できないとき（未決・承認待ち）は理由を出し、**チェックを元に戻す**。
@@ -556,32 +602,39 @@ function MinutesEditorImpl({
 
       for (const taskId of taskIds) {
         void resolver.run(taskId, 'complete').catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : 'このタスクは完了にできませんでした'
-          toast.error(message)
-          // チェックを戻す。付いたままだと「完了した」と誤解するため。
-          // 画面を離れた後に失敗が返ることがあるので、触れなければ黙って諦める
-          try {
-            // 字下げした行も拾うので、入れ子まで辿る（トップ階層だけ見ると戻せない）
-            editor.forEachBlock((block) => {
-              if (block.type !== 'checkListItem') return true
-              const hasMarker = (block.content as unknown[] | undefined)?.some(
-                (c) =>
-                  (c as { type?: string }).type === TASK_MARKER_TYPE &&
-                  (c as { props?: { taskId?: string } }).props?.taskId === taskId
-              )
-              if (!hasMarker) return true
-              editor.updateBlock(block, {
-                props: { ...(block.props as Record<string, unknown>), checked: false },
-              } as Parameters<typeof editor.updateBlock>[1])
-              return false
+          setChecked(taskId, false)
+          const kind = err instanceof MinutesCompleteError ? err.kind : 'unknown'
+          const message = err instanceof Error ? err.message : completeFailureMessage('unknown')
+
+          // まだ決まっていないだけなら、ここから2手を1回で進められるようにする。
+          // 決めるのは人の仕事なので、自動では決めない（押してもらう）
+          if (kind === 'spec_undecided') {
+            toast.error(message, {
+              action: {
+                label: '決定にして完了にする',
+                onClick: () => {
+                  const now = resolverRef.current
+                  if (!now) return
+                  void now
+                    .run(taskId, 'decide')
+                    .then(() => now.run(taskId, 'complete'))
+                    .then(() => {
+                      setChecked(taskId, true)
+                      toast.success('決定にして、完了にしました')
+                    })
+                    .catch((e: unknown) => {
+                      toast.error(e instanceof Error ? e.message : completeFailureMessage('unknown'))
+                    })
+                },
+              },
             })
-          } catch {
-            // エディタが既に外れている等。チェックは戻せないが、理由は上のトーストで伝わる
+            return
           }
+          toast.error(message)
         })
       }
     },
-    [editor]
+    [setChecked]
   )
 
   return (

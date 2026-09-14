@@ -13,7 +13,13 @@ import type { QueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
+import {
+  classifyCompleteFailure,
+  completeFailureMessage,
+  type CompleteFailureKind,
+  type MinutesTaskAction,
+  type MinutesTaskState,
+} from '@/lib/minutes/taskActions'
 import type { MinutesTaskResolver } from '@/components/meeting/MinutesEditor'
 import type { TasksQueryData } from '@/lib/supabase/queries'
 import type { DecisionState, TaskStatus, TaskType } from '@/types/database'
@@ -28,6 +34,19 @@ interface TaskRow {
   status: TaskStatus
   type: TaskType
   decision_state: DecisionState | null
+}
+
+/**
+ * 完了にできなかったときの失敗。理由を持たせて、呼び出し側が「次にすること」を
+ * 出せるようにする（決定していないだけなら、その場で決定して完了まで進められる）。
+ */
+export class MinutesCompleteError extends Error {
+  readonly kind: CompleteFailureKind
+  constructor(kind: CompleteFailureKind, message?: string) {
+    super(message ?? completeFailureMessage(kind))
+    this.name = 'MinutesCompleteError'
+    this.kind = kind
+  }
 }
 
 /** DB の enforce_review_gate と同じ判定（approved と cancelled は完了を妨げない） */
@@ -118,10 +137,15 @@ export function useMinutesTaskActions({
           .eq('org_id', orgId)
           .eq('space_id', spaceId)
           .select('id')
-        // 完了できない理由（未決・社内承認）は DB のトリガーが日本語で返すので、そのまま出す
-        if (error) throw new Error(error.message)
+        // 完了できない理由（未決・社内承認）は DB のトリガーが**英語で**返す。
+        // そのまま出すと「Cannot complete task: ...」と画面に出てしまうので、
+        // 日本語と「次にすること」に置き換える
+        if (error) throw new MinutesCompleteError(classifyCompleteFailure(error.message))
         if ((data ?? []).length === 0) {
-          throw new Error('このタスクを完了にできませんでした（権限が無いか、削除された可能性があります）')
+          throw new MinutesCompleteError(
+            'unknown',
+            'このタスクを完了にできませんでした（権限が無いか、削除された可能性があります）'
+          )
         }
       }
       // 一覧のキャッシュを捨てる。捨てないと「完了にしたのに一覧では終わっていない」が

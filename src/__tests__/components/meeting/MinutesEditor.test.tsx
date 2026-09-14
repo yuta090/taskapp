@@ -301,11 +301,12 @@ describe('MinutesEditor の「/」メニュー', () => {
       mockDocument.splice(0, mockDocument.length, { id: 'a' }, { id: 'b', children: [{ id: 'b1' }] })
     })
 
-    it('ボタンでパネルを開け閉めできる', () => {
+    // パネルは押したときだけ読み込む（next/dynamic）ので、出るのを待つ
+    it('ボタンでパネルを開け閉めできる', async () => {
       render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
       expect(screen.queryByTestId('minutes-task-line-panel')).not.toBeInTheDocument()
       fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
-      expect(screen.getByTestId('minutes-task-line-panel')).toBeInTheDocument()
+      expect(await screen.findByTestId('minutes-task-line-panel')).toBeInTheDocument()
       fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
       expect(screen.queryByTestId('minutes-task-line-panel')).not.toBeInTheDocument()
     })
@@ -315,10 +316,11 @@ describe('MinutesEditor の「/」メニュー', () => {
       expect(screen.queryByTestId('minutes-insert-task-line')).not.toBeInTheDocument()
     })
 
-    it('入れ子の中で押しても、字下げされない場所に入れる', () => {
+    it('入れ子の中で押しても、字下げされない場所に入れる', async () => {
       mockCursorBlockId = 'b1'
       render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
       fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      await screen.findByTestId('minutes-task-line-panel')
       capturedTaskLineInsert!({ title: '見積を出す' })
       const [blocks, anchor, placement] = mockInsertBlocks.mock.calls[0]
       // 入れ子の b1 ではなく、その大元の b の後ろに入れる
@@ -327,16 +329,18 @@ describe('MinutesEditor の「/」メニュー', () => {
       expect(blocks[0]).toMatchObject({ type: 'checkListItem', props: { checked: false } })
     })
 
-    it('入れたらパネルを閉じる', () => {
+    it('入れたらパネルを閉じる', async () => {
       render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
       fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      await screen.findByTestId('minutes-task-line-panel')
       act(() => capturedTaskLineInsert!({ title: '見積を出す' }))
       expect(screen.queryByTestId('minutes-task-line-panel')).not.toBeInTheDocument()
     })
 
-    it('やることが空なら何も入れない', () => {
+    it('やることが空なら何も入れない', async () => {
       render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
       fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      await screen.findByTestId('minutes-task-line-panel')
       act(() => capturedTaskLineInsert!({ title: '   ' }))
       expect(mockInsertBlocks).not.toHaveBeenCalled()
     })

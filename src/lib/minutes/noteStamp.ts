@@ -26,17 +26,35 @@ export function formatNoteStamp(jstDate?: Date, now: Date = new Date()): string 
 }
 
 /**
+ * 「今が何年か」だけを少しの間だけ覚えておく。
+ *
+ * `jstNow()` は中で `Intl.DateTimeFormat` を作り直すので、会議メモの数だけ呼ぶと
+ * じわじわ効く（会議メモ100件で約6ミリ秒、2000件で約97ミリ秒を実測）。使うのは年だけで、
+ * 年はそう変わらないので、1分だけ使い回す。
+ */
+const YEAR_CACHE_MS = 60_000
+let cachedYear: { value: number; at: number } | null = null
+
+function currentJstYear(): number {
+  const now = Date.now()
+  if (cachedYear && now - cachedYear.at < YEAR_CACHE_MS) return cachedYear.value
+  const value = jstNow().getFullYear()
+  cachedYear = { value, at: now }
+  return value
+}
+
+/**
  * 画面に出す短い日時。同じ年なら `9/15 14:30`、年が違えば `2025/12/3 9:05`。
  * 年をいつも出すと長くて本文の邪魔になるが、去年のメモで月日だけだと迷うため。
  *
  * 形が違うもの・空のものは null（何も出さない）。
  */
-export function formatNoteStampLabel(stamp: string | undefined, today: Date = jstNow()): string | null {
+export function formatNoteStampLabel(stamp: string | undefined, today?: Date): string | null {
   if (!stamp) return null
   const m = STAMP_RE.exec(stamp)
   if (!m) return null
   const [, year, month, day, hour, minute] = m
-  const sameYear = Number(year) === today.getFullYear()
+  const sameYear = Number(year) === (today ? today.getFullYear() : currentJstYear())
   const date = `${Number(month)}/${Number(day)}`
   const time = `${Number(hour)}:${minute}`
   return sameYear ? `${date} ${time}` : `${year}/${date} ${time}`
