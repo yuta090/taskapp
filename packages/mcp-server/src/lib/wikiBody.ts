@@ -12,13 +12,26 @@
  *   出力は WikiEditor / プリセット(src/lib/presets)が使っているブロック形（id なしの PartialBlock）に合わせる。
  */
 
-import { marked, type Token, type Tokens } from 'marked'
+import { marked, Lexer, type Token, type Tokens } from 'marked'
 import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
 
 export type WikiBodyFormat = 'markdown' | 'html' | 'blocks'
 
 const HTML_HINT = /^\s*<(!doctype|html|body|div|p|h[1-6]|ul|ol|table|section|article|span|br|pre|b|strong|i|em)\b/i
+
+/**
+ * 折りたたみ（トグル）の見出し行に付ける、読む人には見えない目印。
+ * `- <!--toggle-->題名` ＋ 字下げした中身が BlockNote の折りたたみ（toggleListItem）になる。
+ * 議事録（src/lib/minutes/markdown.ts の TOGGLE_MARKER）と同じ文字にそろえる。別パッケージなので
+ * import できないため、一致はテストで見張る。
+ */
+export const TOGGLE_MARKER = '<!--toggle-->'
+const TOGGLE_TYPE = 'toggleListItem'
+
+/** `<details>` の開き（HTML の塊の先頭にあるときだけ折りたたみとして読む） */
+const DETAILS_OPEN_RE = /^\s*<details\b[^>]*>/i
+const SUMMARY_RE = /<summary\b[^>]*>([\s\S]*?)<\/summary\s*>/i
 
 /** 本文の形式を推定する。JSON のブロック配列 → blocks / HTML らしければ html / それ以外 markdown */
 export function detectWikiBodyFormat(body: string): WikiBodyFormat {
@@ -116,18 +129,45 @@ function inline(tokens: Token[] | undefined, styles: InlineStyles = {}): InlineC
   return out.filter((c) => c.type === 'link' || c.text !== '')
 }
 
+/** 1行分の Markdown（太字・リンクなど）をインラインに読む。HTML タグとコメントは文字から外れる */
+function inlineMarkdown(src: string): InlineContent[] {
+  return inline(Lexer.lexInline(src, { gfm: true }))
+}
+
 // ---- block ----
 
 function listBlocks(list: Tokens.List): Block[] {
   return list.items.map((item) => {
-    const contentTokens: Token[] = []
+    let type = list.ordered ? 'numberedListItem' : 'bulletListItem'
+    const content: InlineContent[] = []
     const children: Block[] = []
-    for (const t of item.tokens) {
-      if (t.type === 'list') children.push(...listBlocks(t as Tokens.List))
-      else if (t.type === 'text' || t.type === 'paragraph') contentTokens.push(...((t as Tokens.Text).tokens ?? [t]))
-      else children.push(...blocks([t]))
+    // 子にするリスト以外のブロック。`<details>` が複数の塊に分かれていても組めるよう、まとめて変換する
+    let pending: Token[] = []
+    const flush = () => {
+      if (pending.length) children.push(...blocks(pending))
+      pending = []
     }
-    const base: Block = { type: list.ordered ? 'numberedListItem' : 'bulletListItem', content: inline(contentTokens) }
+    item.tokens.forEach((t, i) => {
+      if (t.type === 'list') {
+        flush()
+        children.push(...listBlocks(t as Tokens.List))
+      } else if (t.type === 'text' || t.type === 'paragraph') {
+        content.push(...inline((t as Tokens.Text).tokens ?? [t]))
+      } else if (i === 0 && t.type === 'html' && !DETAILS_OPEN_RE.test(t.raw)) {
+        // 1行目が `<!--…-->` などで始まると、marked はその行を HTML の塊として返す。
+        // 子へ回すと本文が空になり題名が子に落ちるので、1行目の文字として読む
+        let src = t.raw.replace(/\n+$/, '')
+        if (!list.ordered && !item.task && src.startsWith(TOGGLE_MARKER)) {
+          type = TOGGLE_TYPE
+          src = src.slice(TOGGLE_MARKER.length)
+        }
+        content.push(...inlineMarkdown(src))
+      } else {
+        pending.push(t)
+      }
+    })
+    flush()
+    const base: Block = { type, content }
     if (item.task) return { ...base, type: 'checkListItem', props: { checked: !!item.checked }, children }
     return children.length ? { ...base, children } : base
   })
@@ -140,9 +180,52 @@ function tableBlock(t: Tokens.Table): Block {
   return { type: 'table', content: { type: 'tableContent', rows } }
 }
 
+/** `<details>` の中身（開きの直後〜対応する閉じの直前）を折りたたみにする。題名＝summary・残り＝子 */
+function toggleFromDetails(inner: string): Block {
+  const m = SUMMARY_RE.exec(inner)
+  const title = m ? m[1].trim() : ''
+  const body = m ? inner.slice(0, m.index) + inner.slice(m.index + m[0].length) : inner
+  const children = body.trim() ? markdownToBlocks(body) : []
+  const block: Block = { type: TOGGLE_TYPE, content: inlineMarkdown(title) }
+  return children.length ? { ...block, children } : block
+}
+
+/**
+ * tokens[start] が `<details>` で始まる HTML の塊のとき、対応する `</details>` までを1つの折りたたみにする。
+ * marked は `<details>` を「開き」「中身の段落」「閉じ」の別々の塊に分けて返すので、開きと閉じを数えて
+ * 対応を取る（入れ子も受ける）。閉じの後ろに同じ塊で続く文字は trailing で返す。
+ * 閉じが無いときは null（呼び出し側は今までどおり文字として扱い、本文を隠さない）。
+ */
+function takeDetails(tokens: Token[], start: number): { toggle: Block; trailing: string; next: number } | null {
+  let depth = 1
+  let inner = ''
+  for (let j = start; j < tokens.length; j++) {
+    const raw = j === start ? tokens[j].raw.replace(DETAILS_OPEN_RE, '') : tokens[j].raw
+    if (tokens[j].type !== 'html') {
+      inner += raw
+      continue
+    }
+    const tagRe = /<(\/?)details\b[^>]*>/gi
+    let m: RegExpExecArray | null
+    while ((m = tagRe.exec(raw))) {
+      depth += m[1] ? -1 : 1
+      if (depth === 0) {
+        return {
+          toggle: toggleFromDetails(inner + raw.slice(0, m.index)),
+          trailing: raw.slice(m.index + m[0].length),
+          next: j + 1,
+        }
+      }
+    }
+    inner += raw
+  }
+  return null
+}
+
 function blocks(tokens: Token[]): Block[] {
   const out: Block[] = []
-  for (const tok of tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i]
     switch (tok.type) {
       case 'heading': {
         const h = tok as Tokens.Heading
@@ -174,6 +257,13 @@ function blocks(tokens: Token[]): Block[] {
         }
         break
       case 'html': {
+        const details = DETAILS_OPEN_RE.test(tok.raw) ? takeDetails(tokens, i) : null
+        if (details) {
+          out.push(details.toggle)
+          if (details.trailing.trim()) out.push(...markdownToBlocks(details.trailing))
+          i = details.next - 1
+          break
+        }
         const s = stripTags((tok as Tokens.HTML).text).trim()
         if (s) out.push({ type: 'paragraph', content: [text(s)] })
         break
@@ -200,6 +290,17 @@ export function htmlToMarkdown(html: string): string {
   if (!turndown) {
     turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
     turndown.use(gfm)
+    // `<details>` は既定だと開閉が消えて題名と中身が段落になる。Markdown 側で折りたたみとして読める
+    // 形（開き・summary・空行・中身・空行・閉じ）に書き直す。中身は子要素を変換した Markdown
+    turndown.addRule('summary', { filter: 'summary', replacement: () => '' })
+    turndown.addRule('details', {
+      filter: 'details',
+      replacement: (content, node) => {
+        const kids = Array.from((node as unknown as { childNodes: ArrayLike<{ nodeName: string; textContent: string | null }> }).childNodes)
+        const title = (kids.find((k) => k.nodeName === 'SUMMARY')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+        return `\n\n<details>\n<summary>${title}</summary>\n\n${content.trim()}\n\n</details>\n\n`
+      },
+    })
   }
   return turndown.turndown(html)
 }

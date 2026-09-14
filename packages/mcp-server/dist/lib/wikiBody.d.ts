@@ -12,6 +12,13 @@
  *   出力は WikiEditor / プリセット(src/lib/presets)が使っているブロック形（id なしの PartialBlock）に合わせる。
  */
 export type WikiBodyFormat = 'markdown' | 'html' | 'blocks';
+/**
+ * 折りたたみ（トグル）の見出し行に付ける、読む人には見えない目印。
+ * `- <!--toggle-->題名` ＋ 字下げした中身が BlockNote の折りたたみ（toggleListItem）になる。
+ * 議事録（src/lib/minutes/markdown.ts の TOGGLE_MARKER）と同じ文字にそろえる。別パッケージなので
+ * import できないため、一致はテストで見張る。
+ */
+export declare const TOGGLE_MARKER = "<!--toggle-->";
 /** 本文の形式を推定する。JSON のブロック配列 → blocks / HTML らしければ html / それ以外 markdown */
 export declare function detectWikiBodyFormat(body: string): WikiBodyFormat;
 export interface InlineStyles {

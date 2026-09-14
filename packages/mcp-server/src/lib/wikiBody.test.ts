@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectWikiBodyFormat, toWikiBlocksJson } from './wikiBody.js'
+import { detectWikiBodyFormat, toWikiBlocksJson, TOGGLE_MARKER, type WikiBodyFormat } from './wikiBody.js'
 
 /**
  * Wiki 本文の変換。アプリの Wiki 画面は BlockNote のブロック JSON しか読めないため、
@@ -66,5 +66,139 @@ describe('toWikiBlocksJson', () => {
     // コメントで言及するのは可。import / require で読み込んでいないことを見る
     expect(src).not.toMatch(/(from|import\()\s*'@blocknote\/(server-util|react)'/)
     expect(src).not.toMatch(/from 'react'/)
+  })
+})
+
+/**
+ * 折りたたみ（BlockNote の toggleListItem）。決定事項に根拠をぶら下げる運用で、項目が多くても
+ * 一覧として読めるようにする（Issue #917）。書き方は2つ受ける。
+ * - `- <!--toggle-->題名` ＋ 字下げした中身（議事録 src/lib/minutes/markdown.ts と同じ約束）
+ * - `<details><summary>題名</summary>中身</details>`（Markdown でも HTML でも）
+ */
+describe('折りたたみ（toggleListItem）', () => {
+  interface B {
+    type: string
+    props?: Record<string, unknown>
+    content?: { type: string; text?: string; styles?: Record<string, boolean>; href?: string }[]
+    children?: B[]
+  }
+  const parse = async (body: string, format?: WikiBodyFormat) => JSON.parse(await toWikiBlocksJson(body, format)) as B[]
+  const t = (text: string, styles: Record<string, boolean> = {}) => ({ type: 'text', text, styles })
+  const textOf = (b: B) => (b.content ?? []).map((c) => c.text ?? '').join('')
+  /** どの深さにもある「本文が空の箇条書き・折りたたみ」を集める */
+  const emptyItems = (bs: B[]): B[] =>
+    bs.flatMap((b) => [...(/ListItem$/.test(b.type) && textOf(b) === '' ? [b] : []), ...emptyItems(b.children ?? [])])
+
+  it('`- <!--toggle-->題名` ＋ 字下げした中身は、折りたたみと子になる', async () => {
+    const blocks = await parse('- <!--toggle-->なぜこの案にしたか\n  - 一次資料の数字と突き合わせられるため\n')
+    expect(blocks).toEqual([
+      {
+        type: 'toggleListItem',
+        content: [t('なぜこの案にしたか')],
+        children: [{ type: 'bulletListItem', content: [t('一次資料の数字と突き合わせられるため')] }],
+      },
+    ])
+  })
+
+  it('折りたたみの題名の太字は保つ', async () => {
+    const [toggle] = await parse('- <!--toggle-->**太字**の題名\n  - 子\n')
+    expect(toggle.type).toBe('toggleListItem')
+    expect(toggle.content).toEqual([t('太字', { bold: true }), t('の題名')])
+  })
+
+  it('`<details><summary>` は折りたたみになる（題名＝summary・中身＝子）', async () => {
+    const blocks = await parse('<details>\n<summary>なぜこの案にしたか</summary>\n\n一次資料の数字と突き合わせられるため。\n\n</details>\n')
+    expect(blocks).toEqual([
+      {
+        type: 'toggleListItem',
+        content: [t('なぜこの案にしたか')],
+        children: [{ type: 'paragraph', content: [t('一次資料の数字と突き合わせられるため。')] }],
+      },
+    ])
+  })
+
+  it('1行で書いた details と、summary の直後に空行が無い details も折りたたみになる', async () => {
+    expect(await parse('<details><summary>題名</summary>中身</details>\n')).toEqual([
+      { type: 'toggleListItem', content: [t('題名')], children: [{ type: 'paragraph', content: [t('中身')] }] },
+    ])
+    expect(await parse('<details>\n<summary>題</summary>\n本文すぐ\n</details>\n')).toEqual([
+      { type: 'toggleListItem', content: [t('題')], children: [{ type: 'paragraph', content: [t('本文すぐ')] }] },
+    ])
+  })
+
+  it('入れ子の details と、閉じたあとの段落の位置を保つ', async () => {
+    const md =
+      '<details>\n<summary>外</summary>\n\n外の本文\n\n<details>\n<summary>内</summary>\n\n内の本文\n\n</details>\n\n</details>\n\n後ろの段落\n'
+    expect(await parse(md)).toEqual([
+      {
+        type: 'toggleListItem',
+        content: [t('外')],
+        children: [
+          { type: 'paragraph', content: [t('外の本文')] },
+          { type: 'toggleListItem', content: [t('内')], children: [{ type: 'paragraph', content: [t('内の本文')] }] },
+        ],
+      },
+      { type: 'paragraph', content: [t('後ろの段落')] },
+    ])
+  })
+
+  it('HTML で送った details も折りたたみになる', async () => {
+    const blocks = await parse(
+      '<h2>見出し</h2><details><summary>題名</summary><p>中身</p><ul><li>子</li></ul></details><p>後</p>',
+      'html'
+    )
+    expect(blocks.map((b) => b.type)).toEqual(['heading', 'toggleListItem', 'paragraph'])
+    expect(blocks[1]).toEqual({
+      type: 'toggleListItem',
+      content: [t('題名')],
+      children: [
+        { type: 'paragraph', content: [t('中身')] },
+        { type: 'bulletListItem', content: [t('子')] },
+      ],
+    })
+  })
+
+  it('HTML コメントで始まる箇条書きでも本文が空にならない', async () => {
+    expect(await parse('- <!--note-->メモです\n')).toEqual([{ type: 'bulletListItem', content: [t('メモです')] }])
+  })
+
+  it('チェックリストの子にも折りたたみを置ける', async () => {
+    expect(await parse('- [ ] 決定A\n  - <!--toggle-->根拠\n    - 出典1\n')).toEqual([
+      {
+        type: 'checkListItem',
+        props: { checked: false },
+        content: [t('決定A')],
+        children: [
+          { type: 'toggleListItem', content: [t('根拠')], children: [{ type: 'bulletListItem', content: [t('出典1')] }] },
+        ],
+      },
+    ])
+  })
+
+  it('Issue #917 の再現の本文で、本文が空の箇条書きが1つも無い', async () => {
+    const md = [
+      '# 折りたたみ検証',
+      '',
+      '<details>',
+      '<summary>なぜこの案にしたか</summary>',
+      '',
+      '一次資料の数字と突き合わせられるため。',
+      '',
+      '</details>',
+      '',
+      '- <!--toggle-->なぜこの案にしたか',
+      '  - 一次資料の数字と突き合わせられるため',
+      '',
+    ].join('\n')
+    const blocks = await parse(md, 'markdown')
+    expect(blocks.map((b) => b.type)).toEqual(['heading', 'toggleListItem', 'toggleListItem'])
+    expect(emptyItems(blocks)).toEqual([])
+  })
+
+  it('折りたたみの目印は議事録（src/lib/minutes/markdown.ts）と同じ文字', async () => {
+    const fs = await import('node:fs')
+    const minutes = fs.readFileSync(new URL('../../../../src/lib/minutes/markdown.ts', import.meta.url), 'utf8')
+    const m = /export const TOGGLE_MARKER = '([^']*)'/.exec(minutes)
+    expect(m?.[1]).toBe(TOGGLE_MARKER)
   })
 })
