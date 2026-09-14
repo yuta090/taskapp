@@ -189,11 +189,11 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     openMinutesTab()
     await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalled())
     expect(await screen.findByText(/Wiki のページを差し込む/)).toBeTruthy()
-    // 「仕様書として扱う」を入れると決める札になる、という違いも案内する
+    // 「仕様書として扱う」を入れると決定事項のタスクになる、という違いも案内する
     expect(await screen.findByText(/決まるまで/)).toBeTruthy()
   })
 
-  it('Wiki のページに紐づく候補は、ページ名を出し「決める」札に印を付ける', async () => {
+  it('Wiki のページに紐づく候補は、ページ名を出し「決定事項」の印を付ける', async () => {
     const onPreviewMinutes = vi.fn().mockResolvedValue({
       newSpecCount: 2,
       existingSpecCount: 0,
@@ -226,7 +226,7 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     // ページ名が出る（開発用のパスではなく、人が読んで分かるほう）
     expect(await screen.findByText('家の間取り')).toBeTruthy()
     expect(screen.getByText('検討メモ')).toBeTruthy()
-    // 「決める」の印は仕様書タグ付きの1件だけ
+    // 「決定事項」の印は仕様書タグ付きの1件だけ
     expect(screen.getAllByTestId('minutes-task-candidate-decide')).toHaveLength(1)
   })
 

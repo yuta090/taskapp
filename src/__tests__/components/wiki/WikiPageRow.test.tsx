@@ -358,7 +358,7 @@ describe('WikiPageRow', () => {
 })
 
 // 「確定 2/5」の印。確定の単位はページではなく決定1件なので、そのページに紐づく
-// 決める札を数えて出す。札が無いページには出さない。
+// 決定事項のタスクを数えて出す。タスクが無いページには出さない。
 describe('WikiPageRow 確定の印', () => {
   const renderRow = (decisionCount?: { total: number; decided: number }) =>
     render(
@@ -372,7 +372,7 @@ describe('WikiPageRow 確定の印', () => {
       />
     )
 
-  it('決める札が無ければ印を出さない', () => {
+  it('決定事項のタスクが無ければ印を出さない', () => {
     renderRow(undefined)
     expect(screen.queryByTestId('wiki-decision-chip')).toBeNull()
   })

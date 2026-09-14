@@ -31,7 +31,7 @@ interface WikiPageRowProps {
    */
   duplicatedInOtherGroups?: number
   /**
-   * このページに紐づく「決める札」の数（確定した数 / 全体）。省略または total=0 なら印を出さない。
+   * このページに紐づく「決定事項のタスク」の数（確定した数 / 全体）。省略または total=0 なら印を出さない。
    * 確定の単位はページではなく決定1件なので、ページ自身に状態は持たせない。
    */
   decisionCount?: DecisionCount
@@ -110,7 +110,7 @@ function WikiPageRowInner({
     [onToggleCollapse, page.id]
   )
 
-  // 「確定 2/5」。決める札が1件も無いページには出さない（検討資料・議事メモに
+  // 「確定 2/5」。決定事項のタスクが1件も無いページには出さない（検討資料・議事メモに
   // 「検討中」を貼ると印の意味が薄れる）。列の表示設定には載せない — 確定の見分けは
   // 常に要るものなので、消せる項目にしない。
   const decisionChip = decisionChipLabel(decisionCount)

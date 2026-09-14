@@ -9,26 +9,26 @@
 長い資料は、決まったことと検討中のことが混ざるのが普通で、**ページ全体を確定にできる日は来ない**。
 だから確定の単位を「◯◯を決める」という決定1件にする。
 
-- 決定1件 = `type='spec'` のタスク（以下「決める札」）。`decision_state` が
+- 決定1件 = `type='spec'` のタスク（以下「決定事項のタスク」）。`decision_state` が
   `considering` → `decided` → `implemented` と進む。
-- 決める札は `tasks.wiki_page_id` で Wiki ページを1枚指す。
-- 1枚のページに決める札を何枚でも紐づけられる。「玄関の向き」「リビングの広さ」など。
+- 決定事項のタスクは `tasks.wiki_page_id` で Wiki ページを1枚指す。
+- 1枚のページに決定事項のタスクを何枚でも紐づけられる。「玄関の向き」「リビングの広さ」など。
 - **決まった中身が残る場所はページ**。決めるたびにページへ決定行が書き足され、積み上がる。
-  札は決めるための道具で、使い捨て。
+  タスクは決めるための道具で、使い捨て。
 
 ### タスクを完了にしてよいかは、紐づけ方で決まる
 
 画面（タスク詳細の「仕様書連携」）と議事録のタスク化で共通の規則。
 
-| 紐づけた Wiki ページ | 札の種類 | 完了 |
+| 紐づけた Wiki ページ | タスクの種類 | 完了 |
 |---|---|---|
-| 「仕様書として扱う」（`仕様書` タグ）が入っている | 決める札（`type='spec'`） | `decision_state='considering'` の間は完了できない |
+| 「仕様書として扱う」（`仕様書` タグ）が入っている | 決定事項のタスク（`type='spec'`） | `decision_state='considering'` の間は完了できない |
 | 入っていない | ふつうのタスク（参考資料として紐づく） | 止めない |
 
 歯止めは DB 側のトリガー `enforce_review_gate`
 （`Cannot complete task: spec decision is not made`）。画面と CLI は同じ文言を先出しする。
 
-資料をつくる札と、決める札は分ける。一緒にすると「資料はできたが決まっていない」ときに
+資料をつくるタスクと、決定事項のタスクは分ける。一緒にすると「資料はできたが決まっていない」ときに
 完了の可否を人が判断することになる。
 
 ## 「凍結」= 確定時点の控えが残ること
@@ -43,19 +43,19 @@
 ### 控えの作られ方
 
 `rpc_set_spec_state` が `decided` / `implemented` にするとき、**決定行を書き足す前の本文**を
-`wiki_page_versions` に控える。名札が2つ付く。
+`wiki_page_versions` に控える。印が2つ付く。
 
 | 列 | 中身 |
 |---|---|
 | `kind` | `autosave`（本文の自動保存）／ `decided` ／ `implemented` |
-| `task_id` | その確定を行った札 |
+| `task_id` | その確定を行ったタスク |
 
-名札は **SECURITY DEFINER の RPC だけが書ける**。
+印は **SECURITY DEFINER の RPC だけが書ける**。
 
 - 画面と CLI に許した insert は `org_id / page_id / title / body / created_by` の5列だけ
   （列ごとの `GRANT INSERT`）。
 - **update と delete は取り上げた**（ポリシーも削除）。insert だけ列で絞っても、
-  5列で控えを作ったあと `update … set kind='decided'` で名札を後付けできてしまうため。
+  5列で控えを作ったあと `update … set kind='decided'` で印を後付けできてしまうため。
   控えは作ったら変えない・消さないもの。
 
 検証は `supabase/tests/run_wiki_decision_versions.sh`（8項目）。
@@ -97,10 +97,10 @@
 決定: 玄関の向きを決める (2026/09/14)
 ```
 
-「玄関の向きを決める」の部分はその札へのリンク（`/{orgId}/project/{spaceId}?task={taskId}`）で、
-押すと札が開く。以前は絵文字（✅ / 🚀）付きでリンクも無かった。
+「玄関の向きを決める」の部分はそのタスクへのリンク（`/{orgId}/project/{spaceId}?task={taskId}`）で、
+押すとタスクが開く。以前は絵文字（✅ / 🚀）付きでリンクも無かった。
 
-**入る場所はページの末尾**で、該当の見出しの下ではない。札はページ単位までしか覚えていないため。
+**入る場所はページの末尾**で、該当の見出しの下ではない。タスクはページ単位までしか覚えていないため。
 見出しの指定は別途。
 
 ## 実装の場所
@@ -109,18 +109,18 @@
 |---|---|
 | 決定・控え・決定行 | `rpc_set_spec_state`（最新は `supabase/migrations/20260914072915_wiki_decision_versions.sql`） |
 | 完了の歯止め | `enforce_review_gate`（`20260706013654_review_integrity.sql`） |
-| 紐づけで札の種類が変わる | `src/lib/hooks/useTasks.ts` の `specChangesForWikiLink` |
+| 紐づけでタスクの種類が変わる | `src/lib/hooks/useTasks.ts` の `specChangesForWikiLink` |
 | 控えの判定（画面） | `src/lib/wiki/decisionVersions.ts` |
 | 表示 | `src/components/wiki/WikiPageInspector.tsx`（バージョン履歴） |
-| 議事録から札を作る | `docs/spec/MEETING_MINUTES_TEMPLATE.md` |
+| 議事録からタスクを作る | `docs/spec/MEETING_MINUTES_TEMPLATE.md` |
 
 ## 一覧の「確定 2/5」の印
 
-Wiki 一覧の行に、そのページに紐づく決める札の進み具合を出す。
+Wiki 一覧の行に、そのページに紐づく決定事項のタスクの進み具合を出す。
 
 - **`wiki_pages` に列は足さない。** 確定の単位は決定1件なので、ページに状態を持たせると
-  決定側と必ずずれて正本が2つになる。紐づく札（`type='spec'` かつ `wiki_page_id`）を数える。
-- 決める札が1件も無いページには**印を出さない**（検討資料・議事メモに「検討中」を貼ると
+  決定側と必ずずれて正本が2つになる。紐づくタスク（`type='spec'` かつ `wiki_page_id`）を数える。
+- 決定事項のタスクが1件も無いページには**印を出さない**（検討資料・議事メモに「検討中」を貼ると
   印の意味が薄れる）。
 - `decided` と `implemented` を「確定した」に数える。状態が入っていない行も総数には数える
   （印を実態より良く見せない）。
@@ -136,9 +136,85 @@ Wiki 一覧の行に、そのページに紐づく決める札の進み具合を
 `range` を明示して読み切る。付けないと PostgREST の `max_rows`（1000）で黙って打ち切られ、
 「確定 2/5」が嘘になる。判定は `src/lib/wiki/decisionCounts.ts`。
 
+## CLI / API から決定する
+
+画面の「決定にする」と同じことを `agentpm spec decide` でできる。
+
+```
+agentpm spec decide --task-id <id> --state decided --note "9/14の定例で合意"
+```
+
+- 紐づけも画面と同じ規則。`task create --type spec --wiki-page-id <id>` / `task update --wiki-page-id <id>`
+  で決定事項のタスクになる（「仕様書として扱う」のページなら。タグ無しなら参考資料のまま）。
+  規則は2か所（画面 `useTasks.ts` / CLI `packages/mcp-server/src/lib/specLink.ts`）にあり、
+  `src/__tests__/lib/specLinkParity.test.ts` が突き合わせる。
+- `rpc_set_spec_state` は `_impl` ＋ 画面用（`auth.uid()`）＋ 道具用（`_as`・実行者を明示）に分けた
+  （`20260912134823_mcp_rpc_as.sql` と同じ型）。誰が決めたかは画面と同じく `task_events.actor_id` に残る。
+
+### 分割のときに踏んだ落とし穴
+
+**`app_can_write_space` は中で `auth.uid()` を見る。** 本体をそのまま `_impl` に移すと、
+鍵で動く道具（`_as` 経由・ログイン中の利用者がいない）からは**必ず弾かれる**。
+`_actor_can_write_space(p_actor, space, org)` に差し替える。判定の中身は同じ。
+
+同じ形で `_as` を足すときは、**中で `auth.uid()` を見ている関数を呼んでいないか**を必ず確かめる。
+
+### 決定行は「末尾に足すだけ」を保つ
+
+同時編集の設計（`docs/spec/COEDITING_SPEC.md`）が、`rpc_set_spec_state` が本文の
+**末尾にブロックを1つ足すだけ**であることに寄りかかっている（増えた末尾だけを生きている
+エディタへ合流させる設計）。本文を組み直して全部書き戻す形に変えると、この合流ができなくなる。
+変えるときは先に相談する。検証は `supabase/tests/run_spec_state_as.sh` の3項目
+（ブロック数が「もとの1つ＋決定行2つ＝3」）。
+
+## CLI からの全文差し替えを、黙って上書きさせない
+
+`minutes_update` / `wiki_update` は本文を丸ごと差し替えるが、版を見ずに上書きしていた。
+AI秘書や別の人が先に書いていても成功として返る。議事録には控えが無いので復旧できない。
+
+**任意の `expectedUpdatedAt`** を足した。渡すとその版のままの行だけを書き、違えば
+「この内容は、別の場所で更新されています」で断る。**省略時はこれまでどおり**（既存の呼び出しを壊さない）。
+
+任意のままだと誰も渡さないので、**AI と人が読むところ全部に渡す理由を書く**
+（MCP のスキーマ・`cli-manifest.ts`・`cli-skill.ts`）。AI は説明文しか読まないため、
+ここに書かないと存在しないのと同じ。`src/__tests__/lib/staleWriteGuard.test.ts` が
+3か所すべてに書いてあることを検査する。
+
+`minutes_append` には付けない（末尾に足すだけなので衝突しない。付けると往復が増えるだけ）。
+
+**必須に上げる条件**: `agentpm` の新しい版が行き渡り、`minutes_update` /
+`wiki_update` の呼び出しで `expectedUpdatedAt` が付いている割合が十分になったら必須にする。
+判断は CLI 利用のログ（`audit_logs` の道具名）で見る。それまでは任意のまま。
+
+## 「決めてください」を受信トレイに届ける
+
+`spec_decision_needed` は**表示する側だけ**が作ってあった（分類・ラベル・届け方・
+その場で決められるパネル）。**お知らせを作る側がどこにも無く**、テスト用のデータでしか
+出なかった。決め忘れが起きても誰も気づかない。
+
+`process_spec_decision_nudges()` が15分ごとに動き、未決の決定事項のタスクについて届ける。
+
+| きっかけ | 条件 |
+|---|---|
+| 期限を過ぎた | `due_date < 今日（日本時間）` かつ未決 |
+| 会議が終わった | そのタスクを作った会議が直近24時間のうちに終わった |
+
+- 届くのは**ボールを持っている側の担当**（`task_owners.side = tasks.ball`）。
+  相手先が決めることなら相手先に、社内なら社内に。担当が1人もいないタスクは届かない
+  （作成者へは送らない＝「自分で決めろ」という催促にしない）。
+- **1つの決定につき1回だけ。** `dedupe_key` が `spec_decision_needed:<タスク>:<人>` なので、
+  会議終了で届いたものは期限超過で重ねて届かない。
+- 決定済み・完了・ふつうのタスクには届かない。
+
+**受信トレイのパネルは1件ずつ**（決定ボタンが1つ）なので、「まとめて1通」にはできない。
+同じお知らせを2つのきっかけで出す形にした。
+
+`rpc_meeting_end` は書き換えていない。あの関数は大きく歯止めも多いので、代わりに
+見張り役が「最近終わった会議」を拾う（15分ごとなので実用上すぐ届く）。
+
+検証は `supabase/tests/run_spec_decision_nudge.sh`（6項目）。
+
 ## まだ無いもの
 
-- Wiki ページから「このページを参照している札」を見る導線
+- Wiki ページから「このページを参照しているタスク」を見る導線
 - 決定行を該当の見出しの下に入れる（見出しの指定の仕組みから要る）
-- CLI から確定にする（`rpc_set_spec_state` に当たる道具が無い）
-- 「決めてください」の受信トレイ通知（表示側だけあり、作る側が無い）

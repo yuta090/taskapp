@@ -18,10 +18,15 @@ const tasksChain = {
   single: async () => ({ data: { id: TASK }, error: null }),
 }
 
+// wikiPageId を渡すと、画面と同じ規則で type / decision_state も揃えるため、
+// ページの tags（仕様書かどうか）と、いまの decision_state を読む
+let wikiPageTags: string[] = []
+
 const wikiPagesChain = {
   select: () => wikiPagesChain,
   eq: () => wikiPagesChain,
   maybeSingle: async () => ({ data: wikiPageExistsInSpace ? { id: WIKI_PAGE } : null, error: null }),
+  single: async () => ({ data: { tags: wikiPageTags }, error: null }),
 }
 
 vi.mock('../supabase/client.js', () => ({
@@ -44,6 +49,7 @@ const WIKI_PAGE = '00000000-0000-0000-0000-00000000aaaa'
 beforeEach(() => {
   tasksUpdates.length = 0
   wikiPageExistsInSpace = true
+  wikiPageTags = []
 })
 
 describe('task_update — wikiPageId は同じ space のページだけ紐づけられる', () => {
@@ -66,5 +72,39 @@ describe('task_update — wikiPageId は同じ space のページだけ紐づけ
     await taskUpdate({ spaceId: SPACE, taskId: TASK, wikiPageId: null })
 
     expect(tasksUpdates[0]).toMatchObject({ wiki_page_id: null })
+  })
+})
+
+/**
+ * 画面（useTasks の specChangesForWikiLink）と同じ規則で、紐づけたときに
+ * type / decision_state も揃える。揃えないと CLI から仕様書ページを紐づけても
+ * 「決定事項のタスク」にならず、「決まるまで完了できない」歯止めが効かない。
+ */
+describe('task_update — 紐づけたページの種類で決定事項のタスクになる', () => {
+  it('「仕様書」タグのページなら、決定事項のタスクにして検討中を入れる', async () => {
+    wikiPageTags = ['仕様書']
+    await taskUpdate({ spaceId: SPACE, taskId: TASK, wikiPageId: WIKI_PAGE })
+    expect(tasksUpdates[0]).toMatchObject({
+      wiki_page_id: WIKI_PAGE,
+      type: 'spec',
+      decision_state: 'considering',
+    })
+  })
+
+  it('タグ無し（参考資料）ならリンクだけで、完了を止めない', async () => {
+    wikiPageTags = ['議事録']
+    await taskUpdate({ spaceId: SPACE, taskId: TASK, wikiPageId: WIKI_PAGE })
+    expect(tasksUpdates[0]).toMatchObject({ wiki_page_id: WIKI_PAGE })
+    expect(tasksUpdates[0]).not.toHaveProperty('type')
+    expect(tasksUpdates[0]).not.toHaveProperty('decision_state')
+  })
+
+  it('外すと、ふつうのタスクに戻す', async () => {
+    await taskUpdate({ spaceId: SPACE, taskId: TASK, wikiPageId: null })
+    expect(tasksUpdates[0]).toMatchObject({
+      wiki_page_id: null,
+      type: 'task',
+      decision_state: null,
+    })
   })
 })

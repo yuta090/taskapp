@@ -12,6 +12,7 @@ import {
 import { ArrowLeft, ArrowsIn, ArrowsOut, Info, Notebook, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
+import { useMinutesTaskActions } from '@/lib/hooks/useMinutesTaskActions'
 import type { MinutesEditorApi } from './MinutesEditor'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
 import { appendOnlyAddition } from '@/lib/minutes/rebase'
@@ -588,7 +589,10 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
      * ここで保存を確定させる。保存できない状態（権限なし・形式が壊れている・別の場所で更新された）
      * のときは例外を投げて移動を止める。書きかけを消すより、その場で理由を読んでもらう
      */
-    const handleBeforeNavigate = useCallback(async () => {
+    // 「タスク作成済み」の印からその場で完了・決定する入り口（読むのは押したときだけ）
+  const taskActions = useMinutesTaskActions({ orgId, spaceId })
+
+  const handleBeforeNavigate = useCallback(async () => {
       if (saveTimerRef.current === null) return
       if (!canEdit || parseBrokenRef.current || conflictRef.current) {
         throw new Error('保存できていない変更があります')
@@ -742,6 +746,10 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
               orgId={orgId}
               spaceId={spaceId}
               registerApi={registerEditorApi}
+              // 印を押した操作とチェックでの完了は、書ける人のときだけ
+              // 競合の帯が出ている間は止める。自動保存が早期 return するので、画面の
+              // チェックだけ外れてサーバーには `[x]` が残る（見た目と中身がずれる）
+              onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
             />
           </div>
         </div>

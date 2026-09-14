@@ -427,7 +427,7 @@ export function MeetingInspector({
                                   data-testid="minutes-task-candidate-decide"
                                   className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-ink"
                                 >
-                                  決める
+                                  決定事項
                                 </span>
                               )}
                             </div>
@@ -473,7 +473,7 @@ export function MeetingInspector({
                     </p>
                     <p>
                       差し込んだページが「仕様書として扱う」になっていれば、決まるまで
-                      完了できない「決める札」になります。
+                      完了できない「決定事項のタスク」になります。
                     </p>
                   </div>
                 ) : null}

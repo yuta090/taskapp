@@ -63,7 +63,7 @@ function generateSuppliesBody(): string {
     { type: 'table', content: { type: 'tableContent', rows: [
       { cells: [[{ type: 'text', text: '品目', styles: { bold: true } }], [{ type: 'text', text: '部数', styles: { bold: true } }], [{ type: 'text', text: '入稿日', styles: { bold: true } }], [{ type: 'text', text: 'ステータス', styles: { bold: true } }]] },
       { cells: [[{ type: 'text', text: 'パンフレット' }], [{ type: 'text', text: '' }], [{ type: 'text', text: '' }], [{ type: 'text', text: '' }]] },
-      { cells: [[{ type: 'text', text: '名札' }], [{ type: 'text', text: '' }], [{ type: 'text', text: '' }], [{ type: 'text', text: '' }]] },
+      { cells: [[{ type: 'text', text: '印' }], [{ type: 'text', text: '' }], [{ type: 'text', text: '' }], [{ type: 'text', text: '' }]] },
     ] } },
     { type: 'paragraph', content: [] },
     { type: 'heading', props: { level: 3 }, content: [{ type: 'text', text: 'ケータリング・飲食' }] },

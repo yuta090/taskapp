@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { computeSpecLinkChanges, SPEC_TAG } from '../lib/specLink.js';
 import { getSupabaseClient } from '../supabase/client.js';
 import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
@@ -27,8 +28,9 @@ export const taskCreateSchema = z.object({
     dueDate: z.string().optional().describe('期限日 (YYYY-MM-DD)'),
     assigneeId: z.string().uuid().optional().describe('担当者UUID'),
     milestoneId: z.string().uuid().optional().describe('マイルストーンUUID'),
-    specPath: z.string().optional().describe('仕様パス (type=specの場合必須, 例: /spec/v1/auth.md#login)'),
-    decisionState: z.enum(['considering', 'decided', 'implemented']).optional().describe('仕様タスクの決定状態'),
+    specPath: z.string().optional().describe('仕様パス（旧方式。例: /spec/v1/auth.md#login）。新しく作るときは wikiPageId を使う'),
+    wikiPageId: z.string().uuid().optional().describe('紐づける WikiページUUID。画面の「仕様書連携」に対応。type=spec のときはこれか specPath が必要'),
+    decisionState: z.enum(['considering', 'decided', 'implemented']).optional().describe('決める札の状態（省略時: considering）'),
 });
 export const taskUpdateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -115,12 +117,13 @@ export async function taskCreate(params) {
         throw new Error('スペースが見つかりません');
     }
     const orgId = space.org_id;
-    // Validate spec task requirements
+    // 決める札(type=spec)は、Wiki ページ（画面と同じ形）か、旧来の仕様書パスのどちらかで作れる。
+    // 画面はもう Wiki ページしか使わないので、新しく作るときは wikiPageId を使う。
     if (params.type === 'spec') {
-        if (!params.specPath) {
-            throw new Error('仕様タスク(type=spec)にはspecPathが必須です');
+        if (!params.wikiPageId && !params.specPath) {
+            throw new Error('決める札(type=spec)には wikiPageId（Wikiページ）か specPath のどちらかが必要です');
         }
-        if (!params.specPath.includes('/spec/') || !params.specPath.includes('#')) {
+        if (params.specPath && (!params.specPath.includes('/spec/') || !params.specPath.includes('#'))) {
             throw new Error('specPathは /spec/...#anchor の形式で指定してください');
         }
     }
@@ -147,7 +150,8 @@ export async function taskCreate(params) {
         ball: params.ball,
         origin: params.origin,
         type: params.type,
-        spec_path: params.type === 'spec' ? params.specPath : null,
+        spec_path: params.type === 'spec' ? (params.specPath ?? null) : null,
+        wiki_page_id: params.wikiPageId ?? null,
         decision_state: params.type === 'spec' ? (params.decisionState || 'considering') : null,
         client_scope: params.clientScope,
         due_date: params.dueDate || null,
@@ -247,6 +251,24 @@ function completionGateReason(error) {
     }
     return null;
 }
+/**
+ * 紐づける Wiki ページの「仕様書」タグと、いまの決定の状態を見て、
+ * 画面と同じ変更を返す。規則そのものは lib/specLink.ts（テストあり）。
+ */
+async function specChangesForWikiLink(wikiPageId, taskId) {
+    if (wikiPageId === null)
+        return computeSpecLinkChanges({ wikiPageId: null, isSpecPage: false, currentDecisionState: null });
+    const supabase = getSupabaseClient();
+    const { data: page } = await supabase.from('wiki_pages').select('tags').eq('id', wikiPageId).single();
+    const tags = (page?.tags ?? []);
+    const { data: task } = await supabase.from('tasks').select('decision_state').eq('id', taskId).single();
+    const currentDecisionState = task?.decision_state ?? null;
+    return computeSpecLinkChanges({
+        wikiPageId,
+        isSpecPage: tags.includes(SPEC_TAG),
+        currentDecisionState,
+    });
+}
 export async function taskUpdate(params) {
     // 権限チェック（write権限が必要、リソースIDも渡して所有権チェック）
     await checkAuth(params.spaceId, 'write', 'task_update', params.taskId);
@@ -282,6 +304,9 @@ export async function taskUpdate(params) {
             await assertInSpace('wiki_pages', params.wikiPageId, params.spaceId, '紐づけるWikiページが見つかりません');
         }
         updateData.wiki_page_id = params.wikiPageId;
+        // 画面（useTasks の specChangesForWikiLink）と同じ規則で type / decision_state も揃える。
+        // 揃えないと、CLI から仕様書ページを紐づけても「決める札」にならず、完了の歯止めも効かない。
+        Object.assign(updateData, await specChangesForWikiLink(params.wikiPageId, params.taskId));
     }
     // 担当者は「本人」か「招待中の招待」のどちらか一方だけ（DB の tasks_single_assignee_chk）。
     // 片方を指定したら、もう片方は明示的に消してから入れる

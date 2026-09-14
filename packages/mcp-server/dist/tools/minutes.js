@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assertWriteApplied } from '../lib/staleWrite.js';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
 // ── Schemas ──────────────────────────────────────────────
@@ -10,6 +11,10 @@ const minutesUpdateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().describe('会議ID'),
     minutesMd: z.string().describe('議事録本文（Markdown）'),
+    expectedUpdatedAt: z
+        .string()
+        .optional()
+        .describe('直前の minutes_get で受け取った updated_at をそのまま渡す。渡すと、その版のままのときだけ書き換える。渡さないと、他の人やAIが先に書いた内容を黙って上書きする（議事録には控えが無く元に戻せない）'),
 });
 const minutesAppendSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -47,6 +52,9 @@ export async function minutesGet(params) {
         title: meeting.title,
         status: meeting.status,
         minutes_md: meeting.minutes_md,
+        // 書き換えるときに expectedUpdatedAt として渡すための版。これが無いと
+        // 「先に誰かが書いていたら断る」を使いたくても値が取れない
+        updated_at: meeting.updated_at,
     };
 }
 export async function minutesUpdate(params) {
@@ -55,17 +63,23 @@ export async function minutesUpdate(params) {
     const orgId = await getOrgId(params.spaceId);
     // Verify meeting exists and belongs to org/space
     await getMeetingScoped(params.meetingId, params.spaceId, orgId);
-    const { data, error } = await supabase
+    // expectedUpdatedAt を渡されたときだけ、その版のままの行に限って書く（楽観ロック）。
+    // .single() は使わない — 0行のとき例外になり、競合と「見つからない」を区別できないため。
+    let query = supabase
         .from('meetings')
         .update({ minutes_md: params.minutesMd })
         .eq('id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', params.spaceId)
-        .select('*')
-        .single();
+        .eq('space_id', params.spaceId);
+    if (params.expectedUpdatedAt !== undefined) {
+        query = query.eq('updated_at', params.expectedUpdatedAt);
+    }
+    const { data, error } = await query.select('*');
     if (error)
         throw new Error('議事録の更新に失敗しました');
-    return data;
+    const rows = (data ?? []);
+    assertWriteApplied(rows.length, params.expectedUpdatedAt, '会議が見つかりません');
+    return rows[0];
 }
 export async function minutesAppend(params) {
     await checkAuth(params.spaceId, 'write', 'minutes_append', 'meeting', params.meetingId);

@@ -3,7 +3,7 @@
 -- ユーザーの言う「凍結」は、ページを編集できなくすることではなく
 --   - 確定した瞬間の本文が控えとして残る
 --   - あとから本文が変わったら分かる
--- の2つ。ここではその土台（控えの名札・決定行・名札の偽造防止）を確かめる。
+-- の2つ。ここではその土台（控えの印・決定行・印の偽造防止）を確かめる。
 --
 -- 前段: run_wiki_decision_versions.sh が空DBに全 migration を適用済み。
 set client_min_messages = notice;
@@ -43,7 +43,7 @@ begin
   -- 呼び出す人を決める（auth.uid() は request.jwt.claim.sub を読む）
   perform set_config('request.jwt.claim.sub', v_user::text, true);
 
-  -- ---- 1) 確定すると、名札付きの控えが1件できる ----
+  -- ---- 1) 確定すると、印付きの控えが1件できる ----
   perform rpc_set_spec_state(v_task, 'decided');
 
   select count(*) into v_cnt from wiki_page_versions where page_id = v_page;
@@ -51,7 +51,7 @@ begin
 
   select * into r from wiki_page_versions where page_id = v_page;
   if r.kind <> 'decided' then raise exception '1) kind=% （期待 decided）', r.kind; end if;
-  if r.task_id <> v_task then raise exception '1) task_id が札を指していない'; end if;
+  if r.task_id <> v_task then raise exception '1) task_id がタスクを指していない'; end if;
   raise notice 'PASS 1) 確定すると kind=decided / task_id 付きの控えができる';
 
   -- ---- 2) 控えの中身は「決定行を書き足す前」＝確定した瞬間の内容 ----
@@ -63,13 +63,13 @@ begin
   end if;
   raise notice 'PASS 2) 控えは決定行を書き足す前の本文';
 
-  -- ---- 3) ページの末尾に、札へのリンク付きの決定行が入る（絵文字なし） ----
+  -- ---- 3) ページの末尾に、タスクへのリンク付きの決定行が入る（絵文字なし） ----
   select body into v_body from wiki_pages where id = v_page;
   if v_body not like '%"text": "決定: "%' and v_body not like '%"text":"決定: "%' then
     raise exception '3) 決定行が入っていない: %', left(v_body, 400);
   end if;
   if v_body not like '%?task=' || v_task::text || '%' then
-    raise exception '3) 決定行に札へのリンクが無い';
+    raise exception '3) 決定行にタスクへのリンクが無い';
   end if;
   if v_body like '%/' || v_org::text || '/project/' || v_space::text || '?task=%' is not true then
     raise exception '3) リンクの形が想定と違う: %', left(v_body, 400);
@@ -80,7 +80,7 @@ begin
   if v_body not like '%検討中の案%' then
     raise exception '3) もとの本文が消えている（末尾に足すのではなく置き換えている）';
   end if;
-  raise notice 'PASS 3) 末尾に札へのリンク付きの決定行が入る（絵文字なし・もとの本文は残る）';
+  raise notice 'PASS 3) 末尾にタスクへのリンク付きの決定行が入る（絵文字なし・もとの本文は残る）';
 
   -- ---- 4) 確定した直後は「変わっていない」（控えとページの時刻が一致する） ----
   -- 同じトランザクションの now() を使うので一致する。画面の判定
@@ -91,16 +91,16 @@ begin
   end if;
   raise notice 'PASS 4) 確定した直後はページと控えの時刻が一致する';
 
-  -- ---- 5) 札の状態も進んでいる ----
+  -- ---- 5) タスクの状態も進んでいる ----
   if (select decision_state from tasks where id = v_task) <> 'decided' then
-    raise exception '5) 札が decided になっていない';
+    raise exception '5) タスクが decided になっていない';
   end if;
-  raise notice 'PASS 5) 札が decided になる';
+  raise notice 'PASS 5) タスクが decided になる';
 
   raise notice '=== 確定時点の控え 全項目 PASS ===';
 end $$;
 
--- ---- 6) 名札の偽造防止（列ごとの権限）。role を切り替えるので別ブロックにする ----
+-- ---- 6) 印の偽造防止（列ごとの権限）。role を切り替えるので別ブロックにする ----
 -- 注意: 権限による拒否も RLS による拒否も SQLSTATE は同じ 42501（insufficient_privilege）。
 -- どちらで止まったかは**メッセージで見分ける**（コードだけで見ると 6) が RLS のおかげで
 -- 通ってしまい、列ごとの権限を確かめたことにならない）。

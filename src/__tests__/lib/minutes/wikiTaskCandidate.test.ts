@@ -44,7 +44,7 @@ describe('findWikiTaskCandidate: 拾う行', () => {
     expect(findWikiTaskCandidate(line)).toMatchObject({ pageId: PAGE_ID })
   })
 
-  it('先頭の Wiki リンクを採る（1行に2つあっても札は1つ）', () => {
+  it('先頭の Wiki リンクを採る（1行に2つあってもタスクは1つ）', () => {
     const line = `- [ ] 決める [A](${href(PAGE_ID)}) [B](${href(OTHER_PAGE_ID)})`
     expect(findWikiTaskCandidate(line)).toMatchObject({ pageId: PAGE_ID })
   })
@@ -66,9 +66,11 @@ describe('findWikiTaskCandidate: 拾わない行', () => {
     expect(findWikiTaskCandidate(`決める [間取り](${href(PAGE_ID)})`)).toBeNull()
   })
 
-  it('Wiki のリンクが無ければ拾わない', () => {
-    expect(findWikiTaskCandidate('- [ ] ただの作業')).toBeNull()
-    expect(findWikiTaskCandidate('- [ ] 作業 [ファイル](/api/files/abc/download)')).toBeNull()
+  // リンクが無い行も拾うようになった（下の「リンクの無い行」の節で確かめる）。
+  // ここでは「ページは紐づかない」ことだけ見る
+  it('Wiki のリンクが無ければ、ページは紐づかない', () => {
+    expect(findWikiTaskCandidate('- [ ] ただの作業')?.pageId).toBeNull()
+    expect(findWikiTaskCandidate('- [ ] 作業 [ファイル](/api/files/abc/download)')?.pageId).toBeNull()
   })
 
   it('旧来の SPEC 行は拾わない（そちらの経路が扱う）', () => {
@@ -76,12 +78,12 @@ describe('findWikiTaskCandidate: 拾わない行', () => {
     expect(findWikiTaskCandidate(line)).toBeNull()
   })
 
-  it('page= の値が UUID の形でなければ拾わない', () => {
-    expect(findWikiTaskCandidate('- [ ] 決める [間取り](/o/project/s/wiki?page=abc)')).toBeNull()
-    expect(findWikiTaskCandidate('- [ ] 決める [間取り](/o/project/s/wiki)')).toBeNull()
+  it('page= の値が UUID の形でなければ、ページは紐づかない（行自体は候補になる）', () => {
+    expect(findWikiTaskCandidate('- [ ] 決める [間取り](/o/project/s/wiki?page=abc)')?.pageId).toBeNull()
+    expect(findWikiTaskCandidate('- [ ] 決める [間取り](/o/project/s/wiki)')?.pageId).toBeNull()
   })
 
-  it('題名もリンクの文字も空なら拾わない（札の名前が作れない）', () => {
+  it('題名もリンクの文字も空なら拾わない（タスクの名前が作れない）', () => {
     expect(findWikiTaskCandidate(`- [ ] [](${href(PAGE_ID)})`)).toBeNull()
   })
 })
@@ -117,8 +119,13 @@ function sliceFunctionBody(sql: string, fnName: string): string {
   return head[0] + (next ? rest.slice(0, next.index) : rest)
 }
 
+/**
+ * 行の判定は `_impl`（実行者を引数で受ける本体）に入っている。画面用 `rpc_*` と
+ * 道具用 `rpc_*_as` はそれを呼ぶだけの包みなので、正規表現は本体側を見る
+ * （20260914124023 で分割した。分けた直後にこの検査が落ちて気づけた）。
+ */
 describe('SQL と共有するパターン', () => {
-  for (const fn of ['rpc_get_minutes_preview', 'rpc_parse_meeting_minutes']) {
+  for (const fn of ['_get_minutes_preview_impl', '_parse_meeting_minutes_impl']) {
     it(`${fn} が同じ Wiki リンクのパターンを持つ`, () => {
       const { sql } = readLatestMigrationDefining(fn)
       expect(sliceFunctionBody(sql, fn)).toContain(WIKI_PAGE_HREF_PATTERN)
@@ -129,4 +136,58 @@ describe('SQL と共有するパターン', () => {
       expect(sliceFunctionBody(sql, fn)).toContain(UNCHECKED_ITEM_PATTERN)
     })
   }
+
+  // 包みが本体を呼んでいること（呼び忘れると、判定はあるのに誰も通らない）
+  for (const [wrapper, impl] of [
+    ['rpc_get_minutes_preview', '_get_minutes_preview_impl'],
+    ['rpc_get_minutes_preview_as', '_get_minutes_preview_impl'],
+    ['rpc_parse_meeting_minutes', '_parse_meeting_minutes_impl'],
+    ['rpc_parse_meeting_minutes_as', '_parse_meeting_minutes_impl'],
+  ]) {
+    it(`${wrapper} が ${impl} を呼ぶ`, () => {
+      const { sql } = readLatestMigrationDefining(wrapper)
+      expect(sliceFunctionBody(sql, wrapper)).toContain(`public.${impl}(`)
+    })
+  }
+})
+
+/**
+ * リンクの無いチェックリスト行も、ふつうのタスクとして拾う。
+ *
+ * もともと「決めること」を拾う仕組みとして作ったので、資料が必ず紐づく前提だった。
+ * だが議事録には「田畠さんにレビュー依頼」のような**ただのやること**も普通に出てくる。
+ * 書いたのに候補に出ず、理由も画面に出ないのがいちばん困る（ユーザー指摘）。
+ */
+describe('findWikiTaskCandidate: リンクの無い行', () => {
+  it('リンクが無くても、未チェックの行なら拾う（ページは紐づかない）', () => {
+    const got = findWikiTaskCandidate('- [ ] 田畠さんに販売戦略のレビュー依頼')
+    expect(got).toEqual({
+      pageId: null,
+      title: '田畠さんに販売戦略のレビュー依頼',
+      linkText: '',
+    })
+  })
+
+  it('Wiki 以外のリンクだけでも拾う（リンクは題名から取り除く）', () => {
+    const got = findWikiTaskCandidate('- [ ] 資料を送る [見積書](/api/files/abc/download)')
+    expect(got).toMatchObject({ pageId: null, title: '資料を送る' })
+  })
+
+  it('チェック済みは拾わない', () => {
+    expect(findWikiTaskCandidate('- [x] 済んだこと')).toBeNull()
+  })
+
+  it('チェックリストでない行は拾わない', () => {
+    expect(findWikiTaskCandidate('- ただの箇条書き')).toBeNull()
+    expect(findWikiTaskCandidate('ふつうの文')).toBeNull()
+  })
+
+  it('中身が空の行は拾わない（タスクの名前が作れない）', () => {
+    expect(findWikiTaskCandidate('- [ ] ')).toBeNull()
+    expect(findWikiTaskCandidate('- [ ]')).toBeNull()
+  })
+
+  it('旧来の SPEC 行は、これまでどおりそちらの経路が扱う', () => {
+    expect(findWikiTaskCandidate('- [ ] SPEC(/spec/A.md#x): タイトル')).toBeNull()
+  })
 })

@@ -35,7 +35,7 @@ export interface MinutesPreviewCandidate {
   /** Wiki ページに紐づく行のときだけ入る */
   wikiPageId: string | null
   wikiPageTitle: string | null
-  /** 決める札（決まるまで完了できない）になるかどうか */
+  /** 決定事項のタスク（決まるまで完了できない）になるかどうか */
   isSpec: boolean
 }
 
@@ -58,7 +58,7 @@ function toCandidate(line: RawMinutesPreviewLine): MinutesPreviewCandidate {
     specPath,
     wikiPageId: line.wiki_page_id ?? null,
     wikiPageTitle: line.wiki_page_title ?? null,
-    // 旧来の SPEC 行は常に決める札。Wiki の行は「仕様書」タグの有無を DB が入れてくる
+    // 旧来の SPEC 行は常に決定事項のタスク。Wiki の行は「仕様書」タグの有無を DB が入れてくる
     isSpec: line.is_spec ?? specPath !== null,
   }
 }

@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import {
@@ -21,6 +22,9 @@ import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/app
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
+import { TaskMarkerActions } from './TaskMarkerActions'
+import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
+import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
 
 /**
  * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
@@ -57,12 +61,35 @@ interface MinutesEditorProps {
    * アンマウント時は null を渡して外す。
    */
   registerApi?: (api: MinutesEditorApi | null) => void
+  /**
+   * 「タスク作成済み」の印から、その場で完了・決定できるようにする入り口。
+   * 省略すると、印はこれまでどおり押すとタスクへ移動するだけになる。
+   */
+  onResolveTask?: MinutesTaskResolver
+}
+
+/**
+ * 印から操作するための入り口。読み取り（状態を引く）と実行（完了/決定）を1つにまとめて渡す。
+ * 省略すると、印はこれまでどおり「押すとタスクへ移動する」だけになる。
+ */
+export interface MinutesTaskResolver {
+  /** 押したときに読む。見つからなければ null */
+  resolve: (taskId: string) => Promise<{ title: string; state: MinutesTaskState } | null>
+  /** 完了・決定を実行する */
+  run: (taskId: string, action: Exclude<MinutesTaskAction, 'open'>) => Promise<void>
 }
 
 interface TaskMarkerChipProps {
   taskId: string
   orgId: string
   spaceId: string
+  /**
+   * いまの入り口を入れた箱。**ref で渡す**のが要点。
+   * BlockNote のエディタとスキーマはマウント時の1回しか作られないので、値を直接
+   * 閉じ込めると、あとから「編集不可」に変えても印には届かない（タスク化の処理中でも
+   * 完了できてしまう）。ref なら押した時点の値を読める。
+   */
+  resolverRef?: { current: MinutesTaskResolver | undefined }
 }
 
 /** UUID（v1〜v5想定の一般形）の形をしているかどうか。壊れた/意図しない taskId をボタン化しない */
@@ -70,15 +97,85 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * 議事録に埋め込まれた `<!--task:uuid-->` の見た目。単独でテストできるよう
- * BlockNote の render コールバックから切り出している。content:'none' なので
- * 文字は足せず、押すとそのタスクの詳細（`?task=<id>`）へ移動するだけ。
- * taskId が UUID の形のときだけボタンにする（それ以外は見た目だけの静的なチップ）。
+ * BlockNote の render コールバックから切り出している。content:'none' なので文字は足せない。
+ *
+ * 押すと**その場で操作できる小さなパネル**が出る（完了にする・決定にする・開く）。
+ * 以前は押すとタスクへ移動するだけだった。会議中に「これ終わったね」となったとき、
+ * 議事録から離れずに終わらせられるようにする。
+ *
+ * チェック（`- [x]`）を入れても完了になる（handleCheckboxCompletion）。ただし
+ * **外したときは何もしない**（完了の取り消しは事故が痛いのでタスク側で行う）。
+ * 完了できないときは理由を出してチェックを戻す。
+ *
+ * taskId が UUID の形のときだけ押せるようにする（壊れた値をボタン化しない）。
  */
-export function TaskMarkerChip({ taskId, orgId, spaceId }: TaskMarkerChipProps) {
+export function TaskMarkerChip({ taskId, orgId, spaceId, resolverRef }: TaskMarkerChipProps) {
+  // 押した時点の入り口を読む（テストからは resolverRef を直接渡せる）
+  const getResolver = useCallback(() => resolverRef?.current, [resolverRef])
   const router = useRouter()
   const isValidTaskId = UUID_RE.test(taskId)
-  // リンクの組み立ては appLinks.ts に集約する（?task= の綴りがずれると押しても何も開かない）
-  const goToTask = () => router.push(buildTaskHref(orgId, spaceId, encodeURIComponent(taskId)))
+  const [open, setOpen] = useState(false)
+  const [state, setState] = useState<MinutesTaskState | null>(null)
+  const [title, setTitle] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const goToTask = useCallback(
+    () => router.push(buildTaskHref(orgId, spaceId, encodeURIComponent(taskId))),
+    [router, orgId, spaceId, taskId]
+  )
+
+  const load = useCallback(async () => {
+    const resolver = getResolver()
+    if (!resolver) return
+    setError(null)
+    setState(null)
+    try {
+      const resolved = await resolver.resolve(taskId)
+      if (resolved === null) {
+        setError('このタスクは見つかりませんでした（削除された可能性があります）')
+        return
+      }
+      setState(resolved.state)
+      setTitle(resolved.title)
+    } catch {
+      setError('タスクの状態を読み込めませんでした')
+    }
+  }, [getResolver, taskId])
+
+  const handleOpen = useCallback(() => {
+    // 操作の入口が無い場面（読み取り専用・タスク化の処理中など）は、これまでどおり移動するだけ
+    if (!getResolver()) {
+      goToTask()
+      return
+    }
+    setOpen(true)
+    void load()
+  }, [getResolver, goToTask, load])
+
+  const handleAction = useCallback(
+    async (action: MinutesTaskAction) => {
+      if (action === 'open') {
+        setOpen(false)
+        goToTask()
+        return
+      }
+      const resolver = getResolver()
+      if (!resolver) return
+      setBusy(true)
+      setError(null)
+      try {
+        await resolver.run(taskId, action)
+        // 押したあとの状態を出し直す（「決定にする」の次に「完了にする」が押せるように）
+        await load()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '操作できませんでした')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [getResolver, taskId, goToTask, load]
+  )
 
   const className =
     'inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-ink align-middle' +
@@ -94,23 +191,39 @@ export function TaskMarkerChip({ taskId, orgId, spaceId }: TaskMarkerChipProps) 
   }
 
   return (
-    <span
-      contentEditable={false}
-      role="button"
-      tabIndex={0}
-      data-testid="minutes-task-marker-chip"
-      title="このタスクを開く"
-      onClick={goToTask}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          goToTask()
-        }
-      }}
-      className={className}
-    >
-      <CheckCircle weight="fill" className="text-sm" />
-      タスク作成済み
+    <span contentEditable={false} className="relative inline-block align-middle">
+      <span
+        // 外側にも付いているが、印そのものにも残す。BlockNote の inline content は
+        // content:'none'（文字を足せない）であることが前提で、既存のテストもここを見ている
+        contentEditable={false}
+        role="button"
+        tabIndex={0}
+        data-testid="minutes-task-marker-chip"
+        title="このタスクを操作する"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={handleOpen}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            handleOpen()
+          }
+        }}
+        className={className}
+      >
+        <CheckCircle weight="fill" className="text-sm" />
+        タスク作成済み
+      </span>
+      {open && (
+        <TaskMarkerActions
+          state={state}
+          title={title}
+          error={error}
+          busy={busy}
+          onAction={handleAction}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </span>
   )
 }
@@ -160,7 +273,11 @@ const ALLOWED_SLASH_MENU_ITEMS = new Set([
   'emoji',
 ])
 
-function useMinutesSchema(orgId: string, spaceId: string) {
+function useMinutesSchema(
+  orgId: string,
+  spaceId: string,
+  resolverRef: { current: MinutesTaskResolver | undefined }
+) {
   return useMemo(() => {
     const taskMarkerSpec = createReactInlineContentSpec(
       {
@@ -170,7 +287,12 @@ function useMinutesSchema(orgId: string, spaceId: string) {
       } as const,
       {
         render: (props) => (
-          <TaskMarkerChip taskId={props.inlineContent.props.taskId} orgId={orgId} spaceId={spaceId} />
+          <TaskMarkerChip
+            taskId={props.inlineContent.props.taskId}
+            orgId={orgId}
+            spaceId={spaceId}
+            resolverRef={resolverRef}
+          />
         ),
       }
     )
@@ -197,7 +319,9 @@ function useMinutesSchema(orgId: string, spaceId: string) {
         [TASK_MARKER_TYPE]: taskMarkerSpec,
       },
     })
-  }, [orgId, spaceId])
+    // resolverRef は依存に入れない（ref の箱は変わらない。中身は押した時点で読む）。
+    // 入れるとスキーマを作り直すが、BlockNote はマウント時の1回しか使わないので無駄になる
+  }, [orgId, spaceId, resolverRef])
 }
 
 /**
@@ -213,6 +337,7 @@ function MinutesEditorImpl({
   spaceId,
   onBeforeNavigate,
   registerApi,
+  onResolveTask,
 }: MinutesEditorProps) {
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
   /**
@@ -225,7 +350,11 @@ function MinutesEditorImpl({
     setLinkPicker((prev) => ({ kind, seq: (prev?.seq ?? 0) + 1 }))
   }, [])
   const closeLinkPicker = useCallback(() => setLinkPicker(null), [])
-  const schema = useMinutesSchema(orgId, spaceId)
+  // 入り口は ref に詰め替えて渡す。エディタとスキーマはマウント時の1回しか作られないので、
+  // 値のまま渡すと「あとから編集不可にした」が印に届かない（レビュー指摘）
+  const resolverRef = useRef<MinutesTaskResolver | undefined>(onResolveTask)
+  resolverRef.current = onResolveTask
+  const schema = useMinutesSchema(orgId, spaceId, resolverRef)
 
   // 例外が出ないはずのところへの念のための守り。parseMinutesMarkdown が万一例外を
   // 投げても画面を壊さない: 本文全体を1つの段落の生テキストとして出し、読み取り専用にする
@@ -328,13 +457,67 @@ function MinutesEditorImpl({
     return () => registerApi?.(null)
   }, [registerApi, appendMarkdown])
 
+  /**
+   * 直前の本文。チェックが「入った」瞬間だけを拾うために持つ。
+   * 状態(useState)にすると打つたびに描き直すので ref にする。
+   */
+  const lastMarkdownRef = useRef(minutesMd)
+
+  /**
+   * チェックを入れたら、そのタスクを完了にする（タスクが既にある行だけ）。
+   * 外したときは何もしない（完了の取り消しは事故が痛いのでタスク側で行う）。
+   * 完了できないとき（未決・承認待ち）は理由を出し、**チェックを元に戻す**。
+   * 付いたままだと「完了した」と誤解するため。
+   */
+  const handleCheckboxCompletion = useCallback(
+    (markdown: string) => {
+      const prev = lastMarkdownRef.current
+      lastMarkdownRef.current = markdown
+      const resolver = resolverRef.current
+      if (!resolver) return
+
+      const taskIds = detectCheckedTaskIds(prev, markdown)
+      if (taskIds.length === 0) return
+
+      for (const taskId of taskIds) {
+        void resolver.run(taskId, 'complete').catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : 'このタスクは完了にできませんでした'
+          toast.error(message)
+          // チェックを戻す。付いたままだと「完了した」と誤解するため。
+          // 画面を離れた後に失敗が返ることがあるので、触れなければ黙って諦める
+          try {
+            // 字下げした行も拾うので、入れ子まで辿る（トップ階層だけ見ると戻せない）
+            editor.forEachBlock((block) => {
+              if (block.type !== 'checkListItem') return true
+              const hasMarker = (block.content as unknown[] | undefined)?.some(
+                (c) =>
+                  (c as { type?: string }).type === TASK_MARKER_TYPE &&
+                  (c as { props?: { taskId?: string } }).props?.taskId === taskId
+              )
+              if (!hasMarker) return true
+              editor.updateBlock(block, {
+                props: { ...(block.props as Record<string, unknown>), checked: false },
+              } as Parameters<typeof editor.updateBlock>[1])
+              return false
+            })
+          } catch {
+            // エディタが既に外れている等。チェックは戻せないが、理由は上のトーストで伝わる
+          }
+        })
+      }
+    },
+    [editor]
+  )
+
   return (
     <div className="minutes-editor" data-testid="minutes-editor" ref={editorContainerRef}>
       <BlockNoteView
         editor={editor}
         editable={effectiveEditable}
         onChange={() => {
-          onChange?.(serializeMinutesBlocks(editor.document))
+          const markdown = serializeMinutesBlocks(editor.document)
+          handleCheckboxCompletion(markdown)
+          onChange?.(markdown)
         }}
         theme="light"
         slashMenu={false}

@@ -7,7 +7,7 @@
  * の2つ。ページ全体を閉じると、長い資料は一部しか確定しないので仕事が止まる。
  *
  * 控えは `rpc_set_spec_state` が作る。決定行を書き足す**前**の本文を、
- * `kind`（decided / implemented）と `task_id` の名札付きで `wiki_page_versions` に入れる。
+ * `kind`（decided / implemented）と `task_id` の印付きで `wiki_page_versions` に入れる。
  */
 
 import type { WikiVersionKind } from '@/types/database'
@@ -57,7 +57,7 @@ export function hasChangedSinceDecision(
   return updated > decidedAt
 }
 
-/** 版の一覧に出す名札。自動保存の控えには出さない（数が多く、印の意味が薄れる）。 */
+/** 版の一覧に出す印。自動保存の控えには出さない（数が多く、印の意味が薄れる）。 */
 export function versionKindLabel(kind: WikiVersionKind | undefined | null): string | null {
   if (kind === 'decided') return '確定時点'
   if (kind === 'implemented') return '実装時点'
