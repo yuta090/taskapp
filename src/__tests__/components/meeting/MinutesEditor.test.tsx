@@ -15,11 +15,19 @@ vi.mock('next/navigation', () => ({
 const mockInsertInlineContent = vi.fn()
 const mockEditorFocus = vi.fn()
 const mockDocument: unknown[] = [{ type: 'paragraph', content: [] }]
-const mockUseCreateBlockNote = vi.fn((_opts: unknown) => ({
+/**
+ * 本物の `useCreateBlockNote` は **マウント中ずっと同じ editor を返す**
+ * （中身は `useMemo(..., [])`）。毎回別のものを返すモックにすると、
+ * 「/」メニューの項目の取り直しが止まらない不具合をテストが見逃す
+ * （`useLoadSuggestionMenuItems` は `getItems` の参照が変わるたびに取り直す）。
+ * 実機と同じく、1つを使い回す。
+ */
+const mockEditor = {
   document: mockDocument,
   insertInlineContent: mockInsertInlineContent,
   focus: mockEditorFocus,
-}))
+}
+const mockUseCreateBlockNote = vi.fn((_opts: unknown) => mockEditor)
 
 /**
  * 「/」メニューに出る既定の項目。BlockNote は editor のスキーマに無いブロックの項目を
@@ -252,6 +260,22 @@ describe('MinutesEditor の「/」メニュー', () => {
     unmount()
     render(<MinutesEditor minutesMd="" editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
     expect(screen.queryByTestId('minutes-insert-meeting-note')).not.toBeInTheDocument()
+  })
+
+  /**
+   * 描き直しのたびに `getItems` が別物になると、メニューを開いている間ずっと
+   * 項目を取り直して点滅・固まりになる（過去に事故った箇所）。入口を増やすたびに
+   * 壊れやすいので、参照が変わらないことを見張る。
+   */
+  it('画面を描き直しても「/」メニューの項目の取り方は同じものを使い回す', () => {
+    // onChange を毎回別の関数にして、本当に描き直させる（この部品は memo で
+    // 包まれているので、props が同じだと描き直しが起きずテストにならない）
+    const { rerender } = render(
+      <MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} onChange={() => {}} />
+    )
+    const first = capturedSlashMenuProps!.getItems
+    rerender(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} onChange={() => {}} />)
+    expect(capturedSlashMenuProps!.getItems).toBe(first)
   })
 
   it('読み取り専用のときはメニューを出さない', () => {

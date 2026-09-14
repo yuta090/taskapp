@@ -264,9 +264,12 @@ function renderToggle(block: MinutesBlock, key: React.Key): ReactNode {
   const items = Array.isArray(block.content) ? block.content : []
   const childNodes = block.children && block.children.length ? renderBlocks(block.children) : null
   return (
-    <details key={key} open data-testid="portal-minutes-toggle" className="my-2">
+    // 箇条書き（`list-disc pl-5`）と同じ段に置く。Markdown 上は隣り合う兄弟なので、
+    // 折りたたみだけ左にずれていると別の階層に見える
+    <details key={key} open data-testid="portal-minutes-toggle" className="my-2 pl-5">
       <summary className="cursor-pointer text-sm text-gray-700 leading-[1.8]">{renderInline(items)}</summary>
-      <div className="pl-4">{childNodes}</div>
+      {/* 中身が無いときは囲みごと出さない */}
+      {childNodes ? <div className="pl-4">{childNodes}</div> : null}
     </details>
   )
 }
