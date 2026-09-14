@@ -37,6 +37,17 @@ $$;
 COMMENT ON FUNCTION public.sync_task_status_on_review_open() IS
   '社内承認の依頼が open になったら、そのタスクの status を in_review にする（done は除く）';
 
+-- トリガーを付け外しする前に、対象の表を1文で押さえる。
+-- `drop trigger if exists` は**トリガーが無くても** access exclusive を取るので、
+-- 押さえずに進むと途中でロックの強さが上がり、同時に走っている書き込みと deadlock する
+-- （このリポジトリで実際に踏んだ。20260913040157 も同じ作法にしている）。
+-- 待ちが長引いたら諦めて落ちるよう、lock_timeout も添える。
+DO $$
+BEGIN
+  SET LOCAL lock_timeout = '3s';
+  LOCK TABLE public.reviews IN ACCESS EXCLUSIVE MODE;
+END $$;
+
 DROP TRIGGER IF EXISTS trg_sync_task_status_on_review_open ON public.reviews;
 CREATE TRIGGER trg_sync_task_status_on_review_open
   AFTER INSERT OR UPDATE OF status ON public.reviews
