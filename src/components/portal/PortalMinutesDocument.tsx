@@ -3,8 +3,10 @@
 import { Fragment, useMemo, type ReactNode } from 'react'
 import { CheckSquare, Square } from '@phosphor-icons/react'
 import {
+  MEETING_NOTE_TYPE,
   parseMinutesMarkdown,
   TASK_MARKER_TYPE,
+  TOGGLE_TYPE,
   type MinutesBlock,
   type MinutesInlineContent,
   type MinutesLinkInline,
@@ -103,17 +105,37 @@ function isEmptyInline(items: readonly MinutesInlineContent[]): boolean {
 
 // ---- block ----
 
-const HEADING_TAG = { 1: 'h2', 2: 'h3', 3: 'h4' } as const
-const HEADING_CLASS: Record<1 | 2 | 3, string> = {
+/**
+ * 議事録の見出しは、ページの見出し（会議名）の下にぶら下がるので1段落として出す
+ * （議事録の見出し1 = ページの中では h2）。HTML の見出しは6段までなので、
+ * 議事録の見出し5・6はどちらも h6 にする。
+ */
+type MinutesHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
+const HEADING_TAG = { 1: 'h2', 2: 'h3', 3: 'h4', 4: 'h5', 5: 'h6', 6: 'h6' } as const
+const HEADING_CLASS: Record<MinutesHeadingLevel, string> = {
   1: 'text-base font-semibold text-gray-900',
   2: 'text-sm font-semibold text-gray-900',
   3: 'text-sm font-medium text-gray-900',
+  // 見出し4以降は編集画面でも本文と同じ大きさの太字なので、見た目もそれに合わせる
+  4: 'text-sm font-medium text-gray-900',
+  5: 'text-sm font-medium text-gray-900',
+  6: 'text-sm font-medium text-gray-900',
 }
-const HEADING_MT: Record<1 | 2 | 3, string> = { 1: 'mt-5', 2: 'mt-4', 3: 'mt-3' }
+const HEADING_MT: Record<MinutesHeadingLevel, string> = {
+  1: 'mt-5',
+  2: 'mt-4',
+  3: 'mt-3',
+  4: 'mt-3',
+  5: 'mt-3',
+  6: 'mt-3',
+}
 
-function headingLevel(block: MinutesBlock): 1 | 2 | 3 {
+function headingLevel(block: MinutesBlock): MinutesHeadingLevel {
   const level = block.props?.level
-  return level === 2 || level === 3 ? level : 1
+  if (typeof level !== 'number') return 1
+  if (level < 1) return 1
+  if (level > 6) return 6
+  return Math.round(level) as MinutesHeadingLevel
 }
 
 function renderHeading(block: MinutesBlock, key: React.Key, isFirst: boolean): ReactNode {
@@ -234,10 +256,46 @@ function renderListGroup(type: string, group: readonly MinutesBlock[], key: Reac
   )
 }
 
+/**
+ * 折りたたみ。相手先には**開いた状態**で出す（畳んだままだと、中に書いた大事な話を
+ * 読み落とす）。読む側が自分で畳めるように、ブラウザ標準の折りたたみを使う。
+ */
+function renderToggle(block: MinutesBlock, key: React.Key): ReactNode {
+  const items = Array.isArray(block.content) ? block.content : []
+  const childNodes = block.children && block.children.length ? renderBlocks(block.children) : null
+  return (
+    // 箇条書き（`list-disc pl-5`）と同じ段に置く。Markdown 上は隣り合う兄弟なので、
+    // 折りたたみだけ左にずれていると別の階層に見える
+    <details key={key} open data-testid="portal-minutes-toggle" className="my-2 pl-5">
+      <summary className="cursor-pointer text-sm text-gray-700 leading-[1.8]">{renderInline(items)}</summary>
+      {/* 中身が無いときは囲みごと出さない */}
+      {childNodes ? <div className="pl-4">{childNodes}</div> : null}
+    </details>
+  )
+}
+
+/** 会議メモ。編集画面と同じ色の囲みで出す（会議中に足した補足だと分かるように）。 */
+function renderMeetingNote(block: MinutesBlock, key: React.Key): ReactNode {
+  const items = Array.isArray(block.content) ? block.content : []
+  return (
+    <div
+      key={key}
+      data-testid="portal-minutes-meeting-note"
+      className="my-2 rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2 text-sm text-gray-700 leading-[1.8] whitespace-pre-wrap"
+    >
+      {renderInline(items)}
+    </div>
+  )
+}
+
 function renderBlock(block: MinutesBlock, key: React.Key, isFirst: boolean): ReactNode {
   switch (block.type) {
     case 'heading':
       return renderHeading(block, key, isFirst)
+    case TOGGLE_TYPE:
+      return renderToggle(block, key)
+    case MEETING_NOTE_TYPE:
+      return renderMeetingNote(block, key)
     case 'table':
       return renderTable(block, key)
     case 'codeBlock':

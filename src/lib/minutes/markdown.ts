@@ -9,7 +9,7 @@
  * 使えない（実測済み）。ここでは DOM・React・BlockNote を一切 import しない純関数で、
  * DB 側の正規表現（下の SPEC_LINE_REGEX / TASK_MARKER_REGEX）と結合できる形を保つ。
  *
- * 文法は最小限（見出し1-3・箇条書き・チェック・番号付き・GFM表・フェンス・太字/斜体/
+ * 文法は最小限（見出し1-6・箇条書き・チェック・番号付き・GFM表・フェンス・太字/斜体/
  * 取り消し線/インラインコード・リンク・素のURL・行末タスク目印）。それ以外の入力は
  * 「段落＋生テキスト」として文字を落とさずに保持する。
  */
@@ -90,7 +90,12 @@ export const TASK_MARKER_REGEX = /<!--task:([^>]+)-->\s*$/
 // 3つ以上のバッククォート(長いフェンス)を開きとして受ける。info string は
 // バッククォートさえ含まなければ空白入り(`js title="x"`)も許す。
 const FENCE_RE = /^(`{3,})([^`]*)$/
-const HEADING_RE = /^(#{1,3})[ \t]+(.*)$/
+/**
+ * 見出しは Markdown と同じ6段まで。エディタ（BlockNote）も「/」メニューも
+ * 見出し6まで出すので、ここを3段で止めると **選べるのに保存で浅くなる**（見出し4が
+ * 見出し3に化ける）。`#` が7つ以上は Markdown でも見出しではないので段落のまま残す。
+ */
+const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/
 const CHECK_RE = /^[-*+][ \t]+\[([ xX])\][ \t]*(.*)$/
 const BULLET_RE = /^[-*+][ \t]+(.*)$/
 const NUMBERED_RE = /^(\d+)\.[ \t]+(.*)$/
@@ -169,6 +174,27 @@ function scanBalancedHref(raw: string, from: number): { href: string; end: numbe
   }
   return null
 }
+
+/**
+ * 折りたたみ（トグル）の見出し行に付ける、読む人には見えない目印。
+ * 形は `- <!--toggle-->タイトル` ＋ 字下げした中身で、素の Markdown では
+ * 「中身の付いた箇条書き」として読める（CLI や外のツールで開いても崩れない）。
+ * 箇条書きの1行目には逃がし（`\`）が付かないので、往復しても目印が化けない。
+ */
+export const TOGGLE_MARKER = '<!--toggle-->'
+
+/**
+ * 会議メモ（背景色の付く1ブロック）の各行の先頭に付ける目印。
+ * 素の Markdown では何も見えないただの段落になる。**行ごとに付ける**のは、
+ * 2行目以降だけ目印が無いと、読み戻したとき別のブロックに割れてしまうため。
+ */
+export const MEETING_NOTE_MARKER = '<!--note-->'
+
+/** 折りたたみのブロック種別（BlockNote 既定の折りたたみと同じ名前）。 */
+export const TOGGLE_TYPE = 'toggleListItem'
+
+/** 会議メモのブロック種別（エディタ側の独自ブロックと同じ名前）。 */
+export const MEETING_NOTE_TYPE = 'meetingNote'
 
 /**
  * この形に一致する行は、段落の生テキストとして書くと別のブロックに化けてしまう。
@@ -625,6 +651,8 @@ function isBlockTriggerLine(line: string, lines: string[], idx: number, depth: n
   if (FENCE_RE.test(line)) return true
   if (HEADING_RE.test(line)) return true
   if (CHECK_RE.test(line) || BULLET_RE.test(line) || NUMBERED_RE.test(line)) return true
+  // 会議メモは段落の途中からでも始められる（段落をここで切る）
+  if (line.startsWith(MEETING_NOTE_MARKER)) return true
   if (
     /^\|/.test(line) &&
     idx + 1 < end &&
@@ -685,9 +713,16 @@ function consumeListItem(lines: string[], start: number, end: number, depth: num
   } else {
     type = 'bulletListItem'
     ownFirstLineText = (bulletMatch as RegExpExecArray)[1]
-    // 通常の箇条書きの文字が `[ ] `/`[x] ` で始まると、素の Markdown ではチェック
-    // 項目と区別が付かない。書き出し側は `\[` で逃がすので、ここで一段だけ外す。
-    if (/^\\\[[ xX]\]/.test(ownFirstLineText)) ownFirstLineText = ownFirstLineText.slice(1)
+    if (ownFirstLineText.startsWith(TOGGLE_MARKER)) {
+      // 折りたたみ。中身の持ち方は箇条書きと同じ（字下げした行が子になる）ので、
+      // 目印を外して種別を変えるだけでよい
+      type = TOGGLE_TYPE
+      ownFirstLineText = ownFirstLineText.slice(TOGGLE_MARKER.length)
+    } else if (/^\\\[[ xX]\]/.test(ownFirstLineText)) {
+      // 通常の箇条書きの文字が `[ ] `/`[x] ` で始まると、素の Markdown ではチェック
+      // 項目と区別が付かない。書き出し側は `\[` で逃がすので、ここで一段だけ外す。
+      ownFirstLineText = ownFirstLineText.slice(1)
+    }
   }
 
   const ownTextLines = [ownFirstLineText]
@@ -810,6 +845,23 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
         j++
       }
       blocks.push(buildTableBlock(rowLines))
+      i = j
+      continue
+    }
+
+    // 会議メモ。続けて書かれた `<!--note-->` の行はまとめて1ブロックにする
+    // （段落と同じで、1ブロックの中に複数行を持てる）。ここは箇条書きより先に
+    // 見る必要はないが、段落として飲み込まれる前に捕まえる必要がある。
+    if (line.startsWith(MEETING_NOTE_MARKER)) {
+      const noteTextLines: string[] = []
+      let j = i
+      while (j < end && lineIndentChars(lines[j]) === depth) {
+        const noteLine = stripIndent(lines[j], depth)
+        if (!noteLine.startsWith(MEETING_NOTE_MARKER)) break
+        noteTextLines.push(noteLine.slice(MEETING_NOTE_MARKER.length))
+        j++
+      }
+      blocks.push({ type: MEETING_NOTE_TYPE, content: tokenizeLinesWithMarker(noteTextLines) })
       i = j
       continue
     }
@@ -1168,6 +1220,17 @@ function textToLines(text: string): string[] {
   return collapsed.split('\n').map(escapeLineStart)
 }
 
+/**
+ * 会議メモを書き出す。行ごとに目印を先頭へ置く。
+ * 目印より前には何も無く、読み込み側は目印を見た時点で「ここから先は本文」と
+ * 決めるので、`- ` や `#` で始まる文でも逃がし（`\`）は要らない。
+ */
+function noteLines(text: string): string[] {
+  return collapseEmbeddedBlankLines(text)
+    .split('\n')
+    .map((line) => MEETING_NOTE_MARKER + line)
+}
+
 function itemLines(marker: string, text: string): string[] {
   const parts = collapseEmbeddedBlankLines(text).split('\n')
   // マーカーと文字の間の区切り(`[ \t]+`/`[ \t]*`)は再解析時に貪欲にすべての
@@ -1205,7 +1268,7 @@ function normalizeBlock(raw: unknown): NormalizedBlockView {
 function blockToLines(block: NormalizedBlockView, computedNumber: number | null): string[] {
   switch (block.type) {
     case 'heading': {
-      const level = Math.min(Math.max(Number(block.props.level) || 1, 1), 3)
+      const level = Math.min(Math.max(Number(block.props.level) || 1, 1), 6)
       // 見出しは1行だけの形。中身に生の改行が混じっていたら空白に置き換える
       // (`<br>` は表セル用の約束ごとなので見出しでは使わない)。先頭の空白は
       // `#` との区切りと再解析時に見分けが付かず飲み込まれるので、先に落とす。
@@ -1214,6 +1277,12 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
     }
     case 'paragraph':
       return textToLines(contentArrayToText(block.content))
+    case MEETING_NOTE_TYPE:
+      return noteLines(contentArrayToText(block.content))
+    case TOGGLE_TYPE:
+      // 箇条書きと同じ形に目印を挟むだけ。1行目には逃がし(`\`)が付かないので、
+      // 何度往復しても目印はそのまま残る
+      return itemLines('- ' + TOGGLE_MARKER, contentArrayToText(block.content))
     case 'bulletListItem':
       return itemLines('- ', contentArrayToText(block.content))
     case 'checkListItem': {
@@ -1243,7 +1312,14 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
 }
 
 function isListItemBlockType(type: string): boolean {
-  return type === 'bulletListItem' || type === 'checkListItem' || type === 'numberedListItem'
+  // 折りたたみも「`- ` で始まり、字下げで中身を持つ」形なので、字下げ・空行の
+  // 扱いは箇条書きと同じでよい（中身を1段深く書き出せるのはこの仲間だけ）
+  return (
+    type === 'bulletListItem' ||
+    type === 'checkListItem' ||
+    type === 'numberedListItem' ||
+    type === TOGGLE_TYPE
+  )
 }
 
 /** `SPEC(` で始まる checkListItem か(タスク化 RPC が拾う SPEC 項目)。 */
