@@ -104,6 +104,11 @@ vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
   useWikiMilestoneLinks: () => ({ linksByPageId: new Map(), loading: false }),
 }))
 
+// 一覧の「確定 n/m」の印に使う取得。ここでは印を検証しないので空で返す
+vi.mock('@/lib/hooks/useWikiDecisionCounts', () => ({
+  useWikiDecisionCounts: () => ({ countsByPageId: new Map(), loading: false }),
+}))
+
 // WikiPageInspector は中身を問わないのでスタブに差し替える(このテストは setInspector への
 // 呼び出し引数(narrow指定・null)だけを見る)
 vi.mock('@/components/wiki/WikiPageInspector', () => ({
