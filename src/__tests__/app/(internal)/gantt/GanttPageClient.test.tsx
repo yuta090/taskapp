@@ -154,3 +154,29 @@ describe('GanttPageClient — 閲覧者（viewer）にはガントのドラッ�
     expect(lastCallArg.props.onUpdateOwners).toBeUndefined()
   })
 })
+
+describe('GanttPageClient — 詳細の子タスクを押すと、ガントのままその子タスクの詳細に切り替わる', () => {
+  it('閲覧者でも onOpenTask が渡り、URL の task= だけが子タスクに変わる（ガント画面から移動しない）。履歴に積んで「戻る」で親に戻れるようにする', () => {
+    canEdit = false
+    searchParamsValue = 'task=t1&zoom=week'
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    renderPage()
+
+    const lastCallArg = mockSetInspector.mock.calls.at(-1)?.[0]
+    expect(lastCallArg.props.onOpenTask).toBeInstanceOf(Function)
+    lastCallArg.props.onOpenTask('c1')
+
+    expect(pushStateSpy).toHaveBeenLastCalledWith(null, '', '/org-1/project/space-1/views/gantt?task=c1&zoom=week')
+    pushStateSpy.mockRestore()
+  })
+
+  it('一覧のバーを押して選ぶときは、これまでどおり履歴に積まない（置き換える）', () => {
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    renderPage()
+
+    ;(ganttChartProps.current?.onTaskClick as (id: string) => void)('t1')
+
+    expect(pushStateSpy).not.toHaveBeenCalled()
+    pushStateSpy.mockRestore()
+  })
+})

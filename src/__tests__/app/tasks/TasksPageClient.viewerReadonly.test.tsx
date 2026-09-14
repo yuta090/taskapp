@@ -167,4 +167,26 @@ describe('TasksPageClient — 閲覧者（viewer）には編集操作を出さ�
     expect(lastCallArg.props.onUpdateOwners).toBeUndefined()
     expect(lastCallArg.props.onConsideringDecided).toBeUndefined()
   })
+
+  it('詳細の子タスクへの移動（onOpenTask）は編集ではないので閲覧者にも渡し、押すと task= だけが子タスクに変わる。履歴に積んで「戻る」で親に戻れるようにする', () => {
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    renderPage()
+
+    const lastCallArg = mockSetInspector.mock.calls.at(-1)?.[0]
+    expect(lastCallArg.props.onOpenTask).toBeInstanceOf(Function)
+    lastCallArg.props.onOpenTask('c1')
+
+    expect(pushStateSpy).toHaveBeenLastCalledWith(null, '', '/org-1/project/space-1?task=c1')
+    pushStateSpy.mockRestore()
+  })
+
+  it('詳細を閉じるときは、これまでどおり履歴に積まない（置き換える）', () => {
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    renderPage()
+
+    mockSetInspector.mock.calls.at(-1)?.[0].props.onClose()
+
+    expect(pushStateSpy).not.toHaveBeenCalled()
+    pushStateSpy.mockRestore()
+  })
 })

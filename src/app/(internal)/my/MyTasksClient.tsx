@@ -24,6 +24,7 @@ import { useCanEditSpace, useCanEditSpaces } from '@/lib/hooks/useCanEditSpace'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
+import { buildTaskHref } from '@/lib/navigation/appLinks'
 
 const TaskCreateSheet = dynamic(
   () => import('@/components/task/TaskCreateSheet').then((m) => ({ default: m.TaskCreateSheet })),
@@ -148,6 +149,8 @@ interface MyTaskInspectorProps {
   /** reviewStatus は詳細（プロジェクト単位の読み込み結果）が持つ、最新の社内承認の状態 */
   onSynced: (task: Task, reviewStatus: ReviewStatus | undefined) => void
   onDeleted: (taskId: string) => void
+  /** 詳細の子タスクを押したとき。そのプロジェクトのタスク（useTasks の結果）を渡す */
+  onOpenTask: (task: Task) => void
 }
 
 /**
@@ -171,7 +174,7 @@ const SHOW_TOLERANCE_MS = DEFAULT_STALE_TIME_MS
  * 子タスクの表示にも要る。useTasks はそのプロジェクトの全タスクを読み込むため、担当者は
  * 自然に揃う。担当者が揃うまでは TaskInspector を出さない。
  */
-function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted }: MyTaskInspectorProps) {
+function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted, onOpenTask }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
 
   // TaskInspector 自体（コード）は、データが揃うのを待たずマウント時点から先読みしておく。
@@ -228,6 +231,12 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
   const onSyncedRef = useRef(onSynced)
   useEffect(() => {
     onSyncedRef.current = onSynced
+  })
+  // 子タスクを開く処理も同じく ref で持つ。依存に入れると、一覧側の描き直しのたびに
+  // 準備済みの TaskInspector 要素を作り直してしまう
+  const onOpenTaskRef = useRef(onOpenTask)
+  useEffect(() => {
+    onOpenTaskRef.current = onOpenTask
   })
   // 社内承認の状態も一緒に映す（詳細から承認を依頼したら、一覧の「社内承認を依頼」を「社内承認待ち」に変える）
   const spaceReviewStatus = reviewStatuses[task.id]
@@ -298,6 +307,10 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
         owners={taskOwners}
         parentTasks={getEligibleParents(tasks, current.id).map((t) => ({ id: t.id, title: t.title }))}
         childTasks={tasks.filter((t) => t.parent_task_id === current.id)}
+        onOpenTask={(taskId) => {
+          const target = tasks.find((t) => t.id === taskId)
+          if (target) onOpenTaskRef.current(target)
+        }}
         onClose={onClose}
         // 閲覧者（viewer）・相手先には編集操作を渡さない（onUpdate 等が無ければ表示だけになる設計）
         onPassBall={canEdit ? async (ball, overrideClientOwnerIds, overrideInternalOwnerIds) => {
@@ -553,7 +566,8 @@ export default function MyTasksClient() {
     // マウント時に一度だけ（初期表示のディープリンクのみを対象にするため）
   }, [])
 
-  const selectTask = useCallback((taskId: string | null) => {
+  // 詳細の子タスクへ移るときだけ履歴に積み（push）、ブラウザの「戻る」で親タスクに戻れるようにする
+  const selectTask = useCallback((taskId: string | null, options?: { push?: boolean }) => {
     setSelectedTaskId(taskId)
     if (taskId) setOpenedAt(Date.now())
     const params = new URLSearchParams(window.location.search)
@@ -563,7 +577,27 @@ export default function MyTasksClient() {
       params.delete('task')
     }
     const query = params.toString()
-    window.history.replaceState(null, '', query ? `/my?${query}` : '/my')
+    const newUrl = query ? `/my?${query}` : '/my'
+    if (options?.push) {
+      window.history.pushState(null, '', newUrl)
+    } else {
+      window.history.replaceState(null, '', newUrl)
+    }
+  }, [])
+
+  // 選択中のタスクはこの画面の state で持つため、ブラウザの「戻る／進む」で URL の task= が
+  // 変わったときは state を合わせる（子タスクへ移ったあと「戻る」で親タスクの詳細に戻す）
+  useEffect(() => {
+    const handlePopState = () => {
+      // マイタスクから別の画面へ戻る／進むときも、合図はこの画面が出ている間に行き先の URL で届く。
+      // 行き先の task= を拾うと、閉じる直前のこの画面で詳細を作ってプロジェクト全タスクを取り直してしまう
+      if (window.location.pathname !== '/my') return
+      const taskId = new URLSearchParams(window.location.search).get('task')
+      setSelectedTaskId(taskId)
+      if (taskId) setOpenedAt(Date.now())
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
   const handleTaskClick = useCallback((taskId: string) => {
@@ -572,6 +606,16 @@ export default function MyTasksClient() {
   }, [selectTask])
 
   const handleInspectorClose = useCallback(() => selectTask(null), [selectTask])
+
+  // 詳細の子タスクを押したとき。マイタスクの一覧にあれば、この画面のまま詳細を切り替える。
+  // 一覧に無い（自分の担当ではない）子タスクは右側に出す元が無いので、そのプロジェクトのタスク一覧で開く
+  const handleInspectorOpenTask = useCallback((target: Task) => {
+    if (tasksRef.current.some((t) => t.id === target.id)) {
+      selectTask(target.id, { push: true })
+    } else {
+      router.push(buildTaskHref(target.org_id, target.space_id, target.id))
+    }
+  }, [selectTask, router])
 
   const handleInspectorSynced = useCallback((updated: Task, reviewStatus: ReviewStatus | undefined) => {
     queryClient.setQueryData<MyTasksData>(
@@ -1223,6 +1267,7 @@ export default function MyTasksClient() {
           onClose={handleInspectorClose}
           onSynced={handleInspectorSynced}
           onDeleted={handleInspectorDeleted}
+          onOpenTask={handleInspectorOpenTask}
         />
       )}
     </div>
