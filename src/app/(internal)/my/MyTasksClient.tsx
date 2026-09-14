@@ -589,6 +589,9 @@ export default function MyTasksClient() {
   // 変わったときは state を合わせる（子タスクへ移ったあと「戻る」で親タスクの詳細に戻す）
   useEffect(() => {
     const handlePopState = () => {
+      // マイタスクから別の画面へ戻る／進むときも、合図はこの画面が出ている間に行き先の URL で届く。
+      // 行き先の task= を拾うと、閉じる直前のこの画面で詳細を作ってプロジェクト全タスクを取り直してしまう
+      if (window.location.pathname !== '/my') return
       const taskId = new URLSearchParams(window.location.search).get('task')
       setSelectedTaskId(taskId)
       if (taskId) setOpenedAt(Date.now())
