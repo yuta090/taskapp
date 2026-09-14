@@ -112,4 +112,49 @@ describe('buildAgentpmSkill', () => {
     expect(skill).toContain('agentpm task get --json')
     expect(skill).toMatch(/`number`/)
   })
+
+  /**
+   * 議事録の「行の書き方」は画面（エディタ）にしか案内が無く、CLI から書く AI は
+   * 知りようがなかった。AI が読むのはこの説明書だけなので、ここに書かないと使えない。
+   */
+  describe('議事録の行の書き方', () => {
+    it('Wiki のリンクが無い行も候補になることを書いている', () => {
+      expect(skill).toMatch(/リンクが無くても/)
+    })
+
+    it('字下げした行は拾われないことを書いている', () => {
+      expect(skill).toMatch(/字下げ/)
+    })
+
+    it('期限の書き方を書いている', () => {
+      expect(skill).toContain('（期限: 9/20）')
+      expect(skill).toMatch(/期限: 2027\/1\/5/)
+    })
+
+    it('担当は書いても読まれないことを書いている', () => {
+      expect(skill).toMatch(/担当.*読まれない/)
+    })
+
+    it('会議メモの書き方を書いている', () => {
+      expect(skill).toContain('<!--note-->')
+    })
+
+    it('折りたたみの書き方を書いている', () => {
+      expect(skill).toContain('- <!--toggle-->')
+    })
+
+    it('日時や予定を決めずに議事録だけ作れることを書いている', () => {
+      expect(skill).toContain('agentpm meeting create --title')
+    })
+
+    /**
+     * 画面ではチェックを入れるとタスクが完了になる（ブラウザの中の処理）。
+     * CLI から本文を `- [x]` に書き換えても完了にはならないので、
+     * 書いておかないと「完了にしたつもり」が起きる。
+     */
+    it('本文を - [x] に変えてもタスクは完了しないことを書いている', () => {
+      expect(skill).toMatch(/に書き換えてもタスクは完了しない/)
+      expect(skill).toContain('agentpm task update --task-id <id> --status done')
+    })
+  })
 })
