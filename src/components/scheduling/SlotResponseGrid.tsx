@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { SlotResponseCell, SlotResponseIcon, RESPONSE_OPTIONS } from './SlotResponseInput'
-import { useRealtimeResponses } from '@/lib/hooks/useRealtimeResponses'
 import type { SlotResponseType } from '@/types/database'
 import type { SlotResponseWithUser, ProposalRespondentWithProfile } from '@/lib/hooks/useProposalResponses'
 import type { ProposalSlot } from '@/types/database'
@@ -16,7 +15,6 @@ interface SlotResponseGridProps {
   isSubmitting?: boolean
   readOnly?: boolean
   proposalId?: string | null
-  onRealtimeUpdate?: () => void
   getSlotSummary: (slotId: string) => {
     available: number
     proceed: number
@@ -59,22 +57,8 @@ export function SlotResponseGrid({
   isSubmitting = false,
   readOnly = false,
   proposalId = null,
-  onRealtimeUpdate,
   getSlotSummary,
 }: SlotResponseGridProps) {
-  // Realtime subscription
-  const slotIds = useMemo(() => slots.map((s) => s.id), [slots])
-
-  const handleRealtimeChange = useCallback(() => {
-    onRealtimeUpdate?.()
-  }, [onRealtimeUpdate])
-
-  const { isSubscribed } = useRealtimeResponses({
-    proposalId: proposalId || null,
-    slotIds,
-    onResponseChange: handleRealtimeChange,
-  })
-
   // Local state for my draft responses (before submit)
   // Default: null (未回答) instead of unavailable_but_proceed
   const [myDraftResponses, setMyDraftResponses] = useState<Record<string, SlotResponseType | null>>(() => {
@@ -90,7 +74,7 @@ export function SlotResponseGrid({
     return initial
   })
 
-  // Resync draft state when server data changes (realtime/fetch/proposal switch)
+  // Resync draft state when server data changes (fetch/proposal switch)
   // Only overwrite slots that haven't been locally modified
   const prevProposalIdRef = useRef(proposalId)
   useEffect(() => {
@@ -200,20 +184,8 @@ export function SlotResponseGrid({
 
   return (
     <div className="space-y-3" data-testid="slot-response-grid">
-      {/* Realtime indicator + Legend */}
-      <div className="flex items-center justify-between">
-        {proposalId && isSubscribed ? (
-          <div className="flex items-center gap-1.5">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-            </span>
-            <span className="text-xs text-green-600 font-medium">Live</span>
-          </div>
-        ) : (
-          <div />
-        )}
-        {/* Legend */}
+      {/* Legend */}
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-3 text-[11px] text-gray-400">
           {RESPONSE_OPTIONS.map((opt) => (
             <span key={opt.value} className="flex items-center gap-0.5">
