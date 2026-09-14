@@ -1,11 +1,15 @@
 /**
  * 議事録の1行から「Wiki ページに紐づくタスク（タスク）の候補」を取り出す。
  *
+ * 規則は「**未チェックのチェックリスト行は、ぜんぶ候補**」。書き方を新しく覚える必要はない。
+ * その行に Wiki ページへのリンクが入っていれば、そのページが紐づく（「/」→ Wiki で差し込む）。
+ *
+ * はじめは「Wiki ページのリンクがある行だけ」にしていたが、議事録には
+ * 「田畠さんにレビュー依頼」のような**ただのやること**も普通に出てくる。書いたのに候補に
+ * 出ず、理由も画面に出ないのがいちばん困るので、リンクの有無で拾う・拾わないを分けない。
+ *
  * 旧来の書き方 `- [ ] SPEC(/spec/FILE.md#anchor): 題名` は開発用の仕様書ファイルしか
- * 指せず、打ち合わせで使う Wiki ページを指定できなかった。そこで
- * 「未チェックのチェックリスト行に Wiki ページへのリンクが入っていたら候補にする」
- * という規則を足す。書き方を新しく覚える必要はなく、本文にリンクを差し込む既存の
- * 操作（「/」→ Wiki）がそのまま使える。
+ * 指せない。そちらは既存の経路が扱うので、この判定では拾わない。
  *
  * 下の 2 つのパターン文字列は **SQL 側（rpc_get_minutes_preview /
  * rpc_parse_meeting_minutes）と同じ文字列**を使う。片方だけ直すと、画面に出る候補一覧と
@@ -34,7 +38,8 @@ const MARKDOWN_LINK_PATTERN = '\\[([^\\]]*)\\]\\(([^)]*)\\)'
 
 export interface WikiTaskCandidate {
   /** 紐づける Wiki ページの ID */
-  pageId: string
+  /** 紐づける Wiki ページの ID。リンクが無い行では null（ふつうのタスクになる） */
+  pageId: string | null
   /** タスクの名前。行の文字からリンクと目印を取り除いたもの（空ならリンクの文字） */
   title: string
   /** 拾った Wiki リンクの表示文字（題名が空のときの代わりに使う） */
@@ -54,17 +59,19 @@ export function findWikiTaskCandidate(line: string): WikiTaskCandidate | null {
   if (!item) return null
   const body = item[1]
 
+  // Wiki ページのリンクがあれば紐づける。無くても候補にする（ふつうのタスクになる）
   const hrefMatch = new RegExp(WIKI_PAGE_HREF_PATTERN).exec(body)
-  if (!hrefMatch) return null
-  const pageId = hrefMatch[1]
+  const pageId = hrefMatch ? hrefMatch[1] : null
 
-  // 拾ったページを指しているリンクの表示文字を取る（題名が空のときの代わり）
+  // 紐づけるページを指しているリンクの表示文字を取る（題名が空のときの代わり）
   let linkText = ''
-  const linkRe = new RegExp(MARKDOWN_LINK_PATTERN, 'g')
-  for (let m = linkRe.exec(body); m !== null; m = linkRe.exec(body)) {
-    if (m[2].includes(pageId)) {
-      linkText = m[1].trim()
-      break
+  if (pageId !== null) {
+    const linkRe = new RegExp(MARKDOWN_LINK_PATTERN, 'g')
+    for (let m = linkRe.exec(body); m !== null; m = linkRe.exec(body)) {
+      if (m[2].includes(pageId)) {
+        linkText = m[1].trim()
+        break
+      }
     }
   }
 
