@@ -786,6 +786,75 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     await waitFor(() => expect(lastInspectorNode()).toBeNull())
   })
 
+  it('詳細の子タスクがマイタスクの一覧にもあれば、ページを移動せずその子タスクの詳細に切り替え、ブラウザの「戻る」で親に戻る', async () => {
+    const child = makeTask({ id: 'c1', title: '自分の子タスク', parent_task_id: 't1' })
+    mocks.taskRows = [makeTask(), child]
+    mocks.spaceTasks = [makeTask(), child]
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    act(() => lastInspectorNode().props.onOpenTask('c1'))
+
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('c1'))
+    // 子タスクへの移動は履歴に積む（行を押して選ぶときは置き換えのまま）
+    expect(pushStateSpy).toHaveBeenLastCalledWith(null, '', '/my?task=c1')
+    pushStateSpy.mockRestore()
+    expect(window.location.pathname).toBe('/my')
+    expect(mocks.push).not.toHaveBeenCalled()
+
+    act(() => window.history.back())
+
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+    expect(new URLSearchParams(window.location.search).get('task')).toBe('t1')
+  })
+
+  it('マイタスクから別の画面へ「戻る」とき（合図が届いた時点で URL がもう /my ではない）は、行き先の task= を拾わない', async () => {
+    mocks.taskRows = [makeTask(), makeTask({ id: 't2', title: 'マイタスクB' })]
+    mocks.spaceTasks = [makeTask(), makeTask({ id: 't2', title: 'マイタスクB' })]
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+
+    // 「戻る」の合図(popstate)は、マイタスクがまだ表示されている間に、行き先の URL で届く
+    act(() => {
+      window.history.replaceState(null, '', '/org-1/project/space-1?task=t2')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+
+    // 行き先のタスクをマイタスクの上で開かない（プロジェクト全タスクの取り直しを起こさない）
+    expect(lastInspectorNode()?.props.task.id).toBe('t1')
+  })
+
+  it('一覧の行を押してタスクを選ぶときは、これまでどおり履歴に積まない（置き換える）', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    renderPage()
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+
+    expect(pushStateSpy).not.toHaveBeenCalled()
+    pushStateSpy.mockRestore()
+  })
+
+  it('詳細の子タスクがマイタスクの一覧に無い（自分の担当ではない）ときは、そのプロジェクトのタスク一覧で開く', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask(), makeTask({ id: 'c2', title: '他の人の子タスク', parent_task_id: 't1' })]
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+
+    act(() => lastInspectorNode().props.onOpenTask('c2'))
+
+    expect(mocks.push).toHaveBeenCalledWith('/org-1/project/space-1?task=c2')
+  })
+
   it('詳細での変更はプロジェクト画面と同じ更新処理を通す', async () => {
     mocks.taskRows = [makeTask()]
     mocks.spaceTasks = [makeTask()]

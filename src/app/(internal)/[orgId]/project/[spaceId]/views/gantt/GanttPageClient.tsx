@@ -83,7 +83,8 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
 
   // Sync URL with state
   const syncUrlWithState = useCallback(
-    (taskId: string | null) => {
+    // 詳細の子タスクへ移るときだけ履歴に積み、ブラウザの「戻る」で親タスクに戻れるようにする
+    (taskId: string | null, options?: { push?: boolean }) => {
       const params = new URLSearchParams(searchParams.toString())
       if (taskId) {
         params.set('task', taskId)
@@ -92,7 +93,11 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
       }
       const query = params.toString()
       const newUrl = query ? `${projectBasePath}?${query}` : projectBasePath
-      window.history.replaceState(null, '', newUrl)
+      if (options?.push) {
+        window.history.pushState(null, '', newUrl)
+      } else {
+        window.history.replaceState(null, '', newUrl)
+      }
     },
     [projectBasePath, searchParams]
   )
@@ -174,6 +179,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         owners={owners[selectedTask.id] || []}
         parentTasks={parentTaskOptions}
         childTasks={childTasksOfSelected}
+        onOpenTask={(taskId) => syncUrlWithState(taskId, { push: true })}
         onClose={() => {
           syncUrlWithState(null)
         }}
