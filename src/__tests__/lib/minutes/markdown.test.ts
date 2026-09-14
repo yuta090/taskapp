@@ -83,9 +83,18 @@ describe('parseMinutesMarkdown: 見出し', () => {
     expect(blocks[2]).toMatchObject({ type: 'heading', props: { level: 3 } })
   })
 
-  it('####以上は見出しにならず段落の生テキストとして残る', () => {
-    const blocks = parseMinutesMarkdown('#### 見出しではない')
-    expect(blocks).toEqual([{ type: 'paragraph', content: [{ type: 'text', text: '#### 見出しではない', styles: {} }] }])
+  it('h4〜h6も level 付き heading にする', () => {
+    const blocks = parseMinutesMarkdown('#### 見出し4\n\n##### 見出し5\n\n###### 見出し6')
+    expect(blocks[0]).toMatchObject({ type: 'heading', props: { level: 4 } })
+    expect(blocks[1]).toMatchObject({ type: 'heading', props: { level: 5 } })
+    expect(blocks[2]).toMatchObject({ type: 'heading', props: { level: 6 } })
+  })
+
+  it('#が7つ以上は見出しにならず段落の生テキストとして残る', () => {
+    const blocks = parseMinutesMarkdown('####### 見出しではない')
+    expect(blocks).toEqual([
+      { type: 'paragraph', content: [{ type: 'text', text: '####### 見出しではない', styles: {} }] },
+    ])
   })
 })
 
@@ -232,6 +241,24 @@ describe('parseMinutesMarkdown: 未知構文は落とさない', () => {
       const text = (blocks[0].content as Array<{ text: string }>)[0]?.text ?? ''
       expect(text).toBe(line)
     }
+  })
+})
+
+describe('serializeMinutesBlocks: 見出しの深さ', () => {
+  it('見出し6まで # の数で書き分ける', () => {
+    const blocks: MinutesBlock[] = [4, 5, 6].map((level) => ({
+      type: 'heading',
+      props: { level },
+      content: [{ type: 'text', text: `h${level}`, styles: {} }],
+    }))
+    expect(serializeMinutesBlocks(blocks)).toBe('#### h4\n\n##### h5\n\n###### h6')
+  })
+
+  it('7以上の深さは見出し6に丸める（Markdown に # が7つの見出しは無いため）', () => {
+    const out = serializeMinutesBlocks([
+      { type: 'heading', props: { level: 9 }, content: [{ type: 'text', text: 'ふかい', styles: {} }] },
+    ])
+    expect(out).toBe('###### ふかい')
   })
 })
 

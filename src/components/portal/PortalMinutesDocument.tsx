@@ -103,17 +103,37 @@ function isEmptyInline(items: readonly MinutesInlineContent[]): boolean {
 
 // ---- block ----
 
-const HEADING_TAG = { 1: 'h2', 2: 'h3', 3: 'h4' } as const
-const HEADING_CLASS: Record<1 | 2 | 3, string> = {
+/**
+ * 議事録の見出しは、ページの見出し（会議名）の下にぶら下がるので1段落として出す
+ * （議事録の見出し1 = ページの中では h2）。HTML の見出しは6段までなので、
+ * 議事録の見出し5・6はどちらも h6 にする。
+ */
+type MinutesHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
+const HEADING_TAG = { 1: 'h2', 2: 'h3', 3: 'h4', 4: 'h5', 5: 'h6', 6: 'h6' } as const
+const HEADING_CLASS: Record<MinutesHeadingLevel, string> = {
   1: 'text-base font-semibold text-gray-900',
   2: 'text-sm font-semibold text-gray-900',
   3: 'text-sm font-medium text-gray-900',
+  // 見出し4以降は編集画面でも本文と同じ大きさの太字なので、見た目もそれに合わせる
+  4: 'text-sm font-medium text-gray-900',
+  5: 'text-sm font-medium text-gray-900',
+  6: 'text-sm font-medium text-gray-900',
 }
-const HEADING_MT: Record<1 | 2 | 3, string> = { 1: 'mt-5', 2: 'mt-4', 3: 'mt-3' }
+const HEADING_MT: Record<MinutesHeadingLevel, string> = {
+  1: 'mt-5',
+  2: 'mt-4',
+  3: 'mt-3',
+  4: 'mt-3',
+  5: 'mt-3',
+  6: 'mt-3',
+}
 
-function headingLevel(block: MinutesBlock): 1 | 2 | 3 {
+function headingLevel(block: MinutesBlock): MinutesHeadingLevel {
   const level = block.props?.level
-  return level === 2 || level === 3 ? level : 1
+  if (typeof level !== 'number') return 1
+  if (level < 1) return 1
+  if (level > 6) return 6
+  return Math.round(level) as MinutesHeadingLevel
 }
 
 function renderHeading(block: MinutesBlock, key: React.Key, isFirst: boolean): ReactNode {

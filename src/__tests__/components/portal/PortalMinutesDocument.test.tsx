@@ -7,6 +7,15 @@ import { PortalMinutesDocument } from '@/components/portal/PortalMinutesDocument
 // 一方向の読み取り専用変換だけを行う。編集はしない。
 
 describe('PortalMinutesDocument', () => {
+  it('見出し4〜6も見出しとして描く（段落に落とさない）', () => {
+    const md = ['#### 見出し4', '##### 見出し5', '###### 見出し6'].join('\n')
+    render(<PortalMinutesDocument md={md} />)
+    expect(screen.getByRole('heading', { level: 5, name: '見出し4' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 6, name: '見出し5' })).toBeInTheDocument()
+    // HTML の見出しは6段までなので、7段目に当たる分も h6 として出す
+    expect(screen.getByRole('heading', { level: 6, name: '見出し6' })).toBeInTheDocument()
+  })
+
   it('見出し3階層を h2/h3/h4 として描く', () => {
     const md = ['# 大見出し', '## 中見出し', '### 小見出し'].join('\n')
     render(<PortalMinutesDocument md={md} />)

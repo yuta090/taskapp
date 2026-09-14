@@ -9,7 +9,7 @@
  * 使えない（実測済み）。ここでは DOM・React・BlockNote を一切 import しない純関数で、
  * DB 側の正規表現（下の SPEC_LINE_REGEX / TASK_MARKER_REGEX）と結合できる形を保つ。
  *
- * 文法は最小限（見出し1-3・箇条書き・チェック・番号付き・GFM表・フェンス・太字/斜体/
+ * 文法は最小限（見出し1-6・箇条書き・チェック・番号付き・GFM表・フェンス・太字/斜体/
  * 取り消し線/インラインコード・リンク・素のURL・行末タスク目印）。それ以外の入力は
  * 「段落＋生テキスト」として文字を落とさずに保持する。
  */
@@ -90,7 +90,12 @@ export const TASK_MARKER_REGEX = /<!--task:([^>]+)-->\s*$/
 // 3つ以上のバッククォート(長いフェンス)を開きとして受ける。info string は
 // バッククォートさえ含まなければ空白入り(`js title="x"`)も許す。
 const FENCE_RE = /^(`{3,})([^`]*)$/
-const HEADING_RE = /^(#{1,3})[ \t]+(.*)$/
+/**
+ * 見出しは Markdown と同じ6段まで。エディタ（BlockNote）も「/」メニューも
+ * 見出し6まで出すので、ここを3段で止めると **選べるのに保存で浅くなる**（見出し4が
+ * 見出し3に化ける）。`#` が7つ以上は Markdown でも見出しではないので段落のまま残す。
+ */
+const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/
 const CHECK_RE = /^[-*+][ \t]+\[([ xX])\][ \t]*(.*)$/
 const BULLET_RE = /^[-*+][ \t]+(.*)$/
 const NUMBERED_RE = /^(\d+)\.[ \t]+(.*)$/
@@ -1205,7 +1210,7 @@ function normalizeBlock(raw: unknown): NormalizedBlockView {
 function blockToLines(block: NormalizedBlockView, computedNumber: number | null): string[] {
   switch (block.type) {
     case 'heading': {
-      const level = Math.min(Math.max(Number(block.props.level) || 1, 1), 3)
+      const level = Math.min(Math.max(Number(block.props.level) || 1, 1), 6)
       // 見出しは1行だけの形。中身に生の改行が混じっていたら空白に置き換える
       // (`<br>` は表セル用の約束ごとなので見出しでは使わない)。先頭の空白は
       // `#` との区切りと再解析時に見分けが付かず飲み込まれるので、先に落とす。
