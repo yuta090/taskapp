@@ -80,6 +80,13 @@ export function MeetingInspector({
   // 会議ごとに一度だけプレビューを走らせるためのキー（自前 setState での再実行を防ぐ）
   const previewKeyRef = useRef<string | null>(null)
   /**
+   * 何回目の取得かを数える。応答が前後したとき、**最後に投げた1本の結果だけ**を採る。
+   *
+   * 1本目の応答を待っている間にタブを離れて戻ると2本目が走る（目印はタブを離れたときに
+   * 外すため）。古い本文の候補が後から表示されると、直そうとしている症状がそのまま再発する。
+   */
+  const previewTokenRef = useRef(0)
+  /**
    * 候補の取得は「いちばん新しい実装」を使いたいが、参照が変わっても effect を
    * 走らせ直したくない（上の useEffect のコメント）。ref に入れて依存から外す。
    */
@@ -99,31 +106,53 @@ export function MeetingInspector({
     setTaskError(null)
   }, [meeting.id])
 
+  /**
+   * タスク化タブを離れたら目印を外す ＝ **次に開いたときに取り直す**。
+   *
+   * 以前は会議ごとに一度しか取りに行かず、議事録に行を足してもタブを開き直しても
+   * 候補が古いままだった（ユーザー報告）。「もう一度確認」に気づいた人だけが最新を
+   * 見られる、という作りになっていた。
+   *
+   * 読みに行くのはタブを押したときだけなので、取り直しても重くならない。
+   * タスク化の結果（createResult）も一緒に流し、作成済みが反映された候補を出す。
+   */
+  useEffect(() => {
+    if (activeTab === 'taskify') return
+    previewKeyRef.current = null
+    setCreateResult(null)
+  }, [activeTab])
+
   // 議事録タブを開いたときに一度だけタスク化候補をプレビュー。議事録の有無
   // (meeting.minutes_md)では止めない — 一覧のキャッシュが古くなっていても、
   // 本文の用意はページ側(onPreviewMinutes の実装)に任せる（HIGH-N3）。
   useEffect(() => {
     if (activeTab !== 'taskify') return
     if (!onPreviewMinutesRef.current) return
-    if (createResult) return
+    // 同時に2本走らせない。開いている間に描き直されても取り直さないための目印で、
+    // **会議ごとに一度だけ**という意味ではない（タブを閉じると外す。下の effect）。
     if (previewKeyRef.current === meeting.id) return
     previewKeyRef.current = meeting.id
+    const token = ++previewTokenRef.current
     setPreviewLoading(true)
     onPreviewMinutesRef.current(meeting.id)
       .then((result) => {
+        if (token !== previewTokenRef.current) return
         setPreview(result)
       })
       .catch(() => {
+        if (token !== previewTokenRef.current) return
         setTaskError('タスク化候補の取得に失敗しました')
       })
       .finally(() => {
+        // 古い1本が先に終わっても「候補を確認中…」を消さない（まだ最新が飛んでいる）
+        if (token !== previewTokenRef.current) return
         setPreviewLoading(false)
       })
     // onPreviewMinutes は依存に入れない。MeetingsPageClient がその場で作る無名関数で、
     // 選択中の会議や参加者が変わるたびに別物になる。入れると取得の最中に effect が
     // 作り直され、後片付けで結果を捨てたまま previewKeyRef のガードで再取得も
     // 止まり、「候補を確認中…」が永久に残る（回帰テストあり）。
-    // 同時に2本走らないことは previewKeyRef のガードが担保する。
+    // 描き直しでの取り直しは previewKeyRef が、応答の前後は previewTokenRef が担保する。
   }, [activeTab, meeting.id, createResult, refreshToken])
 
   // M3: 文書ビューで書いた本文が保存された後は、開いたときの候補が古いままになりうる。
