@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { assertWriteApplied } from '../lib/staleWrite.js'
 import { getSupabaseClient, WikiPage, WikiPageVersion } from '../supabase/client.js'
 import { config } from '../config.js'
 import { checkAuth } from '../auth/helpers.js'
@@ -61,6 +62,12 @@ export const wikiUpdateSchema = z.object({
   parentPageId: nullableIdSchema.describe('親ページID（フォルダ表示）。null または none で根に戻す。別スペースの親・循環はDB側で拒否される'),
   milestoneId: nullableIdSchema.describe('紐づけるマイルストーンID。null または none で解除'),
   pinned: z.boolean().optional().describe('true で一覧の先頭に固定、false で解除'),
+  expectedUpdatedAt: z
+    .string()
+    .optional()
+    .describe(
+      '直前の wiki_get で受け取った updated_at をそのまま渡す。渡すと、その版のままのときだけ書き換える。渡さないと、他の人やAIが先に書いた内容を黙って上書きする'
+    ),
 })
 
 const wikiDeleteSchema = z.object({
@@ -185,16 +192,24 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
   if (params.milestoneId !== undefined) updateData.milestone_id = params.milestoneId
   if (params.pinned !== undefined) updateData.pinned_at = params.pinned ? new Date().toISOString() : null
 
-  const { data, error } = await supabase
+  // expectedUpdatedAt を渡されたときだけ、その版のままの行に限って書く（画面と同じ楽観ロック）。
+  // .single() は使わない — 0行のとき例外になり、競合と「見つからない」を区別できないため。
+  let query = supabase
     .from('wiki_pages')
     .update(updateData)
     .eq('id', params.pageId)
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
-    .select('*')
-    .single()
+  if (params.expectedUpdatedAt !== undefined) {
+    query = query.eq('updated_at', params.expectedUpdatedAt)
+  }
 
+  const { data: rows, error } = await query.select('*')
   if (error) throw toWikiUpdateError(error.message)
+
+  const updated = (rows ?? []) as WikiPage[]
+  assertWriteApplied(updated.length, params.expectedUpdatedAt, 'Wikiページが見つかりません')
+  const data = updated[0]
 
   // Save version snapshot when body changes
   if (params.body !== undefined) {
