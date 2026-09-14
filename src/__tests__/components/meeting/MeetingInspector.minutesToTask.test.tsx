@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MeetingInspector } from '@/components/meeting/MeetingInspector'
 import { MinutesConflictError } from '@/lib/minutes/errors'
 import type { Meeting } from '@/types/database'
@@ -62,6 +62,14 @@ const createResult = {
     { taskId: 't2', title: 'エラーレスポンス整備', specPath: '/spec/API_SPEC.md#c', dueDate: null, lineNumber: 3 },
   ],
   updatedMinutes: MINUTES,
+}
+
+function deferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
 }
 
 function openMinutesTab() {
@@ -373,5 +381,94 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
 
     await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(2))
     expect(screen.queryByTestId('minutes-task-result')).toBeNull()
+  })
+})
+
+/**
+ * 候補は「タブを開くたび」に取り直す。
+ *
+ * 以前は会議ごとに一度しか取りに行かなかった（previewKeyRef のガード）。そのため
+ * 議事録に行を足してもタブを開き直しても候補が古いままで、「もう一度確認」に気づいた
+ * 人だけが最新を見られる状態だった（ユーザー報告）。
+ *
+ * 元々このガードは「取得中に親が描き直されると読み込みが止まらなくなる」対策だったが、
+ * それは ref に逃がして別に塞いである（上の回帰テスト）。絞る理由はもう無い。
+ */
+describe('MeetingInspector タスク化の候補の取り直し', () => {
+  it('タブを開き直すたびに候補を取り直す', async () => {
+    const onPreviewMinutes = vi.fn().mockResolvedValue(previewResult)
+    render(
+      <MeetingInspector meeting={makeMeeting()} onClose={vi.fn()} onPreviewMinutes={onPreviewMinutes} />
+    )
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(1))
+
+    // ほかのタブへ移って戻る
+    fireEvent.click(screen.getByTestId('meeting-inspector-tab-info'))
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(2))
+  })
+
+  it('タスク化したあとにタブを開き直すと、作成済みが反映された候補を取り直す', async () => {
+    const onPreviewMinutes = vi.fn().mockResolvedValue(previewResult)
+    const onCreateTasks = vi.fn().mockResolvedValue(createResult)
+    render(
+      <MeetingInspector
+        meeting={makeMeeting()}
+        onClose={vi.fn()}
+        onPreviewMinutes={onPreviewMinutes}
+        onCreateTasks={onCreateTasks}
+      />
+    )
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(await screen.findByTestId('minutes-taskify-button'))
+    await waitFor(() => expect(onCreateTasks).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByTestId('meeting-inspector-tab-info'))
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(2))
+  })
+
+  it('取得の途中でタブを出入りしても、先に投げた古い結果で上書きしない', async () => {
+    // 1本目の応答が遅れている間にタブを離れて戻ると2本目が走る。応答が前後したとき、
+    // 古い本文の候補が後から表示されると、直そうとしている症状がそのまま再発する
+    const first = deferred<typeof previewResult>()
+    const second = deferred<typeof previewResult>()
+    const onPreviewMinutes = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+
+    render(
+      <MeetingInspector meeting={makeMeeting()} onClose={vi.fn()} onPreviewMinutes={onPreviewMinutes} />
+    )
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(1))
+
+    // 1本目が返る前に離れて戻る
+    fireEvent.click(screen.getByTestId('meeting-inspector-tab-info'))
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalledTimes(2))
+
+    // 2本目（最新）が先に返り、そのあとに1本目（古い）が返る
+    await act(async () => {
+      second.resolve({
+        ...previewResult,
+        newSpecCount: 1,
+        newSpecs: [{ lineNumber: 9, specPath: '/spec/NEW.md#z', title: '新しく足した行' }],
+      })
+      await second.promise
+    })
+    await act(async () => {
+      first.resolve(previewResult)
+      await first.promise
+    })
+
+    const candidates = await screen.findAllByTestId('minutes-task-candidate')
+    expect(candidates).toHaveLength(1)
+    expect(screen.getByText('新しく足した行')).toBeTruthy()
+    expect(screen.queryByText('レビュー観点を追記')).toBeNull()
   })
 })

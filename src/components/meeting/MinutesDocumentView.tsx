@@ -13,6 +13,7 @@ import { ArrowLeft, ArrowsIn, ArrowsOut, Info, Notebook, PencilSimple } from '@p
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { useMinutesTaskActions } from '@/lib/hooks/useMinutesTaskActions'
+import { saveMinutesScroll, takeMinutesScroll } from '@/lib/minutes/scrollMemory'
 import type { MinutesEditorApi } from './MinutesEditor'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
 import { appendOnlyAddition } from '@/lib/minutes/rebase'
@@ -236,6 +237,8 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     // 本当に本文が変わった競合を区別するために使う（HIGH-2）。
     const knownServerRawRef = useRef(initialMinutesMd)
     const currentContentRef = useRef(initialBaseline.normalized)
+    /** 本文をスクロールする枠。見ていた場所を覚えて戻すために持つ */
+    const scrollBoxRef = useRef<HTMLDivElement | null>(null)
     // AI秘書の末尾追記との自動合流のための、生きているエディタへの差し込み口
     // （MinutesEditor が登録する）。本体（このコンポーネント）は作り直さない。
     const editorApiRef = useRef<MinutesEditorApi | null>(null)
@@ -592,7 +595,52 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     // 「タスク作成済み」の印からその場で完了・決定する入り口（読むのは押したときだけ）
   const taskActions = useMinutesTaskActions({ orgId, spaceId })
 
+  /**
+   * 本文の枠が現れたら、前に見ていた場所へ戻す。
+   *
+   * effect ではなく ref のコールバックで行う。effect だと「先頭で1回描いてから動かす」
+   * ことになり、一瞬先頭が見えてから飛ぶ。ここなら描く前に位置を決められる。
+   * 本文が大きく変わっていたら戻さない（scrollMemory の判断）。
+   *
+   * 戻すのは**移動して帰ってきた1回だけ**（takeMinutesScroll が取り出して消す）。
+   * この画面はタスク化のあとや「最新を読み込む」でも組み直されるので、覚えたままだと
+   * そのたびに今読んでいた場所から飛ばされる。
+   */
+  const restoredForRef = useRef<string | null>(null)
+  const attachScrollBox = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollBoxRef.current = el
+      if (!el) return
+      // 同じ会議で何度も戻さない（本文を打つたびに描き直されるため）
+      if (restoredForRef.current === meetingId) return
+      const top = takeMinutesScroll(meetingId, currentContentRef.current.length)
+      if (top === null) {
+        restoredForRef.current = meetingId
+        return
+      }
+      el.scrollTop = top
+      // 中身（エディタ）がまだ組み上がっていないと枠に高さが無く、代入は 0 に丸められる。
+      // 効いたときだけ「戻した」ことにして、空振りなら1コマ待ってもう一度だけ試す
+      if (el.scrollTop > 0) {
+        restoredForRef.current = meetingId
+        return
+      }
+      requestAnimationFrame(() => {
+        const box = scrollBoxRef.current
+        if (!box || restoredForRef.current === meetingId) return
+        box.scrollTop = top
+        restoredForRef.current = meetingId
+      })
+    },
+    [meetingId]
+  )
+
   const handleBeforeNavigate = useCallback(async () => {
+      // 見ていた場所を覚える。タスクや Wiki のリンクで移ると議事録は一から組み立て直され、
+      // スクロールが先頭に戻るため（長い議事録では毎回探し直しになる）
+      const box = scrollBoxRef.current
+      if (box) saveMinutesScroll(meetingId, box.scrollTop, currentContentRef.current.length)
+
       if (saveTimerRef.current === null) return
       if (!canEdit || parseBrokenRef.current || conflictRef.current) {
         throw new Error('保存できていない変更があります')
@@ -605,7 +653,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       const scheduleSaveNow = scheduleSaveRef.current
       if (!scheduleSaveNow) throw new Error('保存できていない変更があります')
       await scheduleSaveNow(currentContentRef.current)
-    }, [canEdit])
+    }, [canEdit, meetingId])
 
     useImperativeHandle(
       ref,
@@ -725,7 +773,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto">
+        <div data-testid="minutes-scroll-box" className="flex-1 overflow-y-auto" ref={attachScrollBox}>
           <div
             data-testid="minutes-editor-region"
             className={fullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}
