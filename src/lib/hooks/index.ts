@@ -50,7 +50,6 @@ export {
 } from './useProposalResponses'
 export { useIntegrations } from './useIntegrations'
 export { useFreeBusy } from './useFreeBusy'
-export { useRealtimeResponses } from './useRealtimeResponses'
 export { useSpaceVideoProvider } from './useSpaceVideoProvider'
 export { useAiConfig, useSaveAiConfig, useDeleteAiConfig, type AiConfig } from './useAiConfig'
 export { useUserSpaces, type UserSpace } from './useUserSpaces'
