@@ -117,6 +117,33 @@ Markdown や HTML のファイルを、そのまま Wiki のページにでき�
 
 ---
 
+## 議事録を CLI から書く
+
+画面と同じことがひととおりできます。
+
+```bash
+agentpm meeting create --title "9/15 打ち合わせ"   # 名前だけで作れる（日時は今の時刻）
+agentpm minutes get --meeting-id <id> --json        # 本文と updated_at を読む
+agentpm minutes update --meeting-id <id> --file ./minutes.md --expected-updated-at "<updated_at>"
+agentpm minutes taskify --meeting-id <id> --dry-run # タスクにできる行を下見する
+agentpm minutes taskify --meeting-id <id>           # よければ作る
+```
+
+### 本文の書き方
+
+| 書くもの | 意味 |
+|---|---|
+| `- [ ] 見積を出す（期限: 9/20）` | タスクにできる行。期限も一緒に読み取られます |
+| `- [ ] 間取りを決める [ページ名](リンク)` | 資料の Wiki ページを付ける（リンクは `wiki list --json` の `link`） |
+| `<!--note-->その場で出た補足` | 会議メモ（画面では背景に色が付きます） |
+| `- <!--toggle-->前回の経緯` | 折りたたみ（字下げした行が中身） |
+
+- **行の先頭から書いてください。**字下げした行はタスクにできる行として拾われません
+- **担当は書いても読まれません。**タスクを作ったあとに `task update` で決めてください
+- **本文を `- [x]` に変えてもタスクは完了になりません。**完了は `agentpm task update --task-id <id> --status done`
+
+---
+
 ## うまくいかないとき
 
 | 出てきた表示 | 原因と対処 |
