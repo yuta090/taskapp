@@ -10,7 +10,7 @@
 -- そのまま使える。
 --
 -- 紐づけ先の扱いは**画面（TaskInspector の「仕様書連携」）と同じ**にする:
---   - 「仕様書」タグ付きのページ → 決める札（type='spec', decision_state='considering'）。
+--   - 「仕様書」タグ付きのページ → 決定事項のタスク（type='spec', decision_state='considering'）。
 --     決まるまで完了できない（enforce_review_gate）。
 --   - タグ無しのページ         → ふつうのタスクに、そのページを参考資料として紐づける。
 --     完了は止めない。
@@ -180,7 +180,7 @@ BEGIN
       v_page_id := substring(v_body from '/wiki\?page=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})');
 
       IF v_page_id IS NOT NULL THEN
-        -- 同じ org / space のページに限る（別の場所のページを指す札を作らない）
+        -- 同じ org / space のページに限る（別の場所のページを指すタスクを作らない）
         SELECT w.title, w.tags INTO v_page_title, v_page_tags
         FROM wiki_pages w
         WHERE w.id = v_page_id::uuid
@@ -371,7 +371,7 @@ BEGIN
         v_page_id := substring(v_body from '/wiki\?page=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})');
 
         IF v_page_id IS NOT NULL THEN
-          -- 同じ org / space のページに限る（別の場所のページを指す札を作らない）
+          -- 同じ org / space のページに限る（別の場所のページを指すタスクを作らない）
           SELECT w.title, w.tags INTO v_page_title, v_page_tags
           FROM wiki_pages w
           WHERE w.id = v_page_id::uuid
@@ -401,7 +401,7 @@ BEGIN
                 v_meeting.space_id,
                 v_title,
                 CASE WHEN v_is_spec THEN 'considering' ELSE 'todo' END,
-                -- 決める札は相手先に返す（既存の SPEC 行の作り方に合わせる）。
+                -- 決定事項のタスクは相手先に返す（既存の SPEC 行の作り方に合わせる）。
                 -- 参考資料を紐づけただけのふつうのタスクは社内のまま。
                 CASE WHEN v_is_spec THEN 'client' ELSE 'internal' END,
                 'internal',
@@ -417,7 +417,7 @@ BEGIN
                 org_id, space_id, task_id, actor_id, meeting_id, action, payload
               ) VALUES (
                 v_meeting.org_id, v_meeting.space_id, v_new_task_id, v_actor_id, p_meeting_id,
-                -- 決める札は既存の SPEC 行と同じ 'SPEC_CREATED'。ふつうのタスクは
+                -- 決定事項のタスクは既存の SPEC 行と同じ 'SPEC_CREATED'。ふつうのタスクは
                 -- 既に使われている 'TASK_CREATE' に合わせる（似た名前を増やさない）
                 CASE WHEN v_is_spec THEN 'SPEC_CREATED' ELSE 'TASK_CREATE' END,
                 jsonb_build_object(

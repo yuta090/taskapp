@@ -34,7 +34,7 @@ begin
     raise exception '1) _as で決定できていない';
   end if;
   select * into r from wiki_page_versions where page_id = v_page and kind = 'decided';
-  if r.task_id <> v_t1 then raise exception '1) 控えが札を指していない'; end if;
+  if r.task_id <> v_t1 then raise exception '1) 控えがタスクを指していない'; end if;
   if (select actor_id from task_events where task_id = v_t1 and action = 'SPEC_DECIDE') <> v_user then
     raise exception '1) 監査の実行者が渡した人になっていない';
   end if;
@@ -59,7 +59,7 @@ begin
   end if;
   raise notice 'PASS 3) 決定行は末尾に足されるだけ（もとの本文はそのまま）';
 
-  -- ---- 4) 決める札でないタスクは拒まれる ----
+  -- ---- 4) 決定事項のタスクでないタスクは拒まれる ----
   begin
     perform rpc_set_spec_state_as(v_user, (select id from tasks where id = v_t1), 'decided');
     -- ここは通る（既に spec）。別のふつうのタスクで確かめる

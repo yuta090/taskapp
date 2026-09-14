@@ -6,18 +6,18 @@ import { mapRaiseExceptionError } from '../lib/rpcErrors.js'
 import { buildTaskLink } from '../lib/appLinks.js'
 
 /**
- * 「決める札」を確定させる道具。画面のタスク詳細にある「決定にする」と同じもの。
+ * 「決定事項のタスク」を確定させる道具。画面のタスク詳細にある「決定にする」と同じもの。
  *
  * 確定の単位はページ全体ではなく決定1件。決定すると、紐づく Wiki ページに
- * 「決定: <札の題名> (日付)」が書き足され、書き足す前の本文が「確定時点の控え」として
- * 残る（`kind='decided'` の名札付き）。詳しくは docs/spec/DECISION_RECORD_SPEC.md。
+ * 「決定: <タスクの題名> (日付)」が書き足され、書き足す前の本文が「確定時点の控え」として
+ * 残る（`kind='decided'` の印付き）。詳しくは docs/spec/DECISION_RECORD_SPEC.md。
  */
 
 const DECISION_STATES = ['considering', 'decided', 'implemented'] as const
 
 export const specDecideSchema = z.object({
   spaceId: z.string().uuid().describe('スペースID'),
-  taskId: z.string().uuid().describe('決める札（type=spec のタスク）のID'),
+  taskId: z.string().uuid().describe('決定事項のタスク（type=spec のタスク）のID'),
   state: z
     .enum(DECISION_STATES)
     .describe('considering=検討中に戻す / decided=確定する / implemented=実装済みにする'),
@@ -33,7 +33,7 @@ export interface SpecDecideResult {
   decisionState: (typeof DECISION_STATES)[number]
   /** 紐づく Wiki ページ（あれば）。決定行はこのページの末尾に入る */
   wikiPageId: string | null
-  /** その札を画面で開くリンク */
+  /** そのタスクを画面で開くリンク */
   link: string
 }
 
@@ -51,7 +51,7 @@ export async function specDecide(
   if (spaceError || !space) throw new Error('スペースが見つかりません')
   const orgId = (space as { org_id: string }).org_id
 
-  // 別のスペースの札を動かせないよう、先に同じ場所のものか確かめる
+  // 別のスペースのタスクを動かせないよう、先に同じ場所のものか確かめる
   const { data: task, error: taskError } = await supabase
     .from('tasks')
     .select('id, title, type, decision_state, wiki_page_id, spec_path')
@@ -71,7 +71,7 @@ export async function specDecide(
   // 分かりやすい言葉で先に断る（DB 側も同じ条件で弾くが、生の英語が出ないように）
   if (row.type !== 'spec') {
     throw new Error(
-      'このタスクは「決める札」ではありません。Wiki ページ（仕様書として扱う）を紐づけると決める札になります'
+      'このタスクは「決定事項のタスク」ではありません。Wiki ページ（仕様書として扱う）を紐づけると決定事項のタスクになります'
     )
   }
   if (
@@ -108,7 +108,7 @@ export const decisionTools = [
   {
     name: 'spec_decide',
     description:
-      '決める札を確定する（画面の「決定にする」と同じ）。決定すると紐づく Wiki ページに決定行が入り、確定時点の本文が控えとして残る',
+      '決定事項のタスクを確定する（画面の「決定にする」と同じ）。決定すると紐づく Wiki ページに決定行が入り、確定時点の本文が控えとして残る',
     inputSchema: specDecideSchema,
     handler: specDecide,
   },

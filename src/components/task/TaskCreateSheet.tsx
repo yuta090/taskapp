@@ -150,7 +150,7 @@ export function TaskCreateSheet({
     orgId: effectiveOrgId,
     spaceId: effectiveSpaceId,
   })
-  // 仕様タスク（検討中→決定まで完了できない）にするのは「仕様書」の名札つきのページだけ。
+  // 仕様タスク（検討中→決定まで完了できない）にするのは「仕様書」の印つきのページだけ。
   // 作った直後のページはまだ一覧に無いので、選んだときのページのタグを優先して見る
   const selectedPageIsSpec =
     !!wikiPageId &&
@@ -379,7 +379,7 @@ export function TaskCreateSheet({
       return
     }
 
-    // 「仕様書」の名札つきのページを紐づけたときだけ仕様タスク。それ以外はリンクだけ
+    // 「仕様書」の印つきのページを紐づけたときだけ仕様タスク。それ以外はリンクだけ
     const effectiveType: TaskType = selectedPageIsSpec ? 'spec' : 'task'
 
     setIsSubmitting(true)

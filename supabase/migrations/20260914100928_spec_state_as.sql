@@ -79,7 +79,7 @@ BEGIN
 
   IF v_task.wiki_page_id IS NOT NULL AND p_decision_state IN ('decided', 'implemented') THEN
     -- (a) 読んでから書くまでの間に他の保存が入らないよう、この行を押さえてから読む。
-    -- 押さえないと、同時に2つの札を確定したときに片方の決定行が消える。
+    -- 押さえないと、同時に2つのタスクを確定したときに片方の決定行が消える。
     SELECT body, title INTO v_wiki_body, v_wiki_title
     FROM wiki_pages
     WHERE id = v_task.wiki_page_id
@@ -101,7 +101,7 @@ BEGIN
       v_label := '実装済み: ';
     END IF;
 
-    -- (c)(d) 「決定: 」＋札へのリンク（題名）＋「（日付）」。リンクを押すとその札に飛べる。
+    -- (c)(d) 「決定: 」＋タスクへのリンク（題名）＋「（日付）」。リンクを押すとそのタスクに飛べる。
     -- BlockNote の link インラインは content に文字を持つ（appLinks.ts が作る形と同じ）。
     v_new_block := jsonb_build_object(
       'id', gen_random_uuid()::text,
@@ -140,7 +140,7 @@ BEGIN
       v_new_body := jsonb_build_array(v_new_block)::text;
     END;
 
-    -- (b) 決定行を書き足す**前**の本文を、名札付きで控えにする＝これが「確定時点の内容」
+    -- (b) 決定行を書き足す**前**の本文を、印付きで控えにする＝これが「確定時点の内容」
     INSERT INTO wiki_page_versions (org_id, page_id, title, body, created_by, kind, task_id)
     VALUES (
       v_task.org_id,

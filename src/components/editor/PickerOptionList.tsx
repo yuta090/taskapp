@@ -21,7 +21,7 @@ export interface RenderedOption {
   icon?: ReactNode
   /** 右端に薄く出す文字（大きさ・日付など） */
   meta?: string
-  /** 名前の右に出す小さな札（「社内のみ」など） */
+  /** 名前の右に出す小さなタスク（「社内のみ」など） */
   badge?: string
 }
 

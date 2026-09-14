@@ -12,7 +12,7 @@ const raw = (over: Partial<RawMinutesPreview> = {}): RawMinutesPreview => ({
 })
 
 describe('toMinutesPreview: 旧来の SPEC 行', () => {
-  it('spec_path をそのまま持ち、決める札として扱う', () => {
+  it('spec_path をそのまま持ち、決定事項のタスクとして扱う', () => {
     const view = toMinutesPreview(
       raw({
         new_spec_count: 1,
@@ -31,7 +31,7 @@ describe('toMinutesPreview: 旧来の SPEC 行', () => {
 })
 
 describe('toMinutesPreview: Wiki ページに紐づく行', () => {
-  it('仕様書タグ付きなら決める札として扱う', () => {
+  it('仕様書タグ付きなら決定事項のタスクとして扱う', () => {
     const view = toMinutesPreview(
       raw({
         new_spec_count: 1,

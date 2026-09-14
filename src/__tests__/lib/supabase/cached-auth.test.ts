@@ -4,7 +4,7 @@ import { getCachedUser, getCachedUserId, invalidateCachedUser } from '@/lib/supa
 /**
  * getCachedUser — 起動時のユーザー確認（auth/v1/user）の待ちを減らす（案A）。
  *
- * auth-js の getUser() は、引数無しで呼ぶとロック（同時に1つしか動けない順番札）を
+ * auth-js の getUser() は、引数無しで呼ぶとロック（同時に1つしか動けない順番タスク）を
  * 持ったまま認証サーバーに往復する。トークンを渡して呼ぶ（getUser(jwt)）と、
  * このロックを取らずに往復できる（getSession() は既にローカルのセッションを
  * 読むためだけに短くロックを取る）。この2段（getSession→getUser(token)）に

@@ -4,7 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useWikiDecisionCounts } from '@/lib/hooks/useWikiDecisionCounts'
 
-// Wiki 一覧の「確定 2/5」の印に使う取得。決める札（type='spec' かつ wiki_page_id あり）だけを
+// Wiki 一覧の「確定 2/5」の印に使う取得。決定事項のタスク（type='spec' かつ wiki_page_id あり）だけを
 // 数える。確定の単位はページではなく決定1件なので、wiki_pages には列を足さない。
 
 const mockRange = vi.fn()
@@ -38,7 +38,7 @@ describe('useWikiDecisionCounts', () => {
     mockRange.mockResolvedValue({ data: [], error: null })
   })
 
-  it('決める札だけを、必要な3列で取る', async () => {
+  it('決定事項のタスクだけを、必要な3列で取る', async () => {
     renderHook(() => useWikiDecisionCounts('org-1', 'space-1'), { wrapper })
     await waitFor(() => expect(mockRange).toHaveBeenCalled())
     expect(mockSelect).toHaveBeenCalledWith('id, wiki_page_id, decision_state')

@@ -8,8 +8,8 @@
 # 見るところ:
 #   - rpc_set_spec_state が kind='decided' / task_id 付きの控えを作る
 #   - その控えの本文に決定行が**入っていない**（＝確定した瞬間の内容）
-#   - ページの末尾に、札へのリンク付きの決定行が入る（絵文字なし）
-#   - authenticated は kind / task_id を付けて控えを作れない（名札の偽造防止）
+#   - ページの末尾に、タスクへのリンク付きの決定行が入る（絵文字なし）
+#   - authenticated は kind / task_id を付けて控えを作れない（印の偽造防止）
 #   - 5列だけの控えは権限では止まらない（＝これまでの自動保存・CLI が壊れていない）
 #
 # 使い方: bash supabase/tests/run_wiki_decision_versions.sh

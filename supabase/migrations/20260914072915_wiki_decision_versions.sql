@@ -8,17 +8,17 @@
 -- という形にする。ユーザー確認済み（「控えが残ればよい」）。
 --
 -- 控えそのものは既に取れている。`rpc_set_spec_state` は決定行を書き足す**前**の本文を
--- `wiki_page_versions` に入れている。足りないのは「これは確定時点のものだ」という名札だけ。
+-- `wiki_page_versions` に入れている。足りないのは「これは確定時点のものだ」という印だけ。
 --
 -- この migration ですること:
 --   1. `wiki_page_versions` に `kind`（autosave / decided / implemented）と `task_id` を足す
---   2. `rpc_set_spec_state` が名札を付けて控えを取るようにする
---   3. 決定行に、その札（タスク）へのリンクを付ける。絵文字はやめる
---   4. 名札を偽れないよう、画面から入れられる列を限る
+--   2. `rpc_set_spec_state` が印を付けて控えを取るようにする
+--   3. 決定行に、そのタスク（タスク）へのリンクを付ける。絵文字はやめる
+--   4. 印を偽れないよう、画面から入れられる列を限る
 --   5. 読み取りの取りこぼしを塞ぐ（本文を読んでから書くまでの間に行をロックする）
 
 -- ---------------------------------------------------------------------------
--- 1. 版に名札を付ける
+-- 1. 版に印を付ける
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE public.wiki_page_versions
@@ -35,14 +35,14 @@ BEGIN
   END IF;
 END $$;
 
--- どの札の確定でこの控えが取られたか。札が消えても控えは残す（set null）
+-- どのタスクの確定でこの控えが取られたか。タスクが消えても控えは残す（set null）
 ALTER TABLE public.wiki_page_versions
   ADD COLUMN IF NOT EXISTS task_id uuid REFERENCES public.tasks(id) ON DELETE SET NULL;
 
 COMMENT ON COLUMN public.wiki_page_versions.kind IS
-  '版の種類。autosave=本文の自動保存でできた控え / decided・implemented=札を確定したときの控え（確定時点の内容）';
+  '版の種類。autosave=本文の自動保存でできた控え / decided・implemented=タスクを確定したときの控え（確定時点の内容）';
 COMMENT ON COLUMN public.wiki_page_versions.task_id IS
-  'kind が autosave でないとき、その確定を行った札（タスク）';
+  'kind が autosave でないとき、その確定を行ったタスク（タスク）';
 
 -- 確定の控えだけを新しい順に引く用（自動保存の版が大量にあるので、部分索引で分ける）
 CREATE INDEX IF NOT EXISTS wiki_page_versions_decided_idx
@@ -50,7 +50,7 @@ CREATE INDEX IF NOT EXISTS wiki_page_versions_decided_idx
   WHERE kind <> 'autosave';
 
 -- ---------------------------------------------------------------------------
--- 4. 名札を偽れないようにする
+-- 4. 印を偽れないようにする
 -- ---------------------------------------------------------------------------
 -- 画面（useWikiPages.updatePage）と CLI（wiki_update）は、版を作るとき
 -- org_id / page_id / title / body / created_by の5列しか送っていない。
@@ -62,7 +62,7 @@ GRANT INSERT (org_id, page_id, title, body, created_by)
   ON public.wiki_page_versions TO authenticated;
 
 -- insert だけ列で絞っても、update が表単位のままだと意味がない。
--- 5列で自動保存の控えを作ったあと `update … set kind='decided'` で名札を後付けできてしまう。
+-- 5列で自動保存の控えを作ったあと `update … set kind='decided'` で印を後付けできてしまう。
 -- 控えは作ったら変えない・消さないものなので、update / delete ごと取り上げる。
 -- 画面にも CLI にも版を更新・削除する経路は無い（ページを消したときの連鎖削除は
 -- 外部キーの cascade が行うので、この権限とは無関係）。
@@ -80,7 +80,7 @@ DROP POLICY IF EXISTS wiki_page_versions_delete_member ON public.wiki_page_versi
 --   a. wiki_pages の行を FOR UPDATE でロックしてから読む（読んでから書くまでの間に
 --      他の保存が入ると、その内容を巻き戻してしまうため）
 --   b. 控えに kind と task_id を入れる
---   c. 決定行にその札へのリンクを付ける
+--   c. 決定行にそのタスクへのリンクを付ける
 --   d. 決定行の絵文字をやめる（この repo の決まり）
 CREATE OR REPLACE FUNCTION public.rpc_set_spec_state(
   p_task_id uuid,
@@ -145,7 +145,7 @@ BEGIN
 
   IF v_task.wiki_page_id IS NOT NULL AND p_decision_state IN ('decided', 'implemented') THEN
     -- (a) 読んでから書くまでの間に他の保存が入らないよう、この行を押さえてから読む。
-    -- 押さえないと、同時に2つの札を確定したときに片方の決定行が消える。
+    -- 押さえないと、同時に2つのタスクを確定したときに片方の決定行が消える。
     SELECT body, title INTO v_wiki_body, v_wiki_title
     FROM wiki_pages
     WHERE id = v_task.wiki_page_id
@@ -167,7 +167,7 @@ BEGIN
       v_label := '実装済み: ';
     END IF;
 
-    -- (c)(d) 「決定: 」＋札へのリンク（題名）＋「（日付）」。リンクを押すとその札に飛べる。
+    -- (c)(d) 「決定: 」＋タスクへのリンク（題名）＋「（日付）」。リンクを押すとそのタスクに飛べる。
     -- BlockNote の link インラインは content に文字を持つ（appLinks.ts が作る形と同じ）。
     v_new_block := jsonb_build_object(
       'id', gen_random_uuid()::text,
@@ -206,7 +206,7 @@ BEGIN
       v_new_body := jsonb_build_array(v_new_block)::text;
     END;
 
-    -- (b) 決定行を書き足す**前**の本文を、名札付きで控えにする＝これが「確定時点の内容」
+    -- (b) 決定行を書き足す**前**の本文を、印付きで控えにする＝これが「確定時点の内容」
     INSERT INTO wiki_page_versions (org_id, page_id, title, body, created_by, kind, task_id)
     VALUES (
       v_task.org_id,
@@ -247,10 +247,10 @@ REVOKE ALL ON FUNCTION public.rpc_set_spec_state(uuid, text, uuid, text) FROM pu
 GRANT EXECUTE ON FUNCTION public.rpc_set_spec_state(uuid, text, uuid, text) TO authenticated, service_role;
 
 -- 適用後の確認:
---   1. 「仕様書として扱う」のページに紐づく札を「決定にする」→ ページの末尾に
---      「決定: <札の題名> (YYYY/MM/DD)」が入り、題名がリンクになっていて押すと札が開く。
+--   1. 「仕様書として扱う」のページに紐づくタスクを「決定にする」→ ページの末尾に
+--      「決定: <タスクの題名> (YYYY/MM/DD)」が入り、題名がリンクになっていて押すとタスクが開く。
 --   2. `select kind, task_id from wiki_page_versions where page_id = '<ページ>' order by created_at desc limit 3;`
---      → 最新の1件が kind='decided' / task_id=<札> で、その body に決定行が**入っていない**こと。
+--      → 最新の1件が kind='decided' / task_id=<タスク> で、その body に決定行が**入っていない**こと。
 --   3. 画面から `wiki_page_versions` に kind='decided' で insert しようとすると権限エラーになること
 --      （自動保存・版の復元・CLI の wiki_update はこれまでどおり通ること）。
---   4. 同じページの2つの札をほぼ同時に確定して、決定行が2行とも残ること。
+--   4. 同じページの2つのタスクをほぼ同時に確定して、決定行が2行とも残ること。
