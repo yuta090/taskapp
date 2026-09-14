@@ -14,6 +14,18 @@ import {
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+/**
+ * 版の一覧に出すぶんだけ。本文(body)は含めない — 版は自動保存のたびに1行増え、
+ * 1行が本文まるごとなので、全文を全件持ってくるとパネルを開いた瞬間に固まる。
+ */
+export type WikiPageVersionSummary = Pick<
+  WikiPageVersion,
+  'id' | 'created_at' | 'title' | 'kind' | 'task_id'
+>
+
+/** 一覧に出す版の上限。これを超える古い版は「復元」の対象から外れる。 */
+const VERSION_LIST_LIMIT = 50
+
 interface UseWikiPagesOptions {
   orgId: string
   spaceId: string
@@ -63,7 +75,8 @@ interface UseWikiPagesReturn {
   updatePage: (pageId: string, input: UpdateWikiPageInput, baseUpdatedAt?: string) => Promise<{ updatedAt: string | null }>
   deletePage: (pageId: string) => Promise<void>
   fetchPage: (pageId: string) => Promise<WikiPage | null>
-  fetchVersions: (pageId: string) => Promise<WikiPageVersion[]>
+  fetchVersions: (pageId: string) => Promise<WikiPageVersionSummary[]>
+  fetchVersionBody: (versionId: string) => Promise<{ title: string; body: string } | null>
   publishPage: (pageId: string, milestoneId: string) => Promise<void>
 }
 
@@ -230,21 +243,53 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
   }, [orgId, supabase])
 
   // ---------- fetchVersions: on-demand ----------
-  const fetchVersions = useCallback(async (pageId: string): Promise<WikiPageVersion[]> => {
+  /**
+   * 版の一覧。**本文(body)は取らない。**
+   *
+   * 本文の自動保存は入力が止まって1.5秒ごとに走り、そのたびに本文まるごとの版が1行増える。
+   * 刈り取りの仕組みも無いので、長く書いたページでは版が数百行になり、1行が BlockNote の
+   * JSON 全文。`select('*')` を全件やると「バージョン履歴」を開いた瞬間に数十MBを
+   * 取りに行き、パネルが数秒固まる（page-perf レビュー指摘）。
+   *
+   * 本文が要るのは「復元」を押した1件だけなので、そのときに `fetchVersionBody` で取る。
+   * 件数も `VERSION_LIST_LIMIT` で頭打ちにする（CLI 側の wiki_versions は元から limit 付き）。
+   */
+  const fetchVersions = useCallback(async (pageId: string): Promise<WikiPageVersionSummary[]> => {
     try {
       const { data: versionsData, error: fetchError } = await (supabase as SupabaseClient)
         .from('wiki_page_versions')
-        .select('*')
+        .select('id, created_at, title, kind, task_id')
         .eq('page_id', pageId)
         .eq('org_id', orgId)
         .order('created_at', { ascending: false })
+        .limit(VERSION_LIST_LIMIT)
 
       if (fetchError) throw fetchError
-      return (versionsData || []) as WikiPageVersion[]
+      return (versionsData || []) as WikiPageVersionSummary[]
     } catch {
       return []
     }
   }, [orgId, supabase])
+
+  /** 復元のときだけ、その1件の本文を取る。 */
+  const fetchVersionBody = useCallback(
+    async (versionId: string): Promise<{ title: string; body: string } | null> => {
+      try {
+        const { data, error: fetchError } = await (supabase as SupabaseClient)
+          .from('wiki_page_versions')
+          .select('title, body')
+          .eq('id', versionId)
+          .eq('org_id', orgId)
+          .maybeSingle()
+
+        if (fetchError) throw fetchError
+        return (data as { title: string; body: string } | null) ?? null
+      } catch {
+        return null
+      }
+    },
+    [orgId, supabase]
+  )
 
   // ---------- Mutations ----------
 
@@ -516,6 +561,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
     deletePage,
     fetchPage,
     fetchVersions,
+    fetchVersionBody,
     publishPage,
   }
 }

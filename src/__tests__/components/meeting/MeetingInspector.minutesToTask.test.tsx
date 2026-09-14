@@ -176,7 +176,7 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     expect(screen.queryByTestId('minutes-taskify-button')).toBeNull()
   })
 
-  it('候補が0件のとき、SPEC行の書き方の案内を出す（非技術者向け）', async () => {
+  it('候補が0件のとき、Wiki のページを差し込む書き方の案内を出す（非技術者向け）', async () => {
     const onPreviewMinutes = vi.fn().mockResolvedValue({
       newSpecCount: 0,
       existingSpecCount: 0,
@@ -188,7 +188,93 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     )
     openMinutesTab()
     await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalled())
-    expect(await screen.findByText(/SPEC\(資料の場所\): やること/)).toBeTruthy()
+    expect(await screen.findByText(/Wiki のページを差し込む/)).toBeTruthy()
+    // 「仕様書として扱う」を入れると決める札になる、という違いも案内する
+    expect(await screen.findByText(/決まるまで/)).toBeTruthy()
+  })
+
+  it('Wiki のページに紐づく候補は、ページ名を出し「決める」札に印を付ける', async () => {
+    const onPreviewMinutes = vi.fn().mockResolvedValue({
+      newSpecCount: 2,
+      existingSpecCount: 0,
+      newSpecs: [
+        {
+          lineNumber: 2,
+          title: '玄関の向きを決める',
+          specPath: null,
+          wikiPageId: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+          wikiPageTitle: '家の間取り',
+          isSpec: true,
+        },
+        {
+          lineNumber: 4,
+          title: '間取り案を3つ作る',
+          specPath: null,
+          wikiPageId: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d',
+          wikiPageTitle: '検討メモ',
+          isSpec: false,
+        },
+      ],
+      existingSpecs: [],
+    })
+    render(
+      <MeetingInspector meeting={makeMeeting()} onClose={vi.fn()} onPreviewMinutes={onPreviewMinutes} />
+    )
+    openMinutesTab()
+    await waitFor(() => expect(onPreviewMinutes).toHaveBeenCalled())
+
+    // ページ名が出る（開発用のパスではなく、人が読んで分かるほう）
+    expect(await screen.findByText('家の間取り')).toBeTruthy()
+    expect(screen.getByText('検討メモ')).toBeTruthy()
+    // 「決める」の印は仕様書タグ付きの1件だけ
+    expect(screen.getAllByTestId('minutes-task-candidate-decide')).toHaveLength(1)
+  })
+
+  // 回帰: 取得の最中に親が描き直すと（onPreviewMinutes は MeetingsPageClient で
+  // その場で作られる無名関数なので、選択中の会議や参加者が変わるたびに別物になる）、
+  // effect の後片付けで cancelled=true になり finally が飛ばされて「候補を確認中…」が
+  // 永久に残っていた。previewKeyRef のガードで再取得も走らず、「もう一度確認」も
+  // 読み込み中は出ないので、会議を切り替えるまで戻れなかった。
+  it('取得中に親が描き直しても、候補の読み込みが終われば表示される', async () => {
+    let resolvePreview: ((v: unknown) => void) | undefined
+    const pending = new Promise((resolve) => {
+      resolvePreview = resolve
+    })
+    // 1回目と2回目で「別の関数」を渡す（親の再描画で参照が変わる状況の再現）
+    const first = vi.fn().mockReturnValue(pending)
+    const second = vi.fn().mockReturnValue(pending)
+
+    const meeting = makeMeeting()
+    const { rerender } = render(
+      <MeetingInspector meeting={meeting} onClose={vi.fn()} onPreviewMinutes={first} />
+    )
+    openMinutesTab()
+    await waitFor(() => expect(first).toHaveBeenCalled())
+    expect(screen.getByText('候補を確認中…')).toBeTruthy()
+
+    // 取得の最中に親が描き直す
+    rerender(<MeetingInspector meeting={meeting} onClose={vi.fn()} onPreviewMinutes={second} />)
+
+    resolvePreview?.({
+      newSpecCount: 1,
+      existingSpecCount: 0,
+      newSpecs: [
+        {
+          lineNumber: 2,
+          title: '玄関の向きを決める',
+          specPath: null,
+          wikiPageId: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+          wikiPageTitle: '家の間取り',
+          isSpec: true,
+        },
+      ],
+      existingSpecs: [],
+    })
+
+    expect(await screen.findByText('玄関の向きを決める')).toBeTruthy()
+    expect(screen.queryByText('候補を確認中…')).toBeNull()
+    // 同じ会議なので取得は1回だけ（再描画で二重に走らせない）
+    expect(second).not.toHaveBeenCalled()
   })
 
   it('M3: 「もう一度確認」でプレビューを取り直す', async () => {

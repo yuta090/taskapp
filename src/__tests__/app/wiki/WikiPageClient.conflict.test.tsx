@@ -68,6 +68,8 @@ vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
 const mockFetchPage = vi.hoisted(() => vi.fn())
 const mockUpdatePage = vi.hoisted(() => vi.fn())
+// 版の一覧は本文を持たない軽い形になったので、復元は fetchVersionBody で1件だけ本文を取る
+const mockFetchVersionBody = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/hooks/useWikiPages', async () => {
   const actual = await vi.importActual<typeof import('@/lib/hooks/useWikiPages')>('@/lib/hooks/useWikiPages')
   return {
@@ -82,6 +84,7 @@ vi.mock('@/lib/hooks/useWikiPages', async () => {
       deletePage: vi.fn(),
       fetchPage: mockFetchPage,
       fetchVersions: vi.fn(),
+      fetchVersionBody: mockFetchVersionBody,
     }),
   }
 })
@@ -241,6 +244,8 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
     toastMock.error.mockClear()
     mockFetchPage.mockReset().mockResolvedValue(INITIAL_PAGE)
     mockUpdatePage.mockReset().mockResolvedValue({ updatedAt: '2026-09-13T00:05:00+09:00' })
+    // 版の一覧は本文を持たないので、復元は必ずここで1件ぶんの本文を取る
+    mockFetchVersionBody.mockReset().mockResolvedValue({ title: '復元タイトル', body: 'restored-body' })
   })
 
   afterEach(() => {
@@ -377,12 +382,13 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
         org_id: 'org1',
         page_id: 'p1',
         title: '復元タイトル',
-        body: 'restored-body',
-        created_by: 'user1',
         created_at: '2026-09-13T00:05:00+09:00',
+        kind: 'autosave',
+        task_id: null,
       })
       // handleRestoreVersion は呼び出し元で await されない(.then で続く)ため、
       // 内部の updatePage → fetchPage の連鎖ぶんだけマイクロタスクを流す
+      await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
@@ -412,10 +418,11 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
         org_id: 'org1',
         page_id: 'p1',
         title: '復元タイトル',
-        body: 'restored-body',
-        created_by: 'user1',
         created_at: '2026-09-13T00:05:00+09:00',
+        kind: 'autosave',
+        task_id: null,
       })
+      await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
@@ -538,9 +545,9 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
         org_id: 'org1',
         page_id: 'p1',
         title: '復元タイトル',
-        body: 'restored-body',
-        created_by: 'user1',
         created_at: '2026-09-13T00:05:00+09:00',
+        kind: 'autosave',
+        task_id: null,
       })
     })
 
@@ -589,6 +596,7 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
     // T1 が「本当の競合」で終わる
     await act(async () => {
       rejectFirst(new WikiConflictError())
+      await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
@@ -781,9 +789,9 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
         org_id: 'org1',
         page_id: 'p1',
         title: '復元タイトル',
-        body: 'restored-body',
-        created_by: 'user1',
         created_at: '2026-09-13T00:05:00+09:00',
+        kind: 'autosave',
+        task_id: null,
       })
     })
     // updatePage の解決分だけマイクロタスクを流す(fetchPage はまだ未解決のまま)
@@ -839,6 +847,7 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
 
     await act(async () => {
       resolveFirst({ updatedAt: '2026-09-13T00:05:00+09:00' }) // T1成功
+      await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
@@ -902,10 +911,11 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
         org_id: 'org1',
         page_id: 'p1',
         title: '復元タイトル',
-        body: 'restored-body',
-        created_by: 'user1',
         created_at: '2026-09-13T00:05:00+09:00',
+        kind: 'autosave',
+        task_id: null,
       })
+      await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()

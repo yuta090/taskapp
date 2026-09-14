@@ -18,6 +18,7 @@ import {
 import { AmberBadge, useConfirmDialog } from '@/components/shared'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { MinutesConflictError } from '@/lib/minutes/errors'
+import { candidateSubLabel } from '@/lib/minutes/preview'
 import type { Meeting, MeetingParticipant } from '@/types/database'
 import type { MinutesPreviewResult, ParseMinutesResult } from '@/lib/hooks/useMeetings'
 
@@ -78,6 +79,14 @@ export function MeetingInspector({
 
   // 会議ごとに一度だけプレビューを走らせるためのキー（自前 setState での再実行を防ぐ）
   const previewKeyRef = useRef<string | null>(null)
+  /**
+   * 候補の取得は「いちばん新しい実装」を使いたいが、参照が変わっても effect を
+   * 走らせ直したくない（上の useEffect のコメント）。ref に入れて依存から外す。
+   */
+  const onPreviewMinutesRef = useRef(onPreviewMinutes)
+  useEffect(() => {
+    onPreviewMinutesRef.current = onPreviewMinutes
+  }, [onPreviewMinutes])
   // M3: 保存の確定後に議事録が変わっている可能性があるので、「もう一度確認」で
   // 手動でも取り直せるようにする（このカウンタを増やすと下の effect が再実行される）
   const [refreshToken, setRefreshToken] = useState(0)
@@ -95,26 +104,27 @@ export function MeetingInspector({
   // 本文の用意はページ側(onPreviewMinutes の実装)に任せる（HIGH-N3）。
   useEffect(() => {
     if (activeTab !== 'taskify') return
-    if (!onPreviewMinutes) return
+    if (!onPreviewMinutesRef.current) return
     if (createResult) return
     if (previewKeyRef.current === meeting.id) return
     previewKeyRef.current = meeting.id
-    let cancelled = false
     setPreviewLoading(true)
-    onPreviewMinutes(meeting.id)
+    onPreviewMinutesRef.current(meeting.id)
       .then((result) => {
-        if (!cancelled) setPreview(result)
+        setPreview(result)
       })
       .catch(() => {
-        if (!cancelled) setTaskError('タスク化候補の取得に失敗しました')
+        setTaskError('タスク化候補の取得に失敗しました')
       })
       .finally(() => {
-        if (!cancelled) setPreviewLoading(false)
+        setPreviewLoading(false)
       })
-    return () => {
-      cancelled = true
-    }
-  }, [activeTab, meeting.id, onPreviewMinutes, createResult, refreshToken])
+    // onPreviewMinutes は依存に入れない。MeetingsPageClient がその場で作る無名関数で、
+    // 選択中の会議や参加者が変わるたびに別物になる。入れると取得の最中に effect が
+    // 作り直され、後片付けで結果を捨てたまま previewKeyRef のガードで再取得も
+    // 止まり、「候補を確認中…」が永久に残る（回帰テストあり）。
+    // 同時に2本走らないことは previewKeyRef のガードが担保する。
+  }, [activeTab, meeting.id, createResult, refreshToken])
 
   // M3: 文書ビューで書いた本文が保存された後は、開いたときの候補が古いままになりうる。
   // 手動で取り直す。タスク化を1回した後も再確認できるよう createResult も消す
@@ -410,9 +420,19 @@ export function MeetingInspector({
                         >
                           <span className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-900" />
                           <div className="min-w-0">
-                            <div className="truncate">{s.title}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate">{s.title}</span>
+                              {s.isSpec && (
+                                <span
+                                  data-testid="minutes-task-candidate-decide"
+                                  className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-ink"
+                                >
+                                  決める
+                                </span>
+                              )}
+                            </div>
                             <div className="truncate text-xs text-gray-400">
-                              {s.specPath}
+                              {candidateSubLabel(s)}
                             </div>
                           </div>
                         </li>
@@ -448,11 +468,12 @@ export function MeetingInspector({
                   <div data-testid="minutes-task-empty" className="text-xs text-gray-400 space-y-1">
                     <p>タスク化できる決定事項はありません</p>
                     <p>
-                      議事録に「
-                      <code className="px-1 py-0.5 bg-gray-100 rounded text-gray-600">
-                        - [ ] SPEC(資料の場所): やること
-                      </code>
-                      」と書くと、ここでタスクにできます。
+                      議事録にチェックリストで「決めること」を書き、その行に「/」から
+                      Wiki のページを差し込むと、ここでタスクにできます。
+                    </p>
+                    <p>
+                      差し込んだページが「仕様書として扱う」になっていれば、決まるまで
+                      完了できない「決める札」になります。
                     </p>
                   </div>
                 ) : null}
