@@ -32,6 +32,7 @@ const DEFAULT_SLASH_ITEMS = [
   { key: 'check_list', title: 'チェックリスト', aliases: ['todo'], group: '基本ブロック', onItemClick: () => {} },
   { key: 'table', title: '表', aliases: ['table'], group: '高度なブロック', onItemClick: () => {} },
   { key: 'code_block', title: 'コードブロック', aliases: ['code'], group: '基本ブロック', onItemClick: () => {} },
+  { key: 'toggle_list', title: '折りたたみリスト', aliases: ['toggle'], group: '基本ブロック', onItemClick: () => {} },
   { key: 'divider', title: '区切り', aliases: ['hr'], group: '基本ブロック', onItemClick: () => {} },
   { key: 'image', title: '画像', aliases: ['image'], group: 'メディア', onItemClick: () => {} },
 ]
@@ -212,6 +213,7 @@ describe('MinutesEditor の「/」メニュー', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
     expect(items.map((item) => item.key)).toEqual([
+      'insert_meeting_note',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',
@@ -221,13 +223,35 @@ describe('MinutesEditor の「/」メニュー', () => {
       'check_list',
       'table',
       'code_block',
+      'toggle_list',
     ])
+  })
+
+  it('「会議メモ」と「折りたたみリスト」を出す', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const keys = (await capturedSlashMenuProps!.getItems!('')).map((item) => item.key)
+    expect(keys).toContain('insert_meeting_note')
+    expect(keys).toContain('toggle_list')
+  })
+
+  it('「メモ」で絞り込むと会議メモが出る', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = await capturedSlashMenuProps!.getItems!('メモ')
+    expect(items.map((item) => item.key)).toEqual(['insert_meeting_note'])
   })
 
   it('「/」のあとに打った文字で絞り込む', async () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('見出し')
     expect(items.map((item) => item.key)).toEqual(['heading'])
+  })
+
+  it('本文の下に「会議メモ」ボタンを出す（「/」を知らなくても押せるように）', () => {
+    const { unmount } = render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByTestId('minutes-insert-meeting-note')).toBeInTheDocument()
+    unmount()
+    render(<MinutesEditor minutesMd="" editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.queryByTestId('minutes-insert-meeting-note')).not.toBeInTheDocument()
   })
 
   it('読み取り専用のときはメニューを出さない', () => {

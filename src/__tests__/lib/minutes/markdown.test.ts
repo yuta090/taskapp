@@ -98,6 +98,101 @@ describe('parseMinutesMarkdown: 見出し', () => {
   })
 })
 
+describe('折りたたみ（トグル）', () => {
+  it('`- <!--toggle-->` の行を折りたたみにし、字下げした行を中身として持つ', () => {
+    const blocks = parseMinutesMarkdown('- <!--toggle-->前回の経緯\n  - 値段の話\n  - 納期の話')
+    expect(blocks).toEqual([
+      {
+        type: 'toggleListItem',
+        content: [t('前回の経緯')],
+        children: [
+          { type: 'bulletListItem', content: [t('値段の話')] },
+          { type: 'bulletListItem', content: [t('納期の話')] },
+        ],
+      },
+    ])
+  })
+
+  it('中身の無い折りたたみも読める', () => {
+    expect(parseMinutesMarkdown('- <!--toggle-->まだ空')).toEqual([
+      { type: 'toggleListItem', content: [t('まだ空')] },
+    ])
+  })
+
+  it('印の付いていない箇条書きはこれまでどおり', () => {
+    expect(parseMinutesMarkdown('- ふつうの箇条書き')).toEqual([
+      { type: 'bulletListItem', content: [t('ふつうの箇条書き')] },
+    ])
+  })
+
+  it('書き出すと `- <!--toggle-->` ＋ 字下げした中身になる', () => {
+    const out = serializeMinutesBlocks([
+      {
+        type: 'toggleListItem',
+        content: [t('前回の経緯')],
+        children: [{ type: 'bulletListItem', content: [t('値段の話')] }],
+      },
+    ])
+    expect(out).toBe('- <!--toggle-->前回の経緯\n  - 値段の話')
+  })
+
+  it('読み込み→書き出しで形が変わらない', () => {
+    // 隣り合う箇条書きの間に空行は入れない（既存の書き出しの決まり）
+    const md = '- <!--toggle-->前回の経緯\n  - 値段の話\n  - 納期の話\n- あと片付け'
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+  })
+
+  it('本文に `<!--toggle-->` と打っただけの段落は段落のまま往復する', () => {
+    const md = '<!--toggle-->ただの文字'
+    const blocks = parseMinutesMarkdown(md)
+    expect(blocks[0].type).toBe('paragraph')
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(serializeMinutesBlocks(blocks)))).toEqual(
+      serializeMinutesBlocks(blocks)
+    )
+  })
+})
+
+describe('会議メモ', () => {
+  it('`<!--note-->` で始まる行を会議メモにする', () => {
+    expect(parseMinutesMarkdown('<!--note-->その場で出た補足')).toEqual([
+      { type: 'meetingNote', content: [t('その場で出た補足')] },
+    ])
+  })
+
+  it('続けて書いた `<!--note-->` の行は1つの会議メモにまとまる', () => {
+    expect(parseMinutesMarkdown('<!--note-->1行目\n<!--note-->2行目')).toEqual([
+      { type: 'meetingNote', content: [t('1行目\n2行目')] },
+    ])
+  })
+
+  it('前後の段落とは別のブロックになる', () => {
+    const blocks = parseMinutesMarkdown('前の段落\n<!--note-->メモ\nあとの段落')
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'meetingNote', 'paragraph'])
+  })
+
+  it('書き出すと行ごとに `<!--note-->` が付く', () => {
+    const out = serializeMinutesBlocks([{ type: 'meetingNote', content: [t('1行目\n2行目')] }])
+    expect(out).toBe('<!--note-->1行目\n<!--note-->2行目')
+  })
+
+  it('読み込み→書き出しで形が変わらない', () => {
+    const md = '# 会議\n\n<!--note-->その場で出た補足\n\n- やること'
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+  })
+
+  it('会議メモの中身が箇条書きに見えても、読み戻すと会議メモのまま', () => {
+    const md = serializeMinutesBlocks([{ type: 'meetingNote', content: [t('- 箇条書きに見える')] }])
+    expect(parseMinutesMarkdown(md)).toEqual([{ type: 'meetingNote', content: [t('- 箇条書きに見える')] }])
+  })
+
+  it('行末のタスクの印は会議メモでも拾う', () => {
+    const blocks = parseMinutesMarkdown('<!--note-->決めた <!--task:11111111-1111-1111-1111-111111111111-->')
+    expect(blocks).toEqual([
+      { type: 'meetingNote', content: [t('決めた'), mk('11111111-1111-1111-1111-111111111111')] },
+    ])
+  })
+})
+
 describe('parseMinutesMarkdown: 箇条書き・チェック・番号付き', () => {
   it('- * + はすべて bulletListItem になる', () => {
     const blocks = parseMinutesMarkdown('- a\n\n* b\n\n+ c')

@@ -3,8 +3,10 @@
 import { Fragment, useMemo, type ReactNode } from 'react'
 import { CheckSquare, Square } from '@phosphor-icons/react'
 import {
+  MEETING_NOTE_TYPE,
   parseMinutesMarkdown,
   TASK_MARKER_TYPE,
+  TOGGLE_TYPE,
   type MinutesBlock,
   type MinutesInlineContent,
   type MinutesLinkInline,
@@ -254,10 +256,43 @@ function renderListGroup(type: string, group: readonly MinutesBlock[], key: Reac
   )
 }
 
+/**
+ * 折りたたみ。相手先には**開いた状態**で出す（畳んだままだと、中に書いた大事な話を
+ * 読み落とす）。読む側が自分で畳めるように、ブラウザ標準の折りたたみを使う。
+ */
+function renderToggle(block: MinutesBlock, key: React.Key): ReactNode {
+  const items = Array.isArray(block.content) ? block.content : []
+  const childNodes = block.children && block.children.length ? renderBlocks(block.children) : null
+  return (
+    <details key={key} open data-testid="portal-minutes-toggle" className="my-2">
+      <summary className="cursor-pointer text-sm text-gray-700 leading-[1.8]">{renderInline(items)}</summary>
+      <div className="pl-4">{childNodes}</div>
+    </details>
+  )
+}
+
+/** 会議メモ。編集画面と同じ色の囲みで出す（会議中に足した補足だと分かるように）。 */
+function renderMeetingNote(block: MinutesBlock, key: React.Key): ReactNode {
+  const items = Array.isArray(block.content) ? block.content : []
+  return (
+    <div
+      key={key}
+      data-testid="portal-minutes-meeting-note"
+      className="my-2 rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2 text-sm text-gray-700 leading-[1.8] whitespace-pre-wrap"
+    >
+      {renderInline(items)}
+    </div>
+  )
+}
+
 function renderBlock(block: MinutesBlock, key: React.Key, isFirst: boolean): ReactNode {
   switch (block.type) {
     case 'heading':
       return renderHeading(block, key, isFirst)
+    case TOGGLE_TYPE:
+      return renderToggle(block, key)
+    case MEETING_NOTE_TYPE:
+      return renderMeetingNote(block, key)
     case 'table':
       return renderTable(block, key)
     case 'codeBlock':

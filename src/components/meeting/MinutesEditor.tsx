@@ -13,15 +13,22 @@ import {
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
-import { filterSuggestionItems } from '@blocknote/core/extensions'
+import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { CheckCircle } from '@phosphor-icons/react'
+import { CheckCircle, NotePencil } from '@phosphor-icons/react'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
-import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE } from '@/lib/minutes/markdown'
+import {
+  MEETING_NOTE_TYPE,
+  parseMinutesMarkdown,
+  serializeMinutesBlocks,
+  TASK_MARKER_TYPE,
+  TOGGLE_TYPE,
+} from '@/lib/minutes/markdown'
+import { meetingNoteSpec, toggleListItemSpec } from './minutesBlocks'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
 import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
@@ -249,6 +256,14 @@ const MINUTES_DICTIONARY = {
     default: '文字を入力、または「/」でメニューを開く',
     emptyDocument: '',
   },
+  slash_menu: {
+    ...jaLocale.slash_menu,
+    toggle_list: {
+      ...jaLocale.slash_menu.toggle_list,
+      // 近道（`>` ＋スペース）をメニューの説明にも書く。知らないと使われない
+      subtext: '中身を隠しておける。「>」とスペースでも作れる',
+    },
+  },
 }
 
 /**
@@ -271,6 +286,8 @@ const ALLOWED_SLASH_MENU_ITEMS = new Set([
   'table',
   'code_block',
   'emoji',
+  // 折りたたみ（`>` ＋スペースでも作れる）
+  'toggle_list',
 ])
 
 function useMinutesSchema(
@@ -306,6 +323,8 @@ function useMinutesSchema(
         checkListItem: defaultBlockSpecs.checkListItem,
         table: defaultBlockSpecs.table,
         codeBlock: defaultBlockSpecs.codeBlock,
+        [TOGGLE_TYPE]: toggleListItemSpec,
+        [MEETING_NOTE_TYPE]: meetingNoteSpec,
       },
       styleSpecs: {
         bold: defaultStyleSpecs.bold,
@@ -381,10 +400,29 @@ function MinutesEditorImpl({
     dictionary: MINUTES_DICTIONARY,
   })
 
+  /**
+   * 今の行を「会議メモ」に変える（空の行なら、その行がそのまま会議メモになる）。
+   * 「/」メニューからも、本文の下のボタンからも同じ入口を使う。
+   */
+  const insertMeetingNote = useCallback(() => {
+    insertOrUpdateBlockForSlashMenu(editor, { type: MEETING_NOTE_TYPE, props: {} })
+    editor.focus()
+  }, [editor])
+
   const getSlashMenuItems = useCallback(
     async (query: string) =>
       filterSuggestionItems(
         [
+          {
+            key: 'insert_meeting_note',
+            title: '会議メモ',
+            subtext: '会議中に足した補足として、背景に色を付けて残す',
+            aliases: ['note', 'memo', 'メモ', '会議メモ', 'かいぎめも', 'コメント'],
+            // 既定のブロックと同じ並びに置く（辞書から取って表記を揃える）
+            group: jaLocale.slash_menu.paragraph.group,
+            icon: <NotePencil size={18} />,
+            onItemClick: insertMeetingNote,
+          },
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
           ...buildInsertLinkMenuItems(openLinkPicker),
           // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
@@ -394,7 +432,7 @@ function MinutesEditorImpl({
         ],
         query
       ),
-    [editor, openLinkPicker]
+    [editor, openLinkPicker, insertMeetingNote]
   )
 
   /**
@@ -531,6 +569,16 @@ function MinutesEditorImpl({
       </BlockNoteView>
       {effectiveEditable && (
         <div className="flex items-center gap-2 mt-2 px-1">
+          {/* 会議中に一番よく使うので、「/」を知らなくても押せる場所に出す */}
+          <button
+            type="button"
+            data-testid="minutes-insert-meeting-note"
+            onClick={insertMeetingNote}
+            className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            <NotePencil size={14} />
+            会議メモ
+          </button>
           <InsertLinkControl
             orgId={orgId}
             spaceId={spaceId}
