@@ -6,6 +6,7 @@ import {
   type MinutesDocumentViewHandle,
 } from '@/components/meeting/MinutesDocumentView'
 import { MinutesConflictError } from '@/lib/hooks/useMeetings'
+import { readMinutesScroll, saveMinutesScroll } from '@/lib/minutes/scrollMemory'
 import type { Meeting } from '@/types/database'
 
 // 議事録の文書ビュー。中央の広い領域に Wiki と同じ書き味で本文を出し、自動保存する。
@@ -42,12 +43,19 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
 vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
 let capturedOnChange: ((md: string) => void) | undefined
+let capturedOnBeforeNavigate: (() => Promise<void>) | undefined
 let lastEditorProps: { minutesMd: string; editable: boolean } | null = null
 let mountCount = 0
 
 vi.mock('@/components/meeting/MinutesEditorDynamic', () => ({
-  MinutesEditorDynamic: (props: { minutesMd: string; editable: boolean; onChange?: (md: string) => void }) => {
+  MinutesEditorDynamic: (props: {
+    minutesMd: string
+    editable: boolean
+    onChange?: (md: string) => void
+    onBeforeNavigate?: () => Promise<void>
+  }) => {
     capturedOnChange = props.onChange
+    capturedOnBeforeNavigate = props.onBeforeNavigate
     lastEditorProps = { minutesMd: props.minutesMd, editable: props.editable }
     React.useEffect(() => {
       mountCount += 1
@@ -131,6 +139,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   capturedOnChange = undefined
+  capturedOnBeforeNavigate = undefined
   lastEditorProps = null
   mountCount = 0
   mockWriteText.mockClear()
@@ -775,5 +784,63 @@ describe('LOW: 保存する本文の末尾の空行を落とす', () => {
       await vi.advanceTimersByTimeAsync(1500)
     })
     expect(updateMinutes).toHaveBeenCalledWith('m1', '# 定例MTG\n\n本文\n\n編集', meeting.updated_at)
+  })
+})
+
+describe('議事録からタスクやWikiへ移って戻ったとき、見ていた場所に戻る', () => {
+  const BODY = '# 定例MTG\n\n本文'
+
+  beforeEach(() => {
+    window.sessionStorage.clear()
+  })
+
+  async function open() {
+    const utils = setup()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    return utils
+  }
+
+  it('前に見ていた場所へ戻す', async () => {
+    saveMinutesScroll('m1', 900, BODY.length)
+    await open()
+    expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(900)
+  })
+
+  it('覚えていなければ先頭のまま', async () => {
+    await open()
+    expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(0)
+  })
+
+  it('本文のリンクで移る前に、見ていた場所を覚える', async () => {
+    await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 640
+    await act(async () => {
+      await capturedOnBeforeNavigate?.()
+    })
+    expect(readMinutesScroll('m1', BODY.length)).toBe(640)
+  })
+
+  it('先頭で移ったときは覚えない（次に開いて動かされると驚く）', async () => {
+    saveMinutesScroll('m1', 900, BODY.length)
+    await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 0
+    await act(async () => {
+      await capturedOnBeforeNavigate?.()
+    })
+    expect(readMinutesScroll('m1', BODY.length)).toBeNull()
+  })
+
+  it('戻すのは一度だけ。画面を組み直しても二度目は動かさない', async () => {
+    saveMinutesScroll('m1', 900, BODY.length)
+    const { unmount } = await open()
+    expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(900)
+
+    unmount()
+    await open()
+    expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(0)
   })
 })
