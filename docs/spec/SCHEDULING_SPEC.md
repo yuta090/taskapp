@@ -229,12 +229,13 @@ interface VideoConferenceProvider {
 
 ## リアルタイム更新 (Phase 4)
 
-### Supabase Realtime
+### Supabase Realtime（2026-09-15 に外した）
 
-`useRealtimeResponses(slotIds)`:
-- `slot_responses` テーブルの INSERT/UPDATE をサブスクライブ
-- SlotResponseGrid に「Live」バッジ表示
-- cleanup で unsubscribe
+回答表（SlotResponseGrid）は Realtime を使わない。回答は詳細パネルを開いたときに読み込む。
+
+以前の `useRealtimeResponses` は `slot_responses` を public チャネルで購読し、「Live」バッジを出していた。しかし本番の publication に表が無く、変化は1件も届いていなかった。2026-09-15 に本番で public チャネルを禁止した（private だけ許可）ため、購読とバッジを外した。
+
+リアルタイムに戻すなら、publication に表を足す判断（誰に行の変化が届くか）と、private チャネルへの切り替えが要る。
 
 ### クライアントサイド期限切れ判定
 

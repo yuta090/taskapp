@@ -159,7 +159,6 @@ export function ProposalInspector({
             onSubmit={handleSubmitResponses}
             isSubmitting={isSubmitting}
             proposalId={proposalId}
-            onRealtimeUpdate={fetchResponses}
             getSlotSummary={getSlotSummary}
           />
         )}

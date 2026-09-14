@@ -92,7 +92,7 @@ export function useMinutesPresence({
   enabled,
   self,
 }: UseMinutesPresenceOptions): UseMinutesPresenceResult {
-  // useRealtimeResponses と同じく、クライアントは1回だけ作って使い回す
+  // クライアントは1回だけ作って使い回す
   const supabase = useMemo(() => createClient(), [])
   const [others, setOthers] = useState<MinutesPresencePeer[]>(EMPTY_PEERS)
 
