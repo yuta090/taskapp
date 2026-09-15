@@ -419,6 +419,10 @@ function MinutesEditorImpl({
    * 「タスクにする行」を入れる。**いちばん外側の行の後ろ**に入れるのが要点。
    * 折りたたみや箇条書きの中に入ると字下げされ、その行はタスク化の候補に出なくなる
    * （DB 側は行頭の `- [ ]` だけを見るため）。
+   *
+   * 入れたあとは**入れた行にカーソルを移す**。入る場所はカーソルのあった行の後ろ＝
+   * 画面の上のほうで、パネルは本文のいちばん下に出るので、そのままだと手元では何も
+   * 変わらず「入っていない」ように見える（ユーザー報告・2026-09-15）。
    */
   const insertTaskLine = useCallback(
     (draft: TaskLineDraft) => {
@@ -427,11 +431,23 @@ function MinutesEditorImpl({
       const cursorId = editor.getTextCursorPosition()?.block?.id
       const anchor = findTopLevelAncestor(editor.document, cursorId)
       if (!anchor) return
-      editor.insertBlocks([block] as never, anchor as never, 'after')
+      const inserted = editor.insertBlocks([block] as never, anchor as never, 'after')
       setTaskLineOpen(false)
+      const target = inserted?.[0] as { id?: string } | undefined
+      if (target?.id) editor.setTextCursorPosition(target as never, 'end')
+      // 先に本文へ戻す。contenteditable に手が戻るとブラウザが勝手に画面を動かすので、
+      // **そのあとに**寄せて位置を決める（逆にすると focus 側の位置で終わる）
       editor.focus()
+      if (target?.id) {
+        // カーソルを置くだけでは画面は動かない（BlockNote は選択を変えるだけ）。
+        // 入れた行そのものを画面に入れる
+        editorContainerRef.current
+          ?.querySelector(`[data-id="${target.id}"]`)
+          // jsdom のように scrollIntoView を持たない場合もある（useSpotlightRect と同じ守り）
+          ?.scrollIntoView?.({ block: 'nearest' })
+      }
     },
-    [editor, orgId, spaceId]
+    [editor, orgId, spaceId, editorContainerRef]
   )
 
   const insertMeetingNote = useCallback(() => {
@@ -447,15 +463,7 @@ function MinutesEditorImpl({
     async (query: string) =>
       filterSuggestionItems(
         [
-          {
-            key: 'insert_task_line',
-            title: 'タスクにする行',
-            subtext: 'やること・期限・資料を選ぶと、タスク化できる形で1行入る',
-            aliases: ['task', 'todo', 'タスク', 'やること', '決めること', '期限'],
-            group: jaLocale.slash_menu.paragraph.group,
-            icon: <Checks size={18} />,
-            onItemClick: () => setTaskLineOpen(true),
-          },
+          // 会議中にいちばん使うので先頭に置く（ユーザー要望・2026-09-15）
           {
             key: 'insert_meeting_note',
             title: '会議メモ',
@@ -465,6 +473,15 @@ function MinutesEditorImpl({
             group: jaLocale.slash_menu.paragraph.group,
             icon: <NotePencil size={18} />,
             onItemClick: insertMeetingNote,
+          },
+          {
+            key: 'insert_task_line',
+            title: 'タスクにする行',
+            subtext: 'やること・期限・資料を選ぶと、タスク化できる形で1行入る',
+            aliases: ['task', 'todo', 'タスク', 'やること', '決めること', '期限'],
+            group: jaLocale.slash_menu.paragraph.group,
+            icon: <Checks size={18} />,
+            onItemClick: () => setTaskLineOpen(true),
           },
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
           ...buildInsertLinkMenuItems(openLinkPicker),
