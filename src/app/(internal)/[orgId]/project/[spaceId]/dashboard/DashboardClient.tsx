@@ -14,13 +14,23 @@ import { buildTaskDeepLink } from '@/lib/taskLinks'
 import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
-import { useReviews } from '@/lib/hooks/useReviews'
 import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import type { Task, Milestone } from '@/types/database'
 import type { RiskLevel } from '@/lib/risk/calculateRisk'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { buildMeetingHref } from '@/lib/navigation/meetingLinks'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useRecentTaskComments } from '@/lib/hooks/useRecentTaskComments'
+import { jstNow } from '@/lib/datetime/jstNow'
+import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { daysOverdue, groupOverdueTasks } from '@/lib/dashboard/overdue'
+import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
+import { latestCommentPerTask, RECENT_COMMENT_TASK_LIMIT } from '@/lib/dashboard/recentComments'
+import { DASHBOARD_WIDGETS, useDashboardWidgetPrefs, type DashboardWidgetId } from '@/lib/dashboard/widgetPrefs'
+import { OverdueSection } from '@/components/dashboard/OverdueSection'
+import { RecentCommentsSection, type RecentCommentItem } from '@/components/dashboard/RecentCommentsSection'
+import { DashboardWidgetMenu } from '@/components/dashboard/DashboardWidgetMenu'
 
 // -- Constants --
 
@@ -35,8 +45,13 @@ interface DashboardClientProps {
 
 // -- Helpers --
 
-function daysBetween(a: Date, b: Date): number {
-  return Math.floor((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24))
+/**
+ * 期限まであと何日か（過ぎていれば負）。日本時間の今日の文字列と期限の日付だけで数える。
+ * 「期限切れ」（src/lib/dashboard/overdue.ts）と同じ数え方にして、同じ画面で食い違わないようにする
+ * （前は new Date(due_date) と今の時刻の差だったので、朝9時を過ぎると今日が期限のタスクが「1日超過」になった）。
+ */
+function daysUntil(dueDate: string, today: string): number {
+  return -daysOverdue(dueDate, today)
 }
 
 type FollowUpLevel = 'urgent' | 'warn'
@@ -50,7 +65,7 @@ interface ClientFollowUp {
   dueDaysLeft: number | null
 }
 
-function classifyFollowUps(tasks: Task[]): ClientFollowUp[] {
+function classifyFollowUps(tasks: Task[], today: string): ClientFollowUp[] {
   const now = new Date()
   const clientTasks = tasks.filter(
     (t) => t.ball === 'client' && t.status !== 'done'
@@ -61,9 +76,7 @@ function classifyFollowUps(tasks: Task[]): ClientFollowUp[] {
   for (const task of clientTasks) {
     // Shared with TaskRow's "N日待ち" badge (B-4) so the two views can't disagree.
     const staleDays = getClientWaitingDays(task.updated_at, now)
-    const dueDaysLeft = task.due_date
-      ? daysBetween(now, new Date(task.due_date))
-      : null
+    const dueDaysLeft = task.due_date ? daysUntil(task.due_date, today) : null
 
     // urgent: overdue OR stale 7+ days with due soon
     const isOverdue = dueDaysLeft !== null && dueDaysLeft < 0
@@ -268,10 +281,13 @@ export function MilestoneProgressSection({
   milestones,
   tasks,
   forecasts,
+  today = formatDateToLocalString(jstNow()),
 }: {
   milestones: Milestone[]
   tasks: Task[]
   forecasts: Map<string, { level: RiskLevel }>
+  /** 日本時間の今日（'YYYY-MM-DD'）。省略したらその場で作る */
+  today?: string
 }) {
   const activeMilestones = milestones.filter((m) => !m.completed_at)
 
@@ -295,7 +311,7 @@ export function MilestoneProgressSection({
           const pct = total > 0 ? Math.round((done / total) * 100) : 0
           const forecast = forecasts.get(ms.id)
           const dueStr = ms.due_date
-            ? formatDueDays(daysBetween(new Date(), new Date(ms.due_date)))
+            ? formatDueDays(daysUntil(ms.due_date, today))
             : null
 
           return (
@@ -383,17 +399,18 @@ function UpcomingDeadlinesSection({
   tasks,
   orgId,
   spaceId,
+  today,
 }: {
   tasks: Task[]
   orgId: string
   spaceId: string
+  today: string
 }) {
-  const now = new Date()
   const upcoming = tasks
     .filter((t) => t.status !== 'done' && t.due_date)
     .map((t) => ({
       task: t,
-      daysLeft: daysBetween(now, new Date(t.due_date!)),
+      daysLeft: daysUntil(t.due_date!, today),
     }))
     .filter((t) => t.daysLeft <= 7)
     .sort((a, b) => a.daysLeft - b.daysLeft)
@@ -496,34 +513,69 @@ function UpcomingMeetingsSection({
 
 // -- Main --
 
+/** 2列の格子に並べる小さい項目 */
+const HALF_WIDTH_WIDGETS: readonly DashboardWidgetId[] = ['milestones', 'ball', 'upcoming_deadlines', 'meetings']
+
 export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
-  const { tasks, loading: tasksLoading, error: tasksError, fetchTasks } = useTasks({ orgId, spaceId })
+  const widgets = useDashboardWidgetPrefs()
+  const { isVisible } = widgets
+  const showRecentComments = isVisible('recent_comments')
+
+  const { tasks, reviewStatuses, loading: tasksLoading, error: tasksError, fetchTasks } = useTasks({ orgId, spaceId })
   const { milestones, loading: msLoading } = useMilestones({ spaceId })
-  const { reviews } = useReviews({ spaceId })
   const { meetings } = useMeetings({ orgId, spaceId })
   const { forecasts } = useRiskForecast({ tasks, milestones })
-
-  const followUps = useMemo(() => classifyFollowUps(tasks), [tasks])
+  // 「最近のコメント」を隠しているあいだは、コメントも書いた人の名前も読みに行かない
+  const {
+    comments: recentCommentRows,
+    loading: commentsLoading,
+    error: commentsError,
+  } = useRecentTaskComments(spaceId, { enabled: showRecentComments })
+  const { members, isPending: membersPending } = useSpaceMembers(showRecentComments ? spaceId : null)
 
   const loading = tasksLoading || msLoading
+
+  // 日本時間の今日。期限の判定はすべてこれと期限の日付を比べる（new Date(due_date) と今の時刻を比べると、
+  // 期限が今日のタスクが朝9時に「超過」になる）
+  const today = formatDateToLocalString(jstNow())
+
+  const followUps = useMemo(() => classifyFollowUps(tasks, today), [tasks, today])
 
   // KPI calculations
   const activeTasks = useMemo(
     () => tasks.filter((t) => t.status !== 'done'),
     [tasks]
   )
-  const overdueTasks = useMemo(() => {
-    const now = new Date()
-    return activeTasks.filter(
-      (t) => t.due_date && new Date(t.due_date) < now
-    )
-  }, [activeTasks])
-  const openReviews = useMemo(
-    () => reviews.filter((r) => r.status === 'open'),
-    [reviews]
+  // 返事待ちの承認依頼があるタスク。タスク一覧と一緒に読む「タスクごとの最新の依頼の状態」を使う
+  // （承認依頼の一覧 useReviews は新しい50件しか読まないので、古い依頼が漏れる）
+  const openReviewTaskIds = useMemo(
+    () => new Set(Object.keys(reviewStatuses).filter((taskId) => reviewStatuses[taskId] === 'open')),
+    [reviewStatuses]
+  )
+  // 上の「期限超過」と下の「期限切れ」は同じ数え方にする（件数が食い違わないように）
+  const overdueGroups = useMemo(
+    () => groupOverdueTasks(tasks, today, openReviewTaskIds),
+    [tasks, today, openReviewTaskIds]
   )
 
+  // タスク名はタスク一覧（全件）から引く。一覧に無いタスク（消したタスクなど）のコメントは出さない
+  const recentCommentItems = useMemo<RecentCommentItem[]>(() => {
+    const titleById = new Map(tasks.map((t) => [t.id, t.title]))
+    const nameById = new Map(members.map((m) => [m.id, m.displayName]))
+    return latestCommentPerTask(
+      recentCommentRows.filter((c) => titleById.has(c.task_id)),
+      RECENT_COMMENT_TASK_LIMIT
+    ).map((comment) => ({
+      comment,
+      taskTitle: titleById.get(comment.task_id)!,
+      // 名簿にいない人（プロジェクトから外れた人など）は、タスクのコメント欄と同じ言葉で出す
+      authorName: nameById.get(comment.actor_id) || UNKNOWN_PROFILE_LABEL,
+    }))
+  }, [tasks, recentCommentRows, members])
+
   const basePath = `/${orgId}/project/${spaceId}`
+  const showHalfGrid = HALF_WIDTH_WIDGETS.some(isVisible)
+  const nothingVisible = DASHBOARD_WIDGETS.every((w) => !isVisible(w.id))
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
@@ -535,11 +587,14 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
             { label: 'ダッシュボード' },
           ]}
         />
-        {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
-            AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
-            モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
-        <div data-header-bell className="hidden md:block ml-auto -my-1.5">
-          <AnnouncementBell />
+        <div className="ml-auto flex items-center gap-2">
+          <DashboardWidgetMenu {...widgets} />
+          {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+              AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+              モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+          <div data-header-bell className="hidden md:block -my-1.5">
+            <AnnouncementBell />
+          </div>
         </div>
       </div>
 
@@ -550,58 +605,90 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
         <ErrorRetry message="データの読み込みに失敗しました" onRetry={fetchTasks} />
       ) : (
       <div className="px-6 pb-8 space-y-6 max-w-5xl">
+        {nothingVisible && (
+          <p className="py-12 text-center text-sm text-gray-500">
+            表示する項目がありません。右上の「表示する項目」から選んでください。
+          </p>
+        )}
+
         {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KpiCard
-            label="残タスク"
-            value={activeTasks.length}
-            sub={`完了 ${tasks.length - activeTasks.length}`}
-          />
-          <KpiCard
-            label="ボール (社内/クライアント)"
-            value={`${activeTasks.filter((t) => t.ball === 'internal').length} / ${activeTasks.filter((t) => t.ball === 'client').length}`}
-          />
-          <KpiCard
-            label="期限超過"
-            value={overdueTasks.length}
-            accent={overdueTasks.length > 0 ? 'red' : undefined}
-          />
-          <KpiCard
-            label="レビュー待ち"
-            value={openReviews.length}
-            accent={openReviews.length > 0 ? 'amber' : undefined}
-          />
-        </div>
+        {isVisible('kpi') && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <KpiCard
+              label="残タスク"
+              value={activeTasks.length}
+              sub={`完了 ${tasks.length - activeTasks.length}`}
+            />
+            <KpiCard
+              label="ボール (社内/クライアント)"
+              value={`${activeTasks.filter((t) => t.ball === 'internal').length} / ${activeTasks.filter((t) => t.ball === 'client').length}`}
+            />
+            <KpiCard
+              label="期限超過"
+              value={overdueGroups.total}
+              accent={overdueGroups.total > 0 ? 'red' : undefined}
+            />
+            <KpiCard
+              label="レビュー待ち"
+              value={openReviewTaskIds.size}
+              accent={openReviewTaskIds.size > 0 ? 'amber' : undefined}
+            />
+          </div>
+        )}
 
-        {/* Client Follow-up (primary section) */}
-        <ClientFollowUpSection
-          items={followUps}
-          orgId={orgId}
-          spaceId={spaceId}
-        />
+        {isVisible('overdue') && (
+          <OverdueSection groups={overdueGroups} orgId={orgId} spaceId={spaceId} />
+        )}
 
-        {/* 2-column grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <MilestoneProgressSection
-            milestones={milestones}
-            tasks={tasks}
-            forecasts={forecasts}
-          />
-          <BallDistributionSection tasks={tasks} />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <UpcomingDeadlinesSection
-            tasks={tasks}
+        {isVisible('recent_comments') && (
+          <RecentCommentsSection
+            items={recentCommentItems}
+            // 名簿がまだ届いていないあいだに出すと、書いた人の欄が一瞬「（メンバー外）」になる
+            loading={commentsLoading || membersPending}
+            failed={commentsError != null}
             orgId={orgId}
             spaceId={spaceId}
           />
-          <UpcomingMeetingsSection
+        )}
+
+        {/* Client Follow-up */}
+        {isVisible('client_follow_up') && (
+          <ClientFollowUpSection
+            items={followUps}
             orgId={orgId}
             spaceId={spaceId}
-            meetings={meetings}
           />
-        </div>
+        )}
+
+        {/* 2-column grid。隠した項目のぶんは詰めて並べる */}
+        {showHalfGrid && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {isVisible('milestones') && (
+              <MilestoneProgressSection
+                milestones={milestones}
+                tasks={tasks}
+                forecasts={forecasts}
+                today={today}
+              />
+            )}
+            {isVisible('ball') && <BallDistributionSection tasks={tasks} />}
+            {isVisible('upcoming_deadlines') && (
+              <UpcomingDeadlinesSection
+                tasks={tasks}
+                orgId={orgId}
+                spaceId={spaceId}
+                today={today}
+              />
+            )}
+            {isVisible('meetings') && (
+              <UpcomingMeetingsSection
+                orgId={orgId}
+                spaceId={spaceId}
+                meetings={meetings}
+              />
+            )}
+          </div>
+        )}
       </div>
       )}
     </div>
