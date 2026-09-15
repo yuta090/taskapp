@@ -11,14 +11,17 @@
  *
  * 規則そのものは純関数にしてテストで突き合わせ、DB を引く部分は呼び出し側に置く。
  */
-export const SPEC_TAG = '仕様書';
-export function computeSpecLinkChanges(input) {
-    if (input.wikiPageId === null)
-        return { type: 'task', decision_state: null };
-    if (!input.isSpecPage)
-        return {};
-    return input.currentDecisionState
-        ? { type: 'spec' }
-        : { type: 'spec', decision_state: 'considering' };
+export declare const SPEC_TAG = "\u4ED5\u69D8\u66F8";
+export interface SpecLinkChanges {
+    type?: 'task' | 'spec';
+    decision_state?: 'considering' | 'decided' | 'implemented' | null;
 }
-//# sourceMappingURL=specLink.js.map
+export declare function computeSpecLinkChanges(input: {
+    /** 紐づける Wiki ページ。null は「外す」 */
+    wikiPageId: string | null;
+    /** そのページが「仕様書として扱う」か。外すときは見ない */
+    isSpecPage: boolean;
+    /** いまの決定の状態（付け替えのときに消さないため） */
+    currentDecisionState: string | null;
+}): SpecLinkChanges;
+//# sourceMappingURL=specLink.d.ts.map

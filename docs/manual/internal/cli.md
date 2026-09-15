@@ -140,7 +140,16 @@ agentpm minutes taskify --meeting-id <id>           # よければ作る
 
 - **行の先頭から書いてください。**字下げした行はタスクにできる行として拾われません
 - **担当は書いても読まれません。**タスクを作ったあとに `task update` で決めてください
-- **本文を `- [x]` に変えてもタスクは完了になりません。**完了は `agentpm task update --task-id <id> --status done`
+- **本文を `- [x]` に変えただけではタスクは完了になりません。**書き換えたあとに次を実行してください
+
+```bash
+agentpm minutes complete-checked --meeting-id <id> --dry-run   # まず対象を見る
+agentpm minutes complete-checked --meeting-id <id>
+```
+
+- 見るのは**いまチェックが付いている行**です。すでに完了のものは飛ばすので、何度実行しても大丈夫です
+- **外したチェックでは完了を取り消しません**。戻すときはタスク側で直してください
+- 決まっていない「決定事項のタスク」は、理由を添えて断られます（先に `agentpm spec decide` で確定）
 
 ---
 

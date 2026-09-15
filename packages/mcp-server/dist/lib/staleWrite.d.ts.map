@@ -1,0 +1,1 @@
+{"version":3,"file":"staleWrite.d.ts","sourceRoot":"","sources":["../../src/lib/staleWrite.ts"],"names":[],"mappings":"AAAA;;;;;;;;;GASG;AAEH,2DAA2D;AAC3D,eAAO,MAAM,mBAAmB,2PACa,CAAA;AAE7C,qBAAa,eAAgB,SAAQ,KAAK;gBAC5B,OAAO,SAAsB;CAI1C;AAED;;;;;GAKG;AACH,wBAAgB,kBAAkB,CAChC,QAAQ,EAAE,MAAM,EAChB,iBAAiB,EAAE,MAAM,GAAG,SAAS,EACrC,eAAe,EAAE,MAAM,GACtB,IAAI,CAIN"}

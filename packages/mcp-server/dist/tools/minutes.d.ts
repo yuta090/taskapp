@@ -14,14 +14,17 @@ declare const minutesUpdateSchema: z.ZodObject<{
     spaceId: z.ZodString;
     meetingId: z.ZodString;
     minutesMd: z.ZodString;
+    expectedUpdatedAt: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     meetingId: string;
     minutesMd: string;
+    expectedUpdatedAt?: string | undefined;
 }, {
     spaceId: string;
     meetingId: string;
     minutesMd: string;
+    expectedUpdatedAt?: string | undefined;
 }>;
 declare const minutesAppendSchema: z.ZodObject<{
     spaceId: z.ZodString;
@@ -41,6 +44,7 @@ export declare function minutesGet(params: z.infer<typeof minutesGetSchema>): Pr
     title: string;
     status: string;
     minutes_md: string | null;
+    updated_at: string;
 }>;
 export declare function minutesUpdate(params: z.infer<typeof minutesUpdateSchema>): Promise<Meeting>;
 export declare function minutesAppend(params: z.infer<typeof minutesAppendSchema>): Promise<Meeting>;
@@ -65,14 +69,17 @@ export declare const minutesTools: ({
         spaceId: z.ZodString;
         meetingId: z.ZodString;
         minutesMd: z.ZodString;
+        expectedUpdatedAt: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         meetingId: string;
         minutesMd: string;
+        expectedUpdatedAt?: string | undefined;
     }, {
         spaceId: string;
         meetingId: string;
         minutesMd: string;
+        expectedUpdatedAt?: string | undefined;
     }>;
     handler: typeof minutesUpdate;
 } | {
