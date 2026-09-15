@@ -24,9 +24,13 @@ const commentRow = {
   deleted_at: null,
 }
 
+// 最後に insert した中身（@メンションの保存のテスト用）
+let lastInsertPayload: unknown = null
+
 // select().eq().eq().eq().is().order() のどこで await されても同じ結果を返す
-// 自己再帰のチェーン可能な thenable。insert()/update() も同じテーブルモックから
-// 呼べるよう、コメント数のテストで使う insert/update の結果を差し込めるようにする。
+// 自己再帰のチェーン可能な thenable。insert()/update() も同じテーブルモックから呼べる。
+// - insert は送った中身を lastInsertPayload に記録する。結果を指定しなければ、送った中身で成功を返す
+// - update は結果を指定しなければ失敗させる（コメント数のテストで個別に指定する）
 function makeCommentsQueryBuilder(
   result: { data: unknown; error: unknown },
   opts: {
@@ -40,12 +44,20 @@ function makeCommentsQueryBuilder(
     is: () => builder,
     order: () => builder,
     then: (resolve: (v: unknown) => void) => resolve(result),
-    insert: () => ({
-      select: () => ({
-        single: () =>
-          Promise.resolve(opts.insertResult ?? { data: null, error: new Error('insertResult not configured') }),
-      }),
-    }),
+    insert: (payload: unknown) => {
+      lastInsertPayload = payload
+      return {
+        select: () => ({
+          single: () =>
+            Promise.resolve(
+              opts.insertResult ?? {
+                data: { ...commentRow, ...(payload as Record<string, unknown>), id: 'new-id' },
+                error: null,
+              }
+            ),
+        }),
+      }
+    },
     update: () => ({
       eq: () =>
         Promise.resolve(opts.updateResult ?? { error: new Error('updateResult not configured') }),
@@ -55,8 +67,7 @@ function makeCommentsQueryBuilder(
 }
 
 let profilesResponse: { data: Array<{ id: string; display_name: string; avatar_url: string | null }> | null; error: unknown }
-// createComment/softDeleteComment のテスト用。既定は「未設定」のまま失敗させる
-// （個々のテストで明示的に設定する）
+// createComment/softDeleteComment の結果。個々のテストで必要なときだけ設定する
 let commentsInsertResponse: { data: unknown; error: unknown } | undefined
 let commentsUpdateResponse: { error: unknown } | undefined
 
@@ -99,6 +110,7 @@ beforeEach(() => {
   profilesResponse = { data: [], error: null }
   commentsInsertResponse = undefined
   commentsUpdateResponse = undefined
+  lastInsertPayload = null
 })
 
 describe('useTaskComments — 書き手のプロフィールが読めないときの表示', () => {
@@ -313,5 +325,37 @@ describe('useTaskComments — コメント数キャッシュ(taskCommentCounts)�
     })
 
     expect(queryClient.getQueryData(spaceCountsKey)).toBeUndefined()
+  })
+})
+
+describe('useTaskComments — @メンションの保存', () => {
+  it('createComment に渡した mentionUserIds が insert の mention_user_ids に入る', async () => {
+    const { result } = renderHook(
+      () => useTaskComments({ orgId: 'org-1', spaceId: 'space-1', taskId: 'task-1' }),
+      { wrapper: makeWrapper(new QueryClient({ defaultOptions: { queries: { retry: false } } })) }
+    )
+
+    await waitFor(() => expect(result.current.comments).toHaveLength(1))
+
+    await result.current.createComment({
+      body: 'お願いします @編集イチロー',
+      visibility: 'internal',
+      mentionUserIds: ['editor-1'],
+    })
+
+    expect(lastInsertPayload).toMatchObject({ mention_user_ids: ['editor-1'] })
+  })
+
+  it('mentionUserIds を渡さなければ空配列で保存する', async () => {
+    const { result } = renderHook(
+      () => useTaskComments({ orgId: 'org-1', spaceId: 'space-1', taskId: 'task-1' }),
+      { wrapper: makeWrapper(new QueryClient({ defaultOptions: { queries: { retry: false } } })) }
+    )
+
+    await waitFor(() => expect(result.current.comments).toHaveLength(1))
+
+    await result.current.createComment({ body: 'こんにちは', visibility: 'internal' })
+
+    expect(lastInsertPayload).toMatchObject({ mention_user_ids: [] })
   })
 })

@@ -8,6 +8,8 @@ import {
   XCircle,
   Bell,
   ChatCircleText,
+  ChatCircleDots,
+  At,
   Calendar,
   Warning,
   ArrowRight,
@@ -95,6 +97,10 @@ function getNotificationIcon(type: string, urgent?: boolean) {
       return <ClipboardText className={`${iconClass} text-amber-500`} />
     case 'file_uploaded':
       return <File className={`${iconClass} text-gray-500`} />
+    case 'comment_added':
+      return <ChatCircleDots className={`${iconClass} text-blue-500`} />
+    case 'mention':
+      return <At className={`${iconClass} text-amber-500`} />
     default:
       return <Bell className={`${iconClass} text-gray-500`} />
   }

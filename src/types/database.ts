@@ -700,6 +700,8 @@ export interface Database {
           body: string
           visibility: 'client' | 'internal' | 'vendor' | 'agency_only'
           reply_to_id: string | null
+          /** @で名指しした人の user_id（最大20人）。既定は空配列 */
+          mention_user_ids: string[]
           created_at: string
           updated_at: string
           deleted_at: string | null
@@ -713,6 +715,7 @@ export interface Database {
           body: string
           visibility?: 'client' | 'internal' | 'vendor' | 'agency_only'
           reply_to_id?: string | null
+          mention_user_ids?: string[]
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
@@ -726,6 +729,7 @@ export interface Database {
           body?: string
           visibility?: 'client' | 'internal' | 'vendor' | 'agency_only'
           reply_to_id?: string | null
+          mention_user_ids?: string[]
           created_at?: string
           updated_at?: string
           deleted_at?: string | null

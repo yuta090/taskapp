@@ -40,6 +40,8 @@ const TITLE_BY_TYPE: Record<string, string> = {
   spec_decision_needed: '仕様の決定が必要です',
   invite_accepted: '招待が承諾されました',
   github_pr_merged: 'タスクの変更が取り込まれました',
+  comment_added: 'タスクにコメントが付きました',
+  mention: 'コメントであなたが呼ばれました',
 }
 
 const DEFAULT_TITLE = '新しい通知があります'

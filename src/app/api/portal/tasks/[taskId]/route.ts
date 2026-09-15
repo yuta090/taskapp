@@ -86,6 +86,108 @@ async function notifyTaskCreator(
   }
 }
 
+/**
+ * request_changes 専用: task_comments の insert トリガー（task_comments_notify,
+ * supabase/migrations/20260915105122_task_comment_notify.sql）は、作成者が担当者・
+ * 社内承認の承認者・過去の書き手のいずれかに該当するとき、その人あてに
+ * 'comment_added' の受信トレイ通知（dedupe_key = 'task_comment:<comment.id>'）を
+ * 既に作っている。そこへさらに notifyTaskCreator で 'ball_passed' を作ると、
+ * 作成者が担当者と同じ人だった場合に同じ用件の通知が2通（プッシュも2回）届く。
+ *
+ * 'ball_passed' は「相手が待っている」種類ですぐメールが届き受信トレイで要対応に
+ * なる一方、'comment_added' はプッシュのみで要対応にならない（src/lib/notifications/
+ * delivery.ts・classify.ts）。作成者あての通知は 'ball_passed' の1通に揃えたいので、
+ * トリガーが作った行が見つかればそれを書き換え、無ければ従来どおり notifyTaskCreator
+ * で新規に作る。プッシュは insert のときにトリガーから1回だけ送る（update では送らない）。
+ * 送る側（src/app/api/push/dispatch/route.ts）は送る時点で行を読み直すので、プッシュの
+ * 文面が「コメントが付きました」「修正依頼」のどちらになるかは書き換えとの前後で変わる
+ * （回数は1回）。即時メールは5分ごとのワーカーが type を見て送るため、書き換えたあとの
+ * type='ball_passed' で ball_passed として届く。
+ *
+ * 探す・書き換えるのに失敗しても、修正依頼そのものは既に成功しているので、
+ * notifyTaskCreator と同じくログに残すだけで依頼の成功レスポンスは変えない。
+ */
+async function upgradeOrNotifyTaskCreatorForChangeRequest(
+  admin: SupabaseClient<Database>,
+  params: {
+    orgId: string
+    spaceId: string
+    createdBy: string | null
+    actorId: string
+    taskId: string
+    taskTitle: string
+    commentId: string | null
+    comment: string
+  },
+): Promise<void> {
+  const { createdBy, actorId, commentId, taskId, taskTitle, comment } = params
+  if (!createdBy || createdBy === actorId) return
+
+  const title = `「${taskTitle}」に修正依頼が届きました`
+
+  if (commentId) {
+    // notifications の型定義（src/types/database.ts）が actioned_at 列を含まず
+    // 本番の実列と食い違っている（既知のドリフト）ため、この表への読み書きだけは
+    // 緩い型のクライアントで行う（他の呼び出し箇所の (admin as SupabaseClient) と同じやり方）。
+    let existingId: string | null = null
+    try {
+      const { data: existing, error: findError } = await (admin as unknown as SupabaseClient)
+        .from('notifications')
+        .select('id')
+        .eq('to_user_id', createdBy)
+        .eq('channel', 'in_app')
+        .eq('dedupe_key', `task_comment:${commentId}`)
+        .maybeSingle()
+
+      if (findError) throw findError
+      existingId = (existing as { id: string } | null)?.id ?? null
+    } catch (err) {
+      // 探せなかったときは、作成者に届いているか分からない。修正依頼は相手先が待っている知らせなので、
+      // 1通も届かないより2通になるほうを選び、下の notifyTaskCreator で送る
+      console.error('[portal-notify] Failed to look up comment notification for task creator:', err)
+    }
+
+    if (existingId) {
+      try {
+        const { error: updateError } = await (admin as unknown as SupabaseClient)
+          .from('notifications')
+          .update({
+            type: 'ball_passed',
+            payload: {
+              task_id: taskId,
+              task_title: taskTitle,
+              title,
+              message: comment,
+              comment_id: commentId,
+            },
+            read_at: null,
+            actioned_at: null,
+          })
+          .eq('id', existingId)
+
+        if (updateError) throw updateError
+      } catch (err) {
+        // 書き換えに失敗しても、作成者にはトリガーのコメントの通知がもう届いている。二重にしない
+        console.error('[portal-notify] Failed to upgrade comment notification to ball_passed:', err)
+      }
+      return
+    }
+  }
+
+  await notifyTaskCreator(admin, {
+    orgId: params.orgId,
+    spaceId: params.spaceId,
+    createdBy,
+    actorId,
+    taskId,
+    taskTitle,
+    type: 'ball_passed',
+    dedupeSuffix: 'changes_requested',
+    title,
+    message: comment,
+  })
+}
+
 interface TaskActionBody {
   action: 'approve' | 'request_changes' | 'estimate_approve' | 'estimate_reject'
   comment?: string
@@ -504,8 +606,10 @@ export async function POST(
       // Comment is required — insert and await it before the audit log/
       // notification below, since a failed insert reverts the ball/assignee
       // change and must not leave a "changes requested" audit trail or
-      // notification behind.
-      const { error: commentError } = await (admin as SupabaseClient)
+      // notification behind. Select the id back so we can look up the
+      // in-app notification the insert trigger (task_comments_notify) may
+      // already have created for the task creator (see upgradeOrNotifyTaskCreator below).
+      const { data: insertedComment, error: commentError } = await (admin as SupabaseClient)
         .from('task_comments')
         .insert({
           org_id: task.org_id,
@@ -517,6 +621,8 @@ export async function POST(
           created_at: now,
           updated_at: now,
         })
+        .select('id')
+        .single()
 
       if (commentError) {
         console.error('Failed to create task comment:', commentError)
@@ -570,18 +676,18 @@ export async function POST(
         })
       )
 
-      // In-app inbox notification so the change request is visible without Slack
-      await notifyTaskCreator(admin as unknown as SupabaseClient<Database>, {
+      // In-app inbox notification so the change request is visible without Slack.
+      // Upgrades the trigger's own comment_added row when there is one, instead
+      // of always creating a second ball_passed notification (see function doc).
+      await upgradeOrNotifyTaskCreatorForChangeRequest(admin as unknown as SupabaseClient<Database>, {
         orgId: task.org_id,
         spaceId: task.space_id,
         createdBy: task.created_by,
         actorId: user.id,
         taskId,
         taskTitle: task.title,
-        type: 'ball_passed',
-        dedupeSuffix: 'changes_requested',
-        title: `「${task.title}」に修正依頼が届きました`,
-        message: trimmedComment,
+        commentId: insertedComment?.id ?? null,
+        comment: trimmedComment,
       })
 
       return NextResponse.json({

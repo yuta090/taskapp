@@ -23,6 +23,11 @@ describe('getNotificationTypeLabel', () => {
     expect(getNotificationTypeLabel('free_cap_upgrade')).toBe('無料通知枠の上限到達')
   })
 
+  it('コメント・メンションにも日本語名がある', () => {
+    expect(getNotificationTypeLabel('comment_added')).toBe('コメント')
+    expect(getNotificationTypeLabel('mention')).toBe('メンション')
+  })
+
   it('未知のタイプは「通知」を返す（落ちない）', () => {
     expect(getNotificationTypeLabel('something_new')).toBe('通知')
     expect(getNotificationTypeLabel('')).toBe('通知')

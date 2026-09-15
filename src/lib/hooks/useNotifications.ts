@@ -23,6 +23,8 @@ export interface NotificationWithPayload extends Omit<Notification, 'payload'> {
     meeting_id?: string
     meeting_title?: string
     from_user_name?: string
+    /** コメント通知(comment_added/mention)が指すコメントの id */
+    comment_id?: string
     comment?: string
     question?: string
     link?: string

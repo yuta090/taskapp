@@ -43,6 +43,16 @@ describe('buildPushMessage', () => {
     expect(msg.title).toBe('仕様の決定が必要です')
   })
 
+  it('labels comment_added', () => {
+    const msg = buildPushMessage(makeRow({ type: 'comment_added' }), 'internal')
+    expect(msg.title).toBe('タスクにコメントが付きました')
+  })
+
+  it('labels mention', () => {
+    const msg = buildPushMessage(makeRow({ type: 'mention' }), 'internal')
+    expect(msg.title).toBe('コメントであなたが呼ばれました')
+  })
+
   it('falls back to a generic title for unknown types', () => {
     const msg = buildPushMessage(makeRow({ type: 'something_unknown' }), 'internal')
     expect(msg.title).toBe('新しい通知があります')
