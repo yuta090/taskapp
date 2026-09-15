@@ -48,6 +48,13 @@ const MARKDOWN_LINK_PATTERN = '\\[([^\\]]*)\\]\\(([^)]*)\\)'
  */
 export const DUE_IN_TITLE_PATTERN = '\\s*[（(]?\\s*期限:\\s*\\d+/\\d+(?:/\\d+)?\\s*[）)]?'
 
+/**
+ * 担当者・マイルストーンの印（`<!--assignee:uuid 田中-->` `<!--milestone:uuid 第1弾-->`）。
+ * 中身は担当者とマイルストーンとして読み取るので、**題名からは取り除く**。
+ * 印の並びは行末だが、手で動かされていても拾えるよう行のどこにあっても外す。
+ */
+export const TASK_META_MARKER_PATTERN = '\\s*<!--(assignee|milestone):[^>]*-->'
+
 export interface WikiTaskCandidate {
   /** 紐づける Wiki ページの ID */
   /** 紐づける Wiki ページの ID。リンクが無い行では null（ふつうのタスクになる） */
@@ -89,6 +96,8 @@ export function findWikiTaskCandidate(line: string): WikiTaskCandidate | null {
 
   const title = body
     .replace(new RegExp(TASK_MARKER_PATTERN), '')
+    // 担当者・マイルストーンはそれぞれの欄に入るので、題名には残さない
+    .replace(new RegExp(TASK_META_MARKER_PATTERN, 'g'), '')
     .replace(new RegExp(MARKDOWN_LINK_PATTERN, 'g'), '')
     // 期限は日付の欄に入るので、題名には残さない
     .replace(new RegExp(DUE_IN_TITLE_PATTERN, 'g'), '')

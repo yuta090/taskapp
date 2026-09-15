@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { WikiPageLinkPicker } from '@/components/task/WikiPageLinkPicker'
+import { useMilestones } from '@/lib/hooks/useMilestones'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import type { TaskLineDraft } from '@/lib/minutes/taskLine'
 import type { WikiPage } from '@/types/database'
@@ -35,9 +37,18 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
     // いないページが数枚できてしまう。ここは探す・作るだけで、自動作成は要らない
   } = useWikiPages({ orgId, spaceId })
 
+  // 担当者とマイルストーンの選択肢。どちらもタスクの新規作成シートと同じ一覧を使う。
+  // useSpaceMembers の `loading` は**いつも false**（中で既定の [] が入るため）なので、
+  // 一度も取れていないことは `isPending` で見る。これを取り違えると、一覧がまだ無い人には
+  // 空の「未設定」だけが出て「担当者が選べない」ように見える
+  const { members, isPending: membersPending } = useSpaceMembers(spaceId)
+  const { milestones, loading: milestonesLoading } = useMilestones({ spaceId })
+
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')
   const [page, setPage] = useState<Pick<WikiPage, 'id' | 'title' | 'tags'> | null>(null)
+  const [assigneeId, setAssigneeId] = useState('')
+  const [milestoneId, setMilestoneId] = useState('')
 
   const panelRef = useRef<HTMLDivElement | null>(null)
   const titleRef = useRef<HTMLInputElement | null>(null)
@@ -68,10 +79,21 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
 
   const handleInsert = () => {
     if (!canInsert) return
-    onInsert({ title, due: due || undefined, page: page ? { id: page.id, title: page.title } : undefined })
+    // 名前も一緒に渡す。本文の印に名前が入っていないと、開いた人が誰のことか分からない
+    const member = members.find((m) => m.id === assigneeId)
+    const milestone = milestones.find((m) => m.id === milestoneId)
+    onInsert({
+      title,
+      due: due || undefined,
+      page: page ? { id: page.id, title: page.title } : undefined,
+      assignee: member ? { id: member.id, name: member.displayName } : undefined,
+      milestone: milestone ? { id: milestone.id, name: milestone.name } : undefined,
+    })
     setTitle('')
     setDue('')
     setPage(null)
+    setAssigneeId('')
+    setMilestoneId('')
   }
 
   return (
@@ -118,6 +140,50 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
           onChange={(e) => setDue(e.target.value)}
           className="rounded border border-gray-200 px-2 py-1 text-sm"
         />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="minutes-task-line-assignee" className="block text-xs font-medium text-gray-700 mb-1">
+            担当者（任意）
+          </label>
+          <select
+            id="minutes-task-line-assignee"
+            data-testid="minutes-task-line-assignee"
+            value={assigneeId}
+            onChange={(e) => setAssigneeId(e.target.value)}
+            disabled={membersPending}
+            className="w-full rounded border border-gray-200 bg-surface px-2 py-1 text-sm"
+          >
+            <option value="">{membersPending ? '読み込み中...' : '未設定'}</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label htmlFor="minutes-task-line-milestone" className="block text-xs font-medium text-gray-700 mb-1">
+            マイルストーン（任意）
+          </label>
+          <select
+            id="minutes-task-line-milestone"
+            data-testid="minutes-task-line-milestone"
+            value={milestoneId}
+            onChange={(e) => setMilestoneId(e.target.value)}
+            disabled={milestonesLoading}
+            className="w-full rounded border border-gray-200 bg-surface px-2 py-1 text-sm"
+          >
+            <option value="">{milestonesLoading ? '読み込み中...' : '未設定'}</option>
+            {milestones.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div>
