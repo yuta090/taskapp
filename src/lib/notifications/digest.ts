@@ -59,6 +59,7 @@ const TYPE_TO_CATEGORY: Record<string, EmailCategory> = {
   // 承認・レビュー待ち
   review_request: 'review_request',
   review_cancelled: 'review_request',
+  review_approved: 'review_request',
   confirmation_request: 'review_request',
   urgent_confirmation: 'review_request',
   spec_decision_needed: 'review_request',
@@ -68,6 +69,7 @@ const TYPE_TO_CATEGORY: Record<string, EmailCategory> = {
   client_replied: 'client_response',
   client_question: 'client_response',
   client_feedback: 'client_response',
+  client_approved: 'client_response',
   file_uploaded: 'client_response',
   // 招待の承諾
   invite_accepted: 'client_response',

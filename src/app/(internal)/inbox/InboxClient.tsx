@@ -35,9 +35,9 @@ import { NotificationInspector } from '@/components/notification/NotificationIns
 type ReadFilter = 'all' | 'unread' | 'read'
 type ActionFilter = 'all' | 'actionable' | 'actioned'
 
-const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyArray<string> }> = [
-  { label: 'レビュー', types: ['review_request', 'review_cancelled'] },
-  { label: 'クライアント連絡', types: ['client_question', 'client_feedback'] },
+export const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyArray<string> }> = [
+  { label: 'レビュー', types: ['review_request', 'review_cancelled', 'review_approved'] },
+  { label: 'クライアント連絡', types: ['client_question', 'client_feedback', 'client_approved'] },
   { label: '確認依頼', types: ['confirmation_request', 'urgent_confirmation'] },
   { label: 'タスク割り当て', types: ['task_assigned', 'ball_passed'] },
   { label: '期限リマインド', types: ['due_date_reminder'] },
@@ -145,11 +145,15 @@ function getNotificationIcon(type: string) {
       return <Eye />
     case 'review_cancelled':
       return <XCircle />
+    case 'review_approved':
+      return <CheckCircle weight="fill" />
     case 'client_question':
     case 'client_feedback':
     case 'confirmation_request':
     case 'urgent_confirmation':
       return <ChatCircleText />
+    case 'client_approved':
+      return <CheckCircle weight="fill" />
     case 'task_assigned':
     case 'ball_passed':
       return <ArrowRight />
