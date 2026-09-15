@@ -14,6 +14,8 @@
  * 「段落＋生テキスト」として文字を落とさずに保持する。
  */
 
+import { normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
+
 // ---- 型 ----
 
 export interface MinutesInlineStyles {
@@ -191,8 +193,9 @@ export const TOGGLE_MARKER = '<!--toggle-->'
 export const MEETING_NOTE_MARKER = '<!--note-->'
 
 /**
- * 会議メモの目印。書いた日時を持つときは `<!--note:2026-09-15T14:30-->` の形になる。
- * 日時は**1行目だけ**に付ける（2行目以降は同じブロックの続きなので付けない）。
+ * 会議メモの目印。書いた日時を持つときは `<!--note:2026-09-15T14:30-->`、書いた人の名前も
+ * 持つときは `<!--note:2026-09-15T14:30 高橋 優太-->`（日時のあとに空白＋名前）の形になる。
+ * 日時と名前は**1行目だけ**に付ける（2行目以降は同じブロックの続きなので付けない）。
  */
 const MEETING_NOTE_LINE_RE = /^<!--note(?::([^>]*))?-->/
 
@@ -202,10 +205,23 @@ const MEETING_NOTE_LINE_RE = /^<!--note(?::([^>]*))?-->/
  */
 const MEETING_NOTE_STAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
 
+/**
+ * 目印の中身の形。先頭が日時で、そのあとに空白を挟んで名前を置ける。
+ * 名前は日時のあとにしか置けない（日時が壊れていたら名前も読まない）。
+ */
+const MEETING_NOTE_META_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?:\s+(.*))?$/
+
 /** 目印から書いた日時を取り出す。形が違えば null。 */
 function readNoteStamp(marker: string | undefined): string | null {
   if (!marker) return null
   return MEETING_NOTE_STAMP_RE.test(marker) ? marker : null
+}
+
+/** 目印の中身から、書いた日時と書いた人の名前を取り出す。日時の形が違えばどちらも無し。 */
+function readNoteMeta(marker: string | undefined): { createdAt: string | null; author: string } {
+  const m = marker ? MEETING_NOTE_META_RE.exec(marker) : null
+  if (!m) return { createdAt: null, author: '' }
+  return { createdAt: m[1], author: normalizeNoteAuthor(m[2]) }
 }
 
 /** 折りたたみのブロック種別（BlockNote 既定の折りたたみと同じ名前）。 */
@@ -872,7 +888,7 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
     // 見る必要はないが、段落として飲み込まれる前に捕まえる必要がある。
     const noteMatch = MEETING_NOTE_LINE_RE.exec(line)
     if (noteMatch) {
-      const createdAt = readNoteStamp(noteMatch[1])
+      const { createdAt, author } = readNoteMeta(noteMatch[1])
       const noteTextLines: string[] = [line.slice(noteMatch[0].length)]
       let j = i + 1
       while (j < end && lineIndentChars(lines[j]) === depth) {
@@ -885,7 +901,7 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
         j++
       }
       const block: MinutesBlock = { type: MEETING_NOTE_TYPE, content: tokenizeLinesWithMarker(noteTextLines) }
-      if (createdAt) block.props = { createdAt }
+      if (createdAt) block.props = author ? { createdAt, author } : { createdAt }
       blocks.push(block)
       i = j
       continue
@@ -1250,13 +1266,15 @@ function textToLines(text: string): string[] {
  * 目印より前には何も無く、読み込み側は目印を見た時点で「ここから先は本文」と
  * 決めるので、`- ` や `#` で始まる文でも逃がし（`\`）は要らない。
  */
-function noteLines(text: string, createdAt: string | null): string[] {
+function noteLines(text: string, createdAt: string | null, author: string): string[] {
+  // 名前は日時のあとに置く形なので、日時が無ければ名前も書かない
+  const head = createdAt ? `<!--note:${createdAt}${author ? ` ${author}` : ''}-->` : MEETING_NOTE_MARKER
   return collapseEmbeddedBlankLines(text)
     .split('\n')
     .map((line, index) =>
-      // 日時は1行目だけ。2行目以降にも付けると、読み戻したとき行ごとに
+      // 日時と名前は1行目だけ。2行目以降にも付けると、読み戻したとき行ごとに
       // 別の会議メモへ割れてしまう
-      index === 0 && createdAt ? `<!--note:${createdAt}-->${line}` : MEETING_NOTE_MARKER + line
+      (index === 0 ? head : MEETING_NOTE_MARKER) + line
     )
 }
 
@@ -1309,7 +1327,8 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
     case MEETING_NOTE_TYPE:
       return noteLines(
         contentArrayToText(block.content),
-        typeof block.props.createdAt === 'string' ? readNoteStamp(block.props.createdAt) : null
+        typeof block.props.createdAt === 'string' ? readNoteStamp(block.props.createdAt) : null,
+        typeof block.props.author === 'string' ? normalizeNoteAuthor(block.props.author) : ''
       )
     case TOGGLE_TYPE:
       // 箇条書きと同じ形に目印を挟むだけ。1行目には逃がし(`\`)が付かないので、

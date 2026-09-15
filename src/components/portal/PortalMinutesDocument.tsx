@@ -15,7 +15,7 @@ import {
   type MinutesTextInline,
 } from '@/lib/minutes/markdown'
 import { stripInternalLinks } from '@/lib/minutes/internalLinks'
-import { formatNoteStampLabel } from '@/lib/minutes/noteStamp'
+import { formatNoteStampLabel, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 
 /**
  * このアプリのホスト名。社内の人がアドレスバーからコピーした絶対URL
@@ -280,6 +280,7 @@ function renderMeetingNote(block: MinutesBlock, key: React.Key): ReactNode {
   const items = Array.isArray(block.content) ? block.content : []
   const createdAt = block.props?.createdAt
   const label = formatNoteStampLabel(typeof createdAt === 'string' ? createdAt : undefined)
+  const author = normalizeNoteAuthor(typeof block.props?.author === 'string' ? block.props.author : undefined)
   return (
     <div
       key={key}
@@ -287,6 +288,15 @@ function renderMeetingNote(block: MinutesBlock, key: React.Key): ReactNode {
       className="my-2 flex items-start gap-2 rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2 text-sm text-gray-700 leading-[1.8]"
     >
       <div className="min-w-0 flex-1 whitespace-pre-wrap">{renderInline(items)}</div>
+      {author && (
+        <span
+          data-testid="portal-minutes-meeting-note-author"
+          title={author}
+          className="max-w-[10rem] shrink-0 truncate pt-1 text-[10px] text-gray-500"
+        >
+          {author}
+        </span>
+      )}
       {label && (
         <span
           data-testid="portal-minutes-meeting-note-time"
