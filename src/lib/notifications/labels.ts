@@ -77,6 +77,14 @@ export const NOTIFICATION_TYPE_META: Readonly<Record<string, NotificationTypeMet
     label: 'ファイル',
     description: 'タスクにファイルが追加された通知',
   },
+  comment_added: {
+    label: 'コメント',
+    description: '担当・承認しているタスクや、自分がコメントしたタスクに新しいコメントが付いた通知',
+  },
+  mention: {
+    label: 'メンション',
+    description: 'コメントで @ を付けて名前を呼ばれた通知',
+  },
   github_pr_merged: {
     label: 'PRの取り込み',
     description: 'タスクに紐づいた変更（PR）が取り込まれた通知',

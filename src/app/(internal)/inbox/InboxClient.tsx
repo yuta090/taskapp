@@ -7,6 +7,8 @@ import {
   CheckCircle,
   Bell,
   ChatCircleText,
+  ChatCircleDots,
+  At,
   Calendar,
   Warning,
   ArrowRight,
@@ -43,6 +45,7 @@ const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyAr
   { label: 'タスク完了', types: ['task_completed', 'github_pr_merged'] },
   { label: '仕様決定', types: ['spec_decision_needed'] },
   { label: 'ファイル', types: ['file_uploaded'] },
+  { label: 'コメント', types: ['comment_added', 'mention'] },
 ]
 
 // ── Type filter dropdown ──
@@ -163,6 +166,10 @@ function getNotificationIcon(type: string) {
       return <Bell />
     case 'file_uploaded':
       return <File />
+    case 'comment_added':
+      return <ChatCircleDots />
+    case 'mention':
+      return <At />
     default:
       return <Bell />
   }
