@@ -45,7 +45,39 @@ export interface MinutesTaskMarkerInline {
   props: { taskId: string }
 }
 
-export type MinutesInlineContent = MinutesTextInline | MinutesLinkInline | MinutesTaskMarkerInline
+/**
+ * カスタム inline: 行から作るタスクの担当者（`<!--assignee:uuid 田中-->`）と
+ * マイルストーン（`<!--milestone:uuid 第1弾-->`）。どちらも content を持たない。
+ *
+ * ID と名前を両方入れるのは、**名前は表示のため・ID は作るときのため**だから。
+ * 名前だけだと同姓の人を取り違え、ID だけだと本文を見ても誰なのか分からない。
+ * DB 側は ID しか見ないので、名前が古くなっても作られるタスクは正しい
+ * （会議メモの `<!--note:日時 書いた人-->` と同じ考え方）。
+ */
+export const ASSIGNEE_MARKER_TYPE = 'assigneeMarker' as const
+export const MILESTONE_MARKER_TYPE = 'milestoneMarker' as const
+
+export interface MinutesTaskMetaProps {
+  id: string
+  name: string
+}
+
+export interface MinutesAssigneeMarkerInline {
+  type: typeof ASSIGNEE_MARKER_TYPE
+  props: MinutesTaskMetaProps
+}
+
+export interface MinutesMilestoneMarkerInline {
+  type: typeof MILESTONE_MARKER_TYPE
+  props: MinutesTaskMetaProps
+}
+
+export type MinutesInlineContent =
+  | MinutesTextInline
+  | MinutesLinkInline
+  | MinutesTaskMarkerInline
+  | MinutesAssigneeMarkerInline
+  | MinutesMilestoneMarkerInline
 
 export interface MinutesTableCell {
   type: 'tableCell'
@@ -86,6 +118,49 @@ export const SPEC_LINE_REGEX = /^-\s*\[\s*\]\s*SPEC\([^)]+\):\s*.+$/
  * 同 RPC 内の `v_line ~ '<!--task:[^>]+-->\s*$'` と同一パターン。
  */
 export const TASK_MARKER_REGEX = /<!--task:([^>]+)-->\s*$/
+
+/**
+ * 担当者・マイルストーンの印。行末から剥がす（並びはタスク化済みの印より前）。
+ * SQL 側は `<!--assignee:<uuid>` / `<!--milestone:<uuid>` を行のどこからでも読むので、
+ * 剥がす位置が違っても作られるタスクは変わらない。
+ */
+const TASK_META_MARKER_REGEX = /<!--(assignee|milestone):([^>]*)-->\s*$/
+
+/** 印の中身の ID。緩くすると外部キーで落ちる行を拾ってしまうので、UUID の形に限る。 */
+const TASK_META_ID_RE =
+  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\s+(.*))?$/
+
+/**
+ * 印の中身（`<!--assignee:` と `-->` の間）を ID と名前に分ける。
+ * ID の形をしていなければ null（印として扱わず、ただの文字として本文に残す）。
+ */
+export function parseTaskMetaMarker(payload: string): MinutesTaskMetaProps | null {
+  const m = TASK_META_ID_RE.exec(payload.trim())
+  if (!m) return null
+  return { id: m[1], name: (m[2] ?? '').trim() }
+}
+
+/**
+ * 名前を印に置ける形に整える。`>` があると印がそこで閉じてしまうので `<` `>` を落とし、
+ * 改行やタブは空白1つにまとめる（印は1行に収める約束）。
+ */
+function normalizeTaskMetaName(name: string): string {
+  return name.replace(/[<>]/g, '').replace(/[\p{Cc}\s]+/gu, ' ').trim()
+}
+
+/**
+ * 印の文字を作る。名前が無ければ ID だけ書く。
+ * 読む側が UUID しか通さないので、書く側も同じ形でなければ**印を書かない**
+ * （書くと、保存して読み直したときに生の `<!--assignee:...-->` が本文に出てしまう）。
+ */
+export function buildTaskMetaMarker(
+  kind: 'assignee' | 'milestone',
+  props: MinutesTaskMetaProps
+): string | null {
+  if (!parseTaskMetaMarker(props.id)) return null
+  const name = normalizeTaskMetaName(props.name ?? '')
+  return name === '' ? `<!--${kind}:${props.id}-->` : `<!--${kind}:${props.id} ${name}-->`
+}
 
 // ---- 行レベルの文法パターン ----
 
@@ -598,17 +673,52 @@ function tokenizeInline(rawInput: string, noLinks = false): MinutesInlineContent
  * 補足を足すと、目印が2行目以降に押し出され、DB からは「未作成の行」に見えて
  * 同じタスクを二重に作ってしまう(BlockNote 実機で再現)。
  */
+/** 印の並び。書き出すときも読むときもこの順にそろえる。 */
+const MARKER_ORDER = [ASSIGNEE_MARKER_TYPE, MILESTONE_MARKER_TYPE, TASK_MARKER_TYPE] as const
+
+/**
+ * 行末に並んだ印を、後ろから1つずつ剥がす。
+ * ID の形をしていない印（手で書き換えられたもの）はそこで止め、ただの文字として本文に残す。
+ */
+function peelTrailingMarkers(first: string): { rest: string; markers: MinutesInlineContent[] } {
+  let rest = first
+  const markers: MinutesInlineContent[] = []
+  for (;;) {
+    const task = TASK_MARKER_REGEX.exec(rest)
+    if (task) {
+      markers.push({ type: TASK_MARKER_TYPE, props: { taskId: task[1] } })
+      // 書き出し側は印の前に必ず半角スペース1個だけを足す(下の contentArrayToText
+      // 参照)。ここで複数の空白/タブをまとめて剥がすと、文字そのものの末尾の空白まで
+      // 一緒に消えて、書き戻すたびに空白の数が変わってしまう。1個だけ外す。
+      rest = rest.slice(0, task.index).replace(/ $/, '')
+      continue
+    }
+    const meta = TASK_META_MARKER_REGEX.exec(rest)
+    if (!meta) break
+    const props = parseTaskMetaMarker(meta[2])
+    if (!props) break
+    markers.push({
+      type: meta[1] === 'assignee' ? ASSIGNEE_MARKER_TYPE : MILESTONE_MARKER_TYPE,
+      props,
+    })
+    rest = rest.slice(0, meta.index).replace(/ $/, '')
+  }
+  // 後ろから剥がしたので、本文での並びに戻す（同じ種類が2つあれば左側を採る。
+  // SQL 側も行の左側から1つだけ読むので、そろえておく）
+  markers.reverse()
+  return { rest, markers }
+}
+
 function tokenizeLinesWithMarker(lines: readonly string[]): MinutesInlineContent[] {
   if (lines.length === 0) return tokenizeInline('')
   const [first, ...rest] = lines
-  const m = TASK_MARKER_REGEX.exec(first)
-  if (!m) return tokenizeInline(lines.join('\n'))
-  // 書き出し側は目印の前に必ず半角スペース1個だけを足す(下の contentArrayToText
-  // 参照)。ここで複数の空白/タブをまとめて剥がすと、文字そのものの末尾の空白まで
-  // 一緒に消えて、書き戻すたびに空白の数が変わってしまう。1個だけ外す。
-  const newFirst = first.slice(0, m.index).replace(/ $/, '')
-  const tokens = tokenizeInline([newFirst, ...rest].join('\n'))
-  tokens.push({ type: TASK_MARKER_TYPE, props: { taskId: m[1] } })
+  const peeled = peelTrailingMarkers(first)
+  if (peeled.markers.length === 0) return tokenizeInline(lines.join('\n'))
+  const tokens = tokenizeInline([peeled.rest, ...rest].join('\n'))
+  for (const type of MARKER_ORDER) {
+    const found = peeled.markers.find((m) => m.type === type)
+    if (found) tokens.push(found)
+  }
   return tokens
 }
 
@@ -1146,24 +1256,55 @@ function renderTextRunList(items: readonly unknown[]): string {
   return finishInlineBuf(buf)
 }
 
+/** inline の props から `{ id, name }` を取り出す。形が違えば null。 */
+function readTaskMetaProps(item: unknown): MinutesTaskMetaProps | null {
+  const props = item && typeof item === 'object' ? (item as Record<string, unknown>).props : undefined
+  if (!props || typeof props !== 'object') return null
+  const { id, name } = props as Record<string, unknown>
+  if (typeof id !== 'string' || id === '') return null
+  return { id, name: typeof name === 'string' ? name : '' }
+}
+
 function contentArrayToText(contentRaw: unknown): string {
   const arr = Array.isArray(contentRaw) ? contentRaw : []
   let markerId: string | null = null
+  let assignee: MinutesTaskMetaProps | null = null
+  let milestone: MinutesTaskMetaProps | null = null
   const filtered: unknown[] = []
   for (const it of arr) {
-    if (it && typeof it === 'object' && (it as Record<string, unknown>).type === TASK_MARKER_TYPE) {
+    const type = it && typeof it === 'object' ? (it as Record<string, unknown>).type : undefined
+    if (type === TASK_MARKER_TYPE) {
       const props = (it as Record<string, unknown>).props
       const id = props && typeof props === 'object' ? (props as Record<string, unknown>).taskId : undefined
       if (typeof id === 'string') markerId = id
       continue
     }
+    // 同じ種類が2つあれば**先にあるほう**を採る。SQL 側も行の左側から1つだけ読むので、
+    // どちらを採るかをそろえておく（読み書きで食い違うと、画面と作られるタスクがずれる）
+    if (type === ASSIGNEE_MARKER_TYPE) {
+      assignee = assignee ?? readTaskMetaProps(it)
+      continue
+    }
+    if (type === MILESTONE_MARKER_TYPE) {
+      milestone = milestone ?? readTaskMetaProps(it)
+      continue
+    }
     filtered.push(it)
   }
   const text = renderTextRunList(filtered)
-  if (markerId === null) return text
-  // 目印は元の並び順に関わらず「最初の行の行末」に正規化する(HIGH-1参照)。
+  if (markerId === null && assignee === null && milestone === null) return text
+  // 印は元の並び順に関わらず「最初の行の行末」に、決まった順で並べ直す(HIGH-1参照)。
+  // タスク化済みの印はいちばん最後。DB 側が行末（`<!--task:[^>]+-->\s*$`）で見ているので、
+  // あとに何か付けると「まだ作られていない行」に見えて同じタスクを二重に作ってしまう。
+  const assigneeMarker = assignee && buildTaskMetaMarker('assignee', assignee)
+  const milestoneMarker = milestone && buildTaskMetaMarker('milestone', milestone)
+  let suffix = ''
+  if (assigneeMarker) suffix += ` ${assigneeMarker}`
+  if (milestoneMarker) suffix += ` ${milestoneMarker}`
+  if (markerId !== null) suffix += ` <!--task:${markerId}-->`
+  if (suffix === '') return text
   const lines = text.split('\n')
-  lines[0] = `${lines[0]} <!--task:${markerId}-->`
+  lines[0] = `${lines[0]}${suffix}`
   return lines.join('\n')
 }
 
@@ -1180,7 +1321,10 @@ function getCellContent(cell: unknown): unknown {
  */
 function dropTaskMarkers(contentRaw: unknown): unknown {
   const arr = Array.isArray(contentRaw) ? contentRaw : []
-  return arr.filter((it) => !(it && typeof it === 'object' && (it as Record<string, unknown>).type === TASK_MARKER_TYPE))
+  return arr.filter((it) => {
+    if (!it || typeof it !== 'object') return true
+    return !MARKER_ORDER.includes((it as Record<string, unknown>).type as (typeof MARKER_ORDER)[number])
+  })
 }
 
 function tableToLines(contentRaw: unknown): string[] {

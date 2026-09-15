@@ -16,14 +16,16 @@ import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { CheckCircle, Checks, NotePencil } from '@phosphor-icons/react'
+import { CheckCircle, Checks, Flag, NotePencil, User } from '@phosphor-icons/react'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
 import {
+  ASSIGNEE_MARKER_TYPE,
   MEETING_NOTE_TYPE,
+  MILESTONE_MARKER_TYPE,
   parseMinutesMarkdown,
   serializeMinutesBlocks,
   TASK_MARKER_TYPE,
@@ -262,6 +264,33 @@ export function TaskMarkerChip({ taskId, orgId, spaceId, resolverRef }: TaskMark
   )
 }
 
+interface TaskMetaChipProps {
+  kind: 'assignee' | 'milestone'
+  name: string
+}
+
+/**
+ * 担当者・マイルストーンの印を、本文の中で読める形にする。
+ *
+ * 印そのものは `<!--assignee:uuid 田中-->` という文字で、そのまま出すと本文が読めなくなる。
+ * ここでは印に一緒に書いてある名前を出すだけで、問い合わせはしない（名前が古くなっても、
+ * できるタスクは印の ID のとおりになる）。名前が消されていても、印があることだけは伝える。
+ */
+export function TaskMetaChip({ kind, name }: TaskMetaChipProps) {
+  const label = name.trim() === '' ? '不明' : name.trim()
+  const Icon = kind === 'assignee' ? User : Flag
+  return (
+    <span
+      contentEditable={false}
+      data-testid={kind === 'assignee' ? 'minutes-assignee-chip' : 'minutes-milestone-chip'}
+      className="inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 align-middle"
+    >
+      <Icon weight="fill" className="text-sm" />
+      {kind === 'assignee' ? `担当: ${label}` : label}
+    </span>
+  )
+}
+
 /**
  * 議事録専用スキーマを作る。Wiki と違い、Markdown が正本の議事録では往復できない
  * 見た目（下線・文字色・背景色・meetingsList ブロック等）を持ち込まない。
@@ -317,6 +346,19 @@ function useMinutesSchema(
       }
     )
 
+    const taskMetaSpec = (kind: 'assignee' | 'milestone') =>
+      createReactInlineContentSpec(
+        {
+          type: kind === 'assignee' ? ASSIGNEE_MARKER_TYPE : MILESTONE_MARKER_TYPE,
+          // id は作るときに使う。name は画面に出すためだけのもの
+          propSchema: { id: { default: '' }, name: { default: '' } },
+          content: 'none',
+        } as const,
+        {
+          render: (props) => <TaskMetaChip kind={kind} name={props.inlineContent.props.name} />,
+        }
+      )
+
     return BlockNoteSchema.create({
       blockSpecs: {
         paragraph: defaultBlockSpecs.paragraph,
@@ -339,6 +381,8 @@ function useMinutesSchema(
         text: defaultInlineContentSpecs.text,
         link: defaultInlineContentSpecs.link,
         [TASK_MARKER_TYPE]: taskMarkerSpec,
+        [ASSIGNEE_MARKER_TYPE]: taskMetaSpec('assignee'),
+        [MILESTONE_MARKER_TYPE]: taskMetaSpec('milestone'),
       },
     })
     // resolverRef は依存に入れない（ref の箱は変わらない。中身は押した時点で読む）。

@@ -1,6 +1,11 @@
 import { jstNow } from '@/lib/datetime/jstNow'
 import { buildWikiPageHref } from '@/lib/navigation/appLinks'
-import type { MinutesBlock, MinutesInlineContent } from '@/lib/minutes/markdown'
+import {
+  ASSIGNEE_MARKER_TYPE,
+  MILESTONE_MARKER_TYPE,
+  type MinutesBlock,
+  type MinutesInlineContent,
+} from '@/lib/minutes/markdown'
 
 /**
  * 「タスクにする行」を組み立てる。
@@ -18,6 +23,10 @@ export interface TaskLineDraft {
   due?: string
   /** 資料にする Wiki ページ */
   page?: { id: string; title: string }
+  /** 担当者。`id` は space のメンバーの利用者 ID */
+  assignee?: { id: string; name: string }
+  /** マイルストーン。`id` は同じ space のマイルストーン */
+  milestone?: { id: string; name: string }
 }
 
 const DUE_INPUT_RE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -68,6 +77,16 @@ export function buildTaskLineBlock(
 
   const dueLabel = formatDueLabel(draft.due, today)
   if (dueLabel) content.push(text(`（期限: ${dueLabel}）`))
+
+  // 担当者とマイルストーンは、本文の文字ではなく印で持つ。名前を本文に書くと、
+  // 同姓の人を取り違えるうえ、あとで名前が変わったときにどちらが本当か分からなくなる。
+  // 印は ID を持つので、作られるタスクは必ず選んだ相手になる（画面ではチップで見える）。
+  if (draft.assignee) {
+    content.push({ type: ASSIGNEE_MARKER_TYPE, props: draft.assignee })
+  }
+  if (draft.milestone) {
+    content.push({ type: MILESTONE_MARKER_TYPE, props: draft.milestone })
+  }
 
   return { type: 'checkListItem', props: { checked: false }, content }
 }
