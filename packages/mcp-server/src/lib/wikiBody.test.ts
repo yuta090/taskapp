@@ -202,3 +202,37 @@ describe('折りたたみ（toggleListItem）', () => {
     expect(m?.[1]).toBe(TOGGLE_MARKER)
   })
 })
+
+/**
+ * 本文は API キーを持つ人なら誰でも送れる。細工した本文で変換に時間がかかると、サーバーの処理が
+ * 詰まる。閉じの無いタグや深い入れ子でも、本文の長さにほぼ比例した時間で終わり、落ちないこと。
+ * （時間の上限は CI の遅い機械でも越えない幅にしてある。遅い実装は桁で遅いので見分けられる）
+ */
+describe('折りたたみの変換は、細工した本文でも時間がかからず落ちない', () => {
+  const elapsedMs = async (fn: () => Promise<unknown>) => {
+    const t0 = performance.now()
+    await fn()
+    return performance.now() - t0
+  }
+
+  it('閉じの無い <details> が大量に並んでも時間がかからない', async () => {
+    const md = '<details>\n\n'.repeat(20_000)
+    expect(await elapsedMs(() => toWikiBlocksJson(md, 'markdown'))).toBeLessThan(3_000)
+  }, 60_000)
+
+  it('閉じの無い <summary が大量にあっても時間がかからない', async () => {
+    const md = '<details>\n' + '<summary '.repeat(20_000) + '\n</details>\n'
+    expect(await elapsedMs(() => toWikiBlocksJson(md, 'markdown'))).toBeLessThan(3_000)
+  }, 60_000)
+
+  it('とても深い入れ子でも落ちず、中身の文字は残す', async () => {
+    const depth = 3_000
+    const md = '<details>\n<summary>段</summary>\n\n'.repeat(depth) + '最深部の中身\n\n' + '</details>\n\n'.repeat(depth)
+    let json = ''
+    const ms = await elapsedMs(async () => {
+      json = await toWikiBlocksJson(md, 'markdown')
+    })
+    expect(json).toContain('最深部の中身')
+    expect(ms).toBeLessThan(3_000)
+  }, 60_000)
+})

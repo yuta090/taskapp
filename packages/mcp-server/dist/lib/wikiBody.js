@@ -23,9 +23,17 @@ const HTML_HINT = /^\s*<(!doctype|html|body|div|p|h[1-6]|ul|ol|table|section|art
  */
 export const TOGGLE_MARKER = '<!--toggle-->';
 const TOGGLE_TYPE = 'toggleListItem';
+// 本文は API キーを持つ人なら誰でも送れるので、タグを探す正規表現は後戻りで時間が伸びない形にする
+// （属性の長さに上限を付け、閉じは読み進めるだけで探す）。
 /** `<details>` の開き（HTML の塊の先頭にあるときだけ折りたたみとして読む） */
-const DETAILS_OPEN_RE = /^\s*<details\b[^>]*>/i;
-const SUMMARY_RE = /<summary\b[^>]*>([\s\S]*?)<\/summary\s*>/i;
+const DETAILS_OPEN_RE = /^\s{0,3}<details\b[^>]{0,1000}>/i;
+const SUMMARY_OPEN_RE = /<summary\b[^>]{0,1000}>/i;
+/**
+ * 折りたたみにする `<details>` の入れ子の深さの上限。これより深い分は文字として残す
+ * （段ごとに中身を組み立て直すので、深さに比例して処理が増え、深すぎると呼び出しが溢れる）。
+ */
+const MAX_DETAILS_DEPTH = 16;
+let detailsDepth = 0;
 /** 本文の形式を推定する。JSON のブロック配列 → blocks / HTML らしければ html / それ以外 markdown */
 export function detectWikiBodyFormat(body) {
     const trimmed = body.trim();
@@ -48,8 +56,33 @@ export function detectWikiBodyFormat(body) {
 function text(t, styles = {}) {
     return { type: 'text', text: t, styles };
 }
+/**
+ * タグ（`<` ＋ 1文字以上 ＋ `>`）を外す。`/<[^>]+>/g` と同じ結果だが、閉じの `>` が無い `<` が並ぶと
+ * 正規表現は `<` ごとに末尾まで探し直して時間が本文の長さの2乗に伸びるので、次の `>` を1回だけ探す。
+ */
 function stripTags(html) {
-    return html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    let out = '';
+    let i = 0;
+    while (i < html.length) {
+        const lt = html.indexOf('<', i);
+        if (lt === -1)
+            break;
+        const gt = html.indexOf('>', lt + 1);
+        // これより後ろに `>` が無ければ、もうタグは無い
+        if (gt === -1)
+            break;
+        out += html.slice(i, lt);
+        // `<>` はタグではない（中身が1文字以上要る）
+        if (gt === lt + 1) {
+            out += '<';
+            i = lt + 1;
+        }
+        else {
+            i = gt + 1;
+        }
+    }
+    out += html.slice(i);
+    return out.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 }
 function inline(tokens, styles = {}) {
     const out = [];
@@ -154,48 +187,96 @@ function tableBlock(t) {
         rows.push({ cells: r.map((c) => inline(c.tokens)) });
     return { type: 'table', content: { type: 'tableContent', rows } };
 }
-/** `<details>` の中身（開きの直後〜対応する閉じの直前）を折りたたみにする。題名＝summary・残り＝子 */
-function toggleFromDetails(inner) {
-    const m = SUMMARY_RE.exec(inner);
-    const title = m ? m[1].trim() : '';
-    const body = m ? inner.slice(0, m.index) + inner.slice(m.index + m[0].length) : inner;
-    const children = body.trim() ? markdownToBlocks(body) : [];
+/**
+ * 塊の並びの中で、塊の先頭にある `<details>` の開きと、それに対応する `</details>` を結ぶ。
+ * marked は `<details>` を「開き」「中身の段落」「閉じ」の別々の塊に分けて返すので、先頭から1回だけ
+ * 読み進め、開きを積んで閉じで取り出す（入れ子も受ける）。閉じの無い開きは結ばない。
+ * 開きごとに末尾まで探し直すと、閉じの無い開きが並んだ本文で時間が本文の長さの2乗に伸びる。
+ */
+function pairDetails(tokens) {
+    const closes = new Map();
+    const opens = [];
+    tokens.forEach((tok, j) => {
+        if (tok.type !== 'html')
+            return;
+        const blockOpenEnd = DETAILS_OPEN_RE.exec(tok.raw)?.[0].length ?? -1;
+        for (const m of tok.raw.matchAll(/<(\/?)details\b[^>]{0,1000}>/gi)) {
+            const at = m.index ?? 0;
+            if (!m[1]) {
+                opens.push({ token: j, atBlockStart: at + m[0].length === blockOpenEnd });
+                continue;
+            }
+            const open = opens.pop();
+            if (open?.atBlockStart)
+                closes.set(open.token, { token: j, start: at, end: at + m[0].length });
+        }
+    });
+    return closes;
+}
+/**
+ * 文字列の先頭（空白の後）にある `<summary>…</summary>` を取り出す。先頭に無いもの（中身の奥の、
+ * 入れ子の details の summary など）は題名にしない。閉じは読み進めて探す（後戻りしない）。
+ */
+function takeSummary(s) {
+    const open = SUMMARY_OPEN_RE.exec(s);
+    if (!open || s.slice(0, open.index).trim() !== '')
+        return null;
+    const from = open.index + open[0].length;
+    const closeRe = /<\/summary\s{0,100}>/gi;
+    closeRe.lastIndex = from;
+    const close = closeRe.exec(s);
+    if (!close)
+        return null;
+    return { title: s.slice(from, close.index).trim(), rest: s.slice(close.index + close[0].length) };
+}
+/**
+ * tokens[start] の `<details>` から close までを1つの折りたたみにする（題名＝summary・残り＝子）。
+ * 間の塊は読み直さずにそのまま変換する。開きの塊の残りと閉じの塊の手前（空行を挟まずに書いた本文）だけ
+ * 文字列として読む。
+ */
+function detailsBlock(tokens, start, close) {
+    const openRaw = tokens[start].raw;
+    const openEnd = DETAILS_OPEN_RE.exec(openRaw)?.[0].length ?? 0;
+    const sameToken = close.token === start;
+    let head = sameToken ? openRaw.slice(openEnd, close.start) : openRaw.slice(openEnd);
+    let middle = sameToken ? [] : tokens.slice(start + 1, close.token);
+    const tail = sameToken ? '' : tokens[close.token].raw.slice(0, close.start);
+    // summary は開きと同じ塊にあることが多いが、空行を挟むと次の HTML の塊に分かれる
+    let title = '';
+    let afterSummary = '';
+    const inHead = takeSummary(head);
+    if (inHead) {
+        title = inHead.title;
+        head = inHead.rest;
+    }
+    else if (!head.trim() && middle[0]?.type === 'html') {
+        const inNext = takeSummary(middle[0].raw);
+        if (inNext) {
+            title = inNext.title;
+            afterSummary = inNext.rest;
+            middle = middle.slice(1);
+        }
+    }
+    const children = [];
+    detailsDepth++;
+    try {
+        for (const part of [head, afterSummary])
+            if (part.trim())
+                children.push(...markdownToBlocks(part));
+        children.push(...blocks(middle));
+        if (tail.trim())
+            children.push(...markdownToBlocks(tail));
+    }
+    finally {
+        detailsDepth--;
+    }
     const block = { type: TOGGLE_TYPE, content: inlineMarkdown(title) };
     return children.length ? { ...block, children } : block;
 }
-/**
- * tokens[start] が `<details>` で始まる HTML の塊のとき、対応する `</details>` までを1つの折りたたみにする。
- * marked は `<details>` を「開き」「中身の段落」「閉じ」の別々の塊に分けて返すので、開きと閉じを数えて
- * 対応を取る（入れ子も受ける）。閉じの後ろに同じ塊で続く文字は trailing で返す。
- * 閉じが無いときは null（呼び出し側は今までどおり文字として扱い、本文を隠さない）。
- */
-function takeDetails(tokens, start) {
-    let depth = 1;
-    let inner = '';
-    for (let j = start; j < tokens.length; j++) {
-        const raw = j === start ? tokens[j].raw.replace(DETAILS_OPEN_RE, '') : tokens[j].raw;
-        if (tokens[j].type !== 'html') {
-            inner += raw;
-            continue;
-        }
-        const tagRe = /<(\/?)details\b[^>]*>/gi;
-        let m;
-        while ((m = tagRe.exec(raw))) {
-            depth += m[1] ? -1 : 1;
-            if (depth === 0) {
-                return {
-                    toggle: toggleFromDetails(inner + raw.slice(0, m.index)),
-                    trailing: raw.slice(m.index + m[0].length),
-                    next: j + 1,
-                };
-            }
-        }
-        inner += raw;
-    }
-    return null;
-}
 function blocks(tokens) {
     const out = [];
+    // 深すぎる入れ子の中では `<details>` を折りたたみにしない（文字として残す）
+    const detailsCloses = detailsDepth < MAX_DETAILS_DEPTH ? pairDetails(tokens) : undefined;
     for (let i = 0; i < tokens.length; i++) {
         const tok = tokens[i];
         switch (tok.type) {
@@ -230,12 +311,14 @@ function blocks(tokens) {
                 }
                 break;
             case 'html': {
-                const details = DETAILS_OPEN_RE.test(tok.raw) ? takeDetails(tokens, i) : null;
-                if (details) {
-                    out.push(details.toggle);
-                    if (details.trailing.trim())
-                        out.push(...markdownToBlocks(details.trailing));
-                    i = details.next - 1;
+                const close = detailsCloses?.get(i);
+                if (close) {
+                    out.push(detailsBlock(tokens, i, close));
+                    // 閉じと同じ塊で、空行を挟まずに続けて書いた本文
+                    const trailing = tokens[close.token].raw.slice(close.end);
+                    if (trailing.trim())
+                        out.push(...markdownToBlocks(trailing));
+                    i = close.token;
                     break;
                 }
                 const s = stripTags(tok.text).trim();
