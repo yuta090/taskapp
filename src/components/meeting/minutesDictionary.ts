@@ -1,3 +1,7 @@
+'use client'
+// 画面側専用の印。サーバー側から間違って読み込むと、辞書（全言語入り・221KB）が
+// 最初に読む塊に載ってしまうので、ここで機械的に止めておく（表示速度レビューの指摘）
+
 import { ja as jaLocale } from '@blocknote/core/locales'
 
 /**
