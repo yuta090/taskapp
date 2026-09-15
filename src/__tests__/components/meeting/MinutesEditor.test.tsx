@@ -22,12 +22,20 @@ const mockDocument: unknown[] = [{ type: 'paragraph', content: [] }]
  * （`useLoadSuggestionMenuItems` は `getItems` の参照が変わるたびに取り直す）。
  * 実機と同じく、1つを使い回す。
  */
-const mockInsertBlocks = vi.fn()
+// 本物の insertBlocks は「入れたブロック」を返す。入れた行へカーソルを移すのに使うので、
+// モックでも同じように返す
+const mockInsertBlocks = vi.fn(
+  (_blocks: Array<Record<string, unknown>>, _anchor: unknown, _placement?: string) => [
+    { id: 'inserted-1', type: 'checkListItem' },
+  ]
+)
+const mockSetTextCursorPosition = vi.fn()
 let mockCursorBlockId: string | undefined
 const mockEditor = {
   document: mockDocument,
   insertInlineContent: mockInsertInlineContent,
   insertBlocks: mockInsertBlocks,
+  setTextCursorPosition: mockSetTextCursorPosition,
   getTextCursorPosition: () => ({ block: { id: mockCursorBlockId } }),
   focus: mockEditorFocus,
 }
@@ -290,9 +298,10 @@ describe('MinutesEditor の「/」メニュー', () => {
   it('Markdown で往復できるものだけ出す（区切り線・画像は出さない）', async () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
+    // 会議中にいちばん使うのは「会議メモ」なので先頭に置く（ユーザー要望・2026-09-15）
     expect(items.map((item) => item.key)).toEqual([
-      'insert_task_line',
       'insert_meeting_note',
+      'insert_task_line',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',
@@ -352,6 +361,8 @@ describe('MinutesEditor の「/」メニュー', () => {
   describe('タスクにする行', () => {
     beforeEach(() => {
       mockInsertBlocks.mockClear()
+      mockSetTextCursorPosition.mockClear()
+      mockEditorFocus.mockClear()
       capturedTaskLineInsert = undefined
       mockCursorBlockId = undefined
       // 折りたたみ(b)の中(b1)にカーソルがある文書
@@ -399,6 +410,38 @@ describe('MinutesEditor の「/」メニュー', () => {
       expect((anchor as { id: string }).id).toBe('b')
       expect(placement).toBe('after')
       expect(blocks[0]).toMatchObject({ type: 'checkListItem', props: { checked: false } })
+    })
+
+    /**
+     * 入る場所は**カーソルのあった行の後ろ**＝画面の上のほう。パネルは本文のいちばん下に
+     * 出るので、入れても手元では何も変わらず「入っていない」ように見えていた
+     * （ユーザー報告・2026-09-15）。入れた行にカーソルを移して、そこまで画面を動かす。
+     */
+    it('入れた行にカーソルを移す（入った場所が画面の外にならないように）', async () => {
+      mockCursorBlockId = 'b1'
+      render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+      fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      await screen.findByTestId('minutes-task-line-panel')
+      act(() => capturedTaskLineInsert!({ title: '見積を出す' }))
+      expect(mockSetTextCursorPosition).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'inserted-1' }),
+        'end'
+      )
+      expect(mockEditorFocus).toHaveBeenCalled()
+    })
+
+    it('入れた行そのものを画面に寄せる（カーソルを置くだけでは画面が動かないため）', async () => {
+      render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+      fireEvent.click(screen.getByTestId('minutes-insert-task-line'))
+      await screen.findByTestId('minutes-task-line-panel')
+      // 本物の BlockNote は行に data-id を振る。寄せ先が見つかる状態を作る
+      const row = document.createElement('div')
+      row.setAttribute('data-id', 'inserted-1')
+      const scrollIntoView = vi.fn()
+      row.scrollIntoView = scrollIntoView
+      screen.getByTestId('blocknote-view').appendChild(row)
+      act(() => capturedTaskLineInsert!({ title: '見積を出す' }))
+      expect(scrollIntoView).toHaveBeenCalled()
     })
 
     it('入れたらパネルを閉じる', async () => {
