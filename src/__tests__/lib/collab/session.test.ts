@@ -447,7 +447,7 @@ describe('タスク化のあとの読み直し', () => {
 describe('宛先', () => {
   it('自分宛でない通は読まない', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', [
       { userId: 'tanaka', joinedAt: 100 },
       { userId: 'yamada', joinedAt: 200 },

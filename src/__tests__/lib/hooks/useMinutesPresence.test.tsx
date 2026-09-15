@@ -538,8 +538,10 @@ describe('useMinutesPresence 在席の一覧', () => {
 
     // joined_at を載せていない相手は「ついさっき入った」扱いにする（書記を取り合わない）
     expect(result.current.others).toEqual([
-      { userId: 'u-a', name: '佐藤', editing: true, joinedAt: Number.MAX_SAFE_INTEGER, collab: true },
-      { userId: 'u-b', name: '鈴木', editing: false, joinedAt: Number.MAX_SAFE_INTEGER, collab: true },
+      // collab の印が無い相手は、同時編集を持たない版の画面を開いている人。
+      // 輪には入れない（その人はこれまでどおり自分で保存する）
+      { userId: 'u-a', name: '佐藤', editing: true, joinedAt: Number.MAX_SAFE_INTEGER, collab: false },
+      { userId: 'u-b', name: '鈴木', editing: false, joinedAt: Number.MAX_SAFE_INTEGER, collab: false },
     ])
   })
 
@@ -577,7 +579,7 @@ describe('useMinutesPresence 在席の一覧', () => {
     })
 
     expect(result.current.others).toEqual([
-      { userId: 'u-a', name: 'メンバー', editing: true, joinedAt: Number.MAX_SAFE_INTEGER, collab: true },
+      { userId: 'u-a', name: 'メンバー', editing: true, joinedAt: Number.MAX_SAFE_INTEGER, collab: false },
     ])
   })
 

@@ -32,7 +32,6 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
       setEditing: vi.fn(),
       sendCollab: sendCollabSpy,
       setCollabActive: setCollabActiveSpy,
-      selfJoinedAt: 2_000,
     }
   },
 }))
@@ -111,6 +110,19 @@ describe('書記の決め方', () => {
 
     expect(readBackMarkdown(docOf(result.current.fragment))).toBe(BASE)
     expect(result.current.isScribe).toBe(true)
+  })
+
+  it('本文の入った器を持ってから、はじめて在席で輪に入っていると名乗る', async () => {
+    // 名乗るのが早すぎると、器を持っていない自分が書記に選ばれ、
+    // **部屋の誰の書いた内容も列に残らなくなる**（スマホ・読み込み失敗のときに起きる）
+    const { result } = await mount()
+    expect(setCollabActiveSpy).not.toHaveBeenCalledWith(true)
+
+    act(() => result.current.registerSeeder(seedWith(BASE)))
+    announce([{ userId: 'u-self', joinedAt: 2_000 }])
+    act(() => capturedCollab?.onStatus('joined'))
+
+    expect(setCollabActiveSpy).toHaveBeenCalledWith(true)
   })
 
   it('本文が入るまでは、書記でも保存する係にならない', async () => {

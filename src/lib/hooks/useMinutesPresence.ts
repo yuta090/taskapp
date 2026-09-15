@@ -100,8 +100,6 @@ interface UseMinutesPresenceResult {
    * 伝えないと、落ちた自分が書記に選ばれ続け、**誰の書いた内容も列に残らなくなる**。
    */
   setCollabActive: (active: boolean) => void
-  /** 自分が部屋に入った時刻。書記を決めるとき、相手と同じ物差しで比べるために出す */
-  selfJoinedAt: number
 }
 
 /**
@@ -181,20 +179,20 @@ export function useMinutesPresence({
 
   const channelRef = useRef<RealtimeChannel | null>(null)
   /**
-   * 自分が部屋に入った時刻。この画面を開いている間は変えない。
-   * 時刻を読むのは描画のあと（effect）にする。描画の途中で読むと、同じ描画が
-   * 2回走ったときに値が変わりうる。
+   * 自分が部屋に入った時刻（座席）。チャネルに入るたびに取り直す。
+   * 顔ぶれは `onPeers` で直に渡すので、描画のための状態にはしない
+   * （状態にすると、入り直すたびに画面を描き直すことになる）。
    */
   const joinedAtRef = useRef(0)
-  const [selfJoinedAt, setSelfJoinedAt] = useState(0)
-  useEffect(() => {
-    if (joinedAtRef.current !== 0) return
-    joinedAtRef.current = Date.now()
-    setSelfJoinedAt(joinedAtRef.current)
-  }, [])
   const editingRef = useRef(false)
-  /** いま自分が同時編集の輪に入っているか。落ちたら送り直して相手に伝える */
-  const collabActiveRef = useRef(true)
+  /**
+   * いま自分が同時編集の輪に入っているか＝**本文の入った器を持っているか**。
+   *
+   * 既定は false。スマホ・器の読み込みに失敗したとき・同時編集を使わない組織では、
+   * ずっと false のままになる。true を名乗ってしまうと、器を持っていない自分が
+   * 書記（列へ保存する1人）に選ばれ、**部屋の誰の書いた内容も列に残らなくなる**。
+   */
+  const collabActiveRef = useRef(false)
   /** 最後にチャネルへ送った editing。まだ送っていなければ null */
   const trackedRef = useRef<boolean | null>(null)
   const sinceRef = useRef(0)
@@ -289,8 +287,9 @@ export function useMinutesPresence({
             // 入った時刻が読めない相手は「ついさっき入った」扱いにする。書記を
             // 取り合わないよう、いちばん新しい側へ倒す
             joinedAt: typeof meta.joined_at === 'number' ? meta.joined_at : Number.MAX_SAFE_INTEGER,
-            // 印が無い相手は、古い版の画面を開いている人。輪には入っているとみなす
-            collab: meta.collab !== false,
+            // 印が無い相手は、同時編集を持たない版の画面を開いている人。輪には
+            // 入れない（その人はこれまでどおり自分で保存する）
+            collab: meta.collab === true,
           })
         }
         setOthers((prev) => (samePeers(prev, next) ? prev : next))
@@ -464,7 +463,6 @@ export function useMinutesPresence({
               // 座席は「チャネルに入るたび」に取り直す。切れて入り直した人は
               // いちばん新しい人になり、書記の座は残っていた人に渡る
               joinedAtRef.current = Date.now()
-              setSelfJoinedAt(joinedAtRef.current)
               pushTrack(true)
               // **ここでは同時編集を始めない。** 在席の一覧はこの返事のあとに別便で届く
               presenceArrived = false
@@ -537,5 +535,5 @@ export function useMinutesPresence({
     [pushTrack]
   )
 
-  return { others, setEditing, sendCollab, setCollabActive, selfJoinedAt }
+  return { others, setEditing, sendCollab, setCollabActive }
 }

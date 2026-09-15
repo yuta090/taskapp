@@ -1,7 +1,8 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import { MinutesDocumentView } from '@/components/meeting/MinutesDocumentView'
+import { MinutesDocumentView, type MinutesDocumentViewHandle } from '@/components/meeting/MinutesDocumentView'
+import { minutesContentHash } from '@/lib/collab/scribe'
 import type { Meeting } from '@/types/database'
 
 // 同時編集（Google ドキュメント式）を入れたときの、議事録の画面のふるまい。
@@ -112,9 +113,11 @@ function setup() {
     updatedAt: '2026-09-01T00:00:01.222222+00',
   }))
   const fetchMeetingDetail = vi.fn().mockResolvedValue(makeMeeting())
+  const viewRef = React.createRef<MinutesDocumentViewHandle>()
 
   const utils = render(
     <MinutesDocumentView
+      ref={viewRef}
       orgId="org1"
       spaceId="space1"
       meeting={makeMeeting()}
@@ -125,7 +128,7 @@ function setup() {
       fetchMeetingDetail={fetchMeetingDetail}
     />
   )
-  return { updateMinutes, fetchMeetingDetail, ...utils }
+  return { updateMinutes, fetchMeetingDetail, viewRef, ...utils }
 }
 
 async function loaded() {
@@ -246,6 +249,56 @@ describe('同時編集が止まったとき', () => {
     // 二重になった本文は保存しない
     expect(updateMinutes).not.toHaveBeenCalled()
     expect(screen.queryByTestId('minutes-collab-degraded-notice')).not.toBeInTheDocument()
+  })
+})
+
+describe('同時編集中のタスク化', () => {
+  /**
+   * タスク化は「渡した本文が列の本文と一致すること」を求める。書記でない人は普段
+   * 保存しないので、そのままだと必ず弾かれ、**以後その人の入力がいっさい保存されなく
+   * なる**。押した直前だけは、書記でなくても自分で1回保存する。
+   */
+  it('書記でない人が押しても、その場で自分の本文を保存してから進む', async () => {
+    collabState = { active: true, isScribe: false, degradedReason: null, applyingRemote: false, synced: true, solo: false }
+    fakeMeta.set('savedAt', '2026-09-01T00:00:00.111111+00')
+    fakeMeta.set('savedHash', 'ちがう値')
+    const { updateMinutes, viewRef } = setup()
+    await loaded()
+
+    await act(async () => {
+      capturedOnChange?.('# 定例MTG\n\n本文\n\n山田が足した行')
+    })
+    // 打っただけでは保存しない（書記ではないので）
+    expect(updateMinutes).not.toHaveBeenCalled()
+
+    let flushed = ''
+    await act(async () => {
+      flushed = await viewRef.current!.flushPendingSave()
+    })
+
+    expect(updateMinutes).toHaveBeenCalledTimes(1)
+    expect(updateMinutes.mock.calls[0][1]).toContain('山田が足した行')
+    // タスク化に渡す本文は、いま列にあると分かっているもの
+    expect(flushed).toContain('山田が足した行')
+  })
+
+  it('部屋の内容がもう保存されていれば、押しても保存しに行かない', async () => {
+    collabState = { active: true, isScribe: false, degradedReason: null, applyingRemote: false, synced: true, solo: false }
+    const { updateMinutes, viewRef } = setup()
+    await loaded()
+
+    const body = '# 定例MTG\n\n本文\n\n誰かが保存済み'
+    await act(async () => {
+      capturedOnChange?.(body)
+    })
+    fakeMeta.set('savedAt', '2026-09-01T00:00:00.111111+00')
+    fakeMeta.set('savedHash', minutesContentHash(body))
+
+    await act(async () => {
+      await viewRef.current!.flushPendingSave()
+    })
+
+    expect(updateMinutes).not.toHaveBeenCalled()
   })
 })
 

@@ -191,6 +191,10 @@ export function useMinutesCollab({
           onSynced: () => {
             syncedRef.current = true
             setSynced(true)
+            // 本文の入った器を持っていることを在席で名乗る。ここで初めて書記の
+            // 候補になる。持っていないのに名乗ると、自分が書記に選ばれたまま
+            // 誰の書いた内容も列に残らなくなる
+            setCollabActiveRef.current(true)
           },
           onRoomReload: () => onRoomReloadRef.current?.(),
         })

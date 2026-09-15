@@ -425,8 +425,12 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       }
       // 同時編集中、部屋の中の人が保存した分は競合ではない。内容は器で既に全員に
       // 届いているので、基準だけ差し替えて書き直せばよい
-      const savedAt = collabMetaRef.current ? readSavedState(collabMetaRef.current).savedAt : null
-      if (collabActiveRef.current && savedAt && savedAt === fresh.updated_at) {
+      const saved = collabMetaRef.current ? readSavedState(collabMetaRef.current) : null
+      if (
+        collabActiveRef.current &&
+        saved?.savedAt === fresh.updated_at &&
+        saved?.savedHash === minutesContentHash(freshRaw)
+      ) {
         baseUpdatedAtRef.current = fresh.updated_at
         knownServerRawRef.current = freshRaw
         return { kind: 'same' }
@@ -894,10 +898,15 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           if (!fresh) throw new Error('議事録の状態を確かめられませんでした。もう一度お試しください')
           if (fresh.updated_at === baseUpdatedAtRef.current) return
           // 部屋の中の人が保存しただけなら競合ではない（内容は器で合流済み）
-          const roomSavedAt = collabMetaRef.current ? readSavedState(collabMetaRef.current).savedAt : null
-          if (collabActiveRef.current && roomSavedAt && roomSavedAt === fresh.updated_at) {
+          const roomSaved = collabMetaRef.current ? readSavedState(collabMetaRef.current) : null
+          const freshBody = fresh.minutes_md ?? ''
+          if (
+            collabActiveRef.current &&
+            roomSaved?.savedAt === fresh.updated_at &&
+            roomSaved?.savedHash === minutesContentHash(freshBody)
+          ) {
             baseUpdatedAtRef.current = fresh.updated_at
-            knownServerRawRef.current = fresh.minutes_md ?? ''
+            knownServerRawRef.current = freshBody
             return
           }
           const freshRaw = fresh.minutes_md ?? ''
@@ -1020,9 +1029,13 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
             {/* 器の用意が終わるまでエディタを載せない。先に載せると、あとから器を
                 渡せない（BlockNote は載せるときに1回だけ受け取る）ので、同時編集に
                 ならないまま固まる */}
-            {collabPending ? (
-              <EditorLoadingFallback />
-            ) : (
+            {/* 器の用意が終わるまで、そして本文が器に届くまではスケルトンを出す。
+                同時編集のエディタは器の中身で本文を置き換えるので、届く前は空に見える
+                （「開いたら議事録が消えた」に見えてしまう）。エディタ自体は
+                ProseMirror のスキーマを貸すために載せたまま、見えなくしておく */}
+            {(collabPending || !collabSynced) && <EditorLoadingFallback />}
+            {collabPending ? null : (
+              <div className={collabSynced ? undefined : 'hidden'}>
               <MinutesEditorDynamic
                 // 器につながずに載せ替えるときは作り直す。つないだままだと、
                 // 空の器に打った1文字で議事録が丸ごと消える
@@ -1042,6 +1055,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
                 collaboration={collaboration}
                 isApplyingRemote={isApplyingRemote}
               />
+              </div>
             )}
           </div>
         </div>
