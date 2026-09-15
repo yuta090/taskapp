@@ -55,6 +55,11 @@ describe('TaskRow — モバイル行 (PR3)', () => {
     expect(row.classList.contains('row-h')).toBe(false)
   })
 
+  it('モバイルでも、開くメニュー(onContextMenu)を渡さない画面（マイタスク）では「…」ボタンを出さない', () => {
+    render(<TaskRow task={baseTask} isMobile />)
+    expect(screen.queryByTestId('task-row-mobile-actions')).not.toBeInTheDocument()
+  })
+
   it('デスクトップ(既定)ではモバイルアクションボタンを描画しない', () => {
     render(<TaskRow task={baseTask} />)
     expect(screen.queryByTestId('task-row-mobile-actions')).not.toBeInTheDocument()

@@ -19,6 +19,12 @@ vi.mock('@/lib/hooks/useTaskComments', () => ({
   }),
 }))
 
+const mockMarkRead = vi.fn()
+
+vi.mock('@/lib/hooks/useUnreadTaskComments', () => ({
+  useMarkTaskCommentsReadWhenSeen: (args: unknown) => mockMarkRead(args),
+}))
+
 const editor: SpaceMember = { id: 'editor-1', displayName: '編集イチロー', avatarUrl: null, role: 'editor' }
 const admin: SpaceMember = { id: 'admin-1', displayName: '管理者アリス', avatarUrl: null, role: 'admin' }
 const clientMember: SpaceMember = { id: 'client-1', displayName: 'クライアント江里子', avatarUrl: null, role: 'client' }
@@ -45,6 +51,17 @@ vi.mock('@/lib/hooks/useSpaceMembers', async () => {
 
 beforeEach(() => {
   mockCreateComment.mockClear()
+  mockMarkRead.mockClear()
+})
+
+describe('TaskComments — 画面に入ったら未読のコメントを既読にする', () => {
+  it('そのタスクと、自分以外の最新のコメント（無ければ null）と、コメント一覧の要素を渡す', () => {
+    render(<TaskComments orgId="o1" spaceId="s1" taskId="t1" currentUserId="u1" />)
+
+    expect(mockMarkRead).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 't1', orgId: 'o1', latestComment: null, targetRef: expect.any(Object) })
+    )
+  })
 })
 
 /**
