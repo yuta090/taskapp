@@ -177,8 +177,18 @@ function listBlocks(list: Tokens.List): Block[] {
       if (pending.length) children.push(...blocks(pending))
       pending = []
     }
-    item.tokens.forEach((t, i) => {
-      if (t.type === 'list') {
+    // 項目の中に字下げして置いた `<details>` は、開きから対応する閉じまでの塊を丸ごと子へ回す。
+    // 種類だけで振り分けると、中身の段落が折りたたみに届く前に項目の本文へ吸い込まれる
+    const tokens = item.tokens
+    const detailsCloses = detailsDepth < MAX_DETAILS_DEPTH ? pairDetails(tokens) : undefined
+    let skipUntil = -1
+    tokens.forEach((t, i) => {
+      if (skipUntil >= i) return
+      const close = detailsCloses?.get(i)
+      if (close) {
+        pending.push(...tokens.slice(i, close.token + 1))
+        skipUntil = close.token
+      } else if (t.type === 'list') {
         flush()
         children.push(...listBlocks(t as Tokens.List))
       } else if (t.type === 'text' || t.type === 'paragraph') {
