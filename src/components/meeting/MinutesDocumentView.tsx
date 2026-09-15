@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type FocusEvent as ReactFocusEvent,
@@ -12,6 +13,7 @@ import {
 import { ArrowLeft, ArrowsIn, ArrowsOut, Info, Notebook, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
+import { EditorLoadingFallback } from '@/components/editor/EditorLoadingFallback'
 import { useMinutesTaskActions } from '@/lib/hooks/useMinutesTaskActions'
 import { saveMinutesScroll, takeMinutesScroll } from '@/lib/minutes/scrollMemory'
 import type { MinutesEditorApi } from './MinutesEditor'
@@ -21,8 +23,12 @@ import { appendOnlyAddition } from '@/lib/minutes/rebase'
 // 画面のテストは useMeetings をまるごとモックすることがあり、そこから取ると
 // 型が undefined になって instanceof が壊れる（理由は errors.ts のコメント）。
 import { MinutesConflictError } from '@/lib/minutes/errors'
+import type { DegradeReason } from '@/lib/collab/session'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import { useMinutesPresence, type MinutesPresencePeer } from '@/lib/hooks/useMinutesPresence'
+import type { MinutesPresencePeer } from '@/lib/hooks/useMinutesPresence'
+import { useMinutesCollab } from '@/lib/hooks/useMinutesCollab'
+import { isCollabEnabledForOrg } from '@/lib/collab/flag'
+import { minutesContentHash, readSavedState, writeSavedState } from '@/lib/collab/scribe'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { ErrorRetry, useConfirmDialog } from '@/components/shared'
 import { SAVING } from '@/lib/design/tokens'
@@ -100,6 +106,13 @@ export interface MinutesDocumentViewHandle {
    * 通信はしない。
    */
   markConflict: () => void
+  /**
+   * タスク化が通ったあと、同じ議事録を開いている人へ「列を読み直して」と伝える。
+   * タスク化は DB 側で行末に目印を足すので、伝えないと相手の器と列がずれたままになり、
+   * 相手の書いた内容がそれ以降いっさい保存されなくなる。同時編集を使っていなければ
+   * 何もしない。
+   */
+  notifyRoomReload: () => void
 }
 
 interface MinutesDocumentViewProps {
@@ -149,6 +162,26 @@ function formatEditingMessage(peers: MinutesPresencePeer[]): string {
   return `${peers.map((peer) => `${peer.name}さん`).join('、')}が書いています`
 }
 
+/**
+ * 同時編集をやめて1人で書く形に戻ったときの知らせ。
+ * 書いた内容が消えるわけではないので、そこを最初に伝える。
+ * 本文が二重になった場合（duplicate-seed）はこの帯を出さず、列から読み直す。
+ */
+function degradeMessage(reason: DegradeReason): string | null {
+  const tail = '書いた内容はこれまでどおり保存されます'
+  if (reason === 'duplicate-seed') return null
+  if (reason === 'too-many-peers') {
+    return `開いている人が多いので、いまは一人ずつ書く形に戻しました。${tail}`
+  }
+  if (reason === 'too-large') {
+    return `議事録が長くなったので、いまは一人ずつ書く形に戻しました。${tail}`
+  }
+  if (reason === 'apply-failed') {
+    return `ほかの人の書いた内容を取り込めなかったので、いまは一人ずつ書く形に戻しました。${tail}`
+  }
+  return `つながりが切れたので、いまは一人ずつ書く形に戻しました。${tail}`
+}
+
 /** 表示に使う自分の名前。取れなければ「メンバー」（在席の既定と揃える） */
 function displayNameOf(user: { email?: string | null; user_metadata?: Record<string, unknown> } | null): string {
   const metaName = user?.user_metadata?.name
@@ -184,6 +217,8 @@ interface MinutesDocumentBodyHandle {
   hasUnconfirmedDraft: () => boolean
   /** 競合状態にして帯を出す（外から気づいた競合を、保存が0行だったときと同じ扱いにする） */
   markConflict: () => void
+  /** 同じ議事録を開いている人へ「列を読み直して」と伝える */
+  notifyRoomReload: () => void
   /** 「捨てて戻る」が選ばれた印を立てる。以後アンマウント時の後始末で送らない（N4） */
   discardDraft: () => void
 }
@@ -250,9 +285,6 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     // AI秘書の末尾追記との自動合流のための、生きているエディタへの差し込み口
     // （MinutesEditor が登録する）。本体（このコンポーネント）は作り直さない。
     const editorApiRef = useRef<MinutesEditorApi | null>(null)
-    const registerEditorApi = useCallback((api: MinutesEditorApi | null) => {
-      editorApiRef.current = api
-    }, [])
     // 末尾追記の合流が一時的な事情('busy')でやり直した回数。APPEND_RETRY_DELAYS_MS を
     // 使い切ったら帯を出す。合流が成功('applied')したら 0 に戻す。
     const appendRetryCountRef = useRef(0)
@@ -280,17 +312,68 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const onSaveStateChangeRef = useRef(onSaveStateChange)
     onSaveStateChangeRef.current = onSaveStateChange
 
-    // 「いま誰が書いているか」。書ける人だけが送り合う（閲覧だけの人・相手先は購読しない）。
-    // 本体がマウントされている＝詳細を読み込み終えているので、ここで始めてよい。
+    // 「いま誰が書いているか」と、同時編集。書ける人だけが送り合う
+    // （閲覧だけの人・相手先は購読しない）。本体がマウントされている＝詳細を
+    // 読み込み終えているので、ここで始めてよい。
     const { user } = useCurrentUser()
     const selfUserId = user?.id ?? ''
     const selfName = displayNameOf(user)
-    const { others, setEditing } = useMinutesPresence({
+    const {
+      others,
+      setEditing,
+      active: collabActive,
+      isScribe,
+      fragment,
+      awareness,
+      meta: collabMeta,
+      isApplyingRemote,
+      synced: collabSynced,
+      pending: collabPending,
+      solo: collabSolo,
+      degradedReason,
+      registerSeeder,
+      requestRoomReload,
+    } = useMinutesCollab({
       meetingId,
-      enabled: canEdit && !!selfUserId,
+      presenceEnabled: canEdit && !!selfUserId,
       self: { userId: selfUserId, name: selfName },
+      collabAllowed: isCollabEnabledForOrg(orgId),
+      initialMarkdown: initialMinutesMd,
+      // 部屋の誰かがタスク化した。DB 側で行末に目印が足されるので、器の本文と列が
+      // ずれる。そのまま書き続けると次の保存が必ず弾かれるため、読み直す
+      onRoomReload: () => {
+        discardedRef.current = true
+        conflictRef.current = true
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
+        onRequestReload()
+      },
     })
     const editingPeers = others.filter((peer) => peer.editing)
+
+    /** 同時編集中に、列へ保存するのは書記1人だけ（全員でやると弾き合う） */
+    const isScribeRef = useRef(isScribe)
+    isScribeRef.current = isScribe
+    const collabActiveRef = useRef(collabActive)
+    collabActiveRef.current = collabActive
+    const collabSyncedRef = useRef(collabSynced)
+    collabSyncedRef.current = collabSynced
+    const collabMetaRef = useRef(collabMeta)
+    collabMetaRef.current = collabMeta
+
+    /**
+     * エディタが載ったら、種をまく係も一緒に登録する。器に本文を入れられるのは
+     * ProseMirror のスキーマを持っているエディタだけなので、合流はここから始まる。
+     */
+    const registerEditorApi = useCallback(
+      (api: MinutesEditorApi | null) => {
+        editorApiRef.current = api
+        registerSeeder(api ? (doc) => api.seedCollabDoc(doc, initialMinutesMd) : null)
+      },
+      [registerSeeder, initialMinutesMd]
+    )
 
     /** エディタ領域の外へカーソルが出たときだけ「書いています」を下ろす */
     const handleEditorBlur = useCallback(
@@ -340,6 +423,14 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         baseUpdatedAtRef.current = fresh.updated_at
         return { kind: 'same' }
       }
+      // 同時編集中、部屋の中の人が保存した分は競合ではない。内容は器で既に全員に
+      // 届いているので、基準だけ差し替えて書き直せばよい
+      const savedAt = collabMetaRef.current ? readSavedState(collabMetaRef.current).savedAt : null
+      if (collabActiveRef.current && savedAt && savedAt === fresh.updated_at) {
+        baseUpdatedAtRef.current = fresh.updated_at
+        knownServerRawRef.current = freshRaw
+        return { kind: 'same' }
+      }
       const addition = appendOnlyAddition(knownServerRawRef.current, freshRaw)
       if (addition !== null) {
         return { kind: 'appended', addition, serverRaw: freshRaw, updatedAt: fresh.updated_at }
@@ -362,6 +453,14 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
             baseUpdatedAtRef.current = result.updatedAt
             knownServerRawRef.current = result.minutesMd ?? ''
             baselineRef.current = content
+            // 同時編集中は、次の書記がここから基準を引き継ぐ（自分が開いたときの
+            // 古い updated_at を使わせない）
+            if (collabMetaRef.current) {
+              writeSavedState(collabMetaRef.current, {
+                savedAt: result.updatedAt,
+                savedHash: minutesContentHash(content),
+              })
+            }
             setSaveState('saved')
             if (savedBadgeTimerRef.current) clearTimeout(savedBadgeTimerRef.current)
             savedBadgeTimerRef.current = setTimeout(() => setSaveState('idle'), SAVED_BADGE_MS)
@@ -493,6 +592,65 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     // scheduleSave を呼べるようにする（宣言は上の方に前出し済み）
     scheduleSaveRef.current = scheduleSave
 
+    /**
+     * 書記を引き継いだとき（前の書記が画面を閉じた）。
+     *
+     * 自分が開いたときの古い基準のまま列へ書きに行くと必ず弾かれるので、**引き継いだ
+     * 時点の列を読み直して**基準を取り直す。そのうえで、いま器にある内容が列と違えば
+     * 1回保存する（前の書記が抜けた瞬間の書きかけを取りこぼさないため）。
+     */
+    const wasScribeRef = useRef(false)
+    useEffect(() => {
+      if (!collabActive || !isScribe) {
+        wasScribeRef.current = false
+        return
+      }
+      if (wasScribeRef.current) return
+      wasScribeRef.current = true
+      // まだ誰も保存していない＝自分が最初の1人。引き継ぎではないので基準はそのまま
+      const saved = collabMeta ? readSavedState(collabMeta) : { savedAt: null, savedHash: null }
+      if (!saved.savedAt) return
+
+      let cancelled = false
+      void (async () => {
+        try {
+          const fresh = await fetchMeetingDetail(meetingId)
+          if (cancelled || !fresh) return
+          baseUpdatedAtRef.current = fresh.updated_at
+          knownServerRawRef.current = fresh.minutes_md ?? ''
+          const current = currentContentRef.current
+          if (current.trim() === '') return
+          if (minutesContentHash(knownServerRawRef.current) === minutesContentHash(current)) return
+          void scheduleSaveRef.current?.(current)
+        } catch {
+          // 引き継ぎに失敗しても書けなくはしない。次の保存で競合の帯に倒れる
+        }
+      })()
+      return () => {
+        cancelled = true
+      }
+    }, [collabActive, isScribe, collabMeta, fetchMeetingDetail, meetingId])
+
+    /**
+     * 器に種が2つ入った＝本文が二重になっている。その内容は保存せず、列から読み直す。
+     * （どうしてそうなるかは `src/lib/collab/seed.ts` の説明を参照）
+     */
+    const reloadedForDuplicateRef = useRef(false)
+    useEffect(() => {
+      if (degradedReason !== 'duplicate-seed') return
+      // 読み直すと本体は作り直され、器も新しくなる。それでも解消しなかったときに
+      // 読み直しを繰り返さないよう、1回だけにする
+      if (reloadedForDuplicateRef.current) return
+      reloadedForDuplicateRef.current = true
+      discardedRef.current = true
+      conflictRef.current = true
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      onRequestReload()
+    }, [degradedReason, onRequestReload])
+
     const handleEditorChange = useCallback(
       (content: string) => {
         if (!canEdit || forceReadOnly || parseBrokenRef.current) return
@@ -501,7 +659,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         // 本文が実際に動いたときだけ「書いています」にする。BlockNote が初期表示直後に
         // 同じ内容で呼んでくるぶんでは立てない。合流の差し込み中（isApplyingRemoteRef）も
         // 自分がキーボードで書いたわけではないので立てない（低2）。
-        if (trimmed !== currentContentRef.current && !isApplyingRemoteRef.current) setEditing(true)
+        // 相手の文字が流れ込んだぶんでは「書いています」を立てない（自分は書いていない）
+        const fromSomeoneElse = isApplyingRemoteRef.current || isApplyingRemote()
+        if (trimmed !== currentContentRef.current && !fromSomeoneElse) setEditing(true)
         currentContentRef.current = trimmed
 
         if (saveTimerRef.current) {
@@ -533,13 +693,17 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         setIsEmpty(false)
 
         if (conflictRef.current) return
+        // 同時編集中に列へ保存するのは書記1人だけ。全員が保存すると、更新時刻の
+        // 突き合わせで互いを弾き合って誰も保存できなくなる。書いた内容は器を通じて
+        // 全員に届いているので、保存する人が1人でも取りこぼしは起きない
+        if (collabActiveRef.current && !isScribeRef.current) return
 
         saveTimerRef.current = setTimeout(() => {
           saveTimerRef.current = null
           void scheduleSave(trimmed)
         }, AUTO_SAVE_DEBOUNCE_MS)
       },
-      [canEdit, forceReadOnly, scheduleSave, setEditing]
+      [canEdit, forceReadOnly, scheduleSave, setEditing, isApplyingRemote]
     )
 
     const handleCopyDraft = useCallback(async () => {
@@ -570,13 +734,20 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         // 空にしてから離れても保存しない（CRITICAL-N1: 消したことがそのまま確定して
         // 議事録が空で上書きされないように）。「捨てて戻る」が選ばれていた場合も送らない（N4）。
         const isBlank = currentContentRef.current.trim() === ''
+        // 同時編集中は、書記がもう同じ内容を保存していれば送らない（送ると、
+        // 古い基準で書きに行って無駄に弾かれる）。逆に**まだ保存されていなければ
+        // 書記でなくても送る** — 最後の1人が閉じた場面を取りこぼさないため
+        const savedHash = collabMetaRef.current ? readSavedState(collabMetaRef.current).savedHash : null
+        const alreadySaved =
+          savedHash !== null && savedHash === minutesContentHash(currentContentRef.current)
         if (
           canEditRef.current &&
           !conflictRef.current &&
           !parseBrokenRef.current &&
           !discardedRef.current &&
           isDirty &&
-          !isBlank
+          !isBlank &&
+          !alreadySaved
         ) {
           void scheduleSaveRef.current?.(currentContentRef.current)
         }
@@ -671,9 +842,25 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           if (parseBrokenRef.current) throw new Error('議事録の形式が壊れているため保存できません')
           if (conflictRef.current) throw new MinutesConflictError('この議事録は、別の場所で更新されています。保存できていません')
 
-          if (saveTimerRef.current) {
-            clearTimeout(saveTimerRef.current)
-            saveTimerRef.current = null
+          /**
+           * 同時編集中は、**書記でなくてもここでは自分で1回保存する**。
+           * タスク化の DB 側の処理は「渡した本文が列の本文と一致すること」を求める。
+           * 書記でない人は普段保存しないので、基準も「サーバーにあると分かっている本文」も
+           * 開いたときのまま止まり、必ず弾かれる（以後この人の入力が保存されなくなる）。
+           * 器の中身はもう全員に届いているので、ここで列へ押し出しても取りこぼしは無い。
+           */
+          const savedState = collabMetaRef.current ? readSavedState(collabMetaRef.current) : null
+          const needsCollabFlush =
+            collabActiveRef.current &&
+            currentContentRef.current.trim() !== '' &&
+            savedState?.savedHash !== minutesContentHash(currentContentRef.current)
+          if (needsCollabFlush && savedState?.savedAt) baseUpdatedAtRef.current = savedState.savedAt
+
+          if (saveTimerRef.current || needsCollabFlush) {
+            if (saveTimerRef.current) {
+              clearTimeout(saveTimerRef.current)
+              saveTimerRef.current = null
+            }
             if (savingRef.current) {
               // 既に別の保存が通信中。今回は流さず、取りこぼさないようキューにだけ乗せる
               pendingContentRef.current = currentContentRef.current
@@ -706,6 +893,13 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           }
           if (!fresh) throw new Error('議事録の状態を確かめられませんでした。もう一度お試しください')
           if (fresh.updated_at === baseUpdatedAtRef.current) return
+          // 部屋の中の人が保存しただけなら競合ではない（内容は器で合流済み）
+          const roomSavedAt = collabMetaRef.current ? readSavedState(collabMetaRef.current).savedAt : null
+          if (collabActiveRef.current && roomSavedAt && roomSavedAt === fresh.updated_at) {
+            baseUpdatedAtRef.current = fresh.updated_at
+            knownServerRawRef.current = fresh.minutes_md ?? ''
+            return
+          }
           const freshRaw = fresh.minutes_md ?? ''
           if (freshRaw === knownServerRawRef.current) {
             // 本文は変わっていない(開始/終了などでupdated_atだけ進んだ) → 基準だけ差し替える
@@ -729,14 +923,33 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           conflictRef.current = true
           setConflict(true)
         },
+        notifyRoomReload: requestRoomReload,
         discardDraft: () => {
           discardedRef.current = true
         },
       }),
-      [canEdit, scheduleSave, fetchMeetingDetail, meetingId]
+      [canEdit, scheduleSave, fetchMeetingDetail, meetingId, requestRoomReload]
     )
 
-    const effectiveEditable = canEdit && !forceReadOnly && !parseBrokenRef.current
+    /**
+     * 同時編集を使うときは、**本文が届くまで書けないようにする**。
+     * 届くまでのあいだエディタは空なので、そこへ打つと、あとから届いた本文と混ざる。
+     * ふつうは1秒かからない（同じ議事録を開いている人がすぐ返す）。
+     */
+    const effectiveEditable = canEdit && !forceReadOnly && !parseBrokenRef.current && collabSynced
+
+    /**
+     * エディタに渡す同時編集の入れ物。**同じ参照を保つ**のが要点。
+     * 毎回作り直すと、在席の顔ぶれが動くたびに BlockNote ごと描き直してしまう
+     * （`MinutesEditor` は memo 済みだが、この props だけが毎回別物になる）。
+     */
+    const collaboration = useMemo(
+      () =>
+        fragment && awareness
+          ? { fragment, awareness, userName: selfName, userId: selfUserId }
+          : undefined,
+      [fragment, awareness, selfName, selfUserId]
+    )
 
     return (
       <>
@@ -768,6 +981,16 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           </div>
         )}
 
+        {/* 同時編集をやめて1人で書く形に戻ったときの知らせ。編集は止めない */}
+        {degradedReason && degradeMessage(degradedReason) && (
+          <div
+            data-testid="minutes-collab-degraded-notice"
+            className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0"
+          >
+            <p className="text-xs text-gray-500">{degradeMessage(degradedReason)}</p>
+          </div>
+        )}
+
         {/* 知らせるだけの帯。編集は止めない（同時に書けてしまったときの砦は保存の楽観ロック） */}
         {editingPeers.length > 0 && (
           <div
@@ -794,20 +1017,32 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
                 <p>ここに議事録を書きます。会議の前に、決めることや進め方を書いておくこともできます。</p>
               </div>
             )}
-            <MinutesEditorDynamic
-              minutesMd={initialMinutesMd}
-              onChange={canEdit && !forceReadOnly ? handleEditorChange : undefined}
-              onBeforeNavigate={handleBeforeNavigate}
-              editable={effectiveEditable}
-              orgId={orgId}
-              spaceId={spaceId}
-              registerApi={registerEditorApi}
-              // 印を押した操作とチェックでの完了は、書ける人のときだけ
-              // 競合の帯が出ている間は止める。自動保存が早期 return するので、画面の
-              // チェックだけ外れてサーバーには `[x]` が残る（見た目と中身がずれる）
-              onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
-              noteAuthorName={noteAuthorName}
-            />
+            {/* 器の用意が終わるまでエディタを載せない。先に載せると、あとから器を
+                渡せない（BlockNote は載せるときに1回だけ受け取る）ので、同時編集に
+                ならないまま固まる */}
+            {collabPending ? (
+              <EditorLoadingFallback />
+            ) : (
+              <MinutesEditorDynamic
+                // 器につながずに載せ替えるときは作り直す。つないだままだと、
+                // 空の器に打った1文字で議事録が丸ごと消える
+                key={collabSolo ? 'solo' : 'collab'}
+                minutesMd={initialMinutesMd}
+                onChange={canEdit && !forceReadOnly ? handleEditorChange : undefined}
+                onBeforeNavigate={handleBeforeNavigate}
+                editable={effectiveEditable}
+                orgId={orgId}
+                spaceId={spaceId}
+                registerApi={registerEditorApi}
+                // 印を押した操作とチェックでの完了は、書ける人のときだけ
+                // 競合の帯が出ている間は止める。自動保存が早期 return するので、画面の
+                // チェックだけ外れてサーバーには `[x]` が残る（見た目と中身がずれる）
+                onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
+                noteAuthorName={noteAuthorName}
+                collaboration={collaboration}
+                isApplyingRemote={isApplyingRemote}
+              />
+            )}
           </div>
         </div>
       </>
@@ -937,6 +1172,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
         getKnownRaw: () => bodyRef.current?.getKnownRaw() ?? null,
         confirmLeave,
         markConflict: () => bodyRef.current?.markConflict(),
+        notifyRoomReload: () => bodyRef.current?.notifyRoomReload(),
       }),
       [confirmLeave]
     )

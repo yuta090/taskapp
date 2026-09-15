@@ -130,6 +130,8 @@ const mockGetBaseUpdatedAt = vi.fn().mockReturnValue('2026-09-01T00:00:00.111111
 const mockGetKnownRaw = vi.fn().mockReturnValue('flushed-content')
 const mockConfirmLeave = vi.fn().mockResolvedValue(true)
 const mockMarkConflict = vi.fn()
+/** タスク化のあと、同じ議事録を開いている人に読み直してもらう合図 */
+const mockNotifyRoomReload = vi.fn()
 
 interface FakeHandle {
   flushPendingSave: () => Promise<string>
@@ -138,6 +140,7 @@ interface FakeHandle {
   getKnownRaw: () => string | null
   confirmLeave: () => Promise<boolean>
   markConflict: () => void
+  notifyRoomReload: () => void
 }
 
 vi.mock('@/components/meeting/MinutesDocumentView', () => ({
@@ -157,6 +160,7 @@ vi.mock('@/components/meeting/MinutesDocumentView', () => ({
       getKnownRaw: mockGetKnownRaw,
       confirmLeave: mockConfirmLeave,
       markConflict: mockMarkConflict,
+      notifyRoomReload: mockNotifyRoomReload,
     }))
     return (
       <div data-testid="minutes-document-view" data-fullscreen={String(!!props.fullscreen)}>
