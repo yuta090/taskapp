@@ -1,9 +1,9 @@
 import { jstNow } from '@/lib/datetime/jstNow'
 
 /**
- * 会議メモに残す「書いた日時」の読み書き。
+ * 会議メモに残す「書いた日時」と「書いた人」の読み書き。
  *
- * 保存の形は `2026-09-15T14:30`（日本時間の壁時計。時差の表記は付けない）。
+ * 日時の保存の形は `2026-09-15T14:30`（日本時間の壁時計。時差の表記は付けない）。
  * 議事録の本文（Markdown）の中に置くので、人が見ても読める形にしておく。
  */
 
@@ -58,4 +58,37 @@ export function formatNoteStampLabel(stamp: string | undefined, today?: Date): s
   const date = `${Number(month)}/${Number(day)}`
   const time = `${Number(hour)}:${minute}`
   return sameYear ? `${date} ${time}` : `${year}/${date} ${time}`
+}
+
+/** 書いた人の名前の長さの上限。長い名前は本文の横で邪魔になるので切る */
+const NOTE_AUTHOR_MAX_CHARS = 40
+
+/**
+ * 書いた人の名前を、本文の目印に置ける形に整える。
+ *
+ * 名前は `<!--note:2026-09-15T14:30 高橋 優太-->` のように目印の中に入るので、`>` があると
+ * 目印がそこで閉じてしまう。`<` と `>` を落とし、改行やタブは空白1つにまとめる
+ * （目印は1行に収める約束）。無いときは空文字。
+ */
+export function normalizeNoteAuthor(name: string | null | undefined): string {
+  if (!name) return ''
+  const cleaned = name.replace(/[<>]/g, '').replace(/[\p{Cc}\s]+/gu, ' ').trim()
+  // 絵文字などを途中で割らないよう、文字単位で数える
+  return Array.from(cleaned).slice(0, NOTE_AUTHOR_MAX_CHARS).join('').trim()
+}
+
+/**
+ * メンバー一覧（`useSpaceMembers`）から、メモに残す自分の名前を引く。
+ *
+ * 一覧は表示名が未設定の人に `id の先頭8文字...` という仮の名前を入れて返す。これを本文に
+ * 焼き付けると意味の無い文字が残り続けるので、名前が無いものとして扱う。
+ */
+export function noteAuthorNameOf(
+  members: ReadonlyArray<{ id: string; displayName: string }>,
+  userId: string | null | undefined
+): string {
+  if (!userId) return ''
+  const displayName = members.find((member) => member.id === userId)?.displayName ?? ''
+  if (displayName === `${userId.slice(0, 8)}...`) return ''
+  return normalizeNoteAuthor(displayName)
 }

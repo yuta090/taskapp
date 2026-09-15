@@ -229,6 +229,63 @@ describe('会議メモ', () => {
       { type: 'meetingNote', content: [t('決めた'), mk('11111111-1111-1111-1111-111111111111')] },
     ])
   })
+
+  it('日時のあとに書いた人の名前を持つ会議メモを読める', () => {
+    expect(parseMinutesMarkdown('<!--note:2026-09-15T14:30 高橋 優太-->その場で出た補足')).toEqual([
+      {
+        type: 'meetingNote',
+        props: { createdAt: '2026-09-15T14:30', author: '高橋 優太' },
+        content: [t('その場で出た補足')],
+      },
+    ])
+  })
+
+  it('書いた人の名前は1行目だけに付け、続きの行には付けない', () => {
+    const out = serializeMinutesBlocks([
+      {
+        type: 'meetingNote',
+        props: { createdAt: '2026-09-15T14:30', author: '高橋 優太' },
+        content: [t('1行目\n2行目')],
+      },
+    ])
+    expect(out).toBe('<!--note:2026-09-15T14:30 高橋 優太-->1行目\n<!--note-->2行目')
+  })
+
+  it('名前付きの会議メモも、読み込み→書き出しで形が変わらない', () => {
+    const md = '<!--note:2026-09-15T14:30 高橋 優太-->1行目\n<!--note-->2行目\n\n<!--note:2026-09-15T15:00 佐藤-->別のメモ'
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(md))).toBe(md)
+  })
+
+  it('名前の前後の余分な空白は読むときに落とす', () => {
+    const blocks = parseMinutesMarkdown('<!--note:2026-09-15T14:30   高橋  -->本文')
+    expect(blocks[0].props).toEqual({ createdAt: '2026-09-15T14:30', author: '高橋' })
+  })
+
+  it('書き出すときに < と > と改行を名前から落とす（目印が壊れない）', () => {
+    const out = serializeMinutesBlocks([
+      { type: 'meetingNote', props: { createdAt: '2026-09-15T14:30', author: '高<b>橋\n優太' }, content: [t('本文')] },
+    ])
+    expect(out).toBe('<!--note:2026-09-15T14:30 高b橋 優太-->本文')
+    expect(parseMinutesMarkdown(out)[0].props).toEqual({ createdAt: '2026-09-15T14:30', author: '高b橋 優太' })
+  })
+
+  it('日時が壊れていたら、名前があっても日時も名前も読まない', () => {
+    expect(parseMinutesMarkdown('<!--note:こわれた 高橋-->本文')).toEqual([
+      { type: 'meetingNote', content: [t('本文')] },
+    ])
+  })
+
+  it('日時の無いメモには名前も書き出さない（名前は日時のあとに置く形のため）', () => {
+    const out = serializeMinutesBlocks([{ type: 'meetingNote', props: { author: '高橋' }, content: [t('本文')] }])
+    expect(out).toBe('<!--note-->本文')
+  })
+
+  it('名前が空なら、これまでと同じ日時だけの形で書き出す', () => {
+    const out = serializeMinutesBlocks([
+      { type: 'meetingNote', props: { createdAt: '2026-09-15T14:30', author: '' }, content: [t('本文')] },
+    ])
+    expect(out).toBe('<!--note:2026-09-15T14:30-->本文')
+  })
 })
 
 describe('parseMinutesMarkdown: 箇条書き・チェック・番号付き', () => {

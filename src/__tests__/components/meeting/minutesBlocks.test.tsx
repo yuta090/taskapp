@@ -129,9 +129,41 @@ describe('議事録の会議メモ', () => {
     })
     expect((editor.document[0].props as { createdAt?: string }).createdAt).toBe('2026-09-15T14:30')
   })
+
+  it('書いた人の名前も読み込んで書き出せる', () => {
+    const md = '<!--note:2026-09-15T14:30 高橋 優太-->その場で出た補足'
+    expect(roundTrip(md)).toBe(md)
+  })
+
+  it('BlockNote 側にも書いた人の名前が残る', () => {
+    const editor = BlockNoteEditor.create({
+      schema: minutesSchema,
+      initialContent: parseMinutesMarkdown('<!--note:2026-09-15T14:30 高橋 優太-->補足') as never,
+    })
+    expect((editor.document[0].props as { author?: string }).author).toBe('高橋 優太')
+  })
 })
 
 describe('会議メモの見た目', () => {
+  it('書いた人の名前を日時の前に小さく添える', () => {
+    render(<MeetingNoteBlock createdAt="2026-09-15T14:30" author="高橋 優太" contentRef={() => {}} />)
+    const author = screen.getByTestId('minutes-meeting-note-author')
+    expect(author).toHaveTextContent('高橋 優太')
+    // 本文と一緒に消してしまわないよう、打てない場所に置く
+    expect(author).toHaveAttribute('contenteditable', 'false')
+    expect(screen.getByTestId('minutes-meeting-note-time')).toHaveTextContent('9/15 14:30')
+  })
+
+  it('名前が無ければ名前は添えない（前からある会議メモ）', () => {
+    render(<MeetingNoteBlock createdAt="2026-09-15T14:30" contentRef={() => {}} />)
+    expect(screen.queryByTestId('minutes-meeting-note-author')).not.toBeInTheDocument()
+  })
+
+  it('空白だけの名前も添えない', () => {
+    render(<MeetingNoteBlock createdAt="2026-09-15T14:30" author="   " contentRef={() => {}} />)
+    expect(screen.queryByTestId('minutes-meeting-note-author')).not.toBeInTheDocument()
+  })
+
   it('書いた日時を小さく添える', () => {
     render(<MeetingNoteBlock createdAt="2026-09-15T14:30" contentRef={() => {}} />)
     const time = screen.getByTestId('minutes-meeting-note-time')

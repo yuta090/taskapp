@@ -31,6 +31,13 @@ describe('PortalMinutesDocument', () => {
   it('日時の無い会議メモには何も添えない', () => {
     render(<PortalMinutesDocument md={'<!--note-->日時なし'} />)
     expect(screen.queryByTestId('portal-minutes-meeting-note-time')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('portal-minutes-meeting-note-author')).not.toBeInTheDocument()
+  })
+
+  it('会議メモに書いた人の名前があれば、日時と一緒に添える', () => {
+    render(<PortalMinutesDocument md={'<!--note:2026-09-15T14:30 高橋 優太-->その場で出た補足'} />)
+    expect(screen.getByTestId('portal-minutes-meeting-note-author')).toHaveTextContent('高橋 優太')
+    expect(screen.getByTestId('portal-minutes-meeting-note-time')).toHaveTextContent('9/15 14:30')
   })
 
   it('会議メモは色の付いた囲みとして出す', () => {
