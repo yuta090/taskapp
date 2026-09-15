@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback, useContext, useRef } from 'r
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus } from '@phosphor-icons/react'
+import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus, ChatCircle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
@@ -14,10 +14,26 @@ import { useTasks } from '@/lib/hooks/useTasks'
 import type { TasksQueryData } from '@/lib/hooks/useTasks'
 import { useMyPendingReviews } from '@/lib/hooks/useMyPendingReviews'
 import { useMyTaskCommentCounts } from '@/lib/hooks/useTaskCommentCounts'
+import { useMyUnreadTaskComments } from '@/lib/hooks/useUnreadTaskComments'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { Task, Space, Milestone, TaskStatus, ReviewStatus } from '@/types/database'
 import { splitEmbeddedReviews, type EmbeddedReviews } from '@/lib/tasks/reviewStatus'
+import {
+  DEFAULT_MY_TASK_VIEW,
+  buildMyTaskSections,
+  filterMyTasks,
+  parseMyTaskViewState,
+  sortMyTasks,
+  type MyTaskBallFilter,
+  type MyTaskGroupBy,
+  type MyTaskSortField,
+  type MyTaskTab,
+  type MyTaskViewState,
+} from '@/lib/tasks/myTaskViews'
+import { jstNow } from '@/lib/datetime/jstNow'
+import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext, PAGE_LOADED_AT } from '@/lib/org/ActiveOrgProvider'
@@ -42,34 +58,6 @@ const DEV_USER_ID = '0124bcca-7c66-406c-b1ae-2be8dac241c5'
 const STORAGE_KEY = 'my-tasks-collapsed-milestones'
 const FILTER_STORAGE_KEY = 'my-tasks-filters'
 
-type SortField = 'due_date' | 'created_at' | 'priority' | 'title'
-type SortOrder = 'asc' | 'desc'
-type StatusFilter = 'all' | 'todo' | 'in_progress' | 'in_review'
-
-interface FilterState {
-  status: StatusFilter
-  spaceId: string | null
-  showCompleted: boolean
-  sortField: SortField
-  sortOrder: SortOrder
-}
-
-const defaultFilters: FilterState = {
-  status: 'all',
-  spaceId: null,
-  showCompleted: false,
-  sortField: 'due_date',
-  sortOrder: 'asc',
-}
-
-interface TaskGroup {
-  space: Space | null
-  milestoneGroups: {
-    milestone: Milestone | null
-    tasks: Task[]
-  }[]
-}
-
 function loadCollapsedState(): Set<string> {
   if (typeof window === 'undefined') return new Set()
   try {
@@ -92,36 +80,52 @@ function saveCollapsedState(collapsed: Set<string>) {
   }
 }
 
-function loadFilterState(): FilterState {
-  if (typeof window === 'undefined') return defaultFilters
+// 表示の設定（タブ・まとめ方・ボール・絞り込み・並び替え）。前の形（status / showCompleted）の
+// 保存が残っていても、parseMyTaskViewState が項目ごとに既定へ戻す
+function loadViewState(): MyTaskViewState {
+  if (typeof window === 'undefined') return DEFAULT_MY_TASK_VIEW
   try {
     const stored = localStorage.getItem(FILTER_STORAGE_KEY)
     if (stored) {
-      return { ...defaultFilters, ...JSON.parse(stored) }
+      return parseMyTaskViewState(JSON.parse(stored))
     }
   } catch {
     // ignore
   }
-  return defaultFilters
+  return DEFAULT_MY_TASK_VIEW
 }
 
-function saveFilterState(filters: FilterState) {
+function saveViewState(view: MyTaskViewState) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters))
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(view))
   } catch {
     // ignore
   }
 }
 
-const statusLabels: Record<StatusFilter, string> = {
-  all: 'すべて',
-  todo: '着手予定',
-  in_progress: '進行中',
-  in_review: '社内承認中',
+const TAB_OPTIONS: { key: MyTaskTab; label: string }[] = [
+  { key: 'all', label: 'すべて' },
+  { key: 'active', label: 'アクティブ' },
+  { key: 'backlog', label: '未着手' },
+  { key: 'done', label: '完了' },
+]
+
+const groupByLabels: Record<MyTaskGroupBy, string> = {
+  due: '期限別',
+  project: 'プロジェクト別',
+  milestone: 'マイルストーン別',
+  status: 'ステータス別',
 }
 
-const sortLabels: Record<SortField, string> = {
+// ボールの呼び方は、プロジェクトのタスク一覧の絞り込み（TaskFilterMenu）にそろえる
+const ballLabels: Record<MyTaskBallFilter, string> = {
+  all: 'ボール: すべて',
+  internal: 'ボール: 社内',
+  external: 'ボール: 外部',
+}
+
+const sortLabels: Record<MyTaskSortField, string> = {
   due_date: '期限',
   created_at: '作成日',
   priority: '優先度',
@@ -152,6 +156,8 @@ interface MyTaskInspectorProps {
   onDeleted: (taskId: string) => void
   /** 詳細の子タスクを押したとき。そのプロジェクトのタスク（useTasks の結果）を渡す */
   onOpenTask: (task: Task) => void
+  /** このタスクの自分宛ての未読のコメントの数。1以上なら詳細のコメント欄を開いておく */
+  unreadCommentCount: number
 }
 
 /**
@@ -175,7 +181,7 @@ const SHOW_TOLERANCE_MS = DEFAULT_STALE_TIME_MS
  * 子タスクの表示にも要る。useTasks はそのプロジェクトの全タスクを読み込むため、担当者は
  * 自然に揃う。担当者が揃うまでは TaskInspector を出さない。
  */
-function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted, onOpenTask }: MyTaskInspectorProps) {
+function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted, onOpenTask, unreadCommentCount }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
 
   // TaskInspector 自体（コード）は、データが揃うのを待たずマウント時点から先読みしておく。
@@ -355,9 +361,10 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
         onConsideringDecided={canEdit ? fetchTasks : undefined}
         onReviewChange={handleReviewChange}
         canEditPricing={canEditMoney}
+        unreadCommentCount={unreadCommentCount}
       />
     )
-  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
+  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange, unreadCommentCount])
 
   return null
 }
@@ -442,16 +449,35 @@ async function fetchMyTasksData(
 const LOGIN_REQUIRED_ERROR = new Error('ログインが必要です')
 
 export default function MyTasksClient() {
-  const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set())
-  const [filters, setFilters] = useState<FilterState>(defaultFilters)
+  // 畳んだ見出し。キーはまとめ方ごとに別（プロジェクト別は前の形 spaceId:milestoneId のまま引き継ぐ）
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [view, setView] = useState<MyTaskViewState>(DEFAULT_MY_TASK_VIEW)
   const [showFilters, setShowFilters] = useState(false)
+  // 期限別の「今日」（日本時間）。レンダーのたびに時計を読まず、画面を開いた時点で決め、
+  // 画面に戻ったときに合わせ直す（下の effect）
+  const [today, setToday] = useState(() => formatDateToLocalString(jstNow()))
 
   // Restore persisted state from localStorage after hydration
   useEffect(() => {
     const savedCollapsed = loadCollapsedState()
-    if (savedCollapsed.size > 0) setCollapsedMilestones(savedCollapsed)
-    const savedFilters = loadFilterState()
-    if (JSON.stringify(savedFilters) !== JSON.stringify(defaultFilters)) setFilters(savedFilters)
+    if (savedCollapsed.size > 0) setCollapsedGroups(savedCollapsed)
+    const savedView = loadViewState()
+    if (JSON.stringify(savedView) !== JSON.stringify(DEFAULT_MY_TASK_VIEW)) setView(savedView)
+  }, [])
+
+  // 開いたまま日付をまたいだら、画面に戻ったときに「今日」を合わせ直す。行の期限の赤字は描画のたびに
+  // 今の日付を見るので、見出しだけが前の日のまま残らないようにする（同じ日付なら描き直しは起きない）
+  useEffect(() => {
+    const refreshToday = () => setToday(formatDateToLocalString(jstNow()))
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshToday()
+    }
+    window.addEventListener('focus', refreshToday)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('focus', refreshToday)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [])
 
   const searchParams = useSearchParams()
@@ -514,6 +540,10 @@ export default function MyTasksClient() {
   // 結果を待たない（詳細は useTaskCommentCounts のコメント参照）。読み込み条件は myTasksQuery と揃え、
   // 組織の判定が終わるまでは読まない（判定前に全組織ぶんを1回読んでから、もう1回読み直すのを防ぐ）
   const commentCounts = useMyTaskCommentCounts(userId, activeOrgId ?? null, { enabled: !orgLoading })
+  // 自分宛ての未読のコメント（受信トレイのお知らせ）をタスクごとに数える。コメント数と同じく一覧本体とは別に読み、待たせない
+  const unreadComments = useMyUnreadTaskComments(userId, activeOrgId ?? null, { enabled: !orgLoading })
+  // スマホの幅では行を2段にする（プロジェクトのタスク一覧と同じ）。1段のままだと、札やプロジェクト名にタスク名が押しつぶされる
+  const isMobile = useIsMobile()
   // /my の一覧を読み込み始めた時刻。MyTaskInspector 側で「useTasks のキャッシュが
   // 一覧と同じくらい新しいか」を判定するために渡す（詳細参照）
   const listFetchedAt = myTasksQuery.data?.fetchedAt ?? 0
@@ -787,21 +817,21 @@ export default function MyTasksClient() {
     [supabase, userId, spaces, queryClient, myTasksKey]
   )
 
-  const updateFilters = useCallback((updates: Partial<FilterState>) => {
-    setFilters(prev => {
+  const updateView = useCallback((updates: Partial<MyTaskViewState>) => {
+    setView(prev => {
       const next = { ...prev, ...updates }
-      saveFilterState(next)
+      saveViewState(next)
       return next
     })
   }, [])
 
-  const toggleMilestone = useCallback((milestoneKey: string) => {
-    setCollapsedMilestones(prev => {
+  const toggleGroup = useCallback((groupKey: string) => {
+    setCollapsedGroups(prev => {
       const next = new Set(prev)
-      if (next.has(milestoneKey)) {
-        next.delete(milestoneKey)
+      if (next.has(groupKey)) {
+        next.delete(groupKey)
       } else {
-        next.add(milestoneKey)
+        next.add(groupKey)
       }
       saveCollapsedState(next)
       return next
@@ -880,119 +910,44 @@ export default function MyTasksClient() {
     void myTasksQuery.refetch()
   }, [loginRequired, queryClient, myTasksQuery])
 
-  // Filter and sort tasks
+  const unreadCountOf = useCallback((taskId: string) => unreadComments[taskId]?.count ?? 0, [unreadComments])
+
+  // タブ・ボール・プロジェクトで絞った一覧（未読コメントではまだ絞らない）。「未読コメント」ボタンの数に使う
+  const baseFilteredTasks = useMemo(
+    () => filterMyTasks(tasks, { ...view, unreadOnly: false }, unreadCountOf),
+    [tasks, view, unreadCountOf]
+  )
+  const unreadTaskCount = useMemo(
+    () => baseFilteredTasks.filter((t) => unreadCountOf(t.id) > 0).length,
+    [baseFilteredTasks, unreadCountOf]
+  )
+
   const filteredTasks = useMemo(() => {
-    let result = [...tasks]
+    // 開いている行は、既読になって未読が消えても残す（押した行がその場で消えて並びがずれないように）
+    const narrowed = view.unreadOnly
+      ? baseFilteredTasks.filter((t) => unreadCountOf(t.id) > 0 || t.id === selectedTaskId)
+      : baseFilteredTasks
+    return sortMyTasks(narrowed, view.sortField, view.sortOrder)
+  }, [baseFilteredTasks, view.unreadOnly, view.sortField, view.sortOrder, unreadCountOf, selectedTaskId])
 
-    // Status filter
-    if (filters.status !== 'all') {
-      result = result.filter(t => t.status === filters.status)
-    } else if (!filters.showCompleted) {
-      result = result.filter(t => t.status !== 'done' && t.status !== 'backlog')
-    }
+  const sections = useMemo(
+    () => buildMyTaskSections(filteredTasks, view.groupBy, { spaces, milestones, today }),
+    [filteredTasks, view.groupBy, spaces, milestones, today]
+  )
 
-    // Space filter
-    if (filters.spaceId) {
-      result = result.filter(t => t.space_id === filters.spaceId)
-    }
+  // 期限別・ステータス別は見出しにプロジェクトが出ないので、行にプロジェクト名を添える
+  const showProjectName = view.groupBy === 'due' || view.groupBy === 'status'
+  const spaceNameById = useMemo(() => new Map(spaces.map((s) => [s.id, s.name])), [spaces])
 
-    // Sort
-    result.sort((a, b) => {
-      let comparison = 0
-      switch (filters.sortField) {
-        case 'due_date':
-          const aDate = a.due_date || '9999-12-31'
-          const bDate = b.due_date || '9999-12-31'
-          comparison = aDate.localeCompare(bDate)
-          break
-        case 'created_at':
-          comparison = a.created_at.localeCompare(b.created_at)
-          break
-        case 'priority':
-          comparison = (a.priority || 0) - (b.priority || 0)
-          break
-        case 'title':
-          comparison = a.title.localeCompare(b.title)
-          break
-      }
-      return filters.sortOrder === 'asc' ? comparison : -comparison
-    })
+  // 「フィルター」の中の絞り込み（プロジェクト）が効いているか。タブ・まとめ方・ボール・未読は常に見えているので数えない
+  const hasActiveFilters = view.spaceId !== null
+  // 何も絞っていない既定の「アクティブ」だけで0件になっている状態。空のときの案内を出し分ける
+  const onlyDefaultTabHides =
+    view.tab === 'active' && view.ball === 'all' && view.spaceId === null && !view.unreadOnly
 
-    return result
-  }, [tasks, filters])
-
-  // Group tasks by space, then by milestone
-  const taskGroups = useMemo(() => {
-    const activeTasks = filteredTasks.filter(t => t.status !== 'done' && t.status !== 'backlog')
-
-    const spaceMap = new Map<string, Task[]>()
-    activeTasks.forEach(task => {
-      const spaceId = task.space_id || 'no-space'
-      if (!spaceMap.has(spaceId)) {
-        spaceMap.set(spaceId, [])
-      }
-      spaceMap.get(spaceId)!.push(task)
-    })
-
-    const groups: TaskGroup[] = []
-
-    spaceMap.forEach((spaceTasks, spaceId) => {
-      const space = spaces.find(s => s.id === spaceId) || null
-
-      const milestoneMap = new Map<string, Task[]>()
-      spaceTasks.forEach(task => {
-        const milestoneId = task.milestone_id || 'no-milestone'
-        if (!milestoneMap.has(milestoneId)) {
-          milestoneMap.set(milestoneId, [])
-        }
-        milestoneMap.get(milestoneId)!.push(task)
-      })
-
-      const milestoneGroups = Array.from(milestoneMap.entries()).map(([milestoneId, mTasks]) => ({
-        milestone: milestones.find(m => m.id === milestoneId) || null,
-        tasks: mTasks
-      }))
-
-      milestoneGroups.sort((a, b) => {
-        if (!a.milestone && !b.milestone) return 0
-        if (!a.milestone) return 1
-        if (!b.milestone) return -1
-        const aDate = a.milestone.due_date || ''
-        const bDate = b.milestone.due_date || ''
-        return aDate.localeCompare(bDate)
-      })
-
-      groups.push({ space, milestoneGroups })
-    })
-
-    groups.sort((a, b) => {
-      const aName = a.space?.name || ''
-      const bName = b.space?.name || ''
-      return aName.localeCompare(bName)
-    })
-
-    return groups
-  }, [filteredTasks, spaces, milestones])
-
-  const completedTasks = filteredTasks.filter(t => t.status === 'done')
-  const activeTasks = filteredTasks.filter(t => t.status !== 'done' && t.status !== 'backlog')
-
-  const hasActiveFilters = filters.status !== 'all' || filters.spaceId !== null || filters.showCompleted
-
-  function formatDate(dateStr: string | null): string | null {
-    if (!dateStr) return null
-    const date = new Date(dateStr)
-    const month = date.getMonth() + 1
-    const day = date.getDate()
-    return `${month}/${day}`
-  }
-
-  function getMilestoneKey(spaceId: string | undefined, milestoneId: string | undefined): string {
-    return `${spaceId || 'no-space'}:${milestoneId || 'no-milestone'}`
-  }
-
-  function resetFilters() {
-    updateFilters(defaultFilters)
+  // 一致するタスクが0件のとき、全部を見える状態に戻す（まとめ方と並び替えは変えない）
+  function showAllTasks() {
+    updateView({ tab: 'all', ball: 'all', spaceId: null, unreadOnly: false })
   }
 
   return (
@@ -1003,8 +958,8 @@ export default function MyTasksClient() {
           <Target className="text-lg text-gray-500" />
           マイタスク
         </h1>
-        <span className="ml-2 text-xs text-gray-400">
-          {activeTasks.length}件
+        <span data-testid="my-tasks-count" className="ml-2 text-xs text-gray-400">
+          {filteredTasks.length}件
         </span>
 
         <div className="flex-1" />
@@ -1038,15 +993,15 @@ export default function MyTasksClient() {
 
         {/* Sort button */}
         <button
-          onClick={() => updateFilters({ sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
+          onClick={() => updateView({ sortOrder: view.sortOrder === 'asc' ? 'desc' : 'asc' })}
           className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded transition-colors ml-1"
         >
-          {filters.sortOrder === 'asc' ? (
+          {view.sortOrder === 'asc' ? (
             <SortAscending className="text-sm" />
           ) : (
             <SortDescending className="text-sm" />
           )}
-          {sortLabels[filters.sortField]}
+          {sortLabels[view.sortField]}
         </button>
         {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
             AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
@@ -1056,29 +1011,85 @@ export default function MyTasksClient() {
         </div>
       </header>
 
+      {/* 表示の切り替え（タブ・まとめ方・ボール・未読コメント）。プロジェクトのタスク一覧と同じく常に出しておく */}
+      <div className="border-b border-gray-100 px-4 md:px-5 py-2 flex items-center gap-2 flex-wrap flex-shrink-0">
+        <div className="flex items-center gap-1 bg-gray-100/80 rounded-lg p-0.5 max-w-full overflow-x-auto hide-scrollbar [&>button]:shrink-0 [&>button]:whitespace-nowrap">
+          {TAB_OPTIONS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              data-testid={`my-tasks-tab-${key}`}
+              aria-pressed={view.tab === key}
+              onClick={() => updateView({ tab: key })}
+              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                view.tab === key ? 'text-gray-900 bg-surface shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <select
+          data-testid="my-tasks-group-by"
+          aria-label="まとめ方"
+          value={view.groupBy}
+          onChange={(e) => updateView({ groupBy: e.target.value as MyTaskGroupBy })}
+          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-surface text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          {Object.entries(groupByLabels).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+
+        <select
+          data-testid="my-tasks-ball-filter"
+          aria-label="ボール"
+          value={view.ball}
+          onChange={(e) => updateView({ ball: e.target.value as MyTaskBallFilter })}
+          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-surface text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          {Object.entries(ballLabels).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+
+        {/* 押している間は青の面に白文字。50番台の面はダークで暗くなり、青い文字が読めなくなるため使わない */}
+        <button
+          type="button"
+          data-testid="my-tasks-unread-only"
+          aria-pressed={view.unreadOnly}
+          onClick={() => updateView({ unreadOnly: !view.unreadOnly })}
+          title="未読のコメントがあるタスクだけを出す"
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs whitespace-nowrap border rounded-lg transition-colors ${
+            view.unreadOnly
+              ? 'bg-blue-600 border-blue-600 text-white'
+              : 'bg-surface border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300'
+          }`}
+        >
+          <ChatCircle className="text-sm" />
+          未読コメント
+          {unreadTaskCount > 0 && (
+            <span
+              className={`min-w-4 rounded-full px-1 text-center text-[10px] font-medium leading-4 tabular-nums ${
+                view.unreadOnly ? 'border border-white/70 text-white' : 'bg-blue-600 text-white'
+              }`}
+            >
+              {unreadTaskCount}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Filter bar */}
       {showFilters && (
         <div className="border-b border-gray-100 px-5 py-3 bg-gray-50/50 flex items-center gap-4 flex-wrap">
-          {/* Status filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">ステータス:</span>
-            <select
-              value={filters.status}
-              onChange={(e) => updateFilters({ status: e.target.value as StatusFilter })}
-              className="text-xs border border-gray-200 rounded px-2 py-1 bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              {Object.entries(statusLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-
           {/* Space filter */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">プロジェクト:</span>
             <select
-              value={filters.spaceId || ''}
-              onChange={(e) => updateFilters({ spaceId: e.target.value || null })}
+              value={view.spaceId || ''}
+              onChange={(e) => updateView({ spaceId: e.target.value || null })}
               className="text-xs border border-gray-200 rounded px-2 py-1 bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="">すべて</option>
@@ -1092,8 +1103,8 @@ export default function MyTasksClient() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">並び替え:</span>
             <select
-              value={filters.sortField}
-              onChange={(e) => updateFilters({ sortField: e.target.value as SortField })}
+              value={view.sortField}
+              onChange={(e) => updateView({ sortField: e.target.value as MyTaskSortField })}
               className="text-xs border border-gray-200 rounded px-2 py-1 bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               {Object.entries(sortLabels).map(([value, label]) => (
@@ -1102,21 +1113,10 @@ export default function MyTasksClient() {
             </select>
           </div>
 
-          {/* Show completed toggle */}
-          <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={filters.showCompleted}
-              onChange={(e) => updateFilters({ showCompleted: e.target.checked })}
-              className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-            />
-            完了を表示
-          </label>
-
           {/* Reset button */}
           {hasActiveFilters && (
             <button
-              onClick={resetFilters}
+              onClick={() => updateView({ spaceId: null })}
               className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 ml-auto"
             >
               <X className="text-sm" />
@@ -1140,45 +1140,39 @@ export default function MyTasksClient() {
           {!loading && !error && tasks.length > 0 && filteredTasks.length === 0 && (
             <EmptyState
               icon={<FunnelSimple />}
-              message="条件に一致するタスクがありません"
+              message={
+                onlyDefaultTabHides
+                  // 既定が「アクティブ」なので、未着手・完了しか残っていないだけの状態を「1件も無い」と誤解させない
+                  ? '動いているタスクはありません。未着手・完了は「すべて」で見られます。'
+                  : '条件に一致するタスクがありません'
+              }
               action={
                 <button
-                  onClick={resetFilters}
+                  onClick={showAllTasks}
                   className="text-xs text-blue-500 hover:underline"
                 >
-                  フィルターをリセット
+                  すべて表示する
                 </button>
               }
             />
           )}
           {!loading && !error && filteredTasks.length > 0 && (
             <div className="space-y-6">
-              {/* Active tasks grouped by project and milestone */}
-              {taskGroups.map((group, groupIndex) => (
-                <div key={group.space?.id || `no-space-${groupIndex}`}>
-                  {/* Project header - Level 0 */}
-                  <div className="flex items-center gap-1.5 px-2 py-2 bg-gray-100 rounded-sm">
-                    <Folder weight="fill" className="text-gray-500 text-sm" />
-                    <span className="text-[13px] font-bold text-gray-800">
-                      {group.space?.name || 'プロジェクト未設定'}
-                    </span>
-                    <span className="text-xs text-gray-500 tabular-nums">
-                      {group.milestoneGroups.reduce((acc, mg) => acc + mg.tasks.length, 0)}件
-                    </span>
-                  </div>
-
-                  {/* Milestone groups within project - Level 1 (indented) */}
-                  <div className="space-y-3 py-2">
-                    {group.milestoneGroups.map((mg, mgIndex) => {
-                      const milestoneKey = getMilestoneKey(group.space?.id, mg.milestone?.id)
-                      const isCollapsed = collapsedMilestones.has(milestoneKey)
-
+              {sections.map((section) => {
+                // 見出し（期限・マイルストーン・ステータス）と、その下のタスク。プロジェクト別のときだけ
+                // プロジェクトの見出しの下に1段下げて並べる
+                const groups = (
+                  <div className={section.label ? 'space-y-3 py-2' : 'space-y-3'}>
+                    {section.groups.map((group) => {
+                      const isCollapsed = collapsedGroups.has(group.key)
                       return (
-                        <div key={mg.milestone?.id || `no-milestone-${mgIndex}`}>
-                          {/* Milestone header - slight indent */}
+                        <div key={group.key}>
                           <div
-                            className="flex items-center gap-1.5 pl-4 pr-2 py-1.5 bg-gray-50 rounded cursor-pointer hover:bg-gray-100 transition-colors select-none mx-2"
-                            onClick={() => toggleMilestone(milestoneKey)}
+                            data-testid="my-tasks-group-header"
+                            className={`flex items-center gap-1.5 pr-2 py-1.5 bg-gray-50 rounded cursor-pointer hover:bg-gray-100 transition-colors select-none mx-2 ${
+                              section.label ? 'pl-4' : 'pl-2'
+                            }`}
+                            onClick={() => toggleGroup(group.key)}
                           >
                             <div className="w-3 flex justify-center text-gray-400">
                               {isCollapsed ? (
@@ -1187,23 +1181,23 @@ export default function MyTasksClient() {
                                 <CaretDown weight="bold" className="text-[10px]" />
                               )}
                             </div>
-                            <span className="text-[13px] font-semibold text-gray-700">
-                              {mg.milestone?.name || 'マイルストーン未設定'}
+                            <span
+                              data-testid="my-tasks-group-label"
+                              className={`text-[13px] font-semibold ${group.tone === 'danger' ? 'text-red-500' : 'text-gray-700'}`}
+                            >
+                              {group.label}
                             </span>
-                            {mg.milestone?.due_date && (
-                              <span className="text-xs text-gray-400 tabular-nums">
-                                {formatDate(mg.milestone.due_date)}
-                              </span>
+                            {group.meta && (
+                              <span className="text-xs text-gray-400 tabular-nums">{group.meta}</span>
                             )}
                             <span className="text-xs text-gray-400 tabular-nums">
-                              ({mg.tasks.length})
+                              ({group.tasks.length})
                             </span>
                           </div>
 
-                          {/* Tasks in this milestone - Level 2 */}
                           {!isCollapsed && (
                             <div className="pl-3 mt-1">
-                              {mg.tasks.map((task) => (
+                              {group.tasks.map((task) => (
                                 <TaskRow
                                   key={task.id}
                                   task={task}
@@ -1212,7 +1206,11 @@ export default function MyTasksClient() {
                                   onStatusChange={canEditSpace(task.space_id, task.org_id) ? updateTaskStatus : undefined}
                                   reviewStatus={reviewStatuses[task.id]}
                                   commentCount={commentCounts[task.id]}
+                                  unreadCommentCount={unreadComments[task.id]?.count}
+                                  unreadCommentFrom={unreadComments[task.id]?.fromNames}
+                                  projectName={showProjectName ? spaceNameById.get(task.space_id) : undefined}
                                   awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
+                                  isMobile={isMobile}
                                 />
                               ))}
                             </div>
@@ -1221,33 +1219,25 @@ export default function MyTasksClient() {
                       )
                     })}
                   </div>
-                </div>
-              ))}
+                )
 
-              {/* Completed tasks */}
-              {filters.showCompleted && completedTasks.length > 0 && (
-                <div className="mt-6">
-                  <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-200">
-                    <span className="text-xs font-semibold text-gray-400">
-                      完了 ({completedTasks.length})
-                    </span>
+                if (!section.label) return <div key={section.key}>{groups}</div>
+
+                return (
+                  <div key={section.key}>
+                    <div className="flex items-center gap-1.5 px-2 py-2 bg-gray-100 rounded-sm">
+                      <Folder weight="fill" className="text-gray-500 text-sm" />
+                      <span data-testid="my-tasks-project-label" className="text-[13px] font-bold text-gray-800">
+                        {section.label}
+                      </span>
+                      <span className="text-xs text-gray-500 tabular-nums">
+                        {section.groups.reduce((acc, g) => acc + g.tasks.length, 0)}件
+                      </span>
+                    </div>
+                    {groups}
                   </div>
-                  <div className="opacity-50">
-                    {completedTasks.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        isSelected={task.id === selectedTaskId}
-                        onClick={handleTaskClick}
-                        onStatusChange={canEditSpace(task.space_id, task.org_id) ? updateTaskStatus : undefined}
-                        reviewStatus={reviewStatuses[task.id]}
-                        commentCount={commentCounts[task.id]}
-                        awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
+                )
+              })}
             </div>
           )}
         </div>
@@ -1275,6 +1265,7 @@ export default function MyTasksClient() {
           onSynced={handleInspectorSynced}
           onDeleted={handleInspectorDeleted}
           onOpenTask={handleInspectorOpenTask}
+          unreadCommentCount={unreadComments[selectedTask.id]?.count ?? 0}
         />
       )}
     </div>
