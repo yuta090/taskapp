@@ -59,7 +59,7 @@ async function notifyTaskCreator(
     actorId: string
     taskId: string
     taskTitle: string
-    type: 'task_completed' | 'ball_passed'
+    type: 'task_completed' | 'ball_passed' | 'client_approved'
     dedupeSuffix: string
     title: string
     message: string
@@ -186,6 +186,71 @@ async function upgradeOrNotifyTaskCreatorForChangeRequest(
     title,
     message: comment,
   })
+}
+
+/**
+ * Approve is the one place where the client's action itself is the news —
+ * the internal side (creator AND assignee) has been waiting on this ball.
+ * Unlike notifyTaskCreator (single recipient: the creator), this notifies
+ * every distinct internal person on the task, skipping the approving client
+ * and skipping anyone whose role on this space is client/vendor (the
+ * assignee can currently be a client reviewer, reused while ball='client').
+ * Failures are swallowed — the approval itself must still succeed.
+ */
+async function notifyApprovalRecipients(
+  supabase: SupabaseClient<Database>,
+  params: {
+    orgId: string
+    spaceId: string
+    createdBy: string | null
+    assigneeId: string | null
+    actorId: string
+    taskId: string
+    taskTitle: string
+    title: string
+    message: string
+  },
+): Promise<void> {
+  const candidateIds = [
+    ...new Set(
+      [params.createdBy, params.assigneeId].filter(
+        (id): id is string => !!id && id !== params.actorId
+      )
+    ),
+  ]
+  if (candidateIds.length === 0) return
+
+  try {
+    const { data: memberships } = await (supabase as SupabaseClient)
+      .from('space_memberships')
+      .select('user_id, role')
+      .eq('space_id', params.spaceId)
+      .in('user_id', candidateIds)
+
+    const internalIds = ((memberships ?? []) as Array<{ user_id: string; role: string }>)
+      .filter((m) => m.role !== 'client' && m.role !== 'vendor')
+      .map((m) => m.user_id)
+
+    await Promise.all(
+      internalIds.map((toUserId) =>
+        rpc.createTaskNotification(supabase, {
+          orgId: params.orgId,
+          spaceId: params.spaceId,
+          toUserId,
+          type: 'client_approved',
+          dedupeKey: `portal_approved:${params.taskId}:${toUserId}`,
+          payload: {
+            task_id: params.taskId,
+            task_title: params.taskTitle,
+            title: params.title,
+            message: params.message,
+          },
+        })
+      )
+    )
+  } catch (err) {
+    console.error('[portal-notify] Failed to create in-app notification:', err)
+  }
 }
 
 interface TaskActionBody {
@@ -546,16 +611,17 @@ export async function POST(
         })
       )
 
-      // In-app inbox notification so the approval is visible without Slack
-      await notifyTaskCreator(admin as unknown as SupabaseClient<Database>, {
+      // In-app inbox notification so the approval is visible without Slack.
+      // Notifies both the creator and the assignee (internal members only) —
+      // both have been waiting on this ball.
+      await notifyApprovalRecipients(admin as unknown as SupabaseClient<Database>, {
         orgId: task.org_id,
         spaceId: task.space_id,
         createdBy: task.created_by,
+        assigneeId: task.assignee_id,
         actorId: user.id,
         taskId,
         taskTitle: task.title,
-        type: 'task_completed',
-        dedupeSuffix: 'approved',
         title: `「${task.title}」が承認されました`,
         message: trimmedComment || 'クライアントがタスクを承認しました。',
       })

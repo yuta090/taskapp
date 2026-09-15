@@ -33,8 +33,12 @@ const POLICY: Readonly<Record<string, DeliveryPolicy>> = {
   confirmation_request: IMMEDIATE,
   urgent_confirmation: IMMEDIATE,
   ball_passed: IMMEDIATE,
+  // 承認されたら依頼した人が次の作業に進めるので、その場で知らせる
+  review_approved: IMMEDIATE,
   client_question: IMMEDIATE,
   client_feedback: IMMEDIATE,
+  // 相手先がポータルで承認した: 待っていた社内の人が次に進めるので、その場で知らせる
+  client_approved: IMMEDIATE,
   client_response: IMMEDIATE,
   client_replied: IMMEDIATE,
   // 連携が止まっている＝気づくのが遅れるほど取りこぼしが増えるので即時

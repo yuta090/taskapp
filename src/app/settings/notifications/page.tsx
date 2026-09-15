@@ -148,7 +148,7 @@ function NotificationSettingsBody({ userId }: { userId: string }) {
             <span className="font-medium">急ぎのものだけすぐ、それ以外は1日1回のまとめで</span>
           </div>
           <ul className="text-sm text-blue-600 mt-1 space-y-0.5 list-disc list-inside">
-            <li>承認依頼など「あなたの返事を待っている件」は、数分ぶんをまとめてすぐお送りします</li>
+            <li>承認依頼や、承認・差し戻しの結果など「すぐ確認してほしい件」は、数分ぶんをまとめてすぐお送りします</li>
             <li>それ以外は1日分をまとめて1通。受け取る種類と頻度は下で選べます</li>
             <li>夜9時〜朝8時と土日は、すぐ送るぶんを止めて翌営業日の朝にまわします</li>
           </ul>
@@ -231,7 +231,7 @@ function NotificationSettingsBody({ userId }: { userId: string }) {
           {/* Review Request */}
           <SettingRow
             label="社内承認依頼"
-            description="社内承認・レビューを依頼された時"
+            description="社内承認・レビューを依頼された時、承認された時"
             enabled={prefs.on_review_request}
             onChange={() => void update({ on_review_request: !prefs.on_review_request })}
           />

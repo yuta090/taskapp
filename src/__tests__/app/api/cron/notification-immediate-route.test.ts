@@ -165,6 +165,36 @@ describe('POST /api/cron/notification-immediate', () => {
     )
   })
 
+  it('社内承認が承認された通知(review_approved)も待たせている扱いで即時に送る', async () => {
+    notificationsResponse = {
+      data: [
+        notif('n1', USER_A, 'review_approved', {
+          payload: { title: '田中さんが承認しました: 「見積書の作成」', message: 'ほかの承認者の返事を待っています（残り1人）。' },
+        }),
+      ],
+      error: null,
+    }
+
+    const json = await (await callPost()).json()
+
+    expect(json.emailsSent).toBe(1)
+    expect(sendDigestEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: `${USER_A}@example.com`,
+        variant: 'immediate',
+        totalCount: 1,
+        sections: [
+          expect.objectContaining({
+            category: 'review_request',
+            items: [
+              expect.objectContaining({ title: '田中さんが承認しました: 「見積書の作成」' }),
+            ],
+          }),
+        ],
+      })
+    )
+  })
+
   it('人ごとに1通ずつに分かれる', async () => {
     notificationsResponse = {
       data: [notif('n1', USER_A, 'review_request'), notif('n2', USER_B, 'ball_passed')],

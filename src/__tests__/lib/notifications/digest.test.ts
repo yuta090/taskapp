@@ -30,6 +30,8 @@ describe('categorizeNotificationType', () => {
     expect(categorizeNotificationType('review_request')).toBe('review_request')
     expect(categorizeNotificationType('confirmation_request')).toBe('review_request')
     expect(categorizeNotificationType('spec_decision_needed')).toBe('review_request')
+    // 承認された結果の通知も、承認依頼と同じ「承認・レビュー」の受信設定でオン/オフする
+    expect(categorizeNotificationType('review_approved')).toBe('review_request')
   })
   it('会議系→meeting_reminder', () => {
     expect(categorizeNotificationType('scheduling_reminder')).toBe('meeting_reminder')
@@ -40,6 +42,9 @@ describe('categorizeNotificationType', () => {
   })
   it('招待承諾→client_response', () => {
     expect(categorizeNotificationType('invite_accepted')).toBe('client_response')
+  })
+  it('相手先の承認→client_response', () => {
+    expect(categorizeNotificationType('client_approved')).toBe('client_response')
   })
 })
 
@@ -81,6 +86,17 @@ describe('buildDigest', () => {
   it('該当通知が0件なら null（空メールを送らない）', () => {
     expect(buildDigest([n('some_unknown_type')], allOn)).toBeNull()
     expect(buildDigest([], allOn)).toBeNull()
+  })
+
+  it('承認された通知は承認・レビュー節に入り、payload.title がそのまま件名になる', () => {
+    const d = buildDigest([
+      n('review_approved', { title: '田中さんが承認しました: 「見積書の作成」', message: 'ほかの承認者の返事を待っています（残り1人）。' }),
+    ], allOn)
+    expect(d).not.toBeNull()
+    expect(d!.sections).toHaveLength(1)
+    expect(d!.sections[0].category).toBe('review_request')
+    expect(d!.sections[0].label).toBe(CATEGORY_LABEL.review_request)
+    expect(d!.sections[0].items[0].title).toBe('田中さんが承認しました: 「見積書の作成」')
   })
 
   it('タイトルが無ければフォールバック文言', () => {

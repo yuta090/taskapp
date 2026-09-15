@@ -23,6 +23,10 @@ export const NOTIFICATION_TYPE_META: Readonly<Record<string, NotificationTypeMet
     label: 'レビュー取消',
     description: '依頼していたレビューが取り下げられた通知',
   },
+  review_approved: {
+    label: '社内承認',
+    description: '依頼した社内承認が承認された通知',
+  },
   spec_decision_needed: {
     label: '仕様決定依頼',
     description: '仕様の決定（判断）が必要になった通知',
@@ -50,6 +54,10 @@ export const NOTIFICATION_TYPE_META: Readonly<Record<string, NotificationTypeMet
   client_feedback: {
     label: '外部からのフィードバック',
     description: '相手先（クライアント）から意見・返答が届いた通知',
+  },
+  client_approved: {
+    label: '相手先の承認',
+    description: '相手先がポータルでタスクを承認した通知',
   },
   invite_accepted: {
     label: '招待承諾',

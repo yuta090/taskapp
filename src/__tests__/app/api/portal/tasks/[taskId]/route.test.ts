@@ -83,6 +83,16 @@ let commentInsertResponse: { data: { id: string } | null; error: null | { messag
 /** トリガー(task_comments_notify)が作成者あてに作った comment_added 行の有無。既定は「無い」。 */
 let existingNotificationResponse: { data: { id: string } | null; error: null | { message: string } }
 let notificationUpdateResponse: { error: null | { message: string } }
+/**
+ * space_memberships lookup used by notifyApprovalRecipients (admin/service-role
+ * client) to tell which of created_by/assignee_id are internal members of this
+ * space — distinct from clientMembershipResponse above, which is the *session*
+ * client's own-membership check used for access control.
+ */
+let approvalMembershipsResponse: {
+  data: Array<{ user_id: string; role: string }> | null
+  error: null
+}
 
 interface AdminUpdateCall {
   payload: Record<string, unknown>
@@ -98,6 +108,7 @@ interface NotificationUpdateCall {
   eqCalls: Array<[string, unknown]>
 }
 const notificationUpdateCalls: NotificationUpdateCall[] = []
+const approvalMembershipsQueryIds: unknown[][] = []
 
 const createTaskNotificationMock = vi.fn((..._args: unknown[]) => Promise.resolve())
 const createAuditLogMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true }))
@@ -251,6 +262,23 @@ vi.mock('@/lib/supabase/admin', () => ({
           update: vi.fn((payload: Record<string, unknown>) => makeNotificationUpdateBuilder(payload)),
         }
       }
+      if (table === 'space_memberships') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              in: vi.fn((_col: string, ids: unknown[]) => {
+                approvalMembershipsQueryIds.push(ids)
+                // Mirror real Postgres .in() filtering — the production code
+                // relies on the query itself to narrow rows to the requested ids.
+                const filtered = approvalMembershipsResponse.data
+                  ? approvalMembershipsResponse.data.filter((row) => (ids as string[]).includes(row.user_id))
+                  : null
+                return Promise.resolve({ ...approvalMembershipsResponse, data: filtered })
+              }),
+            })),
+          })),
+        }
+      }
       throw new Error(`Unexpected table on admin client: ${table}`)
     }),
   })),
@@ -274,6 +302,7 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
     adminCommentInsertCalls.length = 0
     notificationFindEqCalls.length = 0
     notificationUpdateCalls.length = 0
+    approvalMembershipsQueryIds.length = 0
     afterTasks.length = 0
 
     authResponse = { data: { user: mockUser } }
@@ -286,6 +315,15 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
     existingNotificationResponse = { data: null, error: null }
     notificationUpdateResponse = { error: null }
     resolveReturnAssigneeMock.mockResolvedValue('resolved-internal-owner')
+    // baseTask: created_by は社内(editor)、assignee_id は「相手先レビュアーを
+    // 一時的に assignee_id に入れている」状態(role: client) — 承認通知は届かない側
+    approvalMembershipsResponse = {
+      data: [
+        { user_id: 'internal-pm-1', role: 'editor' },
+        { user_id: 'client-reviewer-1', role: 'client' },
+      ],
+      error: null,
+    }
   })
 
   describe('confirm on session, write on server', () => {
@@ -398,7 +436,7 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
   })
 
   describe('approve', () => {
-    it('creates an in-app notification addressed to the task creator', async () => {
+    it('creates a client_approved in-app notification addressed to the task creator (assignee is the client reviewer, so only the creator qualifies)', async () => {
       const response = await callPost({ action: 'approve' })
       expect(response.status).toBe(200)
 
@@ -409,13 +447,13 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
           orgId: 'org-1',
           spaceId: 'space-1',
           toUserId: 'internal-pm-1',
-          type: 'task_completed',
+          type: 'client_approved',
           payload: expect.objectContaining({ task_id: 'task-1', task_title: 'ロゴ制作' }),
         })
       )
     })
 
-    it('does not notify when the task has no recorded creator', async () => {
+    it('does not notify when the task has no recorded creator and the assignee is the client reviewer', async () => {
       taskResponse = { data: { ...baseTask, created_by: null as unknown as string }, error: null }
 
       const response = await callPost({ action: 'approve' })
@@ -424,8 +462,62 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
       expect(createTaskNotificationMock).not.toHaveBeenCalled()
     })
 
-    it('does not notify when the creator is the same person performing the approval', async () => {
+    it('does not notify when the creator is the same person performing the approval and the assignee is the client reviewer', async () => {
       taskResponse = { data: { ...baseTask, created_by: mockUser.id }, error: null }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).not.toHaveBeenCalled()
+    })
+
+    it('notifies both the creator and the assignee when the assignee is an internal member', async () => {
+      taskResponse = { data: { ...baseTask, assignee_id: 'internal-dev-1' }, error: null }
+      approvalMembershipsResponse = {
+        data: [
+          { user_id: 'internal-pm-1', role: 'editor' },
+          { user_id: 'internal-dev-1', role: 'editor' },
+        ],
+        error: null,
+      }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(approvalMembershipsQueryIds[0]).toEqual(
+        expect.arrayContaining(['internal-pm-1', 'internal-dev-1'])
+      )
+      expect(createTaskNotificationMock).toHaveBeenCalledTimes(2)
+      const calls = createTaskNotificationMock.mock.calls as Array<
+        [unknown, { toUserId: string; type: string }]
+      >
+      const recipients = calls.map(([, args]) => args.toUserId)
+      expect(recipients.sort()).toEqual(['internal-dev-1', 'internal-pm-1'])
+      for (const [, args] of calls) {
+        expect(args.type).toBe('client_approved')
+      }
+    })
+
+    it('sends only one notification when the creator and assignee are the same internal person', async () => {
+      taskResponse = { data: { ...baseTask, assignee_id: 'internal-pm-1' }, error: null }
+      approvalMembershipsResponse = {
+        data: [{ user_id: 'internal-pm-1', role: 'editor' }],
+        error: null,
+      }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+      expect(createTaskNotificationMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ toUserId: 'internal-pm-1', type: 'client_approved' })
+      )
+    })
+
+    it('does not notify a vendor assignee either', async () => {
+      taskResponse = { data: { ...baseTask, created_by: null as unknown as string, assignee_id: 'vendor-1' }, error: null }
+      approvalMembershipsResponse = { data: [{ user_id: 'vendor-1', role: 'vendor' }], error: null }
 
       const response = await callPost({ action: 'approve' })
 

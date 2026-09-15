@@ -70,9 +70,13 @@ function getNotificationIcon(type: string, urgent?: boolean) {
       return <Eye className={`${iconClass} text-blue-500`} />
     case 'review_cancelled':
       return <XCircle className={`${iconClass} text-gray-500`} />
+    case 'review_approved':
+      return <CheckCircle className={`${iconClass} text-green-500`} weight="fill" />
     case 'client_question':
     case 'client_feedback':
       return <ChatCircleText className={`${iconClass} text-amber-500`} />
+    case 'client_approved':
+      return <CheckCircle className={`${iconClass} text-green-500`} weight="fill" />
     case 'task_assigned':
     case 'ball_passed':
       return <ArrowRight className={`${iconClass} text-indigo-500`} />

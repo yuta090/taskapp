@@ -23,6 +23,24 @@ describe('buildPushMessage', () => {
     expect(msg.title).toBe('承認依頼が届きました')
   })
 
+  it('labels review_approved', () => {
+    const msg = buildPushMessage(makeRow({ type: 'review_approved' }), 'internal')
+    expect(msg.title).toBe('社内承認が承認されました')
+  })
+
+  it('builds a task deep link for review_approved when task_id is present', () => {
+    const msg = buildPushMessage(
+      makeRow({ type: 'review_approved', payload: { task_id: 'task-1' } }),
+      'internal'
+    )
+    expect(msg.url).toBe('/org-1/project/space-1?task=task-1')
+  })
+
+  it('labels client_approved', () => {
+    const msg = buildPushMessage(makeRow({ type: 'client_approved' }), 'internal')
+    expect(msg.title).toBe('相手先が承認しました')
+  })
+
   it('labels confirmation_request', () => {
     const msg = buildPushMessage(makeRow({ type: 'confirmation_request' }), 'client')
     expect(msg.title).toBe('確認依頼が届きました')

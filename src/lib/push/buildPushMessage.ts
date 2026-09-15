@@ -34,11 +34,13 @@ export interface PushMessage {
 const TITLE_BY_TYPE: Record<string, string> = {
   ball_passed: 'ボールがあなたに渡されました',
   review_request: '承認依頼が届きました',
+  review_approved: '社内承認が承認されました',
   confirmation_request: '確認依頼が届きました',
   urgent_confirmation: '至急の確認依頼があります',
   task_assigned: 'タスクが割り当てられました',
   spec_decision_needed: '仕様の決定が必要です',
   invite_accepted: '招待が承諾されました',
+  client_approved: '相手先が承認しました',
   github_pr_merged: 'タスクの変更が取り込まれました',
   comment_added: 'タスクにコメントが付きました',
   mention: 'コメントであなたが呼ばれました',

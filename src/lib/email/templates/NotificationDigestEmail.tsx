@@ -45,7 +45,7 @@ export default function NotificationDigestEmail({
 }: NotificationDigestEmailProps) {
   const headline =
     variant === 'immediate'
-      ? `あなたの返事を待っている件が${totalCount}件あります`
+      ? `すぐ確認してほしい件が${totalCount}件あります`
       : `今日の更新が${totalCount}件あります`
   const previewText = headline
 
@@ -147,7 +147,7 @@ export default function NotificationDigestEmail({
 
               <Text className="text-gray-400 text-[12px] leading-[1.6] m-0 text-center">
                 {variant === 'immediate'
-                  ? 'このメールは、あなたの返事を待っている件だけをお送りしています。それ以外は1日1回のまとめでお届けします。'
+                  ? 'このメールは、承認依頼や承認・差し戻しの結果など、すぐ確認してほしい件だけをお送りしています。それ以外は1日1回のまとめでお届けします。'
                   : 'このメールは1日1回のまとめ通知です。'}
                 <br />
                 受け取る種類や頻度は{' '}

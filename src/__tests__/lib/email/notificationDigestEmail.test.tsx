@@ -100,7 +100,9 @@ describe('NotificationDigestEmail', () => {
 })
 
 describe('NotificationDigestEmail — 即時のまとめ', () => {
-  it('見出しと注記が「返事待ち」の言い方になる', async () => {
+  // 即時メールには、返事待ち（承認依頼など）だけでなく、承認・差し戻しの結果のような
+  // 「返事は要らないがすぐ確認してほしい」お知らせも載る。「返事を待っている件」と書くと中身と合わない
+  it('見出しと注記が「すぐ確認してほしい件」の言い方になる', async () => {
     const html = await render(
       createElement(NotificationDigestEmail, {
         appName: 'AgentPM',
@@ -112,7 +114,9 @@ describe('NotificationDigestEmail — 即時のまとめ', () => {
         settingsUrl: 'https://app.example.com/settings/notifications',
       }),
     )
-    expect(html).toContain('あなたの返事を待っている件が3件あります')
+    expect(html).toContain('すぐ確認してほしい件が3件あります')
+    expect(html).toContain('承認依頼や承認・差し戻しの結果など、すぐ確認してほしい件だけをお送りしています')
+    expect(html).not.toContain('あなたの返事を待っている件')
     expect(html).not.toContain('今日の更新が3件あります')
     expect(html).not.toContain('このメールは1日1回のまとめ通知です')
   })
