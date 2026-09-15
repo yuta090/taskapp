@@ -79,7 +79,31 @@ let sessionAccessToken: string | null = null
 let taskResponse: { data: typeof baseTask | null; error: null | { message: string } }
 let clientMembershipResponse: { data: { id: string; role: string } | null; error: null }
 let updateTaskResponse: { data: { id: string } | null; error: null | { message: string } }
-let commentInsertResponse: { error: null | { message: string } }
+let commentInsertResponse: { data: { id: string } | null; error: null | { message: string } }
+/** トリガー(task_comments_notify)が作成者あてに作った comment_added 行の有無。既定は「無い」。 */
+let existingNotificationResponse: { data: { id: string } | null; error: null | { message: string } }
+let notificationUpdateResponse: { error: null | { message: string } }
+/**
+ * space_memberships lookup used by notifyApprovalRecipients (admin/service-role
+ * client) to tell which of created_by/assignee_id are internal members of this
+ * space — distinct from clientMembershipResponse above, which is the *session*
+ * client's own-membership check used for access control.
+ */
+let approvalMembershipsResponse: {
+  data: Array<{ user_id: string; role: string }> | null
+  error: null | { message: string }
+}
+/**
+ * org_memberships lookup used by notifyApprovalRecipients alongside
+ * approvalMembershipsResponse — a candidate only counts as "internal" when the
+ * org role is owner/admin/member (checked here) AND the space role (if any)
+ * is not client/vendor (approvalMembershipsResponse above). Org members with
+ * no space_memberships row at all count as 'editor'.
+ */
+let approvalOrgMembershipsResponse: {
+  data: Array<{ user_id: string; role: string }> | null
+  error: null | { message: string }
+}
 
 interface AdminUpdateCall {
   payload: Record<string, unknown>
@@ -88,8 +112,29 @@ interface AdminUpdateCall {
 
 const adminUpdateCalls: AdminUpdateCall[] = []
 const adminCommentInsertCalls: Array<Record<string, unknown>> = []
+/** notifications への find(select)条件の記録。[to_user_id, channel, dedupe_key] の3条件を想定。 */
+const notificationFindEqCalls: Array<Array<[string, unknown]>> = []
+interface NotificationUpdateCall {
+  payload: Record<string, unknown>
+  eqCalls: Array<[string, unknown]>
+}
+const notificationUpdateCalls: NotificationUpdateCall[] = []
+const approvalMembershipsQueryIds: unknown[][] = []
+const approvalOrgMembershipsQueryIds: unknown[][] = []
+/** notifications への delete() 条件の記録。[to_user_id, channel, dedupe_key] の3条件を想定。 */
+const notificationDeleteCalls: Array<Array<[string, unknown]>> = []
+let notificationDeleteResponse: { error: null | { message: string } }
+/**
+ * delete → create の実行順（課題2の回帰テスト用）。同じ配列に
+ * `delete:<toUserId>` / `create:<toUserId>` を実行された順に積む。
+ */
+const sideEffectOrder: string[] = []
 
-const createTaskNotificationMock = vi.fn((..._args: unknown[]) => Promise.resolve())
+const createTaskNotificationMock = vi.fn((..._args: unknown[]) => {
+  const notifyParams = _args[1] as { toUserId?: string } | undefined
+  if (notifyParams?.toUserId) sideEffectOrder.push(`create:${notifyParams.toUserId}`)
+  return Promise.resolve()
+})
 const createAuditLogMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true }))
 const resolveReturnAssigneeMock = vi.fn((..._args: unknown[]) => Promise.resolve('resolved-internal-owner'))
 
@@ -172,6 +217,76 @@ vi.mock('@/lib/supabase/server', () => ({
   ),
 }))
 
+/**
+ * task_comments の insert() は2つの呼び方に対応する必要がある:
+ * - `await insert(...)` (estimate_reject: そのまま then で解決)
+ * - `insert(...).select('id').single()` (request_changes: 挿入した id を受け取る)
+ * どちらも同じ commentInsertResponse を返す。
+ */
+function makeCommentInsertResult() {
+  const promise = Promise.resolve(commentInsertResponse)
+  return {
+    select: vi.fn(() => ({
+      single: vi.fn(() => promise),
+    })),
+    then: promise.then.bind(promise),
+  }
+}
+
+/** notifications の find(select) 条件を記録し、existingNotificationResponse を返す。 */
+function makeNotificationSelectBuilder() {
+  const eqCalls: Array<[string, unknown]> = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builder: any = {}
+  builder.eq = vi.fn((col: string, val: unknown) => {
+    eqCalls.push([col, val])
+    return builder
+  })
+  builder.maybeSingle = vi.fn(() => {
+    notificationFindEqCalls.push(eqCalls)
+    return Promise.resolve(existingNotificationResponse)
+  })
+  return builder
+}
+
+/** notifications の update() 条件・payload を記録し、notificationUpdateResponse を返す。 */
+function makeNotificationUpdateBuilder(payload: Record<string, unknown>) {
+  const eqCalls: Array<[string, unknown]> = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builder: any = {}
+  builder.eq = vi.fn((col: string, val: unknown) => {
+    eqCalls.push([col, val])
+    notificationUpdateCalls.push({ payload, eqCalls })
+    return Promise.resolve(notificationUpdateResponse)
+  })
+  return builder
+}
+
+/**
+ * notifications の delete() 条件を記録し、notificationDeleteResponse を返す。
+ * 実物の PostgrestFilterBuilder と同じく、途中の `.eq()` チェーンのどこで
+ * `await` されても解決できるよう `.then()` を持つ thenable にする。
+ */
+function makeNotificationDeleteBuilder() {
+  const eqCalls: Array<[string, unknown]> = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builder: any = {}
+  builder.eq = vi.fn((col: string, val: unknown) => {
+    eqCalls.push([col, val])
+    return builder
+  })
+  builder.then = (
+    resolve: (value: { error: null | { message: string } }) => unknown,
+    reject: (reason: unknown) => unknown
+  ) => {
+    notificationDeleteCalls.push([...eqCalls])
+    const toUserId = eqCalls.find(([col]) => col === 'to_user_id')?.[1]
+    sideEffectOrder.push(`delete:${toUserId}`)
+    return Promise.resolve(notificationDeleteResponse).then(resolve, reject)
+  }
+  return builder
+}
+
 // Server-side (service role) client: performs the actual writes, only once
 // confirmation on the session client has passed.
 vi.mock('@/lib/supabase/admin', () => ({
@@ -186,8 +301,47 @@ vi.mock('@/lib/supabase/admin', () => ({
         return {
           insert: vi.fn((payload: Record<string, unknown>) => {
             adminCommentInsertCalls.push(payload)
-            return Promise.resolve(commentInsertResponse)
+            return makeCommentInsertResult()
           }),
+        }
+      }
+      if (table === 'notifications') {
+        return {
+          select: vi.fn(() => makeNotificationSelectBuilder()),
+          update: vi.fn((payload: Record<string, unknown>) => makeNotificationUpdateBuilder(payload)),
+          delete: vi.fn(() => makeNotificationDeleteBuilder()),
+        }
+      }
+      if (table === 'space_memberships') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              in: vi.fn((_col: string, ids: unknown[]) => {
+                approvalMembershipsQueryIds.push(ids)
+                // Mirror real Postgres .in() filtering — the production code
+                // relies on the query itself to narrow rows to the requested ids.
+                const filtered = approvalMembershipsResponse.data
+                  ? approvalMembershipsResponse.data.filter((row) => (ids as string[]).includes(row.user_id))
+                  : null
+                return Promise.resolve({ ...approvalMembershipsResponse, data: filtered })
+              }),
+            })),
+          })),
+        }
+      }
+      if (table === 'org_memberships') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              in: vi.fn((_col: string, ids: unknown[]) => {
+                approvalOrgMembershipsQueryIds.push(ids)
+                const filtered = approvalOrgMembershipsResponse.data
+                  ? approvalOrgMembershipsResponse.data.filter((row) => (ids as string[]).includes(row.user_id))
+                  : null
+                return Promise.resolve({ ...approvalOrgMembershipsResponse, data: filtered })
+              }),
+            })),
+          })),
         }
       }
       throw new Error(`Unexpected table on admin client: ${table}`)
@@ -211,6 +365,12 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
     vi.clearAllMocks()
     adminUpdateCalls.length = 0
     adminCommentInsertCalls.length = 0
+    notificationFindEqCalls.length = 0
+    notificationUpdateCalls.length = 0
+    notificationDeleteCalls.length = 0
+    approvalMembershipsQueryIds.length = 0
+    approvalOrgMembershipsQueryIds.length = 0
+    sideEffectOrder.length = 0
     afterTasks.length = 0
 
     authResponse = { data: { user: mockUser } }
@@ -218,8 +378,28 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
     taskResponse = { data: { ...baseTask }, error: null }
     clientMembershipResponse = { data: { id: 'membership-1', role: 'client' }, error: null }
     updateTaskResponse = { data: { id: 'task-1' }, error: null }
-    commentInsertResponse = { error: null }
+    commentInsertResponse = { data: { id: 'comment-1' }, error: null }
+    // 既定は「トリガーが作った行は無い」= 従来どおり notifyTaskCreator が新規に作る
+    existingNotificationResponse = { data: null, error: null }
+    notificationUpdateResponse = { error: null }
+    notificationDeleteResponse = { error: null }
     resolveReturnAssigneeMock.mockResolvedValue('resolved-internal-owner')
+    // baseTask: created_by は社内(editor)、assignee_id は「相手先レビュアーを
+    // 一時的に assignee_id に入れている」状態(role: client) — 承認通知は届かない側
+    approvalMembershipsResponse = {
+      data: [
+        { user_id: 'internal-pm-1', role: 'editor' },
+        { user_id: 'client-reviewer-1', role: 'client' },
+      ],
+      error: null,
+    }
+    // internal-pm-1 は組織の役割も member（=社内）。client-reviewer-1 は組織側でも
+    // client 扱い（実際は org_memberships に行が無いことも多いが、無くても
+    // orgInternalIds に入らないので結果は同じ）。
+    approvalOrgMembershipsResponse = {
+      data: [{ user_id: 'internal-pm-1', role: 'member' }],
+      error: null,
+    }
   })
 
   describe('confirm on session, write on server', () => {
@@ -332,7 +512,7 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
   })
 
   describe('approve', () => {
-    it('creates an in-app notification addressed to the task creator', async () => {
+    it('creates a client_approved in-app notification addressed to the task creator (assignee is the client reviewer, so only the creator qualifies)', async () => {
       const response = await callPost({ action: 'approve' })
       expect(response.status).toBe(200)
 
@@ -343,13 +523,13 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
           orgId: 'org-1',
           spaceId: 'space-1',
           toUserId: 'internal-pm-1',
-          type: 'task_completed',
+          type: 'client_approved',
           payload: expect.objectContaining({ task_id: 'task-1', task_title: 'ロゴ制作' }),
         })
       )
     })
 
-    it('does not notify when the task has no recorded creator', async () => {
+    it('does not notify when the task has no recorded creator and the assignee is the client reviewer', async () => {
       taskResponse = { data: { ...baseTask, created_by: null as unknown as string }, error: null }
 
       const response = await callPost({ action: 'approve' })
@@ -358,13 +538,170 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
       expect(createTaskNotificationMock).not.toHaveBeenCalled()
     })
 
-    it('does not notify when the creator is the same person performing the approval', async () => {
+    it('does not notify when the creator is the same person performing the approval and the assignee is the client reviewer', async () => {
       taskResponse = { data: { ...baseTask, created_by: mockUser.id }, error: null }
 
       const response = await callPost({ action: 'approve' })
 
       expect(response.status).toBe(200)
       expect(createTaskNotificationMock).not.toHaveBeenCalled()
+    })
+
+    it('notifies both the creator and the assignee when the assignee is an internal member', async () => {
+      taskResponse = { data: { ...baseTask, assignee_id: 'internal-dev-1' }, error: null }
+      approvalMembershipsResponse = {
+        data: [
+          { user_id: 'internal-pm-1', role: 'editor' },
+          { user_id: 'internal-dev-1', role: 'editor' },
+        ],
+        error: null,
+      }
+      approvalOrgMembershipsResponse = {
+        data: [
+          { user_id: 'internal-pm-1', role: 'member' },
+          { user_id: 'internal-dev-1', role: 'member' },
+        ],
+        error: null,
+      }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(approvalMembershipsQueryIds[0]).toEqual(
+        expect.arrayContaining(['internal-pm-1', 'internal-dev-1'])
+      )
+      expect(createTaskNotificationMock).toHaveBeenCalledTimes(2)
+      const calls = createTaskNotificationMock.mock.calls as Array<
+        [unknown, { toUserId: string; type: string }]
+      >
+      const recipients = calls.map(([, args]) => args.toUserId)
+      expect(recipients.sort()).toEqual(['internal-dev-1', 'internal-pm-1'])
+      for (const [, args] of calls) {
+        expect(args.type).toBe('client_approved')
+      }
+    })
+
+    it('sends only one notification when the creator and assignee are the same internal person', async () => {
+      taskResponse = { data: { ...baseTask, assignee_id: 'internal-pm-1' }, error: null }
+      approvalMembershipsResponse = {
+        data: [{ user_id: 'internal-pm-1', role: 'editor' }],
+        error: null,
+      }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+      expect(createTaskNotificationMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ toUserId: 'internal-pm-1', type: 'client_approved' })
+      )
+    })
+
+    it('does not notify a vendor assignee either', async () => {
+      taskResponse = { data: { ...baseTask, created_by: null as unknown as string, assignee_id: 'vendor-1' }, error: null }
+      approvalMembershipsResponse = { data: [{ user_id: 'vendor-1', role: 'vendor' }], error: null }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).not.toHaveBeenCalled()
+    })
+
+    // 回帰: 組織の owner/admin がタスクを作ったが、その space に役割の行が無い
+    // （よくある構成）場合、以前は space_memberships だけを見ていたので作成者が
+    // 宛先から漏れていた（従来は作成者に必ず届いていたので後退）。
+    // space の役割が無い組織メンバーは editor 扱い(app_is_space_internal と同じ考え方)。
+    it('space の役割が無い組織admin/ownerの作成者にも届く', async () => {
+      taskResponse = { data: { ...baseTask, created_by: 'org-admin-1' }, error: null }
+      approvalMembershipsResponse = { data: [], error: null } // space_memberships に行が無い
+      approvalOrgMembershipsResponse = {
+        data: [{ user_id: 'org-admin-1', role: 'admin' }],
+        error: null,
+      }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+      expect(createTaskNotificationMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ toUserId: 'org-admin-1', type: 'client_approved' })
+      )
+    })
+
+    it('組織の役割が client の担当者には、space の役割が無くても届かない', async () => {
+      taskResponse = {
+        data: { ...baseTask, created_by: null as unknown as string, assignee_id: 'org-client-1' },
+        error: null,
+      }
+      approvalMembershipsResponse = { data: [], error: null }
+      approvalOrgMembershipsResponse = {
+        data: [{ user_id: 'org-client-1', role: 'client' }],
+        error: null,
+      }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).not.toHaveBeenCalled()
+    })
+
+    it('space/組織のメンバー検索が失敗しても承認自体は成功し、失敗はログに残す（今は捨てて誰にも届かない・ログにも残らない不具合の回帰）', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      approvalMembershipsResponse = { data: null, error: { message: 'space lookup failed' } }
+      approvalOrgMembershipsResponse = { data: null, error: { message: 'org lookup failed' } }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).not.toHaveBeenCalled()
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('space memberships'),
+        expect.objectContaining({ message: 'space lookup failed' })
+      )
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('org memberships'),
+        expect.objectContaining({ message: 'org lookup failed' })
+      )
+
+      consoleErrorSpy.mockRestore()
+    })
+
+    // 課題2: 2回目以降の承認でもプッシュ・即時メールが鳴るよう、宛先ごとに
+    // 同じ dedupe_key の行を消してから作り直す（_create_task_notification は
+    // 既存行があると insert でなく update に倒れ、プッシュが鳴らない）。
+    describe('2回目以降の承認でも出るよう、消してから作り直す', () => {
+      it('宛先ごとに、新しいキー(portal_client_approved:)で消してから作る（消す→作るの順）', async () => {
+        const response = await callPost({ action: 'approve' })
+
+        expect(response.status).toBe(200)
+        expect(notificationDeleteCalls).toHaveLength(1)
+        const deleteConditions = Object.fromEntries(notificationDeleteCalls[0])
+        expect(deleteConditions).toMatchObject({
+          to_user_id: 'internal-pm-1',
+          channel: 'in_app',
+          dedupe_key: 'portal_client_approved:task-1:internal-pm-1',
+        })
+        expect(createTaskNotificationMock).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ dedupeKey: 'portal_client_approved:task-1:internal-pm-1' })
+        )
+        expect(sideEffectOrder).toEqual(['delete:internal-pm-1', 'create:internal-pm-1'])
+      })
+
+      it('消すのに失敗しても、通知の作成は続ける（ログに残すだけ）', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        notificationDeleteResponse = { error: { message: 'delete failed' } }
+
+        const response = await callPost({ action: 'approve' })
+
+        expect(response.status).toBe(200)
+        expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+        expect(consoleErrorSpy).toHaveBeenCalled()
+
+        consoleErrorSpy.mockRestore()
+      })
     })
   })
 
@@ -401,7 +738,7 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
     })
 
     it('does not notify and reverts assignee_id when the comment insert fails', async () => {
-      commentInsertResponse = { error: { message: 'insert failed' } }
+      commentInsertResponse = { data: null, error: { message: 'insert failed' } }
 
       const response = await callPost({ action: 'request_changes', comment: '色を直してください' })
 
@@ -425,6 +762,98 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
       // The rollback's updated_at guard must match the forward update's timestamp
       // (so it never clobbers a newer state written in between).
       expect(rollbackConditions.updated_at).toBe(adminUpdateCalls[0].payload.updated_at)
+    })
+
+    // 課題4: request_changes のコメント insert は task_comments_notify トリガーを
+    // 発火させ、作成者が担当者・承認者・過去の書き手のいずれかに該当するときは
+    // 既に comment_added の通知を作っている。そこへ notifyTaskCreator で
+    // ball_passed をさらに作ると、同じ人に2通（プッシュも2回）届いてしまう。
+    describe('作成者あての通知はトリガーの行を書き換えて1通にまとめる', () => {
+      it('トリガーが作った行が見つかれば、ball_passed に書き換えて notifyTaskCreator は呼ばない', async () => {
+        existingNotificationResponse = { data: { id: 'notif-1' }, error: null }
+
+        const response = await callPost({ action: 'request_changes', comment: '色を直してください' })
+
+        expect(response.status).toBe(200)
+        expect(createTaskNotificationMock).not.toHaveBeenCalled()
+
+        expect(notificationUpdateCalls).toHaveLength(1)
+        expect(notificationUpdateCalls[0].payload).toMatchObject({
+          type: 'ball_passed',
+          read_at: null,
+          actioned_at: null,
+        })
+        const updatePayload = notificationUpdateCalls[0].payload as { payload: Record<string, unknown> }
+        expect(updatePayload.payload).toMatchObject({
+          task_id: 'task-1',
+          task_title: 'ロゴ制作',
+          title: '「ロゴ制作」に修正依頼が届きました',
+          message: '色を直してください',
+          comment_id: 'comment-1',
+        })
+        const updateConditions = Object.fromEntries(notificationUpdateCalls[0].eqCalls)
+        expect(updateConditions).toMatchObject({ id: 'notif-1' })
+      })
+
+      it('探す条件は、insert した comment の id を dedupe_key に使い、作成者・in_app に絞る', async () => {
+        existingNotificationResponse = { data: { id: 'notif-1' }, error: null }
+
+        await callPost({ action: 'request_changes', comment: '色を直してください' })
+
+        expect(notificationFindEqCalls).toHaveLength(1)
+        const findConditions = Object.fromEntries(notificationFindEqCalls[0])
+        expect(findConditions).toMatchObject({
+          to_user_id: 'internal-pm-1',
+          channel: 'in_app',
+          dedupe_key: 'task_comment:comment-1',
+        })
+      })
+
+      it('トリガーが作った行が見つからなければ、従来どおり notifyTaskCreator を呼ぶ', async () => {
+        existingNotificationResponse = { data: null, error: null }
+
+        const response = await callPost({ action: 'request_changes', comment: '色を直してください' })
+
+        expect(response.status).toBe(200)
+        expect(notificationUpdateCalls).toHaveLength(0)
+        expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+        expect(createTaskNotificationMock).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ toUserId: 'internal-pm-1', type: 'ball_passed' })
+        )
+      })
+
+      // 探せなかったときは、作成者に届いているか分からない。修正依頼は相手先が待っている知らせなので、
+      // 1通も届かないより2通になるほうを選び、従来どおり notifyTaskCreator で送る
+      it('探すときに失敗したら、依頼自体は成功で返し、従来どおり notifyTaskCreator で送る', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        existingNotificationResponse = { data: null, error: { message: 'boom' } }
+
+        const response = await callPost({ action: 'request_changes', comment: '色を直してください' })
+
+        expect(response.status).toBe(200)
+        expect(notificationUpdateCalls).toHaveLength(0)
+        expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+        expect(consoleErrorSpy).toHaveBeenCalled()
+
+        consoleErrorSpy.mockRestore()
+      })
+
+      // 見つかった行の書き換えに失敗しても、作成者にはトリガーのコメントの通知がもう届いている。二重にしない
+      it('見つかった行の書き換えに失敗したら、依頼自体は成功で返し、notifyTaskCreator は呼ばない', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        existingNotificationResponse = { data: { id: 'notif-1' }, error: null }
+        notificationUpdateResponse = { error: { message: 'boom' } }
+
+        const response = await callPost({ action: 'request_changes', comment: '色を直してください' })
+
+        expect(response.status).toBe(200)
+        expect(notificationUpdateCalls).toHaveLength(1)
+        expect(createTaskNotificationMock).not.toHaveBeenCalled()
+        expect(consoleErrorSpy).toHaveBeenCalled()
+
+        consoleErrorSpy.mockRestore()
+      })
     })
   })
 
@@ -488,7 +917,7 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
 
     it('estimate_reject でコメントの INSERT が失敗したら、確認済みの条件で見積状態を戻す', async () => {
       taskResponse = { data: pendingEstimateTask, error: null }
-      commentInsertResponse = { error: { message: 'insert failed' } }
+      commentInsertResponse = { data: null, error: { message: 'insert failed' } }
 
       const response = await callPost({ action: 'estimate_reject', comment: '再検討をお願いします' })
 

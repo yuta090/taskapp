@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react'
 import {
   ChatCircle,
   PaperPlaneTilt,
@@ -13,6 +13,14 @@ import {
 import Image from 'next/image'
 import { useConfirmDialog } from '@/components/shared'
 import { useTaskComments, type CommentWithProfile } from '@/lib/hooks/useTaskComments'
+import { useSpaceMembers, type SpaceMember } from '@/lib/hooks/useSpaceMembers'
+import {
+  detectMentionQuery,
+  getMentionCandidates,
+  resolveMentionUserIds,
+  splitCommentBody,
+  type MentionSelection,
+} from '@/lib/comments/mentions'
 import type { CommentVisibility } from '@/types/database'
 
 interface TaskCommentsProps {
@@ -46,11 +54,37 @@ interface CommentItemProps {
   comment: CommentWithProfile
   currentUserId: string | null
   canEdit: boolean
+  members: SpaceMember[]
   onEdit: (commentId: string, body: string) => Promise<void>
   onDelete: (commentId: string) => Promise<void>
 }
 
-function CommentItem({ comment, currentUserId, canEdit, onEdit, onDelete }: CommentItemProps) {
+/** コメント本文を表示用に分け、@表示名 だけ色を付けて返す */
+function CommentBody({ body, mentionUserIds, members }: { body: string; mentionUserIds: string[]; members: SpaceMember[] }) {
+  const segments = splitCommentBody(body, mentionUserIds, members)
+  return (
+    <>
+      {segments.map((segment, i) =>
+        segment.type === 'mention' ? (
+          <span key={i} className="text-indigo-ink font-medium">
+            {segment.value}
+          </span>
+        ) : (
+          <span key={i}>{segment.value}</span>
+        )
+      )}
+    </>
+  )
+}
+
+const CommentItem = memo(function CommentItem({
+  comment,
+  currentUserId,
+  canEdit,
+  members,
+  onEdit,
+  onDelete,
+}: CommentItemProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [isEditing, setIsEditing] = useState(false)
   const [editBody, setEditBody] = useState(comment.body)
@@ -171,7 +205,7 @@ function CommentItem({ comment, currentUserId, canEdit, onEdit, onDelete }: Comm
             </div>
           ) : (
             <p className="mt-0.5 text-sm text-gray-700 whitespace-pre-wrap break-words">
-              {comment.body}
+              <CommentBody body={comment.body} mentionUserIds={comment.mention_user_ids ?? []} members={members} />
             </p>
           )}
         </div>
@@ -199,7 +233,7 @@ function CommentItem({ comment, currentUserId, canEdit, onEdit, onDelete }: Comm
       </div>
     </div>
   )
-}
+})
 
 export function TaskComments({
   orgId,
@@ -219,6 +253,7 @@ export function TaskComments({
     softDeleteComment,
     canEdit,
   } = useTaskComments({ orgId, spaceId, taskId, clientOnly })
+  const { members } = useSpaceMembers(spaceId)
 
   const [newComment, setNewComment] = useState('')
   const [visibility, setVisibility] = useState<CommentVisibility>('internal')
@@ -226,6 +261,57 @@ export function TaskComments({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const commentsEndRef = useRef<HTMLDivElement>(null)
   const prevCommentsLengthRef = useRef<number>(0)
+
+  // 公開範囲が選べない画面（クライアントポータル等）は常に 'client' 扱い
+  const effectiveVisibility: CommentVisibility = canSetVisibility ? visibility : 'client'
+
+  // ── @メンション ──
+  const [mentionState, setMentionState] = useState<{ start: number; query: string; activeIndex: number } | null>(null)
+  const [selectedMentions, setSelectedMentions] = useState<MentionSelection[]>([])
+  const [cursorToSet, setCursorToSet] = useState<number | null>(null)
+
+  const mentionCandidates = useMemo(() => {
+    if (!mentionState) return []
+    return getMentionCandidates(members, {
+      visibility: effectiveVisibility,
+      currentUserId,
+      query: mentionState.query,
+    }).slice(0, 8)
+  }, [mentionState, members, effectiveVisibility, currentUserId])
+
+  // 候補を選んだ直後にカーソル位置を差し込んだメンションの後ろへ動かす
+  useEffect(() => {
+    if (cursorToSet === null) return
+    const el = textareaRef.current
+    if (el) {
+      el.focus()
+      el.setSelectionRange(cursorToSet, cursorToSet)
+    }
+    setCursorToSet(null)
+  }, [cursorToSet, newComment])
+
+  const selectMention = useCallback(
+    (candidate: SpaceMember) => {
+      if (!mentionState) return
+      const { start, query } = mentionState
+      const before = newComment.slice(0, start)
+      const after = newComment.slice(start + 1 + query.length)
+      const insertText = `@${candidate.displayName} `
+      setNewComment(before + insertText + after)
+      setSelectedMentions((list) => [...list, { id: candidate.id, displayName: candidate.displayName }])
+      setMentionState(null)
+      setCursorToSet(before.length + insertText.length)
+    },
+    [mentionState, newComment]
+  )
+
+  // カーソル位置（クリック・矢印キーでの移動を含む）から @候補を取り直す。
+  // 文字を打ったとき以外は開閉されず、古い @ の位置のまま選ばれてしまうのを防ぐ
+  const refreshMentionStateFromCursor = useCallback((el: HTMLTextAreaElement) => {
+    const cursor = el.selectionStart ?? el.value.length
+    const detected = detectMentionQuery(el.value, cursor)
+    setMentionState(detected ? { ...detected, activeIndex: 0 } : null)
+  }, [])
 
   // Fetch comments on mount
   useEffect(() => {
@@ -249,18 +335,28 @@ export function TaskComments({
   const handleSend = useCallback(async () => {
     if (!newComment.trim() || isSending) return
 
+    // 見える範囲の外に落ちた人は resolveMentionUserIds が落とす
+    const allowedCandidates = getMentionCandidates(members, {
+      visibility: effectiveVisibility,
+      currentUserId,
+    })
+    const mentionUserIds = resolveMentionUserIds(newComment, selectedMentions, allowedCandidates)
+
     setIsSending(true)
     try {
       await createComment({
         body: newComment.trim(),
-        visibility: canSetVisibility ? visibility : 'client',
+        visibility: effectiveVisibility,
+        mentionUserIds,
       })
       setNewComment('')
+      setSelectedMentions([])
+      setMentionState(null)
       textareaRef.current?.focus()
     } finally {
       setIsSending(false)
     }
-  }, [newComment, isSending, createComment, canSetVisibility, visibility])
+  }, [newComment, isSending, createComment, effectiveVisibility, members, currentUserId, selectedMentions])
 
   const handleEdit = useCallback(
     async (commentId: string, body: string) => {
@@ -276,14 +372,55 @@ export function TaskComments({
     [softDeleteComment]
   )
 
+  const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setNewComment(value)
+    const cursor = e.target.selectionStart ?? value.length
+    const detected = detectMentionQuery(value, cursor)
+    setMentionState(detected ? { ...detected, activeIndex: 0 } : null)
+  }, [])
+
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // 日本語入力の変換中の Enter は変換の確定。候補の決定や送信に使わない
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return
+
+      // 候補が開いている間は、まず一覧の操作を優先する
+      // （Cmd/Ctrl+Enter の送信とはぶつからないよう、修飾キー無しの Enter だけ横取りする）
+      if (mentionState && mentionCandidates.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setMentionState((prev) => (prev ? { ...prev, activeIndex: (prev.activeIndex + 1) % mentionCandidates.length } : prev))
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setMentionState((prev) =>
+            prev ? { ...prev, activeIndex: (prev.activeIndex - 1 + mentionCandidates.length) % mentionCandidates.length } : prev
+          )
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setMentionState(null)
+          return
+        }
+        if (e.key === 'Tab' || (e.key === 'Enter' && !e.metaKey && !e.ctrlKey)) {
+          e.preventDefault()
+          // 公開範囲の切り替え等で候補が減ったあとでも、選択中の番号を候補の
+          // 件数に丸めてから使う（undefined を selectMention に渡さない）
+          const index = Math.min(mentionState.activeIndex, mentionCandidates.length - 1)
+          selectMention(mentionCandidates[index])
+          return
+        }
+      }
+
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
         handleSend()
       }
     },
-    [handleSend]
+    [handleSend, mentionState, mentionCandidates, selectMention]
   )
 
   return (
@@ -319,6 +456,7 @@ export function TaskComments({
                 comment={comment}
                 currentUserId={currentUserId}
                 canEdit={currentUserId ? canEdit(comment, currentUserId) : false}
+                members={members}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
               />
@@ -330,16 +468,65 @@ export function TaskComments({
 
       {/* New comment input */}
       <div className="space-y-2">
-        <textarea
-          ref={textareaRef}
-          value={newComment}
-          onChange={(e) => setNewComment(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="コメントを入力... (Cmd+Enter で送信)"
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-          rows={2}
-          disabled={isSending}
-        />
+        <div className="relative">
+          {mentionState && mentionCandidates.length > 0 && (
+            <div
+              role="listbox"
+              aria-label="メンション候補"
+              // 候補が多いとスクロールバーが出る。つかむと入力欄のフォーカスが外れ、blur で一覧が閉じるので、
+              // 一覧の中の mousedown ではフォーカスを動かさない（候補のボタンと同じ扱い）
+              onMouseDown={(e) => e.preventDefault()}
+              className="absolute bottom-full left-0 mb-1 w-64 max-h-48 overflow-y-auto bg-surface border border-gray-200 rounded-lg shadow-popover z-20 py-1"
+            >
+              {mentionCandidates.map((candidate, i) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === mentionState.activeIndex}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    selectMention(candidate)
+                  }}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left ${
+                    i === mentionState.activeIndex ? 'bg-indigo-50 text-indigo-ink' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {candidate.avatarUrl ? (
+                    <Image
+                      src={candidate.avatarUrl}
+                      alt=""
+                      width={20}
+                      height={20}
+                      className="w-5 h-5 rounded-full object-cover flex-shrink-0"
+                      unoptimized
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-[10px] font-medium flex-shrink-0">
+                      {candidate.displayName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="truncate">{candidate.displayName}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <textarea
+            ref={textareaRef}
+            value={newComment}
+            onChange={handleTextareaChange}
+            onKeyDown={handleKeyDown}
+            onSelect={(e) => refreshMentionStateFromCursor(e.currentTarget)}
+            onClick={(e) => refreshMentionStateFromCursor(e.currentTarget)}
+            // 候補のクリックは各ボタンの onMouseDown で先に確定するので、
+            // ここで一覧を閉じても選択の妨げにはならない
+            onBlur={() => setMentionState(null)}
+            placeholder="コメントを入力...（@で名前を呼ぶと通知が届きます・Cmd+Enter で送信）"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            rows={2}
+            disabled={isSending}
+          />
+        </div>
 
         <div className="flex items-center justify-between">
           {/* Visibility toggle (internal members only) */}
@@ -347,7 +534,11 @@ export function TaskComments({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setVisibility('client')}
+                onClick={() => {
+                  setVisibility('client')
+                  // 公開範囲が変わると @候補の見える範囲も変わるので、開いていた一覧は閉じる
+                  setMentionState(null)
+                }}
                 className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
                   visibility === 'client'
                     ? 'bg-amber-100 text-amber-700 font-medium'
@@ -359,7 +550,10 @@ export function TaskComments({
               </button>
               <button
                 type="button"
-                onClick={() => setVisibility('internal')}
+                onClick={() => {
+                  setVisibility('internal')
+                  setMentionState(null)
+                }}
                 className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
                   visibility === 'internal'
                     ? 'bg-gray-200 text-gray-700 font-medium'

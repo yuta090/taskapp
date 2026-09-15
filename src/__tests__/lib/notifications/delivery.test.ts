@@ -35,8 +35,12 @@ describe('配信ポリシー(delivery)', () => {
       'confirmation_request',
       'urgent_confirmation',
       'ball_passed',
+      // 社内承認が承認された: 依頼した人が次の作業に進めるので、その場で知らせる
+      'review_approved',
       'client_question',
       'client_feedback',
+      // 相手先がポータルで承認した: 待っていた社内の人が次に進めるので、その場で知らせる
+      'client_approved',
       // 招待の承諾: 招待した人が待っているので、まとめではなくその場で知らせる
       'invite_accepted',
     ]) {
@@ -193,12 +197,14 @@ describe('即時メールの対象', () => {
     expect([...EMAIL_IMMEDIATE_TYPES].sort()).toEqual(
       [
         'ball_passed',
+        'client_approved',
         'client_feedback',
         'client_question',
         'client_replied',
         'client_response',
         'confirmation_request',
         'invite_accepted',
+        'review_approved',
         'review_request',
         'sink_error',
         'spec_decision_needed',

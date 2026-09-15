@@ -23,6 +23,55 @@ describe('buildPushMessage', () => {
     expect(msg.title).toBe('承認依頼が届きました')
   })
 
+  it('labels review_approved', () => {
+    const msg = buildPushMessage(makeRow({ type: 'review_approved' }), 'internal')
+    expect(msg.title).toBe('社内承認が承認されました')
+  })
+
+  it('builds a task deep link for review_approved when task_id is present', () => {
+    const msg = buildPushMessage(
+      makeRow({ type: 'review_approved', payload: { task_id: 'task-1' } }),
+      'internal'
+    )
+    expect(msg.url).toBe('/org-1/project/space-1?task=task-1')
+  })
+
+  // 回帰: 承認者が複数いるとき、1人目が承認しただけでも見出しが固定文言のまま
+  // 「社内承認が承認されました」になり、そろっていないのにそろった印象を与えていた。
+  describe('review_approved の見出し（進み具合込みの payload.title）', () => {
+    it('一部の承認者が承認しただけのときは、誰が承認したかの title を見出しに使う', () => {
+      const msg = buildPushMessage(
+        makeRow({
+          type: 'review_approved',
+          payload: { title: '田中さんが承認しました: 「見積書の作成」' },
+        }),
+        'internal'
+      )
+      expect(msg.title).toBe('田中さんが承認しました: 「見積書の作成」')
+    })
+
+    it('全員そろったときは、そろったことが分かる title を見出しに使う', () => {
+      const msg = buildPushMessage(
+        makeRow({
+          type: 'review_approved',
+          payload: { title: '社内承認がそろいました: 「見積書の作成」' },
+        }),
+        'internal'
+      )
+      expect(msg.title).toBe('社内承認がそろいました: 「見積書の作成」')
+    })
+
+    it('title が無ければ、従来どおりの固定文言にフォールバックする', () => {
+      const msg = buildPushMessage(makeRow({ type: 'review_approved', payload: {} }), 'internal')
+      expect(msg.title).toBe('社内承認が承認されました')
+    })
+  })
+
+  it('labels client_approved', () => {
+    const msg = buildPushMessage(makeRow({ type: 'client_approved' }), 'internal')
+    expect(msg.title).toBe('相手先が承認しました')
+  })
+
   it('labels confirmation_request', () => {
     const msg = buildPushMessage(makeRow({ type: 'confirmation_request' }), 'client')
     expect(msg.title).toBe('確認依頼が届きました')
@@ -41,6 +90,16 @@ describe('buildPushMessage', () => {
   it('labels spec_decision_needed', () => {
     const msg = buildPushMessage(makeRow({ type: 'spec_decision_needed' }), 'internal')
     expect(msg.title).toBe('仕様の決定が必要です')
+  })
+
+  it('labels comment_added', () => {
+    const msg = buildPushMessage(makeRow({ type: 'comment_added' }), 'internal')
+    expect(msg.title).toBe('タスクにコメントが付きました')
+  })
+
+  it('labels mention', () => {
+    const msg = buildPushMessage(makeRow({ type: 'mention' }), 'internal')
+    expect(msg.title).toBe('コメントであなたが呼ばれました')
   })
 
   it('falls back to a generic title for unknown types', () => {

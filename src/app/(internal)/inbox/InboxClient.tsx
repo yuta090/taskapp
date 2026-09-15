@@ -7,6 +7,8 @@ import {
   CheckCircle,
   Bell,
   ChatCircleText,
+  ChatCircleDots,
+  At,
   Calendar,
   Warning,
   ArrowRight,
@@ -33,9 +35,9 @@ import { NotificationInspector } from '@/components/notification/NotificationIns
 type ReadFilter = 'all' | 'unread' | 'read'
 type ActionFilter = 'all' | 'actionable' | 'actioned'
 
-const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyArray<string> }> = [
-  { label: 'レビュー', types: ['review_request', 'review_cancelled'] },
-  { label: 'クライアント連絡', types: ['client_question', 'client_feedback'] },
+export const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyArray<string> }> = [
+  { label: 'レビュー', types: ['review_request', 'review_cancelled', 'review_approved'] },
+  { label: 'クライアント連絡', types: ['client_question', 'client_feedback', 'client_approved'] },
   { label: '確認依頼', types: ['confirmation_request', 'urgent_confirmation'] },
   { label: 'タスク割り当て', types: ['task_assigned', 'ball_passed'] },
   { label: '期限リマインド', types: ['due_date_reminder'] },
@@ -43,6 +45,7 @@ const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyAr
   { label: 'タスク完了', types: ['task_completed', 'github_pr_merged'] },
   { label: '仕様決定', types: ['spec_decision_needed'] },
   { label: 'ファイル', types: ['file_uploaded'] },
+  { label: 'コメント', types: ['comment_added', 'mention'] },
 ]
 
 // ── Type filter dropdown ──
@@ -142,11 +145,15 @@ function getNotificationIcon(type: string) {
       return <Eye />
     case 'review_cancelled':
       return <XCircle />
+    case 'review_approved':
+      return <CheckCircle weight="fill" />
     case 'client_question':
     case 'client_feedback':
     case 'confirmation_request':
     case 'urgent_confirmation':
       return <ChatCircleText />
+    case 'client_approved':
+      return <CheckCircle weight="fill" />
     case 'task_assigned':
     case 'ball_passed':
       return <ArrowRight />
@@ -163,6 +170,10 @@ function getNotificationIcon(type: string) {
       return <Bell />
     case 'file_uploaded':
       return <File />
+    case 'comment_added':
+      return <ChatCircleDots />
+    case 'mention':
+      return <At />
     default:
       return <Bell />
   }

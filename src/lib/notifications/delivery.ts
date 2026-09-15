@@ -1,7 +1,7 @@
 /**
  * 通知を「その場で届けるか / 1日1回のまとめに回すか / 送らないか」の正本（純関数）。
  *
- * 判断の軸はひとつだけ: **受け取る人が動かないと、誰かが待って止まるか**。
+ * 判断の軸はひとつだけ: **受け取る人が動かないと誰かが待って止まるか、または結果を待っている人がいるか**（承認・差し戻しの結果など）。
  *   - 止まる  → その場で届ける（プッシュ＋メール）
  *   - 止まらないが知りたい → プッシュだけその場・メールはまとめ
  *   - 知らせるだけ → まとめのみ
@@ -33,8 +33,12 @@ const POLICY: Readonly<Record<string, DeliveryPolicy>> = {
   confirmation_request: IMMEDIATE,
   urgent_confirmation: IMMEDIATE,
   ball_passed: IMMEDIATE,
+  // 承認されたら依頼した人が次の作業に進めるので、その場で知らせる
+  review_approved: IMMEDIATE,
   client_question: IMMEDIATE,
   client_feedback: IMMEDIATE,
+  // 相手先がポータルで承認した: 待っていた社内の人が次に進めるので、その場で知らせる
+  client_approved: IMMEDIATE,
   client_response: IMMEDIATE,
   client_replied: IMMEDIATE,
   // 連携が止まっている＝気づくのが遅れるほど取りこぼしが増えるので即時

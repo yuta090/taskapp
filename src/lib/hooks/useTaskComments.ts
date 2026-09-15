@@ -57,6 +57,8 @@ export interface CreateCommentInput {
   body: string
   visibility?: CommentVisibility
   replyToId?: string
+  /** @で名指しした人の user_id（TaskComments 側で見える範囲の外を落とした後の確定リスト） */
+  mentionUserIds?: string[]
 }
 
 export interface UpdateCommentInput {
@@ -182,6 +184,7 @@ export function useTaskComments({
 
       // If clientOnly mode, always use 'client' visibility
       const visibility = clientOnly ? 'client' : (input.visibility || 'client')
+      const mentionUserIds = input.mentionUserIds ?? []
 
       // Optimistic comment
       const optimisticComment: CommentWithProfile = {
@@ -193,6 +196,7 @@ export function useTaskComments({
         body: input.body,
         visibility,
         reply_to_id: input.replyToId || null,
+        mention_user_ids: mentionUserIds,
         created_at: now,
         updated_at: now,
         deleted_at: null,
@@ -214,6 +218,7 @@ export function useTaskComments({
           body: input.body,
           visibility,
           reply_to_id: input.replyToId || null,
+          mention_user_ids: mentionUserIds,
         }
 
         const { data: created, error: createError } = await (supabase as SupabaseClient)

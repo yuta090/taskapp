@@ -13,6 +13,8 @@ describe('getNotificationTypeLabel', () => {
     expect(getNotificationTypeLabel('ball_passed')).toBe('ボール移動')
     expect(getNotificationTypeLabel('digest_approval_request')).toBe('申し送りの承認依頼')
     expect(getNotificationTypeLabel('file_uploaded')).toBe('ファイル')
+    expect(getNotificationTypeLabel('review_approved')).toBe('社内承認')
+    expect(getNotificationTypeLabel('client_approved')).toBe('相手先の承認')
   })
 
   it('運営向け(システム)タイプにも日本語名がある', () => {
@@ -21,6 +23,11 @@ describe('getNotificationTypeLabel', () => {
     expect(getNotificationTypeLabel('pool_ai_exhausted')).toBe('共有AIの上限到達')
     expect(getNotificationTypeLabel('group_claim_linked')).toBe('共有botグループ紐付け')
     expect(getNotificationTypeLabel('free_cap_upgrade')).toBe('無料通知枠の上限到達')
+  })
+
+  it('コメント・メンションにも日本語名がある', () => {
+    expect(getNotificationTypeLabel('comment_added')).toBe('コメント')
+    expect(getNotificationTypeLabel('mention')).toBe('メンション')
   })
 
   it('未知のタイプは「通知」を返す（落ちない）', () => {

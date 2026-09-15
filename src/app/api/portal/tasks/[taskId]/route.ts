@@ -86,6 +86,238 @@ async function notifyTaskCreator(
   }
 }
 
+/**
+ * request_changes 専用: task_comments の insert トリガー（task_comments_notify,
+ * supabase/migrations/20260915105122_task_comment_notify.sql）は、作成者が担当者・
+ * 社内承認の承認者・過去の書き手のいずれかに該当するとき、その人あてに
+ * 'comment_added' の受信トレイ通知（dedupe_key = 'task_comment:<comment.id>'）を
+ * 既に作っている。そこへさらに notifyTaskCreator で 'ball_passed' を作ると、
+ * 作成者が担当者と同じ人だった場合に同じ用件の通知が2通（プッシュも2回）届く。
+ *
+ * 'ball_passed' は「相手が待っている」種類ですぐメールが届き受信トレイで要対応に
+ * なる一方、'comment_added' はプッシュのみで要対応にならない（src/lib/notifications/
+ * delivery.ts・classify.ts）。作成者あての通知は 'ball_passed' の1通に揃えたいので、
+ * トリガーが作った行が見つかればそれを書き換え、無ければ従来どおり notifyTaskCreator
+ * で新規に作る。プッシュは insert のときにトリガーから1回だけ送る（update では送らない）。
+ * 送る側（src/app/api/push/dispatch/route.ts）は送る時点で行を読み直すので、プッシュの
+ * 文面が「コメントが付きました」「修正依頼」のどちらになるかは書き換えとの前後で変わる
+ * （回数は1回）。即時メールは5分ごとのワーカーが type を見て送るため、書き換えたあとの
+ * type='ball_passed' で ball_passed として届く。
+ *
+ * 探す・書き換えるのに失敗しても、修正依頼そのものは既に成功しているので、
+ * notifyTaskCreator と同じくログに残すだけで依頼の成功レスポンスは変えない。
+ */
+async function upgradeOrNotifyTaskCreatorForChangeRequest(
+  admin: SupabaseClient<Database>,
+  params: {
+    orgId: string
+    spaceId: string
+    createdBy: string | null
+    actorId: string
+    taskId: string
+    taskTitle: string
+    commentId: string | null
+    comment: string
+  },
+): Promise<void> {
+  const { createdBy, actorId, commentId, taskId, taskTitle, comment } = params
+  if (!createdBy || createdBy === actorId) return
+
+  const title = `「${taskTitle}」に修正依頼が届きました`
+
+  if (commentId) {
+    // notifications の型定義（src/types/database.ts）が actioned_at 列を含まず
+    // 本番の実列と食い違っている（既知のドリフト）ため、この表への読み書きだけは
+    // 緩い型のクライアントで行う（他の呼び出し箇所の (admin as SupabaseClient) と同じやり方）。
+    let existingId: string | null = null
+    try {
+      const { data: existing, error: findError } = await (admin as unknown as SupabaseClient)
+        .from('notifications')
+        .select('id')
+        .eq('to_user_id', createdBy)
+        .eq('channel', 'in_app')
+        .eq('dedupe_key', `task_comment:${commentId}`)
+        .maybeSingle()
+
+      if (findError) throw findError
+      existingId = (existing as { id: string } | null)?.id ?? null
+    } catch (err) {
+      // 探せなかったときは、作成者に届いているか分からない。修正依頼は相手先が待っている知らせなので、
+      // 1通も届かないより2通になるほうを選び、下の notifyTaskCreator で送る
+      console.error('[portal-notify] Failed to look up comment notification for task creator:', err)
+    }
+
+    if (existingId) {
+      try {
+        const { error: updateError } = await (admin as unknown as SupabaseClient)
+          .from('notifications')
+          .update({
+            type: 'ball_passed',
+            payload: {
+              task_id: taskId,
+              task_title: taskTitle,
+              title,
+              message: comment,
+              comment_id: commentId,
+            },
+            read_at: null,
+            actioned_at: null,
+          })
+          .eq('id', existingId)
+
+        if (updateError) throw updateError
+      } catch (err) {
+        // 書き換えに失敗しても、作成者にはトリガーのコメントの通知がもう届いている。二重にしない
+        console.error('[portal-notify] Failed to upgrade comment notification to ball_passed:', err)
+      }
+      return
+    }
+  }
+
+  await notifyTaskCreator(admin, {
+    orgId: params.orgId,
+    spaceId: params.spaceId,
+    createdBy,
+    actorId,
+    taskId,
+    taskTitle,
+    type: 'ball_passed',
+    dedupeSuffix: 'changes_requested',
+    title,
+    message: comment,
+  })
+}
+
+/**
+ * notifyApprovalRecipients が dedupe_key ぶんの古い行を消してから作り直すための下請け。
+ * `_create_task_notification` は同じキーの行があると payload・read_at・created_at を
+ * 書き直すだけの update に倒れ、insert 扱いにならない（プッシュは insert でしか鳴らず、
+ * immediate_email_sent_at も立ったまま）。2回目以降の承認でもプッシュ・即時メールが
+ * 出るよう、宛先ごとに同じキーの行を先に消す。消えなくても知らせそのものは出したいので、
+ * 失敗はログに残すだけで先へ進む。
+ */
+async function deleteExistingApprovalNotification(
+  admin: SupabaseClient<Database>,
+  params: { toUserId: string; dedupeKey: string },
+): Promise<void> {
+  try {
+    const { error } = await (admin as unknown as SupabaseClient)
+      .from('notifications')
+      .delete()
+      .eq('to_user_id', params.toUserId)
+      .eq('channel', 'in_app')
+      .eq('dedupe_key', params.dedupeKey)
+
+    if (error) throw error
+  } catch (err) {
+    console.error('[portal-notify] Failed to delete previous approval notification before re-creating:', err)
+  }
+}
+
+/**
+ * Approve is the one place where the client's action itself is the news —
+ * the internal side (creator AND assignee) has been waiting on this ball.
+ * Unlike notifyTaskCreator (single recipient: the creator), this notifies
+ * every distinct internal person on the task, skipping the approving client
+ * and skipping anyone whose role on this space is client/vendor (the
+ * assignee can currently be a client reviewer, reused while ball='client').
+ *
+ * "Internal" here mirrors app_is_space_internal (supabase/migrations/
+ * 20260911143112_space_role_boundary.sql): a member of the org (role
+ * owner/admin/member) whose role on *this* space is not client/vendor —
+ * including org members who have no space_memberships row at all (they
+ * count as 'editor'). Without the org_memberships half, an org owner/admin
+ * who created the task but never got a space role (a common setup) fell out
+ * of the recipient list entirely — a regression from before this function
+ * existed, when the creator always got notified.
+ *
+ * Failures are swallowed — the approval itself must still succeed.
+ */
+async function notifyApprovalRecipients(
+  supabase: SupabaseClient<Database>,
+  params: {
+    orgId: string
+    spaceId: string
+    createdBy: string | null
+    assigneeId: string | null
+    actorId: string
+    taskId: string
+    taskTitle: string
+    title: string
+    message: string
+  },
+): Promise<void> {
+  const candidateIds = [
+    ...new Set(
+      [params.createdBy, params.assigneeId].filter(
+        (id): id is string => !!id && id !== params.actorId
+      )
+    ),
+  ]
+  if (candidateIds.length === 0) return
+
+  const [spaceMembershipsResult, orgMembershipsResult] = await Promise.all([
+    (supabase as SupabaseClient)
+      .from('space_memberships')
+      .select('user_id, role')
+      .eq('space_id', params.spaceId)
+      .in('user_id', candidateIds),
+    (supabase as SupabaseClient)
+      .from('org_memberships')
+      .select('user_id, role')
+      .eq('org_id', params.orgId)
+      .in('user_id', candidateIds),
+  ])
+
+  if (spaceMembershipsResult.error) {
+    console.error('[portal-notify] Failed to look up space memberships:', spaceMembershipsResult.error)
+  }
+  if (orgMembershipsResult.error) {
+    console.error('[portal-notify] Failed to look up org memberships:', orgMembershipsResult.error)
+  }
+
+  const spaceRoleByUserId = new Map(
+    ((spaceMembershipsResult.data ?? []) as Array<{ user_id: string; role: string }>).map(
+      (m) => [m.user_id, m.role]
+    )
+  )
+  const orgInternalIds = new Set(
+    ((orgMembershipsResult.data ?? []) as Array<{ user_id: string; role: string }>)
+      .filter((m) => m.role === 'owner' || m.role === 'admin' || m.role === 'member')
+      .map((m) => m.user_id)
+  )
+
+  const internalIds = candidateIds.filter((id) => {
+    if (!orgInternalIds.has(id)) return false
+    const spaceRole = spaceRoleByUserId.get(id) ?? 'editor'
+    return spaceRole !== 'client' && spaceRole !== 'vendor'
+  })
+
+  try {
+    await Promise.all(
+      internalIds.map(async (toUserId) => {
+        const dedupeKey = `portal_client_approved:${params.taskId}:${toUserId}`
+        await deleteExistingApprovalNotification(supabase, { toUserId, dedupeKey })
+        await rpc.createTaskNotification(supabase, {
+          orgId: params.orgId,
+          spaceId: params.spaceId,
+          toUserId,
+          type: 'client_approved',
+          dedupeKey,
+          payload: {
+            task_id: params.taskId,
+            task_title: params.taskTitle,
+            title: params.title,
+            message: params.message,
+          },
+        })
+      })
+    )
+  } catch (err) {
+    console.error('[portal-notify] Failed to create in-app notification:', err)
+  }
+}
+
 interface TaskActionBody {
   action: 'approve' | 'request_changes' | 'estimate_approve' | 'estimate_reject'
   comment?: string
@@ -444,16 +676,17 @@ export async function POST(
         })
       )
 
-      // In-app inbox notification so the approval is visible without Slack
-      await notifyTaskCreator(admin as unknown as SupabaseClient<Database>, {
+      // In-app inbox notification so the approval is visible without Slack.
+      // Notifies both the creator and the assignee (internal members only) —
+      // both have been waiting on this ball.
+      await notifyApprovalRecipients(admin as unknown as SupabaseClient<Database>, {
         orgId: task.org_id,
         spaceId: task.space_id,
         createdBy: task.created_by,
+        assigneeId: task.assignee_id,
         actorId: user.id,
         taskId,
         taskTitle: task.title,
-        type: 'task_completed',
-        dedupeSuffix: 'approved',
         title: `「${task.title}」が承認されました`,
         message: trimmedComment || 'クライアントがタスクを承認しました。',
       })
@@ -504,8 +737,10 @@ export async function POST(
       // Comment is required — insert and await it before the audit log/
       // notification below, since a failed insert reverts the ball/assignee
       // change and must not leave a "changes requested" audit trail or
-      // notification behind.
-      const { error: commentError } = await (admin as SupabaseClient)
+      // notification behind. Select the id back so we can look up the
+      // in-app notification the insert trigger (task_comments_notify) may
+      // already have created for the task creator (see upgradeOrNotifyTaskCreator below).
+      const { data: insertedComment, error: commentError } = await (admin as SupabaseClient)
         .from('task_comments')
         .insert({
           org_id: task.org_id,
@@ -517,6 +752,8 @@ export async function POST(
           created_at: now,
           updated_at: now,
         })
+        .select('id')
+        .single()
 
       if (commentError) {
         console.error('Failed to create task comment:', commentError)
@@ -570,18 +807,18 @@ export async function POST(
         })
       )
 
-      // In-app inbox notification so the change request is visible without Slack
-      await notifyTaskCreator(admin as unknown as SupabaseClient<Database>, {
+      // In-app inbox notification so the change request is visible without Slack.
+      // Upgrades the trigger's own comment_added row when there is one, instead
+      // of always creating a second ball_passed notification (see function doc).
+      await upgradeOrNotifyTaskCreatorForChangeRequest(admin as unknown as SupabaseClient<Database>, {
         orgId: task.org_id,
         spaceId: task.space_id,
         createdBy: task.created_by,
         actorId: user.id,
         taskId,
         taskTitle: task.title,
-        type: 'ball_passed',
-        dedupeSuffix: 'changes_requested',
-        title: `「${task.title}」に修正依頼が届きました`,
-        message: trimmedComment,
+        commentId: insertedComment?.id ?? null,
+        comment: trimmedComment,
       })
 
       return NextResponse.json({

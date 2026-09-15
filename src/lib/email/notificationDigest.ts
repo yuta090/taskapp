@@ -37,7 +37,8 @@ export interface SendNotificationDigestEmailParams {
   sections: DigestSection[]
   totalCount: number
   /**
-   * 'daily' = 毎朝1回のまとめ（既定）/ 'immediate' = 数分ためて送る「返事待ち」のまとめ。
+   * 'daily' = 毎朝1回のまとめ（既定）/ 'immediate' = 数分ためて送る「すぐ確認してほしい件」のまとめ
+   * （承認依頼などの返事待ちと、承認・差し戻しの結果などのお知らせの両方が載る）。
    * 中身の作りが同じなのでテンプレートを共用し、件名と見出しだけを変える。
    */
   variant?: NotificationDigestVariant
@@ -55,7 +56,7 @@ export async function sendNotificationDigestEmail(params: SendNotificationDigest
 
   const subject =
     variant === 'immediate'
-      ? `【${appName}】あなたの返事を待っている件が${totalCount}件あります`
+      ? `【${appName}】すぐ確認してほしい件が${totalCount}件あります`
       : `【${appName}】今日の更新が${totalCount}件あります`
 
   const emailElement = createElement(NotificationDigestEmail, {
