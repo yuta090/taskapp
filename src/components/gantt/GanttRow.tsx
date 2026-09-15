@@ -205,17 +205,21 @@ export const GanttRow = memo(function GanttRow({
     const handleMouseUp = () => {
       const preview = dragPreviewRef.current
       if (preview) {
+        // 日付が変わっていなければ保存しない。開始日が空のタスクは作成日からバーを描くので、
+        // 押して離しただけで保存すると作成日が開始日として入り、並び順が変わってタスクが
+        // 消えたように見える（2026-09-15 に TP-571/573/578 で実際に起きた）
+        const dayAt = (x: number) => formatDateToLocalString(xToDate(x, startDate, dayWidth))
+        const newStart = dayAt(preview.x)
+        const newEnd = dayAt(preview.x + preview.width)
+        const startChanged = newStart !== dayAt(dragState.originalX)
+        const endChanged = newEnd !== dayAt(dragState.originalX + dragState.originalWidth)
+
         if (dragState.edge === 'move' && onBarMove) {
-          const newStart = xToDate(preview.x, startDate, dayWidth)
-          const newEnd = xToDate(preview.x + preview.width, startDate, dayWidth)
-          onBarMove(task.id, formatDateToLocalString(newStart), formatDateToLocalString(newEnd))
+          if (startChanged || endChanged) onBarMove(task.id, newStart, newEnd)
         } else if (dragState.edge === 'end' && onDateChange) {
-          const endX = preview.x + preview.width
-          const newDate = xToDate(endX, startDate, dayWidth)
-          onDateChange(task.id, 'end', formatDateToLocalString(newDate))
+          if (endChanged) onDateChange(task.id, 'end', newEnd)
         } else if (dragState.edge === 'start' && onDateChange) {
-          const newDate = xToDate(preview.x, startDate, dayWidth)
-          onDateChange(task.id, 'start', formatDateToLocalString(newDate))
+          if (startChanged) onDateChange(task.id, 'start', newStart)
         }
       }
 
