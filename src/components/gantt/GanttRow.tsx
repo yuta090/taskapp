@@ -3,6 +3,7 @@
 import { useMemo, useState, useCallback, useEffect, useRef, memo } from 'react'
 import { GANTT_CONFIG } from '@/lib/gantt/constants'
 import { getTaskBarPosition, xToDate, formatDateToLocalString, dateToX } from '@/lib/gantt/dateUtils'
+import { isTaskOverdue } from '@/lib/gantt/overdue'
 import type { Task } from '@/types/database'
 
 /**
@@ -32,6 +33,8 @@ interface GanttRowProps {
   summaryStart?: string | null
   /** Summary end date (auto-computed from children) */
   summaryEnd?: string | null
+  /** JST の今日('YYYY-MM-DD')。期限切れの赤枠の判定に使う。行ごとに求めず親で1回だけ求めて渡す */
+  todayJst?: string
 }
 
 export const GanttRow = memo(function GanttRow({
@@ -48,6 +51,7 @@ export const GanttRow = memo(function GanttRow({
   isParent,
   summaryStart,
   summaryEnd,
+  todayJst,
 }: GanttRowProps) {
   const [isHovering, setIsHovering] = useState(false)
   const [dragState, setDragState] = useState<{
@@ -107,6 +111,7 @@ export const GanttRow = memo(function GanttRow({
     return GANTT_CONFIG.COLORS.INTERNAL
   }
   const barColor = getBarColor()
+  const isOverdue = todayJst ? isTaskOverdue(task, todayJst) : false
 
   // Derived state
   const displayPosition = dragPreview || barPosition
@@ -378,6 +383,22 @@ export const GanttRow = memo(function GanttRow({
               height={GANTT_CONFIG.BAR_HEIGHT}
               rx={GANTT_CONFIG.RADIUS.SM}
               fill={barColor} opacity={0.3}
+              style={{ pointerEvents: 'none' }}
+            />
+          )}
+
+          {/* 期限切れ・未完了: 塗りはボールの色のまま（誰の番かを残す）、赤い枠で囲む */}
+          {isOverdue && (
+            <rect
+              data-testid="gantt-bar-overdue-outline"
+              x={displayPosition.x - 1}
+              y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING - 1}
+              width={displayPosition.width + 2}
+              height={GANTT_CONFIG.BAR_HEIGHT + 2}
+              rx={GANTT_CONFIG.RADIUS.SM + 1}
+              fill="none"
+              stroke={GANTT_CONFIG.COLORS.OVERDUE}
+              strokeWidth={2}
               style={{ pointerEvents: 'none' }}
             />
           )}
