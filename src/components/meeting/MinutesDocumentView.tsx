@@ -790,12 +790,15 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
    * そのたびに今読んでいた場所から飛ばされる。
    */
   const restoredForRef = useRef<string | null>(null)
-  const attachScrollBox = useCallback(
+  const restoreScroll = useCallback(
     (el: HTMLDivElement | null) => {
-      scrollBoxRef.current = el
       if (!el) return
       // 同じ会議で何度も戻さない（本文を打つたびに描き直されるため）
       if (restoredForRef.current === meetingId) return
+      // 同時編集では本文が届くまでエディタを隠している。その間は枠に高さが無く、
+      // 位置を入れても 0 に丸められる。覚えた位置は取り出したきり消えるので、
+      // **届いてから**戻す
+      if (!collabSyncedRef.current) return
       const top = takeMinutesScroll(meetingId, currentContentRef.current.length)
       if (top === null) {
         restoredForRef.current = meetingId
@@ -817,6 +820,20 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     },
     [meetingId]
   )
+
+  const attachScrollBox = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollBoxRef.current = el
+      restoreScroll(el)
+    },
+    [restoreScroll]
+  )
+
+  // 本文が届いたら、見ていた場所へ戻す（届く前は枠に高さが無くて戻せない）
+  useEffect(() => {
+    if (!collabSynced) return
+    restoreScroll(scrollBoxRef.current)
+  }, [collabSynced, restoreScroll])
 
   const handleBeforeNavigate = useCallback(async () => {
       // 見ていた場所を覚える。タスクや Wiki のリンクで移ると議事録は一から組み立て直され、

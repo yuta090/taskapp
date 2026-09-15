@@ -198,9 +198,7 @@ export class MinutesCollabSession {
    */
   private handleJoined(): void {
     if (this.disposed || this.degraded) return
-    const others = this.peers.filter(
-      (peer) => peer.userId !== this.options.selfId && peer.collab !== false
-    )
+    const others = this.peers.filter((peer) => peer.userId !== this.options.selfId && peer.collab)
     // 自分ひとりなら誰の返事も待たずに列の本文で満たす。先客が居れば必ず握手する
     // （既に本文を持っていても、切れている間に増えた分をもらうため）
     if (others.length === 0) {

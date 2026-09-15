@@ -30,8 +30,8 @@ interface Member {
   reloads: number
 }
 
-/** 部屋の顔ぶれ。`joinedAt` が小さいほど古株 */
-type Room = { userId: string; joinedAt: number }[]
+/** 部屋の顔ぶれ。`joinedAt` が小さいほど古株。`collab` は本文の入った器を持っているか */
+type Room = { userId: string; joinedAt: number; collab?: boolean }[]
 
 const members: Member[] = []
 
@@ -60,8 +60,11 @@ function join(
   }
   member.session.setSeeder(seedWith(markdown))
   members.push(member)
-  // 在席は全員に配られる。入る前から居た人にも新しい顔ぶれが届く
-  for (const existing of members) existing.session.setPeers(room)
+  // 在席は全員に配られる。入る前から居た人にも新しい顔ぶれが届く。
+  // ここでは「居る人はみな器を持っている」ことにする（持っていない人の扱いは
+  // scribe.test.ts で見ている）
+  const announced = room.map((peer) => ({ collab: true, ...peer }))
+  for (const existing of members) existing.session.setPeers(announced)
   member.session.start()
   return member
 }
@@ -177,7 +180,7 @@ describe('切れて入り直したとき', () => {
     const yamada = join(hub, 'yamada', room)
 
     // 山田が切れる（運び役から外れる）。その間に双方が別の場所を打つ
-    yamada.session.setPeers(room)
+    yamada.session.setPeers(room.map((peer) => ({ collab: true, ...peer })))
     hub.disconnect('yamada')
     applyMarkdown(yamada.session.doc, `${BASE}\n- 山田が切れている間に書いた`)
     applyMarkdown(tanaka.session.doc, `# 会議（田中が直した）\n\n- 決めたこと`)
@@ -363,7 +366,7 @@ describe('1人で書く形へ落とすとき', () => {
       onDegrade: (reason) => degraded.push(reason),
     })
     session.setSeeder(seedWith(BASE))
-    session.setPeers([{ userId: 'tanaka', joinedAt: 100 }])
+    session.setPeers([{ userId: 'tanaka', joinedAt: 100, collab: true }])
     session.start()
 
     expect(degraded).toEqual(['transport-error'])

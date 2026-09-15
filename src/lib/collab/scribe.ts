@@ -22,17 +22,17 @@ export interface CollabPeer {
   /** その人が部屋に入った時刻（epoch ミリ秒）。各自の時計なので多少のずれは前提 */
   joinedAt: number
   /**
-   * いま輪に入っているか。1人で書く形へ落ちた人は false。
-   * 落ちた人を書記にすると、その人の器には他の人の更新が入らないので、
-   * **誰の書いた内容も列に残らなくなる**。
+   * いま輪に入っているか＝**本文の入った器を持っているか**。
+   * 持っていない人を書記にすると、その人の器には他の人の更新が入らないので、
+   * **誰の書いた内容も列に残らなくなる**。付け忘れを型で止めるため必須にしてある。
    */
-  collab?: boolean
+  collab: boolean
 }
 
 /** 輪に入っている人だけを、古い順に並べる（並べ方は全員で同じ） */
 function activeOrdered(peers: CollabPeer[]): CollabPeer[] {
   return peers
-    .filter((peer) => peer.collab !== false)
+    .filter((peer) => peer.collab)
     .sort((a, b) => (a.joinedAt !== b.joinedAt ? a.joinedAt - b.joinedAt : a.userId.localeCompare(b.userId)))
 }
 

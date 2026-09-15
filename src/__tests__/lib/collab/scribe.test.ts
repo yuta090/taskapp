@@ -16,22 +16,22 @@ describe('書記の決め方', () => {
   })
 
   it('1人だけならその人', () => {
-    expect(electScribe([{ userId: 'tanaka', joinedAt: 100 }])).toBe('tanaka')
+    expect(electScribe([{ userId: 'tanaka', joinedAt: 100, collab: true }])).toBe('tanaka')
   })
 
   it('いちばん古くから居る人になる', () => {
     const peers = [
-      { userId: 'suzuki', joinedAt: 300 },
-      { userId: 'tanaka', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { userId: 'suzuki', joinedAt: 300, collab: true },
+      { userId: 'tanaka', joinedAt: 100, collab: true },
+      { userId: 'yamada', joinedAt: 200, collab: true },
     ]
     expect(electScribe(peers)).toBe('tanaka')
   })
 
   it('入った時刻が同じなら、全員が同じ答えになるよう名前順で決める', () => {
     const peers = [
-      { userId: 'yamada', joinedAt: 100 },
-      { userId: 'tanaka', joinedAt: 100 },
+      { userId: 'yamada', joinedAt: 100, collab: true },
+      { userId: 'tanaka', joinedAt: 100, collab: true },
     ]
     expect(electScribe(peers)).toBe('tanaka')
     // 並び順を変えても同じ答えになる
@@ -42,8 +42,8 @@ describe('書記の決め方', () => {
     // 「いまの書記は替えない」という据え置きはしない。各自が別々に覚えている値で
     // 決めると、見え方がずれたときに2人が同時に自分を書記だと思い込む
     const peers = [
-      { userId: 'tanaka', joinedAt: 300 },
-      { userId: 'yamada', joinedAt: 100 },
+      { userId: 'tanaka', joinedAt: 300, collab: true },
+      { userId: 'yamada', joinedAt: 100, collab: true },
     ]
     expect(electScribe(peers)).toBe('yamada')
   })
@@ -52,7 +52,7 @@ describe('書記の決め方', () => {
     // 落ちた人の器には他の人の更新が入らない。その人が書記だと、誰の内容も列に残らない
     const peers = [
       { userId: 'tanaka', joinedAt: 100, collab: false },
-      { userId: 'yamada', joinedAt: 200 },
+      { userId: 'yamada', joinedAt: 200, collab: true },
     ]
     expect(electScribe(peers)).toBe('yamada')
   })
@@ -64,9 +64,9 @@ describe('書記の決め方', () => {
 
 describe('目録に返事をする人', () => {
   const room = [
-    { userId: 'a', joinedAt: 100 },
-    { userId: 'b', joinedAt: 200 },
-    { userId: 'c', joinedAt: 300 },
+    { userId: 'a', joinedAt: 100, collab: true },
+    { userId: 'b', joinedAt: 200, collab: true },
+    { userId: 'c', joinedAt: 300, collab: true },
   ]
 
   it('尋ねた人を除いた、いちばん古い人', () => {
@@ -76,7 +76,7 @@ describe('目録に返事をする人', () => {
   })
 
   it('ほかに誰も居なければ決まらない', () => {
-    expect(electAnswerer([{ userId: 'a', joinedAt: 100 }], 'a')).toBeNull()
+    expect(electAnswerer([{ userId: 'a', joinedAt: 100, collab: true }], 'a')).toBeNull()
   })
 
   it('落ちた人は返事の係にしない', () => {
@@ -86,9 +86,9 @@ describe('目録に返事をする人', () => {
 
 describe('部屋での順番（人数の上限に使う）', () => {
   const room = [
-    { userId: 'c', joinedAt: 300 },
-    { userId: 'a', joinedAt: 100 },
-    { userId: 'b', joinedAt: 200 },
+    { userId: 'c', joinedAt: 300, collab: true },
+    { userId: 'a', joinedAt: 100, collab: true },
+    { userId: 'b', joinedAt: 200, collab: true },
   ]
 
   it('古い人から 0 番で数える', () => {
