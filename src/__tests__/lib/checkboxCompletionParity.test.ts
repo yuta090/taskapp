@@ -22,6 +22,10 @@ const CASES: Array<{ name: string; md: string }> = [
   { name: '複数の印', md: `- [x] A <!--task:${T1}-->\n- [x] B <!--task:${T2}-->` },
   { name: '段落に印', md: `ふつうの段落 <!--task:${T1}-->` },
   { name: '空', md: '' },
+  { name: '壊れた目印（UUID の形でない）', md: '- [x] A <!--task:abc-->' },
+  { name: '空の目印', md: '- [x] A <!--task:-->' },
+  { name: '壊れた目印と正しい目印が混在', md: `- [x] A <!--task:abc-->\n- [x] B <!--task:${T1}-->` },
+  { name: '記号入りの目印', md: "- [x] A <!--task:'; drop table tasks; --\u002D>" },
   { name: '混在', md: `# 会議\n\n- [x] A <!--task:${T1}-->\n- [ ] B <!--task:${T2}-->\n- [x] 印なし` },
 ]
 
