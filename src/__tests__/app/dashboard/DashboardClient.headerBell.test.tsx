@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/hooks/useTasks', () => ({
   useTasks: () => ({
     tasks: [],
+    reviewStatuses: {},
     loading: mocks.tasksLoading,
     error: mocks.tasksError,
     fetchTasks: vi.fn(),
@@ -29,9 +30,12 @@ vi.mock('@/lib/hooks/useTasks', () => ({
 vi.mock('@/lib/hooks/useMilestones', () => ({
   useMilestones: () => ({ milestones: [], loading: mocks.msLoading }),
 }))
-vi.mock('@/lib/hooks/useReviews', () => ({ useReviews: () => ({ reviews: [] }) }))
 vi.mock('@/lib/hooks/useMeetings', () => ({ useMeetings: () => ({ meetings: [] }) }))
 vi.mock('@/lib/hooks/useRiskForecast', () => ({ useRiskForecast: () => ({ forecasts: [] }) }))
+vi.mock('@/lib/hooks/useSpaceMembers', () => ({ useSpaceMembers: () => ({ members: [], isPending: false }) }))
+vi.mock('@/lib/hooks/useRecentTaskComments', () => ({
+  useRecentTaskComments: () => ({ comments: [], loading: false, error: null }),
+}))
 
 // お知らせベルは Supabase/組織コンテキストを引くので、取得層だけ差し替える
 vi.mock('@/lib/hooks/useAnnouncements', () => ({

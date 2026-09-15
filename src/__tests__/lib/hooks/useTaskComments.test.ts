@@ -328,6 +328,77 @@ describe('useTaskComments — コメント数キャッシュ(taskCommentCounts)�
   })
 })
 
+/**
+ * ダッシュボードの「最近のコメント」（['recentTaskComments', spaceId]）は、コメントを書いた・直した・消したら
+ * 古い扱いにする。ダッシュボードに戻ったときに、書いたばかりのコメントが2分間出てこない、を防ぐ。
+ */
+describe('useTaskComments — ダッシュボードの最近のコメントを古い扱いにする', () => {
+  const recentKey = ['recentTaskComments', 'space-1'] as const
+  const otherSpaceRecentKey = ['recentTaskComments', 'space-2'] as const
+
+  function setup() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(recentKey, [])
+    queryClient.setQueryData(otherSpaceRecentKey, [])
+    const rendered = renderHook(
+      () => useTaskComments({ orgId: 'org-1', spaceId: 'space-1', taskId: 'task-1' }),
+      { wrapper: makeWrapper(queryClient) }
+    )
+    return { queryClient, ...rendered }
+  }
+
+  it('createComment が成功したら、その space の最近のコメントだけを古い扱いにする', async () => {
+    commentsInsertResponse = { data: { ...commentRow, id: 'new-1' }, error: null }
+    const { queryClient, result } = setup()
+    await waitFor(() => expect(result.current.comments).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.createComment({ body: '新しいコメント' })
+    })
+
+    expect(queryClient.getQueryState(recentKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(otherSpaceRecentKey)?.isInvalidated).toBe(false)
+  })
+
+  it('updateComment が成功したら、最近のコメントを古い扱いにする', async () => {
+    commentsUpdateResponse = { error: null }
+    const { queryClient, result } = setup()
+    await waitFor(() => expect(result.current.comments).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateComment(commentRow.id, { body: '直した本文' })
+    })
+
+    expect(queryClient.getQueryState(recentKey)?.isInvalidated).toBe(true)
+  })
+
+  it('softDeleteComment が成功したら、最近のコメントを古い扱いにする', async () => {
+    commentsUpdateResponse = { error: null }
+    const { queryClient, result } = setup()
+    await waitFor(() => expect(result.current.comments).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.softDeleteComment(commentRow.id)
+    })
+
+    expect(queryClient.getQueryState(recentKey)?.isInvalidated).toBe(true)
+  })
+
+  it('保存に失敗したら、最近のコメントはそのまま', async () => {
+    commentsUpdateResponse = { error: { message: 'update boom' } }
+    const { queryClient, result } = setup()
+    await waitFor(() => expect(result.current.comments).toHaveLength(1))
+
+    await expect(
+      act(async () => {
+        await result.current.softDeleteComment(commentRow.id)
+      })
+    ).rejects.toThrow()
+
+    expect(queryClient.getQueryState(recentKey)?.isInvalidated).toBe(false)
+  })
+})
+
 describe('useTaskComments — @メンションの保存', () => {
   it('createComment に渡した mentionUserIds が insert の mention_user_ids に入る', async () => {
     const { result } = renderHook(
