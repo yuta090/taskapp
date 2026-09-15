@@ -49,3 +49,26 @@ export function detectCheckedTaskIds(prevMd: string, nextMd: string): string[] {
   }
   return completed
 }
+
+/**
+ * 本文1つを見て、「チェックが付いている」かつ「タスクがある」行の taskId を返す。
+ *
+ * 画面は「チェックが入った瞬間」を前後の本文の差分で拾うが、CLI には**前の本文が無い**。
+ * そこで「いま付いているチェック」をまとめて拾い、まだ完了になっていないタスクだけを
+ * 完了にする（何度実行しても結果は同じ）。
+ *
+ * 外したチェックは見ない（完了の取り消しはしない）のは画面と同じ。
+ */
+export function collectCheckedTaskIds(md: string): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const line of md.split('\n')) {
+    const checked = checkedOf(line)
+    if (checked !== true) continue
+    const id = markerOf(line)
+    if (id === null || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
+}

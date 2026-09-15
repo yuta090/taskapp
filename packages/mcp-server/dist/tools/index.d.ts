@@ -17,6 +17,7 @@ export declare const allTools: ({
         assigneeId: import("zod").ZodOptional<import("zod").ZodString>;
         milestoneId: import("zod").ZodOptional<import("zod").ZodString>;
         specPath: import("zod").ZodOptional<import("zod").ZodString>;
+        wikiPageId: import("zod").ZodOptional<import("zod").ZodString>;
         decisionState: import("zod").ZodOptional<import("zod").ZodEnum<["considering", "decided", "implemented"]>>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
@@ -33,6 +34,7 @@ export declare const allTools: ({
         assigneeId?: string | undefined;
         milestoneId?: string | undefined;
         specPath?: string | undefined;
+        wikiPageId?: string | undefined;
         decisionState?: "considering" | "decided" | "implemented" | undefined;
     }, {
         spaceId: string;
@@ -49,6 +51,7 @@ export declare const allTools: ({
         assigneeId?: string | undefined;
         milestoneId?: string | undefined;
         specPath?: string | undefined;
+        wikiPageId?: string | undefined;
         decisionState?: "considering" | "decided" | "implemented" | undefined;
     }>;
     handler: typeof import("./tasks.js").taskCreate;
@@ -82,11 +85,11 @@ export declare const allTools: ({
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | null | undefined;
+        wikiPageId?: string | null | undefined;
         priority?: number | undefined;
         startDate?: string | null | undefined;
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
-        wikiPageId?: string | null | undefined;
         assigneeEmail?: string | undefined;
         assigneeInviteId?: string | null | undefined;
     }, {
@@ -99,11 +102,11 @@ export declare const allTools: ({
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | null | undefined;
+        wikiPageId?: string | null | undefined;
         priority?: number | undefined;
         startDate?: string | null | undefined;
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
-        wikiPageId?: string | null | undefined;
         assigneeEmail?: string | undefined;
         assigneeInviteId?: string | null | undefined;
     }>;
@@ -435,6 +438,77 @@ export declare const allTools: ({
         taskId: string;
     }>;
     handler: typeof import("./reviews.js").reviewGet;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        taskId: import("zod").ZodString;
+        state: import("zod").ZodEnum<["considering", "decided", "implemented"]>;
+        note: import("zod").ZodOptional<import("zod").ZodString>;
+        meetingId: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        taskId: string;
+        state: "considering" | "decided" | "implemented";
+        meetingId?: string | undefined;
+        note?: string | undefined;
+    }, {
+        spaceId: string;
+        taskId: string;
+        state: "considering" | "decided" | "implemented";
+        meetingId?: string | undefined;
+        note?: string | undefined;
+    }>;
+    handler: typeof import("./decisions.js").specDecide;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        meetingId: import("zod").ZodString;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        meetingId: string;
+    }, {
+        spaceId: string;
+        meetingId: string;
+    }>;
+    handler: typeof import("./minutesTaskify.js").minutesTaskifyPreview;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        dryRun: import("zod").ZodOptional<import("zod").ZodBoolean>;
+        spaceId: import("zod").ZodString;
+        meetingId: import("zod").ZodString;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        meetingId: string;
+        dryRun?: boolean | undefined;
+    }, {
+        spaceId: string;
+        meetingId: string;
+        dryRun?: boolean | undefined;
+    }>;
+    handler: typeof import("./minutesTaskify.js").minutesTaskify;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        dryRun: import("zod").ZodOptional<import("zod").ZodBoolean>;
+        spaceId: import("zod").ZodString;
+        meetingId: import("zod").ZodString;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        meetingId: string;
+        dryRun?: boolean | undefined;
+    }, {
+        spaceId: string;
+        meetingId: string;
+        dryRun?: boolean | undefined;
+    }>;
+    handler: typeof import("./minutesComplete.js").minutesCompleteChecked;
 } | {
     name: string;
     description: string;
@@ -836,15 +910,15 @@ export declare const allTools: ({
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         title: string;
+        tags?: string[] | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
-        tags?: string[] | undefined;
     }, {
         spaceId: string;
         title: string;
+        tags?: string[] | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
-        tags?: string[] | undefined;
     }>;
     handler: typeof import("./wiki.js").wikiCreate;
 } | {
@@ -860,26 +934,29 @@ export declare const allTools: ({
         parentPageId: import("zod").ZodEffects<import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>, string | null | undefined, unknown>;
         milestoneId: import("zod").ZodEffects<import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>, string | null | undefined, unknown>;
         pinned: import("zod").ZodOptional<import("zod").ZodBoolean>;
+        expectedUpdatedAt: import("zod").ZodOptional<import("zod").ZodString>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
         milestoneId?: string | null | undefined;
+        tags?: string[] | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
-        tags?: string[] | undefined;
         parentPageId?: string | null | undefined;
         pinned?: boolean | undefined;
+        expectedUpdatedAt?: string | undefined;
     }, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
         milestoneId?: unknown;
+        tags?: string[] | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
-        tags?: string[] | undefined;
         parentPageId?: unknown;
         pinned?: boolean | undefined;
+        expectedUpdatedAt?: string | undefined;
     }>;
     handler: typeof import("./wiki.js").wikiUpdate;
 } | {
@@ -934,14 +1011,17 @@ export declare const allTools: ({
         spaceId: import("zod").ZodString;
         meetingId: import("zod").ZodString;
         minutesMd: import("zod").ZodString;
+        expectedUpdatedAt: import("zod").ZodOptional<import("zod").ZodString>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         meetingId: string;
         minutesMd: string;
+        expectedUpdatedAt?: string | undefined;
     }, {
         spaceId: string;
         meetingId: string;
         minutesMd: string;
+        expectedUpdatedAt?: string | undefined;
     }>;
     handler: typeof import("./minutes.js").minutesUpdate;
 } | {

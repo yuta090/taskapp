@@ -15,6 +15,7 @@ export declare const taskCreateSchema: z.ZodObject<{
     assigneeId: z.ZodOptional<z.ZodString>;
     milestoneId: z.ZodOptional<z.ZodString>;
     specPath: z.ZodOptional<z.ZodString>;
+    wikiPageId: z.ZodOptional<z.ZodString>;
     decisionState: z.ZodOptional<z.ZodEnum<["considering", "decided", "implemented"]>>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
@@ -31,6 +32,7 @@ export declare const taskCreateSchema: z.ZodObject<{
     assigneeId?: string | undefined;
     milestoneId?: string | undefined;
     specPath?: string | undefined;
+    wikiPageId?: string | undefined;
     decisionState?: "considering" | "decided" | "implemented" | undefined;
 }, {
     spaceId: string;
@@ -47,6 +49,7 @@ export declare const taskCreateSchema: z.ZodObject<{
     assigneeId?: string | undefined;
     milestoneId?: string | undefined;
     specPath?: string | undefined;
+    wikiPageId?: string | undefined;
     decisionState?: "considering" | "decided" | "implemented" | undefined;
 }>;
 export declare const taskUpdateSchema: z.ZodObject<{
@@ -76,11 +79,11 @@ export declare const taskUpdateSchema: z.ZodObject<{
     dueDate?: string | undefined;
     assigneeId?: string | undefined;
     milestoneId?: string | null | undefined;
+    wikiPageId?: string | null | undefined;
     priority?: number | undefined;
     startDate?: string | null | undefined;
     parentTaskId?: string | null | undefined;
     actualHours?: number | null | undefined;
-    wikiPageId?: string | null | undefined;
     assigneeEmail?: string | undefined;
     assigneeInviteId?: string | null | undefined;
 }, {
@@ -93,11 +96,11 @@ export declare const taskUpdateSchema: z.ZodObject<{
     dueDate?: string | undefined;
     assigneeId?: string | undefined;
     milestoneId?: string | null | undefined;
+    wikiPageId?: string | null | undefined;
     priority?: number | undefined;
     startDate?: string | null | undefined;
     parentTaskId?: string | null | undefined;
     actualHours?: number | null | undefined;
-    wikiPageId?: string | null | undefined;
     assigneeEmail?: string | undefined;
     assigneeInviteId?: string | null | undefined;
 }>;
@@ -229,6 +232,7 @@ export declare const taskTools: ({
         assigneeId: z.ZodOptional<z.ZodString>;
         milestoneId: z.ZodOptional<z.ZodString>;
         specPath: z.ZodOptional<z.ZodString>;
+        wikiPageId: z.ZodOptional<z.ZodString>;
         decisionState: z.ZodOptional<z.ZodEnum<["considering", "decided", "implemented"]>>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
@@ -245,6 +249,7 @@ export declare const taskTools: ({
         assigneeId?: string | undefined;
         milestoneId?: string | undefined;
         specPath?: string | undefined;
+        wikiPageId?: string | undefined;
         decisionState?: "considering" | "decided" | "implemented" | undefined;
     }, {
         spaceId: string;
@@ -261,6 +266,7 @@ export declare const taskTools: ({
         assigneeId?: string | undefined;
         milestoneId?: string | undefined;
         specPath?: string | undefined;
+        wikiPageId?: string | undefined;
         decisionState?: "considering" | "decided" | "implemented" | undefined;
     }>;
     handler: typeof taskCreate;
@@ -294,11 +300,11 @@ export declare const taskTools: ({
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | null | undefined;
+        wikiPageId?: string | null | undefined;
         priority?: number | undefined;
         startDate?: string | null | undefined;
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
-        wikiPageId?: string | null | undefined;
         assigneeEmail?: string | undefined;
         assigneeInviteId?: string | null | undefined;
     }, {
@@ -311,11 +317,11 @@ export declare const taskTools: ({
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | null | undefined;
+        wikiPageId?: string | null | undefined;
         priority?: number | undefined;
         startDate?: string | null | undefined;
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
-        wikiPageId?: string | null | undefined;
         assigneeEmail?: string | undefined;
         assigneeInviteId?: string | null | undefined;
     }>;

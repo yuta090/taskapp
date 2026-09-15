@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
+import { collectCheckedTaskIds, detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
 
 const T1 = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 const T2 = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
@@ -71,5 +71,42 @@ describe('detectCheckedTaskIds: 拾わないとき', () => {
 
   it('空でも落ちない', () => {
     expect(detectCheckedTaskIds('', '')).toEqual([])
+  })
+})
+
+/**
+ * CLI から「いま本文でチェックが付いている行」をまとめて完了にするための取り出し。
+ * 画面は「チェックが入った瞬間」を差分で拾うが、CLI には前の本文が無いので、
+ * 本文1つだけを見て拾う。
+ */
+describe('collectCheckedTaskIds: 本文1つから拾う', () => {
+  it('チェックが付いていて、タスクの印がある行を拾う', () => {
+    const md = [line(true, 'A', T1), line(false, 'B', T2)].join('\n')
+    expect(collectCheckedTaskIds(md)).toEqual([T1])
+  })
+
+  it('印の無い行は拾わない（タスクがまだ無い）', () => {
+    expect(collectCheckedTaskIds(line(true, '印なし'))).toEqual([])
+  })
+
+  it('大文字の [X] も拾う', () => {
+    expect(collectCheckedTaskIds(`- [X] A <!--task:${T1}-->`)).toEqual([T1])
+  })
+
+  it('字下げした行も拾う（画面のチェックと同じ扱い）', () => {
+    expect(collectCheckedTaskIds(`  ${line(true, 'A', T1)}`)).toEqual([T1])
+  })
+
+  it('同じ印が何度も出ても1回だけ返す', () => {
+    const md = [line(true, 'A', T1), line(true, 'A の写し', T1)].join('\n')
+    expect(collectCheckedTaskIds(md)).toEqual([T1])
+  })
+
+  it('チェックリストでない行は見ない', () => {
+    expect(collectCheckedTaskIds(`ふつうの段落 <!--task:${T1}-->`)).toEqual([])
+  })
+
+  it('空の本文なら空', () => {
+    expect(collectCheckedTaskIds('')).toEqual([])
   })
 })
