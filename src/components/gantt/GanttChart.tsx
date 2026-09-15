@@ -27,6 +27,7 @@ import {
 } from '@/lib/gantt/dateUtils'
 import { getDescendantIds, getAncestorIds, buildTaskTree } from '@/lib/gantt/treeUtils'
 import { computeConnectionLines } from '@/lib/gantt/connectionLines'
+import { todayJstString } from '@/lib/gantt/overdue'
 import { GanttHeader } from './GanttHeader'
 import { GanttRow, type LinkHighlightState } from './GanttRow'
 import { GanttMilestone } from './GanttMilestone'
@@ -281,6 +282,7 @@ export function GanttChart({
 
   // Today line position
   const todayIndex = dates.findIndex((d) => isToday(d))
+  const todayJst = todayJstString()
   const todayX = todayIndex >= 0 ? dateToX(new Date(), startDate, dayWidth) : null
 
   // Horizontal scroll must target the chart body (chartBodyRef): its onScroll
@@ -1002,6 +1004,7 @@ export function GanttChart({
                     onBarMove={onBarMove}
                     onLinkDragStart={onParentChange ? handleLinkDragStart : undefined}
                     linkHighlight={getLinkHighlight(task.id)}
+                    todayJst={todayJst}
                   />
                 )
               })}
@@ -1142,6 +1145,13 @@ export function GanttChart({
             style={{ backgroundColor: GANTT_CONFIG.COLORS.DONE }}
           />
           <span>完了</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div
+            className="w-3 h-3 rounded"
+            style={{ border: `2px solid ${GANTT_CONFIG.COLORS.OVERDUE}` }}
+          />
+          <span>期限切れ</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div

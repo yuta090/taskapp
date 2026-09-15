@@ -29,6 +29,7 @@ export const GANTT_CONFIG = {
     DONE: '#6B7280',        // Gray-500
     IN_PROGRESS: '#3B82F6', // Blue-500
     BACKLOG: '#9CA3AF',     // Gray-400
+    OVERDUE: '#DC2626',     // Red-600 - 期限切れ・未完了のバーの枠（塗りはボールの色のまま）
 
     // Timeline
     TODAY: '#EF4444',       // Red-500
