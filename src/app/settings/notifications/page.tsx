@@ -239,7 +239,7 @@ function NotificationSettingsBody({ userId }: { userId: string }) {
           {/* Client Response */}
           <SettingRow
             label="相手からの応答・承諾"
-            description="相手先やメンバーが確認・回答した時、招待を承諾した時"
+            description="相手先やメンバーが確認・回答した時、招待を承諾した時、相手先がポータルで承認した時"
             enabled={prefs.on_client_response}
             onChange={() => void update({ on_client_response: !prefs.on_client_response })}
           />

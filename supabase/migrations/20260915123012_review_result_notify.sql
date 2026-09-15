@@ -16,8 +16,15 @@
 --         type = 'review_approved' を1人1行作る。キーは review_approve:<依頼>:<承認した人>:<宛先>。
 --         文面: 全員そろった →「社内承認がそろいました: 「タスク名」」/ まだ残りがいる →「○○さんが承認しました: 「タスク名」」
 --         と残りの人数。payload は task_id・task_title・from_user_name（表示名。空なら null）・all_approved・title・message。
+--         残りの人数は保留中（state = 'pending'）の人だけ数える（差し戻した人はもう返事を出しているので数えない）。
+--         message は、保留中の人がいれば「ほかの承認者の返事を待っています（残りN人）。」、保留中は0人で差し戻し中の人が
+--         いれば「差し戻している承認者がいます。差し戻しの内容を確認してください。」。「そろったか」の判定（全員 approved）は同じ。
 --   節 2: _review_block_impl を同じく写し、お知らせの部分（依頼した人だけ）を、依頼した人と担当者への type = 'ball_passed'
 --         に置き換える。キーは review_block:<依頼>:<宛先>（依頼した人のキーは今までと同じ形）。payload も今までと同じ。
+--         あわせて、差し戻した本人が同じ依頼で出した承認のお知らせ（type = 'review_approved'・キーが
+--         review_approve:<依頼>:<差し戻した人>:）のうち、未読の行を消す。承認してから押し間違いに気づいて差し戻すと、依頼した
+--         人の受信トレイに「社内承認がそろいました」と「差し戻し」が両方未読で並ぶため。既読の行は、読んだ人の記録なので残す。
+--         ほかの承認者の承認のお知らせ・ほかの依頼の承認のお知らせは消さない。
 --   共通:
 --     - 宛先は依頼した人と担当者（tasks.assignee_id）の重複なし。操作した本人は除く。社内の人だけ
 --       （組織の役割が owner / admin / member で、その space の役割が client / vendor でない。space の役割が無い社内メンバーは
@@ -53,8 +60,8 @@ declare
   r     record;
 begin
   for r in select * from (values
-      ('public._review_approve_impl(uuid,uuid,uuid)', 'fd3140e13174335adce627b7a5e3b970', '47afa97f07be4f0781804bb588169381'),
-      ('public._review_block_impl(uuid,uuid,text,uuid)', 'cf8e7e8cc12b9bc563f34d8cc990ce9b', '1a02fe95504b5b9a24b0ce42c36f3fe5')
+      ('public._review_approve_impl(uuid,uuid,uuid)', 'fd3140e13174335adce627b7a5e3b970', 'dd76aa93676fd8d5312e6c5ccf86a9a7'),
+      ('public._review_block_impl(uuid,uuid,text,uuid)', 'cf8e7e8cc12b9bc563f34d8cc990ce9b', '75e04b0b8be834aa4d822d11dcfdf0b3')
     ) v(sig, base_md5, new_md5)
   loop
     select md5(p.prosrc) into v_md5
@@ -71,7 +78,7 @@ begin
 end $$;
 
 -- =============================================================================
--- 節 1: _review_approve_impl（土台: 20260912134823_mcp_rpc_as.sql の節 6。変えたのは DECLARE の6行と、最後のお知らせの節だけ）
+-- 節 1: _review_approve_impl（土台: 20260912134823_mcp_rpc_as.sql の節 6。変えたのは DECLARE の7行と、最後のお知らせの節だけ）
 -- =============================================================================
 create or replace function public._review_approve_impl(
   p_actor uuid,
@@ -94,6 +101,7 @@ DECLARE
   v_requester_id uuid;
   v_actor_name text;
   v_remaining int;
+  v_blocked int;
   v_title text;
   v_message text;
   v_recipient uuid;
@@ -194,11 +202,19 @@ BEGIN
       v_title := format('社内承認がそろいました: 「%s」', v_task.title);
       v_message := 'すべての承認者が承認しました。次の作業に進めます。';
     ELSE
-      SELECT count(*) INTO v_remaining
+      -- 残りの人数は保留中（pending）の人だけ数える。差し戻した人（blocked）は、もう返事を出しているので数えない。
+      -- 保留中の人がいなくて、まだそろっていない理由が差し戻しなら、待つのではなく差し戻しの内容を見るよう伝える
+      SELECT count(*) FILTER (WHERE state = 'pending'),
+             count(*) FILTER (WHERE state = 'blocked')
+        INTO v_remaining, v_blocked
         FROM review_approvals
-       WHERE review_id = v_review_id AND state <> 'approved';
+       WHERE review_id = v_review_id;
       v_title := format('%sさんが承認しました: 「%s」', coalesce(v_actor_name, 'メンバー'), v_task.title);
-      v_message := format('ほかの承認者の返事を待っています（残り%s人）。', v_remaining);
+      IF v_remaining = 0 AND v_blocked > 0 THEN
+        v_message := '差し戻している承認者がいます。差し戻しの内容を確認してください。';
+      ELSE
+        v_message := format('ほかの承認者の返事を待っています（残り%s人）。', v_remaining);
+      END IF;
     END IF;
 
     FOR v_recipient IN
@@ -353,6 +369,18 @@ BEGIN
   SELECT display_name INTO v_actor_name FROM profiles WHERE id = v_actor_id;
 
   BEGIN
+    -- 差し戻した本人が同じ依頼で出した承認のお知らせのうち、未読の行を消す。承認してから差し戻すと、依頼した人の
+    -- 受信トレイに「社内承認がそろいました」と「差し戻し」が両方未読で並ぶため。読んだ行は読んだ人の記録なので残す。
+    -- 承認したときの宛先（依頼した人・その時の担当者）は今の担当者と違うことがあるので、宛先では絞らない。
+    -- space_id で絞るのは notifications_space_idx で引くため（承認のお知らせはタスクの space_id で作っており、
+    -- タスクを別のプロジェクトへ移す処理は無い）
+    DELETE FROM notifications
+     WHERE space_id = v_task.space_id
+       AND channel = 'in_app'
+       AND type = 'review_approved'
+       AND read_at IS NULL
+       AND dedupe_key LIKE format('review_approve:%s:%s:%%', v_review_id, v_actor_id);
+
     FOR v_recipient IN
       SELECT DISTINCT u.user_id
         FROM unnest(ARRAY[v_requester_id, v_task.assignee_id]) AS u(user_id)
@@ -412,8 +440,8 @@ declare
   r     record;
 begin
   for r in select * from (values
-      ('public._review_approve_impl(uuid,uuid,uuid)', '47afa97f07be4f0781804bb588169381', 'false/false/false/false'),
-      ('public._review_block_impl(uuid,uuid,text,uuid)', '1a02fe95504b5b9a24b0ce42c36f3fe5', 'false/false/false/false')
+      ('public._review_approve_impl(uuid,uuid,uuid)', 'dd76aa93676fd8d5312e6c5ccf86a9a7', 'false/false/false/false'),
+      ('public._review_block_impl(uuid,uuid,text,uuid)', '75e04b0b8be834aa4d822d11dcfdf0b3', 'false/false/false/false')
     ) v(sig, want_md5, want_rights)
   loop
     select format('%s:%s:%s:%s/%s/%s/%s', md5(p.prosrc), p.prosecdef::text, array_to_string(p.proconfig, ';'),
@@ -444,5 +472,6 @@ end $$;
 --      戻したあと、両関数の md5(prosrc) が fd3140e13174335adce627b7a5e3b970 / cf8e7e8cc12b9bc563f34d8cc990ce9b になる。
 --   2) （任意）承認のお知らせを消す: delete from public.notifications where type = 'review_approved';
 --   戻せないもの: 本 migration の間に作り直したお知らせの、前の行（id・既読・対応済み・即時メールを送った時刻）は戻らない。
+--     承認のあとの差し戻しで消した、未読の承認のお知らせ（review_approved）も戻らない。
 --     担当者あての差し戻しのお知らせは、依頼した人あてと同じ type・キーの形なので、区別して消さない。
 -- =============================================================================

@@ -16,7 +16,7 @@ import {
 import type { DigestSection, PendingInvitesSummary } from '@/lib/notifications/digest'
 
 /**
- * 'daily' = 毎朝1回のまとめ / 'immediate' = 数分ためて送る「返事待ち」だけのまとめ。
+ * 'daily' = 毎朝1回のまとめ / 'immediate' = 数分ためて送る「すぐ確認してほしい件」だけのまとめ。
  * 中身の作りは同じ（種類別の一覧）なので、見出しと注記だけを差し替える。
  */
 export type NotificationDigestVariant = 'daily' | 'immediate'

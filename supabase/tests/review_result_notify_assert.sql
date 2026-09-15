@@ -289,6 +289,41 @@ select test.check('chg_approve_after_block_recreates_notice',
   'asg=true|true|true|true,req=true|true|true|true');
 rollback;
 
+-- 承認者 rv1・rv2 のうち、rv2 が差し戻したあとに rv1 が承認: 保留中の人がいないので「差し戻している承認者がいます」。
+-- 「そろったか」の判定（全員 approved）は変えない
+begin;
+select test.open(:'T1', array[:'u_rv1', :'u_rv2']::uuid[]);
+select test.check('same_other_reviewer_can_block_first', test.block(:'u_rv2', :'T1', '先に差し戻します'), 'ok');
+select test.check('same_reviewer_can_approve_after_other_blocked', test.approve(:'u_rv1', :'T1'), 'ok');
+select test.check('chg_approve_after_other_blocked_text',
+  (select string_agg(format('%s=%s|%s|%s', p.label, n.payload->>'title', n.payload->>'message', n.payload->>'all_approved'),
+                     ',' order by p.label)
+     from public.notifications n join test.people p on p.id = n.to_user_id
+    where n.type = 'review_approved' and n.payload->>'task_id' = :'T1'),
+  'asg=承認する人1さんが承認しました: 「承認と差し戻しのタスク」|差し戻している承認者がいます。差し戻しの内容を確認してください。|false,'
+  || 'req=承認する人1さんが承認しました: 「承認と差し戻しのタスク」|差し戻している承認者がいます。差し戻しの内容を確認してください。|false');
+select test.check('same_approve_after_other_blocked_status', (select status from public.reviews where task_id = :'T1'), 'changes_requested');
+rollback;
+
+-- 承認者が3人（rv1・rv2・asg。T5 は担当なし）: rv2 が差し戻し → rv1 が承認すると、残りは保留中の asg だけ（1人）。
+-- 続けて asg が承認すると、保留中は0人で差し戻し中の rv2 が残るので「差し戻している承認者がいます」
+begin;
+select test.open(:'T5', array[:'u_rv1', :'u_rv2', :'u_asg']::uuid[]);
+select test.block(:'u_rv2', :'T5', '先に差し戻します');
+select test.approve(:'u_rv1', :'T5');
+select test.check('chg_approve_remaining_counts_pending_only',
+  (select format('%s|%s|%s', payload->>'title', payload->>'message', payload->>'all_approved')
+     from public.notifications
+    where to_user_id = :'u_req' and dedupe_key = format('review_approve:%s:%s:%s', test.review_id(:'T5'), :'u_rv1', :'u_req')),
+  '承認する人1さんが承認しました: 「担当のいないタスク」|ほかの承認者の返事を待っています（残り1人）。|false');
+select test.check('same_last_pending_can_approve_while_blocked', test.approve(:'u_asg', :'T5'), 'ok');
+select test.check('chg_approve_last_pending_while_blocked_text',
+  (select format('%s|%s|%s', payload->>'title', payload->>'message', payload->>'all_approved')
+     from public.notifications
+    where to_user_id = :'u_req' and dedupe_key = format('review_approve:%s:%s:%s', test.review_id(:'T5'), :'u_asg', :'u_req')),
+  '担当する人さんが承認しました: 「担当のいないタスク」|差し戻している承認者がいます。差し戻しの内容を確認してください。|false');
+rollback;
+
 -- -----------------------------------------------------------------------------
 -- 差し戻し: 依頼した人と担当者に ball_passed（review_block:<依頼>:<宛先>）。差し戻した本人には作らない
 -- -----------------------------------------------------------------------------
@@ -390,6 +425,54 @@ select test.check('same_block_again_updates_message',
 rollback;
 
 -- -----------------------------------------------------------------------------
+-- 承認してから同じ人が差し戻す: その人が同じ依頼で出した承認のお知らせのうち、未読の行を消す
+-- （既読の行・ほかの承認者の承認のお知らせ・ほかの依頼の承認のお知らせは残す）
+-- -----------------------------------------------------------------------------
+-- 承認者1人: 承認 → 押し間違いに気づいて差し戻し。「そろいました」は消え、差し戻しだけが残る
+begin;
+select test.open(:'T1', array[:'u_rv1']::uuid[]);
+select test.approve(:'u_rv1', :'T1');
+select test.recipients(:'T1', 'review_approved') as approved_before_block \gset
+select test.check('same_approver_can_block_right_after_approve', test.block(:'u_rv1', :'T1', '押し間違えました'), 'ok');
+select test.check('chg_block_removes_unread_approve_notice',
+  format('%s>%s|%s', :'approved_before_block', test.recipients(:'T1', 'review_approved'), test.recipients(:'T1', 'ball_passed')),
+  'asg,req>|asg,req');
+rollback;
+
+-- 依頼した人は読んだ・担当者は未読: 担当者の行だけ消え、依頼した人の行は同じ id・同じ既読の時刻で残る
+begin;
+select test.open(:'T1', array[:'u_rv1']::uuid[]);
+select test.approve(:'u_rv1', :'T1');
+update public.notifications set read_at = '2026-09-15 01:00:00+00'
+ where to_user_id = :'u_req' and type = 'review_approved' and payload->>'task_id' = :'T1';
+select coalesce((select format('%s|%s', id, read_at) from public.notifications
+                  where to_user_id = :'u_req' and type = 'review_approved' and payload->>'task_id' = :'T1'), 'none')
+       as read_approve_before \gset
+select test.block(:'u_rv1', :'T1', '押し間違えました');
+select test.check('chg_block_keeps_read_approve_notice',
+  (select coalesce(string_agg(format('%s=%s|%s', p.label, n.id, n.read_at), ',' order by p.label), '')
+     from public.notifications n join test.people p on p.id = n.to_user_id
+    where n.type = 'review_approved' and n.payload->>'task_id' = :'T1'),
+  'req=' || :'read_approve_before');
+rollback;
+
+-- ほかの承認者（rv2）の承認のお知らせと、同じ人（rv1）のほかの依頼（T2）の承認のお知らせは消さない
+begin;
+select test.open(:'T1', array[:'u_rv1', :'u_rv2']::uuid[]);
+select test.open(:'T2', array[:'u_rv1']::uuid[]);
+select test.approve(:'u_rv2', :'T1');
+select test.approve(:'u_rv1', :'T1');
+select test.approve(:'u_rv1', :'T2');
+select test.block(:'u_rv1', :'T1', '押し間違えました');
+select test.check('chg_block_keeps_other_approvers_notice',
+  (select coalesce(string_agg(p.label || '=' || n.dedupe_key, ',' order by p.label), '')
+     from public.notifications n join test.people p on p.id = n.to_user_id
+    where n.type = 'review_approved' and n.payload->>'task_id' = :'T1'),
+  format('asg=review_approve:%1$s:%2$s:%3$s,req=review_approve:%1$s:%2$s:%4$s', test.review_id(:'T1'), :'u_rv2', :'u_asg', :'u_req'));
+select test.check('chg_block_keeps_other_review_approve_notice', test.recipients(:'T2', 'review_approved'), 'req');
+rollback;
+
+-- -----------------------------------------------------------------------------
 -- CLI / MCP の道具（rpc_review_approve_as / rpc_review_block_as）でも同じ（同じ本体を通る）
 -- -----------------------------------------------------------------------------
 begin;
@@ -468,4 +551,14 @@ select test.check('same_block_again_old_notice_is_first_reason',
   (select string_agg(payload->>'message', ',') from public.notifications
     where to_user_id = :'u_req' and type = 'ball_passed' and payload->>'task_id' = :'T1'),
   '修正依頼: 最初の理由');
+rollback;
+
+-- 承認のあとの差し戻しでお知らせを書けなかったら、未読の承認のお知らせも消えずに残る（消した行も元に戻る）
+begin;
+select test.open(:'T1', array[:'u_rv1']::uuid[]);
+select test.approve(:'u_rv1', :'T1');
+create trigger test_refuse_result_notice before insert or update on public.notifications
+  for each row execute function test.refuse_result_notice();
+select test.check('chg_block_after_approve_succeeds_when_notice_fails', test.block(:'u_rv1', :'T1', '押し間違えました'), 'ok');
+select test.check('chg_block_keeps_approve_notice_when_notice_fails', test.recipients(:'T1', 'review_approved'), 'asg,req');
 rollback;

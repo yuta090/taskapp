@@ -91,7 +91,18 @@ let notificationUpdateResponse: { error: null | { message: string } }
  */
 let approvalMembershipsResponse: {
   data: Array<{ user_id: string; role: string }> | null
-  error: null
+  error: null | { message: string }
+}
+/**
+ * org_memberships lookup used by notifyApprovalRecipients alongside
+ * approvalMembershipsResponse — a candidate only counts as "internal" when the
+ * org role is owner/admin/member (checked here) AND the space role (if any)
+ * is not client/vendor (approvalMembershipsResponse above). Org members with
+ * no space_memberships row at all count as 'editor'.
+ */
+let approvalOrgMembershipsResponse: {
+  data: Array<{ user_id: string; role: string }> | null
+  error: null | { message: string }
 }
 
 interface AdminUpdateCall {
@@ -109,8 +120,21 @@ interface NotificationUpdateCall {
 }
 const notificationUpdateCalls: NotificationUpdateCall[] = []
 const approvalMembershipsQueryIds: unknown[][] = []
+const approvalOrgMembershipsQueryIds: unknown[][] = []
+/** notifications への delete() 条件の記録。[to_user_id, channel, dedupe_key] の3条件を想定。 */
+const notificationDeleteCalls: Array<Array<[string, unknown]>> = []
+let notificationDeleteResponse: { error: null | { message: string } }
+/**
+ * delete → create の実行順（課題2の回帰テスト用）。同じ配列に
+ * `delete:<toUserId>` / `create:<toUserId>` を実行された順に積む。
+ */
+const sideEffectOrder: string[] = []
 
-const createTaskNotificationMock = vi.fn((..._args: unknown[]) => Promise.resolve())
+const createTaskNotificationMock = vi.fn((..._args: unknown[]) => {
+  const notifyParams = _args[1] as { toUserId?: string } | undefined
+  if (notifyParams?.toUserId) sideEffectOrder.push(`create:${notifyParams.toUserId}`)
+  return Promise.resolve()
+})
 const createAuditLogMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true }))
 const resolveReturnAssigneeMock = vi.fn((..._args: unknown[]) => Promise.resolve('resolved-internal-owner'))
 
@@ -238,6 +262,31 @@ function makeNotificationUpdateBuilder(payload: Record<string, unknown>) {
   return builder
 }
 
+/**
+ * notifications の delete() 条件を記録し、notificationDeleteResponse を返す。
+ * 実物の PostgrestFilterBuilder と同じく、途中の `.eq()` チェーンのどこで
+ * `await` されても解決できるよう `.then()` を持つ thenable にする。
+ */
+function makeNotificationDeleteBuilder() {
+  const eqCalls: Array<[string, unknown]> = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builder: any = {}
+  builder.eq = vi.fn((col: string, val: unknown) => {
+    eqCalls.push([col, val])
+    return builder
+  })
+  builder.then = (
+    resolve: (value: { error: null | { message: string } }) => unknown,
+    reject: (reason: unknown) => unknown
+  ) => {
+    notificationDeleteCalls.push([...eqCalls])
+    const toUserId = eqCalls.find(([col]) => col === 'to_user_id')?.[1]
+    sideEffectOrder.push(`delete:${toUserId}`)
+    return Promise.resolve(notificationDeleteResponse).then(resolve, reject)
+  }
+  return builder
+}
+
 // Server-side (service role) client: performs the actual writes, only once
 // confirmation on the session client has passed.
 vi.mock('@/lib/supabase/admin', () => ({
@@ -260,6 +309,7 @@ vi.mock('@/lib/supabase/admin', () => ({
         return {
           select: vi.fn(() => makeNotificationSelectBuilder()),
           update: vi.fn((payload: Record<string, unknown>) => makeNotificationUpdateBuilder(payload)),
+          delete: vi.fn(() => makeNotificationDeleteBuilder()),
         }
       }
       if (table === 'space_memberships') {
@@ -274,6 +324,21 @@ vi.mock('@/lib/supabase/admin', () => ({
                   ? approvalMembershipsResponse.data.filter((row) => (ids as string[]).includes(row.user_id))
                   : null
                 return Promise.resolve({ ...approvalMembershipsResponse, data: filtered })
+              }),
+            })),
+          })),
+        }
+      }
+      if (table === 'org_memberships') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              in: vi.fn((_col: string, ids: unknown[]) => {
+                approvalOrgMembershipsQueryIds.push(ids)
+                const filtered = approvalOrgMembershipsResponse.data
+                  ? approvalOrgMembershipsResponse.data.filter((row) => (ids as string[]).includes(row.user_id))
+                  : null
+                return Promise.resolve({ ...approvalOrgMembershipsResponse, data: filtered })
               }),
             })),
           })),
@@ -302,7 +367,10 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
     adminCommentInsertCalls.length = 0
     notificationFindEqCalls.length = 0
     notificationUpdateCalls.length = 0
+    notificationDeleteCalls.length = 0
     approvalMembershipsQueryIds.length = 0
+    approvalOrgMembershipsQueryIds.length = 0
+    sideEffectOrder.length = 0
     afterTasks.length = 0
 
     authResponse = { data: { user: mockUser } }
@@ -314,6 +382,7 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
     // 既定は「トリガーが作った行は無い」= 従来どおり notifyTaskCreator が新規に作る
     existingNotificationResponse = { data: null, error: null }
     notificationUpdateResponse = { error: null }
+    notificationDeleteResponse = { error: null }
     resolveReturnAssigneeMock.mockResolvedValue('resolved-internal-owner')
     // baseTask: created_by は社内(editor)、assignee_id は「相手先レビュアーを
     // 一時的に assignee_id に入れている」状態(role: client) — 承認通知は届かない側
@@ -322,6 +391,13 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
         { user_id: 'internal-pm-1', role: 'editor' },
         { user_id: 'client-reviewer-1', role: 'client' },
       ],
+      error: null,
+    }
+    // internal-pm-1 は組織の役割も member（=社内）。client-reviewer-1 は組織側でも
+    // client 扱い（実際は org_memberships に行が無いことも多いが、無くても
+    // orgInternalIds に入らないので結果は同じ）。
+    approvalOrgMembershipsResponse = {
+      data: [{ user_id: 'internal-pm-1', role: 'member' }],
       error: null,
     }
   })
@@ -480,6 +556,13 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
         ],
         error: null,
       }
+      approvalOrgMembershipsResponse = {
+        data: [
+          { user_id: 'internal-pm-1', role: 'member' },
+          { user_id: 'internal-dev-1', role: 'member' },
+        ],
+        error: null,
+      }
 
       const response = await callPost({ action: 'approve' })
 
@@ -523,6 +606,102 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
 
       expect(response.status).toBe(200)
       expect(createTaskNotificationMock).not.toHaveBeenCalled()
+    })
+
+    // 回帰: 組織の owner/admin がタスクを作ったが、その space に役割の行が無い
+    // （よくある構成）場合、以前は space_memberships だけを見ていたので作成者が
+    // 宛先から漏れていた（従来は作成者に必ず届いていたので後退）。
+    // space の役割が無い組織メンバーは editor 扱い(app_is_space_internal と同じ考え方)。
+    it('space の役割が無い組織admin/ownerの作成者にも届く', async () => {
+      taskResponse = { data: { ...baseTask, created_by: 'org-admin-1' }, error: null }
+      approvalMembershipsResponse = { data: [], error: null } // space_memberships に行が無い
+      approvalOrgMembershipsResponse = {
+        data: [{ user_id: 'org-admin-1', role: 'admin' }],
+        error: null,
+      }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+      expect(createTaskNotificationMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ toUserId: 'org-admin-1', type: 'client_approved' })
+      )
+    })
+
+    it('組織の役割が client の担当者には、space の役割が無くても届かない', async () => {
+      taskResponse = {
+        data: { ...baseTask, created_by: null as unknown as string, assignee_id: 'org-client-1' },
+        error: null,
+      }
+      approvalMembershipsResponse = { data: [], error: null }
+      approvalOrgMembershipsResponse = {
+        data: [{ user_id: 'org-client-1', role: 'client' }],
+        error: null,
+      }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).not.toHaveBeenCalled()
+    })
+
+    it('space/組織のメンバー検索が失敗しても承認自体は成功し、失敗はログに残す（今は捨てて誰にも届かない・ログにも残らない不具合の回帰）', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      approvalMembershipsResponse = { data: null, error: { message: 'space lookup failed' } }
+      approvalOrgMembershipsResponse = { data: null, error: { message: 'org lookup failed' } }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(createTaskNotificationMock).not.toHaveBeenCalled()
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('space memberships'),
+        expect.objectContaining({ message: 'space lookup failed' })
+      )
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('org memberships'),
+        expect.objectContaining({ message: 'org lookup failed' })
+      )
+
+      consoleErrorSpy.mockRestore()
+    })
+
+    // 課題2: 2回目以降の承認でもプッシュ・即時メールが鳴るよう、宛先ごとに
+    // 同じ dedupe_key の行を消してから作り直す（_create_task_notification は
+    // 既存行があると insert でなく update に倒れ、プッシュが鳴らない）。
+    describe('2回目以降の承認でも出るよう、消してから作り直す', () => {
+      it('宛先ごとに、新しいキー(portal_client_approved:)で消してから作る（消す→作るの順）', async () => {
+        const response = await callPost({ action: 'approve' })
+
+        expect(response.status).toBe(200)
+        expect(notificationDeleteCalls).toHaveLength(1)
+        const deleteConditions = Object.fromEntries(notificationDeleteCalls[0])
+        expect(deleteConditions).toMatchObject({
+          to_user_id: 'internal-pm-1',
+          channel: 'in_app',
+          dedupe_key: 'portal_client_approved:task-1:internal-pm-1',
+        })
+        expect(createTaskNotificationMock).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ dedupeKey: 'portal_client_approved:task-1:internal-pm-1' })
+        )
+        expect(sideEffectOrder).toEqual(['delete:internal-pm-1', 'create:internal-pm-1'])
+      })
+
+      it('消すのに失敗しても、通知の作成は続ける（ログに残すだけ）', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        notificationDeleteResponse = { error: { message: 'delete failed' } }
+
+        const response = await callPost({ action: 'approve' })
+
+        expect(response.status).toBe(200)
+        expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+        expect(consoleErrorSpy).toHaveBeenCalled()
+
+        consoleErrorSpy.mockRestore()
+      })
     })
   })
 

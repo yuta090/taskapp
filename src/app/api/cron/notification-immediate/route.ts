@@ -20,8 +20,9 @@ export const maxDuration = 300
 /**
  * POST /api/cron/notification-immediate
  *
- * pg_cron が5分ごとに呼ぶ内部API。「相手が待って止まっている」通知だけを、
- * 数分ぶんまとめて1通のメールで送る（1件ごとに1通は送らない）。
+ * pg_cron が5分ごとに呼ぶ内部API。「相手が待って止まっている」通知や、承認・差し戻し
+ * などの結果を待っている人がいる通知だけを、数分ぶんまとめて1通のメールで送る
+ * （1件ごとに1通は送らない）。
  *
  *   - 対象の種類は src/lib/notifications/delivery.ts が正本（EMAIL_IMMEDIATE_TYPES）
  *   - 夜21時〜朝8時・土日は送らない。たまったぶんは毎朝のまとめが拾う

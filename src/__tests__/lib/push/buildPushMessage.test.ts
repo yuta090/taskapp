@@ -36,6 +36,37 @@ describe('buildPushMessage', () => {
     expect(msg.url).toBe('/org-1/project/space-1?task=task-1')
   })
 
+  // 回帰: 承認者が複数いるとき、1人目が承認しただけでも見出しが固定文言のまま
+  // 「社内承認が承認されました」になり、そろっていないのにそろった印象を与えていた。
+  describe('review_approved の見出し（進み具合込みの payload.title）', () => {
+    it('一部の承認者が承認しただけのときは、誰が承認したかの title を見出しに使う', () => {
+      const msg = buildPushMessage(
+        makeRow({
+          type: 'review_approved',
+          payload: { title: '田中さんが承認しました: 「見積書の作成」' },
+        }),
+        'internal'
+      )
+      expect(msg.title).toBe('田中さんが承認しました: 「見積書の作成」')
+    })
+
+    it('全員そろったときは、そろったことが分かる title を見出しに使う', () => {
+      const msg = buildPushMessage(
+        makeRow({
+          type: 'review_approved',
+          payload: { title: '社内承認がそろいました: 「見積書の作成」' },
+        }),
+        'internal'
+      )
+      expect(msg.title).toBe('社内承認がそろいました: 「見積書の作成」')
+    })
+
+    it('title が無ければ、従来どおりの固定文言にフォールバックする', () => {
+      const msg = buildPushMessage(makeRow({ type: 'review_approved', payload: {} }), 'internal')
+      expect(msg.title).toBe('社内承認が承認されました')
+    })
+  })
+
   it('labels client_approved', () => {
     const msg = buildPushMessage(makeRow({ type: 'client_approved' }), 'internal')
     expect(msg.title).toBe('相手先が承認しました')
