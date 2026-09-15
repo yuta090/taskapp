@@ -49,7 +49,8 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
    * 開いたときだけ作られる部品なので、1回だけでよい。
    */
   useEffect(() => {
-    panelRef.current?.scrollIntoView({ block: 'nearest' })
+    // jsdom のように scrollIntoView を持たない場合もある（useSpotlightRect と同じ守り）
+    panelRef.current?.scrollIntoView?.({ block: 'nearest' })
     titleRef.current?.focus()
   }, [])
 
