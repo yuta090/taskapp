@@ -33,20 +33,71 @@ interface TaskRowProps {
   now?: Date
   /** コメント数。1件以上のときだけ吹き出しアイコンと数字を出す（0/未指定は非表示） */
   commentCount?: number
+  /** 自分宛ての未読のコメントの数（マイタスク）。1件以上なら「未読 N」を出す */
+  unreadCommentCount?: number
+  /** 未読のコメントを書いた人の表示名。吹き出しの説明に添える */
+  unreadCommentFrom?: string[]
+  /** プロジェクトをまたぐ一覧（マイタスクの期限別など）で、行に出すプロジェクト名 */
+  projectName?: string
 }
 
-/** コメント数の吹き出しアイコン＋数字。1件以上のときだけ描画する（呼び出し側で判定しない） */
-function CommentCountBadge({ count, className = '' }: { count: number | undefined; className?: string }) {
-  if (!count || count < 1) return null
+/**
+ * コメント数の吹き出しアイコン＋数字と、未読があれば「未読 N」。どちらも無ければ描画しない（呼び出し側で判定しない）。
+ * コメント数の読み込みが未読より遅れても、未読の数までは出す。
+ */
+function CommentCountBadge({
+  count,
+  unreadCount = 0,
+  unreadFrom,
+  className = '',
+}: {
+  count: number | undefined
+  unreadCount?: number
+  unreadFrom?: string[]
+  className?: string
+}) {
+  const unread = unreadCount > 0 ? unreadCount : 0
+  const shown = Math.max(count ?? 0, unread)
+  if (shown < 1) return null
+  const fromNote = unreadFrom && unreadFrom.length > 0 ? `: ${unreadFrom.join('、')}` : ''
+  const label = `コメント ${shown}件${unread > 0 ? `（未読 ${unread}件${fromNote}）` : ''}`
+  return (
+    <span className={`flex items-center gap-1 ${className}`}>
+      <span
+        data-testid="task-row-comment-count"
+        aria-label={label}
+        title={label}
+        className="flex items-center gap-0.5 text-[11px] text-gray-500"
+      >
+        <ChatCircle className="text-[12px]" />
+        {shown}
+      </span>
+      {unread > 0 && (
+        // bg-blue-600 と白文字は、どちらのテーマでも入れ替わらない組み合わせ（50番台の面は .dark で暗くなる）
+        <span
+          data-testid="task-row-unread-comments"
+          className="whitespace-nowrap rounded-full bg-blue-600 px-1.5 text-[10px] font-medium leading-4 text-white"
+        >
+          未読 {unread}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/**
+ * プロジェクトをまたぐ一覧で、そのタスクのプロジェクト名を小さく出す。
+ * 名前が長くても期限などを押し出さないよう、縮められるようにしておく（スマホの幅では特に狭い）
+ */
+function ProjectNameLabel({ name }: { name: string | undefined }) {
+  if (!name) return null
   return (
     <span
-      data-testid="task-row-comment-count"
-      aria-label={`コメント ${count}件`}
-      title={`コメント ${count}件`}
-      className={`flex items-center gap-0.5 text-[11px] text-gray-500 ${className}`}
+      data-testid="task-row-project-name"
+      title={name}
+      className="min-w-0 max-w-[6rem] md:max-w-[10rem] truncate text-[11px] text-gray-500"
     >
-      <ChatCircle className="text-[12px]" />
-      {count}
+      {name}
     </span>
   )
 }
@@ -298,7 +349,7 @@ function ReviewStatusBadge({
   )
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, awaitingMyApproval = false, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now, commentCount }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, awaitingMyApproval = false, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now, commentCount, unreadCommentCount, unreadCommentFrom, projectName }: TaskRowProps) {
   // 取消済みレビューは「レビュー無し」と同じ扱い（バッジ非表示・再依頼クイックアクション表示）
   const reviewStatus = rawReviewStatus === 'cancelled' ? undefined : rawReviewStatus
   // 自分の番の承認。承認済み・差し戻し・取り消しになった依頼には出さない（一覧の状態のほうが新しいことがある）
@@ -392,7 +443,13 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
           {/* Line 2: meta — due date, ball status, badges, assignee (clips gracefully) */}
           <div className="flex items-center gap-2 min-w-0 overflow-hidden">
-            <CommentCountBadge count={commentCount} className="flex-shrink-0" />
+            <ProjectNameLabel name={projectName} />
+            <CommentCountBadge
+              count={commentCount}
+              unreadCount={unreadCommentCount}
+              unreadFrom={unreadCommentFrom}
+              className="flex-shrink-0"
+            />
             {formattedDueDate && (
               <span className={`flex-shrink-0 flex items-center gap-0.5 text-[11px] ${overdue ? 'text-red-500' : 'text-gray-500'}`}>
                 <CalendarBlank className="text-[12px]" />
@@ -428,16 +485,19 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           </div>
         </div>
 
-        {/* Trailing kebab — always visible on mobile, opens action sheet */}
-        <button
-          type="button"
-          data-testid="task-row-mobile-actions"
-          onClick={handleMobileActions}
-          className="flex-shrink-0 p-2 -mr-0.5 rounded text-gray-400 active:bg-gray-100"
-          aria-label="タスクアクション"
-        >
-          <DotsThree weight="bold" className="text-lg" />
-        </button>
+        {/* Trailing kebab — always visible on mobile, opens action sheet。
+            開くメニューを渡さない画面（マイタスク）では、押しても何も起きないので出さない */}
+        {onContextMenu && (
+          <button
+            type="button"
+            data-testid="task-row-mobile-actions"
+            onClick={handleMobileActions}
+            className="flex-shrink-0 p-2 -mr-0.5 rounded text-gray-400 active:bg-gray-100"
+            aria-label="タスクアクション"
+          >
+            <DotsThree weight="bold" className="text-lg" />
+          </button>
+        )}
       </div>
     )
   }
@@ -572,8 +632,14 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         <ReviewStatusBadge reviewStatus={reviewStatus} isMyTurn={isMyApprovalTurn} />
       </div>
 
-      {/* Comment count — 期限の左に置く */}
-      <CommentCountBadge count={commentCount} className="flex-shrink-0" />
+      {/* プロジェクト名（プロジェクトをまたぐ一覧だけ）→ コメント数と未読 → 期限、の順に並べる */}
+      <ProjectNameLabel name={projectName} />
+      <CommentCountBadge
+        count={commentCount}
+        unreadCount={unreadCommentCount}
+        unreadFrom={unreadCommentFrom}
+        className="flex-shrink-0"
+      />
 
       {/* Due date */}
       {formattedDueDate && (
