@@ -204,6 +204,127 @@ describe('折りたたみ（toggleListItem）', () => {
 })
 
 /**
+ * リスト項目の中に字下げして置いた `<details>`（Issue #917 の残り・本番で確認してもらった形）。
+ * marked は項目の中で「開き＋summary」「中身の段落」「閉じ」を別々の塊に分けて返すため、中身の段落が
+ * 折りたたみに届く前に項目の本文へ吸い込まれていた。字下げしない `<details>` は Markdown の決まり
+ * どおりリストの外（項目の兄弟）になる。
+ */
+describe('リスト項目の中の <details>', () => {
+  interface B {
+    type: string
+    props?: Record<string, unknown>
+    content?: { type: string; text?: string; styles?: Record<string, boolean> }[]
+    children?: B[]
+  }
+  const parse = async (md: string) => JSON.parse(await toWikiBlocksJson(md, 'markdown')) as B[]
+  const t = (text: string) => ({ type: 'text', text, styles: {} })
+  const textOf = (b: B) => (b.content ?? []).map((c) => c.text ?? '').join('')
+  /** `種類 | 本文` を字下げ（＝子）付きで並べる */
+  const shape = (bs: B[], depth = 0): string[] =>
+    bs.flatMap((b) => [`${'  '.repeat(depth)}${b.type} | ${textOf(b)}`, ...shape(b.children ?? [], depth + 1)])
+
+  it('チェック項目の中に字下げした details は、項目の子の折りたたみになり、中身はその子になる', async () => {
+    expect(await parse('- [ ] 項目B\n  <details>\n  <summary>題名B</summary>\n\n  中身B。\n\n  </details>\n')).toEqual([
+      {
+        type: 'checkListItem',
+        props: { checked: false },
+        content: [t('項目B')],
+        children: [
+          { type: 'toggleListItem', content: [t('題名B')], children: [{ type: 'paragraph', content: [t('中身B。')] }] },
+        ],
+      },
+    ])
+  })
+
+  it('中身の段落が2つあっても両方とも折りたたみに入り、次の項目はそのまま続く', async () => {
+    const md = '- 項目\n  <details>\n  <summary>根拠</summary>\n\n  段落1\n\n  段落2\n\n  </details>\n- 次の項目\n'
+    expect(await parse(md)).toEqual([
+      {
+        type: 'bulletListItem',
+        content: [t('項目')],
+        children: [
+          {
+            type: 'toggleListItem',
+            content: [t('根拠')],
+            children: [
+              { type: 'paragraph', content: [t('段落1')] },
+              { type: 'paragraph', content: [t('段落2')] },
+            ],
+          },
+        ],
+      },
+      { type: 'bulletListItem', content: [t('次の項目')] },
+    ])
+  })
+
+  it('項目の文と details の間に空行があっても同じ', async () => {
+    expect(await parse('- 項目\n\n  <details>\n  <summary>根拠</summary>\n\n  段落1\n\n  </details>\n')).toEqual([
+      {
+        type: 'bulletListItem',
+        content: [t('項目')],
+        children: [{ type: 'toggleListItem', content: [t('根拠')], children: [{ type: 'paragraph', content: [t('段落1')] }] }],
+      },
+    ])
+  })
+
+  it('字下げしない details は、項目の子ではなく兄弟になる（Markdown の決まりどおり）', async () => {
+    expect(shape(await parse('- [ ] 項目C\n\n<details>\n<summary>題名C</summary>\n\n中身C。\n\n</details>\n'))).toEqual([
+      'checkListItem | 項目C',
+      'toggleListItem | 題名C',
+      '  paragraph | 中身C。',
+    ])
+  })
+
+  it('本番で確認してもらった A（単独）・B（項目の中）・C（項目の直後）を並べた本文', async () => {
+    const md = [
+      '# A 単独',
+      '',
+      '<details>',
+      '<summary>題名A</summary>',
+      '',
+      '中身A。',
+      '',
+      '</details>',
+      '',
+      '# B 字下げして項目の中',
+      '',
+      '- [ ] 項目B',
+      '  <details>',
+      '  <summary>題名B</summary>',
+      '',
+      '  中身B。',
+      '',
+      '  </details>',
+      '',
+      '# C 字下げせず項目の直後',
+      '',
+      '- [ ] 項目C',
+      '',
+      '<details>',
+      '<summary>題名C</summary>',
+      '',
+      '中身C。',
+      '',
+      '</details>',
+      '',
+    ].join('\n')
+    expect(shape(await parse(md))).toEqual([
+      'heading | A 単独',
+      'toggleListItem | 題名A',
+      '  paragraph | 中身A。',
+      'heading | B 字下げして項目の中',
+      'checkListItem | 項目B',
+      '  toggleListItem | 題名B',
+      '    paragraph | 中身B。',
+      'heading | C 字下げせず項目の直後',
+      'checkListItem | 項目C',
+      'toggleListItem | 題名C',
+      '  paragraph | 中身C。',
+    ])
+  })
+})
+
+/**
  * 本文は API キーを持つ人なら誰でも送れる。細工した本文で変換に時間がかかると、サーバーの処理が
  * 詰まる。閉じの無いタグや深い入れ子でも、本文の長さにほぼ比例した時間で終わり、落ちないこと。
  * （時間の上限は CI の遅い機械でも越えない幅にしてある。遅い実装は桁で遅いので見分けられる）

@@ -30,7 +30,7 @@ export const taskCreateSchema = z.object({
     milestoneId: z.string().uuid().optional().describe('マイルストーンUUID'),
     specPath: z.string().optional().describe('仕様パス（旧方式。例: /spec/v1/auth.md#login）。新しく作るときは wikiPageId を使う'),
     wikiPageId: z.string().uuid().optional().describe('紐づける WikiページUUID。画面の「仕様書連携」に対応。type=spec のときはこれか specPath が必要'),
-    decisionState: z.enum(['considering', 'decided', 'implemented']).optional().describe('決める札の状態（省略時: considering）'),
+    decisionState: z.enum(['considering', 'decided', 'implemented']).optional().describe('決定事項のタスクの状態（省略時: considering）'),
 });
 export const taskUpdateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -117,11 +117,11 @@ export async function taskCreate(params) {
         throw new Error('スペースが見つかりません');
     }
     const orgId = space.org_id;
-    // 決める札(type=spec)は、Wiki ページ（画面と同じ形）か、旧来の仕様書パスのどちらかで作れる。
+    // 決定事項のタスク(type=spec)は、Wiki ページ（画面と同じ形）か、旧来の仕様書パスのどちらかで作れる。
     // 画面はもう Wiki ページしか使わないので、新しく作るときは wikiPageId を使う。
     if (params.type === 'spec') {
         if (!params.wikiPageId && !params.specPath) {
-            throw new Error('決める札(type=spec)には wikiPageId（Wikiページ）か specPath のどちらかが必要です');
+            throw new Error('決定事項のタスク(type=spec)には wikiPageId（Wikiページ）か specPath のどちらかが必要です');
         }
         if (params.specPath && (!params.specPath.includes('/spec/') || !params.specPath.includes('#'))) {
             throw new Error('specPathは /spec/...#anchor の形式で指定してください');
@@ -305,7 +305,7 @@ export async function taskUpdate(params) {
         }
         updateData.wiki_page_id = params.wikiPageId;
         // 画面（useTasks の specChangesForWikiLink）と同じ規則で type / decision_state も揃える。
-        // 揃えないと、CLI から仕様書ページを紐づけても「決める札」にならず、完了の歯止めも効かない。
+        // 揃えないと、CLI から仕様書ページを紐づけても「決定事項のタスク」にならず、完了の歯止めも効かない。
         Object.assign(updateData, await specChangesForWikiLink(params.wikiPageId, params.taskId));
     }
     // 担当者は「本人」か「招待中の招待」のどちらか一方だけ（DB の tasks_single_assignee_chk）。

@@ -6,6 +6,7 @@ import { meetingTools } from './meetings.js';
 import { reviewTools } from './reviews.js';
 import { decisionTools } from './decisions.js';
 import { minutesTaskifyTools } from './minutesTaskify.js';
+import { minutesCompleteTools } from './minutesComplete.js';
 import { milestoneTools } from './milestones.js';
 import { spaceTools } from './spaces.js';
 import { activityTools } from './activity.js';
@@ -14,7 +15,7 @@ import { wikiTools } from './wiki.js';
 import { minutesTools } from './minutes.js';
 import { schedulingTools } from './scheduling.js';
 import { fileTools } from './files.js';
-export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...schedulingTools, ...fileTools];
+export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools];
 export function registerTools(server) {
     // List available tools
     server.setRequestHandler(ListToolsRequestSchema, async () => {

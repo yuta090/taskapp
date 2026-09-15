@@ -5,11 +5,11 @@ import { requireActorUserId } from '../auth/scope.js';
 import { mapRaiseExceptionError } from '../lib/rpcErrors.js';
 import { buildTaskLink } from '../lib/appLinks.js';
 /**
- * 議事録から「決める札」を作る道具。画面の会議「タスク化」タブと同じもの。
+ * 議事録から「決定事項のタスク」を作る道具。画面の会議「タスク化」タブと同じもの。
  *
  * 拾うのは未チェックのチェックリスト行で、Wiki ページへのリンクが入っているもの
  * （または旧来の `SPEC(/spec/FILE.md#anchor)` 行）。紐づけ先が「仕様書として扱う」の
- * ページなら決める札、そうでなければ参考資料付きのふつうのタスクになる。
+ * ページなら決定事項のタスク、そうでなければ参考資料付きのふつうのタスクになる。
  * 詳しくは docs/spec/MEETING_MINUTES_TEMPLATE.md。
  */
 const baseSchema = {
@@ -29,7 +29,7 @@ function toCandidate(row) {
         lineNumber: row.line_number,
         title: row.title,
         source: row.wiki_page_title ?? row.spec_path ?? '',
-        // 旧来の SPEC 行は常に決める札。Wiki の行は「仕様書」タグの有無を DB が入れてくる
+        // 旧来の SPEC 行は常に決定事項のタスク。Wiki の行は「仕様書」タグの有無を DB が入れてくる
         isDecision: row.is_spec ?? (row.spec_path != null),
     };
 }
@@ -110,13 +110,13 @@ export async function minutesTaskify(params) {
 export const minutesTaskifyTools = [
     {
         name: 'minutes_taskify_preview',
-        description: '議事録から作れる札の候補を、作らずに見る（画面の会議「タスク化」タブと同じ）',
+        description: '議事録から作れるタスクの候補を、作らずに見る（画面の会議「タスク化」タブと同じ）',
         inputSchema: minutesTaskifyPreviewSchema,
         handler: minutesTaskifyPreview,
     },
     {
         name: 'minutes_taskify',
-        description: '議事録から札を作る（画面の会議「タスク化」タブと同じ）。未チェックのチェックリスト行に Wiki ページのリンクがあるものを拾う。作成済みの行は飛ばす',
+        description: '議事録からタスクを作る（画面の会議「タスク化」タブと同じ）。未チェックのチェックリスト行に Wiki ページのリンクがあるものを拾う。作成済みの行は飛ばす',
         inputSchema: minutesTaskifySchema,
         handler: minutesTaskify,
     },

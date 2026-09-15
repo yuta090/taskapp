@@ -880,6 +880,26 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         ],
       },
       {
+        name: 'complete-checked',
+        description:
+          '議事録でチェックが付いている行のタスクを完了にする。画面でチェックを入れたときと同じ。すでに完了のものは飛ばすので何度実行してもよい。決まっていない決定事項のタスクは理由を添えて断る（勝手に決定にはしない）',
+        tool: 'minutes_complete_checked',
+        examples: [
+          'agentpm minutes complete-checked --meeting-id <id> --dry-run   # まず対象を見る',
+          'agentpm minutes complete-checked --meeting-id <id>',
+        ],
+        options: [
+          spaceOpt,
+          { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
+          {
+            flags: '--dry-run',
+            description: '完了にせず、対象を数えるだけ',
+            param: 'dryRun',
+            type: 'bool',
+          },
+        ],
+      },
+      {
         name: 'append',
         description: 'Append to meeting minutes',
         tool: 'minutes_append',

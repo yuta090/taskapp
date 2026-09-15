@@ -149,12 +149,24 @@ describe('buildAgentpmSkill', () => {
 
     /**
      * 画面ではチェックを入れるとタスクが完了になる（ブラウザの中の処理）。
-     * CLI から本文を `- [x]` に書き換えても完了にはならないので、
-     * 書いておかないと「完了にしたつもり」が起きる。
+     * CLI から本文を `- [x]` に書き換えただけでは完了にならないので、
+     * 書いておかないと「完了にしたつもり」が起きる。追いつかせるコマンドも載せる。
      */
-    it('本文を - [x] に変えてもタスクは完了しないことを書いている', () => {
-      expect(skill).toMatch(/に書き換えてもタスクは完了しない/)
-      expect(skill).toContain('agentpm task update --task-id <id> --status done')
+    it('本文を - [x] に変えただけでは完了しないことを書いている', () => {
+      expect(skill).toMatch(/書き換えただけではタスクは完了しない/)
+    })
+
+    it('チェックしたぶんを完了にするコマンドを載せている', () => {
+      expect(skill).toContain('agentpm minutes complete-checked --meeting-id <id>')
+      expect(skill).toContain('--dry-run')
+    })
+
+    it('外したチェックでは完了を取り消さないことを書いている', () => {
+      expect(skill).toMatch(/外したチェックは見ない/)
+    })
+
+    it('決まっていない決定事項は勝手に確定させないことを書いている', () => {
+      expect(skill).toMatch(/勝手に確定させない/)
     })
   })
 })
