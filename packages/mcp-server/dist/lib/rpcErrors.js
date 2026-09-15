@@ -5,7 +5,7 @@
  * 返す（2026-07 のエラー詳細漏洩対策を崩さない）。
  */
 import { ToolUserError } from '../errors.js';
-import { meetingStatusLabel, proposalStatusLabel } from './statusLabels.js';
+import { meetingStatusLabel, proposalStatusLabel, reviewStatusLabel } from './statusLabels.js';
 const RAISE_PATTERNS = [
     { test: /^Meeting not found:/, status: 404, toMessage: () => '会議が見つかりません' },
     { test: /^Not authorized to end this meeting$/, status: 403, toMessage: () => 'この会議を終了する権限がありません' },
@@ -24,6 +24,17 @@ const RAISE_PATTERNS = [
     { test: /^Not authorized to access this task$/, status: 403, toMessage: () => 'このタスクにアクセスする権限がありません' },
     { test: /^Client owner required when ball=client$/, status: 400, toMessage: () => 'ball=clientの場合はclientOwnerIdsが必須です' },
     { test: /^No review found for task:/, status: 404, toMessage: () => 'このタスクにはレビューがありません' },
+    { test: /^Review not found:/, status: 404, toMessage: () => 'レビューが見つかりません' },
+    {
+        test: /^Review cannot be cancelled from status: (.+)$/,
+        status: 409,
+        toMessage: (m) => `このレビューは現在「${reviewStatusLabel(m[1])}」のため取り消せません`,
+    },
+    {
+        test: /^Insufficient permissions: only the requester, a space admin, or an org owner can cancel this review$/,
+        status: 403,
+        toMessage: () => 'レビューを取り消せるのは、依頼した本人・プロジェクトの管理者・組織のオーナーだけです',
+    },
     { test: /^Not authorized to access this review$/, status: 403, toMessage: () => 'このレビューにアクセスする権限がありません' },
     { test: /^User is not a reviewer for this task$/, status: 403, toMessage: () => 'このタスクのレビュアーに指定されていません' },
     { test: /^At least one reviewer required$/, status: 400, toMessage: () => 'レビュアーを1人以上指定してください' },
@@ -39,7 +50,8 @@ const RAISE_PATTERNS = [
     },
 ];
 /**
- * ball_pass / meeting_start / meeting_end / review_open / review_approve / review_block の
+ * ball_pass / meeting_start / meeting_end / review_open / review_approve / review_block /
+ * review_cancel の
  * RPC が RAISE EXCEPTION で返すメッセージを、決まった日本語の ToolUserError に置き換える。
  * 認識できないメッセージは fallbackMessage を持つ一般的な Error のまま返す。
  */

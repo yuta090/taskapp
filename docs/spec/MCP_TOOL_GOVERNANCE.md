@@ -29,11 +29,11 @@ Tier 4: Agents              — 長時間・横断タスク（将来拡張枠）
 
 | Tier | 推奨範囲 | 現在 |
 |------|---------|------|
-| Tier 1 (MCP Tools) | 40-60 | 56 |
+| Tier 1 (MCP Tools) | 40-60 | 57 |
 | Tier 2 (Skills) | 5-15 | 5 |
 | Tier 3 (Commands) | 5-15 | 5 |
 | Tier 4 (Agents) | 0-5 | 0 |
-| **合計** | **50-95** | **66** |
+| **合計** | **50-95** | **67** |
 
 MCPツール単体が80を超える場合は、Skills/Commandsへの移行を検討。
 
@@ -102,7 +102,7 @@ packages/mcp-server/src/tools/ # Tier 1: MCP Tools
 ├── tasks.ts       (6)
 ├── ball.ts        (3)
 ├── meetings.ts    (5)
-├── reviews.ts     (5)
+├── reviews.ts     (6)
 ├── milestones.ts  (5)
 ├── spaces.ts      (4)
 ├── activity.ts    (3)

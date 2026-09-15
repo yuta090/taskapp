@@ -66,6 +66,7 @@ const TOOL_LABELS: Record<string, string> = {
   review_open: 'レビュー起票',
   review_approve: 'レビュー承認',
   review_block: 'レビュー差戻',
+  review_cancel: 'レビュー取消',
   review_list: 'レビュー一覧',
   review_get: 'レビュー詳細',
   // Wiki

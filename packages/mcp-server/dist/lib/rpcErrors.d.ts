@@ -1,5 +1,6 @@
 /**
- * ball_pass / meeting_start / meeting_end / review_open / review_approve / review_block の
+ * ball_pass / meeting_start / meeting_end / review_open / review_approve / review_block /
+ * review_cancel の
  * RPC が RAISE EXCEPTION で返すメッセージを、決まった日本語の ToolUserError に置き換える。
  * 認識できないメッセージは fallbackMessage を持つ一般的な Error のまま返す。
  */

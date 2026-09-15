@@ -6,10 +6,10 @@ export declare const schedulingListSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     limit: number;
-    status?: "open" | "confirmed" | "cancelled" | "expired" | undefined;
+    status?: "open" | "cancelled" | "confirmed" | "expired" | undefined;
 }, {
     spaceId: string;
-    status?: "open" | "confirmed" | "cancelled" | "expired" | undefined;
+    status?: "open" | "cancelled" | "confirmed" | "expired" | undefined;
     limit?: number | undefined;
 }>;
 export declare const schedulingCreateSchema: z.ZodObject<{
@@ -293,10 +293,10 @@ export declare const schedulingTools: ({
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         limit: number;
-        status?: "open" | "confirmed" | "cancelled" | "expired" | undefined;
+        status?: "open" | "cancelled" | "confirmed" | "expired" | undefined;
     }, {
         spaceId: string;
-        status?: "open" | "confirmed" | "cancelled" | "expired" | undefined;
+        status?: "open" | "cancelled" | "confirmed" | "expired" | undefined;
         limit?: number | undefined;
     }>;
     handler: typeof schedulingList;

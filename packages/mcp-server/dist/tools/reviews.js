@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
 import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js';
 import { mapRaiseExceptionError } from '../lib/rpcErrors.js';
+import { ToolUserError } from '../errors.js';
 // 画面の承認者候補と同じ役割の範囲（社内のadmin/editorだけ。rpc_review_open_asも同じ規則）
 const REVIEW_APPROVER_ROLES = ['admin', 'editor'];
 // Helper: get orgId from spaceId
@@ -28,9 +29,16 @@ export const reviewBlockSchema = z.object({
     taskId: z.string().uuid().describe('タスクUUID'),
     reason: z.string().min(1).describe('ブロック理由'),
 });
+export const reviewCancelSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
+    taskId: z.string().uuid().describe('タスクUUID'),
+});
 export const reviewListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
-    status: z.enum(['open', 'approved', 'changes_requested']).optional().describe('ステータスでフィルタ'),
+    status: z
+        .enum(['open', 'approved', 'changes_requested', 'cancelled'])
+        .optional()
+        .describe('ステータスでフィルタ'),
     limit: z.number().min(1).max(100).default(20).describe('取得件数'),
 });
 export const reviewGetSchema = z.object({
@@ -129,6 +137,51 @@ export async function reviewBlock(params) {
         throw mapRaiseExceptionError(error.message, 'レビューのブロックに失敗しました');
     return { ok: true };
 }
+/**
+ * 承認依頼を取り消す（画面のタスク詳細にある「レビューを取り消す」と同じ）。
+ *
+ * 取り消せるのは、まだ終わっていない依頼（承認待ち・差し戻し）だけ。誰が取り消せるか
+ * （依頼した本人・プロジェクトの管理者・組織のオーナー）は DB 側が決める。
+ * CLI が持っているのはタスクの UUID なので、対象の review はタスクから引き当てる
+ * （reviews は task_id に一意制約があるので1件に定まる）。
+ */
+export async function reviewCancel(params) {
+    await checkAuth(params.spaceId, 'write', 'review_cancel', 'review', params.taskId);
+    // 取り消した人（task_events.actor_id・通知の差出人）は、鍵に紐づく利用者から取る。
+    // 組織・プロジェクト共用の鍵では必ず断るので、問い合わせに行く前に確かめる
+    const actor = requireActorUserId();
+    const supabase = getSupabaseClient();
+    const orgId = await getOrgId(params.spaceId);
+    const { data: existingTask, error: checkError } = await supabase
+        .from('tasks')
+        .select('id')
+        .eq('id', params.taskId)
+        .eq('org_id', orgId)
+        .eq('space_id', params.spaceId)
+        .single();
+    // 打ち間違い・別プロジェクトのタスクは、理由を呼んだ人に返す（一般的な Error は 500 に化けて理由が届かない）
+    if (checkError || !existingTask) {
+        throw new ToolUserError('タスクが見つからないか、このプロジェクトのものではありません', 404);
+    }
+    const { data: review, error: reviewError } = await supabase
+        .from('reviews')
+        .select('id')
+        .eq('task_id', params.taskId)
+        .eq('org_id', orgId)
+        .eq('space_id', params.spaceId)
+        .maybeSingle();
+    if (reviewError)
+        throw new Error('レビューの取得に失敗しました');
+    if (!review)
+        throw new ToolUserError('このタスクにはレビューがありません', 404);
+    const { error } = await supabase.rpc('rpc_review_cancel_as', {
+        p_actor: actor,
+        p_review_id: review.id,
+    });
+    if (error)
+        throw mapRaiseExceptionError(error.message, 'レビューの取り消しに失敗しました');
+    return { ok: true };
+}
 export async function reviewList(params) {
     await checkAuth(params.spaceId, 'read', 'review_list', 'review');
     const supabase = getSupabaseClient();
@@ -195,6 +248,12 @@ export const reviewTools = [
         description: 'レビューブロック(変更要求)。理由必須',
         inputSchema: reviewBlockSchema,
         handler: reviewBlock,
+    },
+    {
+        name: 'review_cancel',
+        description: 'レビュー取り消し。承認待ち・差し戻しの依頼を畳む。依頼者/管理者/オーナーのみ',
+        inputSchema: reviewCancelSchema,
+        handler: reviewCancel,
     },
     {
         name: 'review_list',
