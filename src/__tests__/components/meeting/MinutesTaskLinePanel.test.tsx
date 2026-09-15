@@ -26,6 +26,32 @@ vi.mock('@/lib/hooks/useWikiPages', () => ({
   }),
 }))
 
+const MEMBERS = [
+  { id: 'user-1', displayName: '田中', avatarUrl: null, role: 'editor' },
+  { id: 'user-2', displayName: '佐藤', avatarUrl: null, role: 'client' },
+]
+
+const MILESTONES = [
+  { id: 'ms-1', name: '第1弾' },
+  { id: 'ms-2', name: '第2弾' },
+]
+
+/**
+ * `useSpaceMembers` の `loading` は中で既定の [] が入るため**いつも false**。
+ * 一度も取れていないことは `isPending` にしか出ないので、モックも両方持たせて
+ * パネルがどちらを見ているかを検査できるようにする。
+ */
+const membersState = { members: MEMBERS, loading: false, isPending: false }
+const milestonesState = { milestones: MILESTONES, loading: false }
+
+vi.mock('@/lib/hooks/useSpaceMembers', () => ({
+  useSpaceMembers: () => membersState,
+}))
+
+vi.mock('@/lib/hooks/useMilestones', () => ({
+  useMilestones: () => milestonesState,
+}))
+
 function setup() {
   const onInsert = vi.fn()
   const onClose = vi.fn()
@@ -123,5 +149,83 @@ describe('タスクにする行のパネル', () => {
     fireEvent.change(search, { target: { value: '雑メモ' } })
     fireEvent.click(screen.getByText('雑メモ'))
     expect(screen.queryByTestId('minutes-task-line-spec-note')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * 担当者とマイルストーンは、渡すときに**名前も一緒に**持たせる。
+ * ID だけだと本文を見ても誰なのか分からず、名前だけだと同姓の人を取り違えるため。
+ */
+describe('タスクにする行のパネル: 担当者とマイルストーン', () => {
+  const originalScrollIntoView = Element.prototype.scrollIntoView
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
+    membersState.isPending = false
+    milestonesState.loading = false
+  })
+
+  afterEach(() => {
+    Element.prototype.scrollIntoView = originalScrollIntoView
+    membersState.isPending = false
+    milestonesState.loading = false
+  })
+
+  /**
+   * 一覧がまだ手元に無い人（初めてこの space を開いた人）に、空の「未設定」だけを出すと
+   * 「担当者が選べない」ように見える。取っている最中だと分かるようにする。
+   */
+  it('まだ一覧が取れていないうちは「読み込み中」と出す', () => {
+    membersState.isPending = true
+    milestonesState.loading = true
+    setup()
+    expect(screen.getByTestId('minutes-task-line-assignee')).toBeDisabled()
+    expect(screen.getByTestId('minutes-task-line-milestone')).toBeDisabled()
+    expect(screen.getAllByText('読み込み中...')).toHaveLength(2)
+  })
+
+  it('space の人を選べる', () => {
+    setup()
+    const select = screen.getByTestId('minutes-task-line-assignee')
+    expect(select).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '田中' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '佐藤' })).toBeInTheDocument()
+  })
+
+  it('担当者を選ぶと、ID と名前を一緒に渡す', () => {
+    const { onInsert } = setup()
+    fireEvent.change(screen.getByTestId('minutes-task-line-title'), { target: { value: '見積を出す' } })
+    fireEvent.change(screen.getByTestId('minutes-task-line-assignee'), { target: { value: 'user-1' } })
+    fireEvent.click(screen.getByTestId('minutes-task-line-submit'))
+    expect(onInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ assignee: { id: 'user-1', name: '田中' } })
+    )
+  })
+
+  it('マイルストーンを選ぶと、ID と名前を一緒に渡す', () => {
+    const { onInsert } = setup()
+    fireEvent.change(screen.getByTestId('minutes-task-line-title'), { target: { value: '見積を出す' } })
+    fireEvent.change(screen.getByTestId('minutes-task-line-milestone'), { target: { value: 'ms-2' } })
+    fireEvent.click(screen.getByTestId('minutes-task-line-submit'))
+    expect(onInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ milestone: { id: 'ms-2', name: '第2弾' } })
+    )
+  })
+
+  it('選ばなければ渡さない（これまでどおり空のタスクになる）', () => {
+    const { onInsert } = setup()
+    fireEvent.change(screen.getByTestId('minutes-task-line-title'), { target: { value: '見積を出す' } })
+    fireEvent.click(screen.getByTestId('minutes-task-line-submit'))
+    expect(onInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ assignee: undefined, milestone: undefined })
+    )
+  })
+
+  it('続けて入れられるよう、入れたあとは選び直しの状態に戻す', () => {
+    setup()
+    fireEvent.change(screen.getByTestId('minutes-task-line-title'), { target: { value: '見積を出す' } })
+    fireEvent.change(screen.getByTestId('minutes-task-line-assignee'), { target: { value: 'user-1' } })
+    fireEvent.click(screen.getByTestId('minutes-task-line-submit'))
+    expect(screen.getByTestId('minutes-task-line-assignee')).toHaveValue('')
   })
 })

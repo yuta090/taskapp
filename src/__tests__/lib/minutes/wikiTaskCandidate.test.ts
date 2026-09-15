@@ -4,6 +4,7 @@ import { join } from 'path'
 import {
   findWikiTaskCandidate,
   DUE_IN_TITLE_PATTERN,
+  TASK_META_MARKER_PATTERN,
   UNCHECKED_ITEM_PATTERN,
   WIKI_PAGE_HREF_PATTERN,
 } from '@/lib/minutes/wikiTaskCandidate'
@@ -141,6 +142,11 @@ describe('SQL と共有するパターン', () => {
       const { sql } = readLatestMigrationDefining(fn)
       expect(sliceFunctionBody(sql, fn)).toContain(DUE_IN_TITLE_PATTERN)
     })
+
+    it(`${fn} が同じ「担当者・マイルストーンの印を題名から外す」パターンを持つ`, () => {
+      const { sql } = readLatestMigrationDefining(fn)
+      expect(sliceFunctionBody(sql, fn)).toContain(TASK_META_MARKER_PATTERN)
+    })
   }
 
   // 包みが本体を呼んでいること（呼び忘れると、判定はあるのに誰も通らない）
@@ -195,6 +201,34 @@ describe('findWikiTaskCandidate: リンクの無い行', () => {
 
   it('旧来の SPEC 行は、これまでどおりそちらの経路が扱う', () => {
     expect(findWikiTaskCandidate('- [ ] SPEC(/spec/A.md#x): タイトル')).toBeNull()
+  })
+})
+
+/**
+ * 担当者・マイルストーンの印も、読み取るだけで**題名には残さない**。
+ * 残ると一覧に「見積を出す <!--assignee:...-->」と出てしまう。
+ */
+describe('findWikiTaskCandidate: 担当者・マイルストーンの印は題名に残さない', () => {
+  const USER = '22222222-3333-4444-5555-666666666666'
+  const MILESTONE = '77777777-8888-9999-aaaa-bbbbbbbbbbbb'
+
+  it('担当者の印を外す', () => {
+    expect(findWikiTaskCandidate(`- [ ] 見積を出す <!--assignee:${USER} 田中-->`)?.title).toBe('見積を出す')
+  })
+
+  it('マイルストーンの印を外す', () => {
+    expect(findWikiTaskCandidate(`- [ ] 見積を出す <!--milestone:${MILESTONE} 第1弾-->`)?.title).toBe(
+      '見積を出す'
+    )
+  })
+
+  it('印が3つ並んでも題名は残る', () => {
+    const line = `- [ ] 見積を出す（期限: 9/20） <!--assignee:${USER} 田中--> <!--milestone:${MILESTONE} 第1弾--> <!--task:abc-->`
+    expect(findWikiTaskCandidate(line)?.title).toBe('見積を出す')
+  })
+
+  it('印しかない行は拾わない（タスクの名前が作れない）', () => {
+    expect(findWikiTaskCandidate(`- [ ] <!--assignee:${USER} 田中-->`)).toBeNull()
   })
 })
 

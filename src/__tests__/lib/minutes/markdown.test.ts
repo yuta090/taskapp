@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import {
+  ASSIGNEE_MARKER_TYPE,
+  MILESTONE_MARKER_TYPE,
   parseMinutesMarkdown,
   serializeMinutesBlocks,
   SPEC_LINE_REGEX,
@@ -11,6 +13,8 @@ import {
 } from '@/lib/minutes/markdown'
 
 const REAL_FIXTURE = readFileSync(join(__dirname, 'fixtures/real-minutes-shape.md'), 'utf-8')
+const USER = '22222222-3333-4444-5555-666666666666'
+const MILESTONE = '77777777-8888-9999-aaaa-bbbbbbbbbbbb'
 
 const t = (text: string, styles: Record<string, boolean> = {}) => ({ type: 'text' as const, text, styles })
 const mk = (id: string) => ({ type: TASK_MARKER_TYPE, props: { taskId: id } })
@@ -315,6 +319,55 @@ describe('parseMinutesMarkdown: 箇条書き・チェック・番号付き', () 
     const content = blocks[0].content as MinutesBlock[]
     const marker = (content as unknown as Array<Record<string, unknown>>).at(-1)
     expect(marker).toEqual({ type: TASK_MARKER_TYPE, props: { taskId: 'abc-123' } })
+  })
+
+  it('担当者・マイルストーンの印を inline として取り出す', () => {
+    const line = `- [ ] 見積を出す <!--assignee:${USER} 田中--> <!--milestone:${MILESTONE} 第1弾-->`
+    const content = parseMinutesMarkdown(line)[0].content as unknown as Array<Record<string, unknown>>
+    expect(content).toEqual([
+      { type: 'text', text: '見積を出す', styles: {} },
+      { type: ASSIGNEE_MARKER_TYPE, props: { id: USER, name: '田中' } },
+      { type: MILESTONE_MARKER_TYPE, props: { id: MILESTONE, name: '第1弾' } },
+    ])
+  })
+
+  it('担当者・マイルストーン・タスク化済みの印が同じ行にあっても全部取り出す', () => {
+    const line = `- [ ] 見積を出す <!--assignee:${USER} 田中--> <!--milestone:${MILESTONE} 第1弾--> <!--task:abc-123-->`
+    const content = parseMinutesMarkdown(line)[0].content as unknown as Array<Record<string, unknown>>
+    expect(content.map((c) => c.type)).toEqual([
+      'text',
+      ASSIGNEE_MARKER_TYPE,
+      MILESTONE_MARKER_TYPE,
+      TASK_MARKER_TYPE,
+    ])
+  })
+
+  it('印は書き戻しても同じ並び（担当者・マイルストーン・タスク化済み）になる', () => {
+    const line = `- [ ] 見積を出す <!--assignee:${USER} 田中--> <!--milestone:${MILESTONE} 第1弾--> <!--task:abc-123-->`
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(line))).toBe(line)
+  })
+
+  it('印の並びが逆でも、書き戻すと決まった並びに直る', () => {
+    const line = `- [ ] 見積を出す <!--milestone:${MILESTONE} 第1弾--> <!--assignee:${USER} 田中-->`
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(line))).toBe(
+      `- [ ] 見積を出す <!--assignee:${USER} 田中--> <!--milestone:${MILESTONE} 第1弾-->`
+    )
+  })
+
+  it('ID の形をしていない印は、ただの文字として扱う（勝手に消さない）', () => {
+    const line = '- [ ] 見積を出す <!--assignee:だれか-->'
+    const content = parseMinutesMarkdown(line)[0].content as unknown as Array<Record<string, unknown>>
+    expect(content.map((c) => c.type)).toEqual(['text'])
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(line))).toBe(line)
+  })
+
+  /**
+   * 表のセルは行として扱わない（DB 側もセルからタスクを作らない）。印にはせず、
+   * 書いた文字のまま残す。消すと、貼り付けただけで中身が減ってしまう。
+   */
+  it('表のセルの中の印は、印にせず文字のまま残す', () => {
+    const src = `| A |\n| --- |\n| 見積 <!--assignee:${USER} 田中--> |`
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(src))).toBe(src)
   })
 
   it('numbered list: 先頭が1以外なら start prop を保持する', () => {

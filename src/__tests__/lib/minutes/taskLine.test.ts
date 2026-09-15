@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { buildTaskLineBlock, findTopLevelAncestor, formatDueLabel } from '@/lib/minutes/taskLine'
-import { serializeMinutesBlocks } from '@/lib/minutes/markdown'
+import { parseTaskMetaMarker, serializeMinutesBlocks } from '@/lib/minutes/markdown'
 
 const ORG = '00000000-0000-0000-0000-000000000001'
 const SPACE = '00000000-0000-0000-0000-000000000010'
 const PAGE = '11111111-2222-3333-4444-555555555555'
+const USER = '22222222-3333-4444-5555-666666666666'
+const MILESTONE = '77777777-8888-9999-aaaa-bbbbbbbbbbbb'
 
 function md(block: ReturnType<typeof buildTaskLineBlock>): string {
   return serializeMinutesBlocks([block])
@@ -55,6 +57,77 @@ describe('タスクにする行を組み立てる', () => {
 
   it('やることが空なら作らない', () => {
     expect(buildTaskLineBlock({ title: '   ' }, ORG, SPACE)).toBeNull()
+  })
+})
+
+describe('担当者とマイルストーンの印', () => {
+  it('担当者を選ぶと、名前の見える印が行の末尾に付く', () => {
+    const out = md(
+      buildTaskLineBlock({ title: '見積を出す', assignee: { id: USER, name: '田中' } }, ORG, SPACE)
+    )
+    expect(out).toBe(`- [ ] 見積を出す <!--assignee:${USER} 田中-->`)
+  })
+
+  it('マイルストーンを選ぶと、名前の見える印が行の末尾に付く', () => {
+    const out = md(
+      buildTaskLineBlock({ title: '見積を出す', milestone: { id: MILESTONE, name: '第1弾' } }, ORG, SPACE)
+    )
+    expect(out).toBe(`- [ ] 見積を出す <!--milestone:${MILESTONE} 第1弾-->`)
+  })
+
+  it('両方選んだら、担当者・マイルストーンの順に並ぶ', () => {
+    const out = md(
+      buildTaskLineBlock(
+        {
+          title: '見積を出す',
+          due: '2026-09-20',
+          assignee: { id: USER, name: '田中' },
+          milestone: { id: MILESTONE, name: '第1弾' },
+        },
+        ORG,
+        SPACE
+      )
+    )
+    expect(out).toBe(
+      `- [ ] 見積を出す（期限: 9/20） <!--assignee:${USER} 田中--> <!--milestone:${MILESTONE} 第1弾-->`
+    )
+  })
+
+  it('名前に > が入っていても印を壊さない', () => {
+    const out = md(
+      buildTaskLineBlock({ title: '見積を出す', assignee: { id: USER, name: '田<中>' } }, ORG, SPACE)
+    )
+    expect(out).toBe(`- [ ] 見積を出す <!--assignee:${USER} 田中-->`)
+  })
+
+  it('印の中身は ID と名前に分けて読み取れる', () => {
+    expect(parseTaskMetaMarker(`${USER} 田中`)).toEqual({ id: USER, name: '田中' })
+  })
+
+  it('名前が無い印でも ID だけは読み取れる', () => {
+    expect(parseTaskMetaMarker(USER)).toEqual({ id: USER, name: '' })
+  })
+
+  it('ID の形をしていない印は読み取らない', () => {
+    expect(parseTaskMetaMarker('だれか')).toBeNull()
+  })
+
+  /**
+   * 読む側は UUID しか通さない。書く側が通してしまうと、保存して読み直したときに
+   * 生の `<!--assignee:...-->` が本文に出る（印にならず、ただの文字として残るため）。
+   */
+  it('ID が UUID の形でなければ、印そのものを書かない', () => {
+    const out = md(
+      buildTaskLineBlock({ title: '見積を出す', assignee: { id: 'user-1', name: '田中' } }, ORG, SPACE)
+    )
+    expect(out).toBe('- [ ] 見積を出す')
+  })
+
+  it('名前に丸括弧が入っていても印は壊れない', () => {
+    const out = md(
+      buildTaskLineBlock({ title: '見積を出す', assignee: { id: USER, name: '田中（営業）' } }, ORG, SPACE)
+    )
+    expect(out).toBe(`- [ ] 見積を出す <!--assignee:${USER} 田中（営業）-->`)
   })
 })
 

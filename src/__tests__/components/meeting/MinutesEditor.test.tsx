@@ -1,7 +1,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
-import { MinutesEditor, TaskMarkerChip } from '@/components/meeting/MinutesEditor'
+import { MinutesEditor, TaskMarkerChip, TaskMetaChip } from '@/components/meeting/MinutesEditor'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 
 const ORG_ID = 'org-1'
@@ -252,6 +252,32 @@ describe('TaskMarkerChip', () => {
 
     fireEvent.click(chip)
     expect(mockPush).not.toHaveBeenCalled()
+  })
+})
+
+describe('TaskMetaChip（担当者・マイルストーンの印）', () => {
+  it('担当者は名前の前に「担当:」を付けて出す', () => {
+    render(<TaskMetaChip kind="assignee" name="田中" />)
+    expect(screen.getByTestId('minutes-assignee-chip')).toHaveTextContent('担当: 田中')
+  })
+
+  it('マイルストーンは名前をそのまま出す', () => {
+    render(<TaskMetaChip kind="milestone" name="第1弾" />)
+    expect(screen.getByTestId('minutes-milestone-chip')).toHaveTextContent('第1弾')
+  })
+
+  /**
+   * 名前は印に一緒に書いてあるものを出すだけ。手で消されたときに何も出ないと、
+   * 担当者が付いているのに画面から消えてしまうので、印があることだけは伝える。
+   */
+  it('名前が無ければ「不明」と出す（印があることは伝える）', () => {
+    render(<TaskMetaChip kind="assignee" name="" />)
+    expect(screen.getByTestId('minutes-assignee-chip')).toHaveTextContent('担当: 不明')
+  })
+
+  it('編集できない（content:none）ので contentEditable=false を持つ', () => {
+    render(<TaskMetaChip kind="milestone" name="第1弾" />)
+    expect(screen.getByTestId('minutes-milestone-chip')).toHaveAttribute('contenteditable', 'false')
   })
 })
 
