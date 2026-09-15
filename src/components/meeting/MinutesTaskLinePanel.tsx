@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { WikiPageLinkPicker } from '@/components/task/WikiPageLinkPicker'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import type { TaskLineDraft } from '@/lib/minutes/taskLine'
@@ -39,6 +39,20 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
   const [due, setDue] = useState('')
   const [page, setPage] = useState<Pick<WikiPage, 'id' | 'title' | 'tags'> | null>(null)
 
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const titleRef = useRef<HTMLInputElement | null>(null)
+
+  /**
+   * このパネルは**本文のいちばん下**に出る。長い議事録の途中で「/」から呼ぶと
+   * 画面の外に開くので、「選んでも何も起きない」ように見えていた（ユーザー報告）。
+   * 開いた側から画面を寄せて、そのまま打ち始められるところまで面倒を見る。
+   * 開いたときだけ作られる部品なので、1回だけでよい。
+   */
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ block: 'nearest' })
+    titleRef.current?.focus()
+  }, [])
+
   const isSpec = !!page?.tags?.includes(SPEC_TAG)
   const canInsert = title.trim() !== ''
 
@@ -61,6 +75,7 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
 
   return (
     <div
+      ref={panelRef}
       data-testid="minutes-task-line-panel"
       className="mt-2 rounded border border-gray-200 bg-surface p-3 space-y-3"
     >
@@ -73,6 +88,7 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
           やること
         </label>
         <input
+          ref={titleRef}
           id="minutes-task-line-title"
           data-testid="minutes-task-line-title"
           value={title}

@@ -48,6 +48,7 @@ const MinutesTaskLinePanel = dynamic(
   }
 )
 import { meetingNoteSpec, toggleListItemSpec } from './minutesBlocks'
+import { MINUTES_DICTIONARY } from './minutesDictionary'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
 import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
@@ -268,30 +269,6 @@ export function TaskMarkerChip({ taskId, orgId, spaceId, resolverRef }: TaskMark
  * taskMarker（行末の `<!--task:uuid-->`）はチップ表示のみ・content:'none'（文字を足せない）。
  * orgId/spaceId をクロージャで持たせるため、schema はコンポーネント内で作り直す。
  */
-/**
- * BlockNote の日本語辞書（`@blocknote/core/locales` の `ja`）をもとにした議事録用の辞書。
- * - `emptyDocument`（文書全体が空の唯一のブロックのときだけ出る案内）: 空にする。
- *   呼び出し側(MinutesDocumentView)が本文の外側に同じ趣旨の案内文を1つだけ出すため、
- *   ここで出すと「ここに議事録を書きます」が2回表示されてしまう。
- * - `default`（フォーカスした空行に出る案内）: Wiki と同じ文言。「/」でメニューが開くと伝える
- */
-const MINUTES_DICTIONARY = {
-  ...jaLocale,
-  placeholders: {
-    ...jaLocale.placeholders,
-    default: '文字を入力、または「/」でメニューを開く',
-    emptyDocument: '',
-  },
-  slash_menu: {
-    ...jaLocale.slash_menu,
-    toggle_list: {
-      ...jaLocale.slash_menu.toggle_list,
-      // 近道（`>` ＋スペース）をメニューの説明にも書く。知らないと使われない
-      subtext: '中身を隠しておける。「>」とスペースでも作れる',
-    },
-  },
-}
-
 /**
  * 「/」メニューに出さない項目。議事録は Markdown が正本で、`serializeMinutesBlocks` が
  * 書き出せないブロックを入れられると保存で消える。スキーマ（`useMinutesSchema`）に

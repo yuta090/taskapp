@@ -1,5 +1,5 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MinutesTaskLinePanel } from '@/components/meeting/MinutesTaskLinePanel'
 
@@ -36,8 +36,29 @@ function setup() {
 }
 
 describe('タスクにする行のパネル', () => {
+  // jsdom は scrollIntoView を持っていないので、呼ばれたことだけ見られるように差し替える
+  const scrollIntoView = vi.fn()
+  const originalScrollIntoView = Element.prototype.scrollIntoView
+
   beforeEach(() => {
     mockCreatePage.mockClear()
+    scrollIntoView.mockClear()
+    Element.prototype.scrollIntoView = scrollIntoView
+  })
+
+  afterEach(() => {
+    Element.prototype.scrollIntoView = originalScrollIntoView
+  })
+
+  /**
+   * パネルは本文のいちばん下に出る。長い議事録の途中で「/」から呼ぶと画面の外にいて、
+   * 「選んでも何も起きない」ように見えていた（ユーザー報告・2026-09-15）。
+   * 開いた側から画面を寄せて、そのまま打ち始められるところまで面倒を見る。
+   */
+  it('開いたら、その場所まで画面を寄せて「やること」に手を移す', () => {
+    setup()
+    expect(scrollIntoView).toHaveBeenCalled()
+    expect(screen.getByTestId('minutes-task-line-title')).toHaveFocus()
   })
 
   it('やることが空のうちは入れられない', () => {
