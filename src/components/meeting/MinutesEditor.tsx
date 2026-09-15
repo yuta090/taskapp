@@ -29,7 +29,7 @@ import {
   TASK_MARKER_TYPE,
   TOGGLE_TYPE,
 } from '@/lib/minutes/markdown'
-import { formatNoteStamp } from '@/lib/minutes/noteStamp'
+import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 import { buildTaskLineBlock, findTopLevelAncestor, type TaskLineDraft } from '@/lib/minutes/taskLine'
 /**
  * パネルは押したときだけ読み込む。中で Wiki の取得層（`useWikiPages`）と
@@ -94,6 +94,11 @@ interface MinutesEditorProps {
    * 省略すると、印はこれまでどおり押すとタスクへ移動するだけになる。
    */
   onResolveTask?: MinutesTaskResolver
+  /**
+   * 会議メモに残す「書いた人」の名前（プロフィールの表示名）。押した時点の値を焼き付ける。
+   * メンバー一覧の読み込み中や分からないときは空で、そのときは日時だけが残る。
+   */
+  noteAuthorName?: string
 }
 
 /**
@@ -378,8 +383,14 @@ function MinutesEditorImpl({
   onBeforeNavigate,
   registerApi,
   onResolveTask,
+  noteAuthorName,
 }: MinutesEditorProps) {
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
+  // 名前はメンバー一覧を読み終えてから届く。値のまま「/」メニューの項目に閉じ込めると、
+  // 届いたときに項目の取り方ごと作り直しになる（開いているメニューが取り直しになる）ので、
+  // ref に入れて押した時点の値を読む
+  const noteAuthorRef = useRef(noteAuthorName)
+  noteAuthorRef.current = noteAuthorName
   /**
    * 開いているリンクの種類と、開いた回数。null なら閉じている。
    * 回数を持つのは、**同じ種類で開き直したとき**にもパネルを作り直して検索欄に
@@ -447,10 +458,10 @@ function MinutesEditorImpl({
   )
 
   const insertMeetingNote = useCallback(() => {
-    // 書いた日時をその場で焼き付ける。あとから本文を直しても日時は動かない
+    // 書いた日時と名前をその場で焼き付ける。あとから本文を直しても、別の人が書き足しても動かない
     insertOrUpdateBlockForSlashMenu(editor, {
       type: MEETING_NOTE_TYPE,
-      props: { createdAt: formatNoteStamp() },
+      props: { createdAt: formatNoteStamp(), author: normalizeNoteAuthor(noteAuthorRef.current) },
     })
     editor.focus()
   }, [editor])
@@ -471,7 +482,7 @@ function MinutesEditorImpl({
           {
             key: 'insert_meeting_note',
             title: '会議メモ',
-            subtext: '会議中に足した補足として、背景に色を付けて残す',
+            subtext: '会議中に足した補足として、書いた人と日時を添えて色を付けて残す',
             aliases: ['note', 'memo', 'メモ', '会議メモ', 'かいぎめも', 'コメント'],
             // 既定のブロックと同じ並びに置く（辞書から取って表記を揃える）
             group: jaLocale.slash_menu.paragraph.group,

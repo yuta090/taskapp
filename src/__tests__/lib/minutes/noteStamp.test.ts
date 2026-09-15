@@ -1,5 +1,53 @@
 import { describe, expect, it } from 'vitest'
-import { formatNoteStamp, formatNoteStampLabel } from '@/lib/minutes/noteStamp'
+import {
+  formatNoteStamp,
+  formatNoteStampLabel,
+  normalizeNoteAuthor,
+  noteAuthorNameOf,
+} from '@/lib/minutes/noteStamp'
+
+describe('メモに残す書いた人の名前', () => {
+  it('前後の空白を落とす', () => {
+    expect(normalizeNoteAuthor('  高橋 優太  ')).toBe('高橋 優太')
+  })
+
+  it('改行やタブは空白1つにする（目印は1行に収める）', () => {
+    expect(normalizeNoteAuthor('高橋\n\t優太')).toBe('高橋 優太')
+  })
+
+  it('< と > を落とす（目印の `-->` を名前で閉じさせない）', () => {
+    expect(normalizeNoteAuthor('a-->b<c')).toBe('a--bc')
+  })
+
+  it('長すぎる名前は40文字で切る', () => {
+    expect(normalizeNoteAuthor('あ'.repeat(50))).toBe('あ'.repeat(40))
+  })
+
+  it('無いときは空文字', () => {
+    expect(normalizeNoteAuthor('')).toBe('')
+    expect(normalizeNoteAuthor('   ')).toBe('')
+    expect(normalizeNoteAuthor(undefined)).toBe('')
+    expect(normalizeNoteAuthor(null)).toBe('')
+  })
+})
+
+describe('メンバー一覧から自分の名前を引く', () => {
+  const USER_ID = '12345678-aaaa-bbbb-cccc-000000000000'
+
+  it('プロフィールの表示名を返す', () => {
+    expect(noteAuthorNameOf([{ id: USER_ID, displayName: '高橋 優太' }], USER_ID)).toBe('高橋 優太')
+  })
+
+  it('一覧に居ない・ログイン前なら空文字', () => {
+    expect(noteAuthorNameOf([{ id: 'other', displayName: '佐藤' }], USER_ID)).toBe('')
+    expect(noteAuthorNameOf([{ id: USER_ID, displayName: '高橋' }], '')).toBe('')
+    expect(noteAuthorNameOf([{ id: USER_ID, displayName: '高橋' }], undefined)).toBe('')
+  })
+
+  it('表示名が未設定のときの仮の名前（id の先頭8文字…）は名前として残さない', () => {
+    expect(noteAuthorNameOf([{ id: USER_ID, displayName: '12345678...' }], USER_ID)).toBe('')
+  })
+})
 
 describe('会議メモに残す日時', () => {
   it('日本の時刻の年月日と時分を、そのままの形で持つ', () => {

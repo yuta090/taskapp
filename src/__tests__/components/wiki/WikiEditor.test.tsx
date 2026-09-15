@@ -29,6 +29,19 @@ let capturedSlashMenuProps:
   | { triggerCharacter: string; getItems?: (query: string) => Promise<Array<{ key: string }>> }
   | undefined
 
+/**
+ * 本物の `useCreateBlockNote` は **マウント中ずっと同じ editor を返す**。毎回別のものを返す
+ * モックにすると、「/」メニューの項目の取り方が描き直しのたびに変わってしまい、
+ * 取り方が変わらないことを確かめるテストが書けない（MinutesEditor.test.tsx と同じ作り）。
+ */
+const mockEditor = {
+  document: [],
+  insertInlineContent: mockInsertInlineContent,
+  focus: mockEditorFocus,
+  insertBlocks: mockInsertBlocks,
+  getTextCursorPosition: mockGetTextCursorPosition,
+}
+
 // BlockNote mounts a real ProseMirror editor which is heavy/unstable in jsdom.
 // Mock the hook and view so this test focuses on the toolbar wiring instead.
 vi.mock('@blocknote/react', async (importOriginal) => {
@@ -37,13 +50,7 @@ vi.mock('@blocknote/react', async (importOriginal) => {
     ...actual,
     useCreateBlockNote: (options: typeof capturedEditorOptions) => {
       capturedEditorOptions = options
-      return {
-        document: [],
-        insertInlineContent: mockInsertInlineContent,
-        focus: mockEditorFocus,
-        insertBlocks: mockInsertBlocks,
-        getTextCursorPosition: mockGetTextCursorPosition,
-      }
+      return mockEditor
     },
     getDefaultReactSlashMenuItems: () => DEFAULT_SLASH_ITEMS,
     SuggestionMenuController: (props: NonNullable<typeof capturedSlashMenuProps>) => {
@@ -58,6 +65,71 @@ vi.mock('@blocknote/mantine', () => ({
     <div data-testid="blocknote-view">{children}</div>
   ),
 }))
+
+/** メモを入れる処理。本物は editor のカーソルを読むので、何を渡したかだけ見る */
+const mockInsertOrUpdateBlock = vi.fn()
+vi.mock('@blocknote/core/extensions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@blocknote/core/extensions')>()
+  return {
+    ...actual,
+    insertOrUpdateBlockForSlashMenu: (...args: unknown[]) => mockInsertOrUpdateBlock(...args),
+  }
+})
+
+/**
+ * 議事録の「会議メモ」を Wiki でも「メモ」として使う。書いた人の名前と日時が添わる。
+ * 相手先ポータルの Wiki も同じエディタ（読み取り専用）で出すので、スキーマに入っていれば
+ * ポータルでも同じ見た目で読める。
+ */
+describe('WikiEditor のメモ', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedEditorOptions = undefined
+    capturedSlashMenuProps = undefined
+  })
+
+  it('メモのブロックをスキーマに持つ（ポータルの読み取り専用表示でも描ける）', () => {
+    render(<WikiEditor editable={false} />)
+    const schema = (capturedEditorOptions as unknown as { schema: { blockSpecs: Record<string, unknown> } }).schema
+    expect(schema.blockSpecs).toHaveProperty('meetingNote')
+  })
+
+  it('「メモ」で絞り込むとメモが出る', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = await capturedSlashMenuProps!.getItems!('メモ')
+    expect(items.map(item => item.key)).toEqual(['insert_note'])
+  })
+
+  it('本文の下に「メモ」ボタンを出す。読み取り専用なら出さない', () => {
+    const { unmount } = render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByTestId('wiki-insert-note')).toBeInTheDocument()
+    unmount()
+    render(<WikiEditor editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.queryByTestId('wiki-insert-note')).not.toBeInTheDocument()
+  })
+
+  it('「メモ」ボタンで、書いた日時と書いた人の名前を持つメモを入れる', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} noteAuthorName="高橋 優太" />)
+    fireEvent.click(screen.getByTestId('wiki-insert-note'))
+    expect(mockInsertOrUpdateBlock).toHaveBeenCalledWith(expect.anything(), {
+      type: 'meetingNote',
+      props: { createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/), author: '高橋 優太' },
+    })
+  })
+
+  it('名前があとから届いても「/」メニューの取り方は作り直さず、届いた名前で入れる', () => {
+    const { rerender } = render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} noteAuthorName="" />)
+    const first = capturedSlashMenuProps!.getItems
+    rerender(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} noteAuthorName="高橋 優太" />)
+    expect(capturedSlashMenuProps!.getItems).toBe(first)
+
+    fireEvent.click(screen.getByTestId('wiki-insert-note'))
+    expect(mockInsertOrUpdateBlock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ props: expect.objectContaining({ author: '高橋 優太' }) })
+    )
+  })
+})
 
 let capturedOnSelect: ((selection: AppLinkSelection) => void) | undefined
 
@@ -152,8 +224,9 @@ describe('WikiEditor slash menu and Japanese texts', () => {
   it('lists the default items except video and audio, which cannot play on this page', async () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
-    // 先頭は自前のリンク4種。そのあとが BlockNote の既定（video/audio を除く）
+    // 先頭はメモ、次に自前のリンク4種。そのあとが BlockNote の既定（video/audio を除く）
     expect(items.map(item => item.key)).toEqual([
+      'insert_note',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',

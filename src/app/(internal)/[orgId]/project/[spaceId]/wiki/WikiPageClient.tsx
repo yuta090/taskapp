@@ -17,6 +17,7 @@ import { useWikiPages, WikiConflictError, type UpdateWikiPageInput, type WikiPag
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { noteAuthorNameOf } from '@/lib/minutes/noteStamp'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import { useWikiDecisionCounts } from '@/lib/hooks/useWikiDecisionCounts'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
@@ -184,6 +185,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const [prefs, setPrefs] = useWikiListPrefs()
   const { members } = useSpaceMembers(spaceId)
   const { user: currentUser } = useCurrentUser()
+  // メモに残す「書いた人」の名前。一覧の作成者表示と同じメンバー一覧から引く（取り直しは起きない）
+  const noteAuthorName = useMemo(() => noteAuthorNameOf(members, currentUser?.id), [members, currentUser?.id])
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照。既存4本と並列で取得する。
   const { linksByPageId } = useWikiMilestoneLinks(orgId, spaceId)
 
@@ -911,6 +914,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               orgId={orgId}
               spaceId={spaceId}
               currentPageId={activePage.id}
+              noteAuthorName={noteAuthorName}
             />
           </div>
         </div>

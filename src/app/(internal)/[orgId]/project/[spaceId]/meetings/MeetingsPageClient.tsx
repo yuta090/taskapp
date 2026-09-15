@@ -15,6 +15,9 @@ import { useMeetings } from '@/lib/hooks/useMeetings'
 // 競合の型は、hooks ではなくモックされない置き場から取る（理由は errors.ts のコメント）
 import { MinutesConflictError } from '@/lib/minutes/errors'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { noteAuthorNameOf } from '@/lib/minutes/noteStamp'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { useSchedulingProposals, type ProposalDetail, type ProposalWithDetails } from '@/lib/hooks/useSchedulingProposals'
@@ -111,6 +114,16 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const projectBasePath = `/${orgId}/project/${spaceId}/meetings`
   const selectedMeetingId = searchParams.get(MEETING_QUERY_PARAM)
   const selectedProposalId = searchParams.get(PROPOSAL_QUERY_PARAM)
+
+  // 会議メモに残す「書いた人」の名前。書ける人が議事録を開いているときだけ読む
+  // （会議詳細の MeetingInspector が出ていれば同じ一覧を共有する。全画面などで出ていない
+  // ときはここで1回だけ読む。名前は押したときに使うだけなので、本文の表示は待たせない）
+  const { members: spaceMembers } = useSpaceMembers(canEdit && selectedMeetingId ? spaceId : null)
+  const { user: currentUser } = useCurrentUser()
+  const noteAuthorName = useMemo(
+    () => noteAuthorNameOf(spaceMembers, currentUser?.id),
+    [spaceMembers, currentUser?.id]
+  )
 
   // Unified list: meetings + open/expired proposals
   const unifiedItems = useMemo(() => {
@@ -521,6 +534,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         fetchMeetingDetail={fetchMeetingDetail}
         fullscreen={fullscreen}
         onToggleFullscreen={handleToggleFullscreen}
+        noteAuthorName={noteAuthorName}
       />
     )
   }

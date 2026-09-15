@@ -139,6 +139,10 @@ describe('buildAgentpmSkill', () => {
       expect(skill).toContain('<!--note-->')
     })
 
+    it('会議メモに書いた人の名前を付ける書き方を書いている', () => {
+      expect(skill).toContain('<!--note:2026-09-15T14:30 高橋-->')
+    })
+
     it('折りたたみの書き方を書いている', () => {
       expect(skill).toContain('- <!--toggle-->')
     })

@@ -124,6 +124,12 @@ interface MinutesDocumentViewProps {
    */
   fullscreen?: boolean
   onToggleFullscreen?: () => void
+  /**
+   * 会議メモに残す「書いた人」の名前。メンバー一覧は呼び出し側（MeetingsPageClient）で読む —
+   * このコンポーネントを直接マウントする既存テストが多く、ここで一覧を読むと全部に
+   * 代役が要るため（全画面の状態を props で受けているのと同じ考え方）。
+   */
+  noteAuthorName?: string
 }
 
 /** BlockNote が末尾に足す空段落・余分な空行を、比べる前・保存する前の両方で落とす */
@@ -199,6 +205,7 @@ interface MinutesDocumentBodyProps {
   onSaveStateChange: (state: 'idle' | 'saving' | 'saved') => void
   /** 「最新を読み込む」。外側に取り直しを頼み、外側が key を変えて作り直す */
   onRequestReload: () => void
+  noteAuthorName?: string
 }
 
 const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumentBodyProps>(
@@ -216,6 +223,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       fetchMeetingDetail,
       onSaveStateChange,
       onRequestReload,
+      noteAuthorName,
     },
     ref
   ) {
@@ -798,6 +806,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
               // 競合の帯が出ている間は止める。自動保存が早期 return するので、画面の
               // チェックだけ外れてサーバーには `[x]` が残る（見た目と中身がずれる）
               onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
+              noteAuthorName={noteAuthorName}
             />
           </div>
         </div>
@@ -827,6 +836,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
       fetchMeetingDetail,
       fullscreen,
       onToggleFullscreen,
+      noteAuthorName,
     },
     ref
   ) {
@@ -1032,6 +1042,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
             fetchMeetingDetail={fetchMeetingDetail}
             onSaveStateChange={setSaveState}
             onRequestReload={handleReloadLatest}
+            noteAuthorName={noteAuthorName}
           />
         )}
       </div>

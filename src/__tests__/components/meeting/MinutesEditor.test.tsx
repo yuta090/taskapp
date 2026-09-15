@@ -92,6 +92,63 @@ vi.mock('@/components/editor/AppLinkPicker', () => ({
   },
 }))
 
+/** 会議メモを入れる処理。本物は editor のカーソルを読むので、何を渡したかだけ見る */
+const mockInsertOrUpdateBlock = vi.fn()
+vi.mock('@blocknote/core/extensions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@blocknote/core/extensions')>()
+  return {
+    ...actual,
+    insertOrUpdateBlockForSlashMenu: (...args: unknown[]) => mockInsertOrUpdateBlock(...args),
+  }
+})
+
+describe('会議メモに書いた人の名前を残す', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedSlashMenuProps = undefined
+  })
+
+  it('「会議メモ」ボタンで、書いた日時と書いた人の名前を持つ会議メモを入れる', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} noteAuthorName="高橋 優太" />)
+    fireEvent.click(screen.getByTestId('minutes-insert-meeting-note'))
+    expect(mockInsertOrUpdateBlock).toHaveBeenCalledWith(mockEditor, {
+      type: 'meetingNote',
+      props: { createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/), author: '高橋 優太' },
+    })
+  })
+
+  it('名前が分からないときは名前を空のまま入れる（日時だけが出る）', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    fireEvent.click(screen.getByTestId('minutes-insert-meeting-note'))
+    expect(mockInsertOrUpdateBlock).toHaveBeenCalledWith(mockEditor, {
+      type: 'meetingNote',
+      props: { createdAt: expect.any(String), author: '' },
+    })
+  })
+
+  /**
+   * 名前はメンバー一覧を読み終えてから届く。届いたときに「/」メニューの項目の取り方まで
+   * 作り直すと、開いているメニューが取り直しになる（過去に事故った箇所）ので、作り直さずに
+   * 押した時点の名前を使う。
+   */
+  it('名前があとから届いても「/」メニューの取り方は作り直さず、届いた名前で入れる', () => {
+    const { rerender } = render(
+      <MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} noteAuthorName="" onChange={() => {}} />
+    )
+    const first = capturedSlashMenuProps!.getItems
+    rerender(
+      <MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} noteAuthorName="高橋 優太" onChange={() => {}} />
+    )
+    expect(capturedSlashMenuProps!.getItems).toBe(first)
+
+    fireEvent.click(screen.getByTestId('minutes-insert-meeting-note'))
+    expect(mockInsertOrUpdateBlock).toHaveBeenCalledWith(
+      mockEditor,
+      expect.objectContaining({ props: expect.objectContaining({ author: '高橋 優太' }) })
+    )
+  })
+})
+
 /**
  * リンクの差し込みは Wiki と議事録で同じ部品（AppLinkPicker）を使う。
  * ここで見るのは「ボタンでパネルが開き、選んだリンクがカーソル位置に入るか」だけ。
