@@ -146,10 +146,28 @@ returns text language sql as $$
   select (coalesce(pg_stat_get_xact_function_calls(to_regprocedure(p_fn)), 0) - p_base::bigint)::text;
 $$;
 
+-- その人がそのコメントを読めないのが、ボールが相手先にあるためだけか（vendor・vendor 向けのコメント・相手先に見えるタスク・
+-- ボールが相手先）。ボールの受け渡しでは消さない（ユーザー判断）ので、この行は受信トレイに残ってよい
+create or replace function test.is_ball_held(p_user uuid, p_comment uuid)
+returns boolean language sql as $$
+  select exists (
+    select 1
+      from public.task_comments c
+      join public.tasks t on t.id = c.task_id
+      join public.space_memberships sm on sm.space_id = c.space_id and sm.user_id = p_user and sm.role = 'vendor'
+     where c.id = p_comment
+       and c.deleted_at is null
+       and c.visibility = 'vendor'
+       and t.client_scope = 'deliverable'
+       and t.ball = 'client');
+$$;
+
 -- 受信トレイに残っているコメントのお知らせ（in_app・comment_added / mention）のうち、宛先の人が
 -- RLS を通して（authenticated で）そのコメントを読めないもの。「宛先:コメント」をカンマ区切り。無ければ空文字。
--- 補助関数ではなく、本物の読み取りのポリシーで確かめる
-create or replace function test.leaks()
+-- 補助関数ではなく、本物の読み取りのポリシーで確かめる。
+-- p_mode = 'leaks'（既定）: 漏れ。ボールが相手先にあるためだけに vendor が読めない行（test.is_ball_held）は数えない
+-- p_mode = 'ball_held': その数えなかった行だけを返す
+create or replace function test.leaks(p_mode text default 'leaks')
 returns text language plpgsql as $$
 declare
   r record;
@@ -171,12 +189,31 @@ begin
     execute 'set local role authenticated';
     execute 'select count(*) from public.task_comments c where c.id = $1' into v_n using r.comment_id;
     execute 'reset role';
-    if v_n = 0 then
+    if v_n = 0 and (test.is_ball_held(r.to_user_id, r.comment_id) = (p_mode = 'ball_held')) then
       v := v || case when v = '' then '' else ',' end || r.who || ':' || r.what;
     end if;
   end loop;
   return v;
 end $$;
+
+-- 判定の補助関数を、呼ぶと失敗するものに差し替える（postgres で。区切りの rollback で元に戻る）。
+--   将来の migration が補助関数の読む列を変えて、補助関数が呼ぶたびに失敗するようになった状態の代わり
+create or replace function test.break_judge()
+returns void language plpgsql as $f$
+begin
+  execute $sql$
+    create or replace function public.app_task_comment_visible_to_user(
+      p_user uuid, p_space uuid, p_org uuid, p_task uuid, p_visibility text)
+      returns boolean language plpgsql stable security definer set search_path = public
+    as $b$ begin raise exception 'test: 判定の補助関数が壊れた'; end $b$
+  $sql$;
+end $f$;
+
+-- お知らせの削除を必ず失敗させるトリガー（区切りの中で作り、rollback で消える）
+create or replace function test.block_notice_delete() returns trigger language plpgsql as $f$
+begin
+  raise exception 'test: お知らせを消せない';
+end $f$;
 
 -- -----------------------------------------------------------------------------
 -- シードの状態（トリガーが作ったお知らせ・足した行）。はじめは漏れが無い
@@ -211,8 +248,8 @@ select test.check('chg_task_trigger_form',
     where t.tgrelid = 'public.tasks'::regclass
       and not t.tgisinternal
       and t.tgname = 'tasks_retract_comment_notice_on_scope_change'),
-  '1|O|true|CREATE TRIGGER tasks_retract_comment_notice_on_scope_change AFTER UPDATE OF client_scope, ball ON public.tasks '
-  'FOR EACH ROW WHEN (((old.client_scope IS DISTINCT FROM new.client_scope) OR (old.ball IS DISTINCT FROM new.ball)))');
+  '1|O|true|CREATE TRIGGER tasks_retract_comment_notice_on_scope_change AFTER UPDATE OF client_scope ON public.tasks '
+  'FOR EACH ROW WHEN ((old.client_scope IS DISTINCT FROM new.client_scope))');
 
 select test.check('chg_functions_definer_search_path',
   (select string_agg(format('%s:%s:%s', p.proname, p.prosecdef::text, array_to_string(p.proconfig, ';')), ','
@@ -230,6 +267,18 @@ select test.check('chg_functions_not_callable',
      from unnest(array[to_regprocedure(:'FN_C'), to_regprocedure(:'FN_T')]) as f
     where f is not null),
   'false|false|false;false|false|false');
+
+-- タスクのトリガー関数: コメントの無いタスクで終わる判定（exists）は、失敗を握る区画（begin … exception）より前にある
+--   （ボールの受け渡しのたびにサブトランザクションを作らない）。本文から行コメントを除き、exists より前にある begin が
+--   関数の先頭の1つだけかを見る（形の確認。区画ができたかは SQL から直接は見えないため）
+select test.check('chg_task_no_comment_check_outside_exception_block',
+  (select format('%s|%s', (position(x.probe in x.src) > 0)::text,
+                 (select count(*) from regexp_matches(substr(x.src, 1, position(x.probe in x.src)), '\mbegin\M', 'g')))
+     from (select regexp_replace(p.prosrc, '--[^\n]*', '', 'g') as src,
+                  'if not exists (select 1 from public.task_comments c where c.task_id = new.id)' as probe
+             from pg_proc p
+            where p.oid = to_regprocedure(:'FN_T')) as x),
+  'true|1');
 
 select test.check('same_existing_comment_triggers_kept',
   (select string_agg(t.tgname || ':' || t.tgenabled::text, ',' order by t.tgname)
@@ -332,19 +381,24 @@ select test.check('same_scope_narrow_service_role_keeps_other_task',
   test.notices_of(array[:'K1', :'K2', :'K3']::uuid[]), concat_ws('|', :'SEED_K1', :'SEED_K2', :'SEED_K3'));
 rollback;
 
--- ボールを相手先に渡す（rpc_pass_ball・画面と同じ経路）: vendor（vd）の行が消える（ボールが相手先のタスクは vendor に見えない）。
---   相手先・社内の人の行は残る。別のタスクの vendor の行は残る
+-- ボールを相手先に渡す（rpc_pass_ball・画面と同じ経路）: 何も消さず、トリガー関数も呼ばない（ユーザー判断）。
+--   vendor（vd）は、ボールが相手先のタスクのコメントを RLS で読めなくなるが、受信トレイの vd あての行（K2 の mention）は残す。
+--   消すと、ボールが相手先にある間に vendor が名指しに気づけなくなるため。残るのは、書いた時点で vd が読めた抜粋だけ
 begin;
+set local track_functions = 'all';
+select test.calls(:'FN_T') as base_ball \gset
 select test.check('same_pass_ball_to_client_saved',
   test.run(:'u_au', 'authenticated',
            format('select public.rpc_pass_ball(%L::uuid, %L, array[%L]::uuid[])', :'T1', 'client', :'u_cl')), 'ok');
 select test.check('same_pass_ball_to_client_value',
   (select ball || '|' || client_scope from public.tasks where id = :'T1'), 'client|deliverable');
-select test.check('chg_ball_to_client_retracts_vendor',
-  test.notices_of(array[:'K1', :'K2', :'K3']::uuid[]),
-  concat_ws('|', :'SEED_K1', 'as:in_app:comment_added', :'SEED_K3'));
+select test.check('same_ball_to_client_keeps_vendor_notice',
+  test.notices_of(array[:'K1', :'K2', :'K3']::uuid[]), concat_ws('|', :'SEED_K1', :'SEED_K2', :'SEED_K3'));
+select test.check('same_ball_to_client_not_called', test.calls_since(:'FN_T', :'base_ball'), '0');
 select test.check('same_ball_to_client_keeps_other_task', test.notices_all(:'K5'), :'SEED_K5');
-select test.check('chg_ball_to_client_no_leaks', test.leaks(), '');
+-- 読めないのに残っている行は、ボールのためだけに読めない vd の K2 だけ（漏れとしては数えない）
+select test.check('same_ball_to_client_ball_held_rows', test.leaks('ball_held'), 'vd:K2');
+select test.check('same_ball_to_client_no_leaks', test.leaks(), '');
 rollback;
 
 -- ボールを vendor に渡す: vendor は読めるままなので何も消えない
@@ -373,35 +427,41 @@ select test.check('chg_scope_narrow_then_widen_not_recreated',
   test.notices_of(array[:'K1', :'K2']::uuid[]), concat_ws('|', :'K1_WITHOUT_CL', 'as:in_app:comment_added'));
 rollback;
 
--- 関係ない列の更新（タイトル・状態）と、見せ方・ボールを同じ値で書く更新ではトリガー関数を呼ばない。
---   ボールが変わったら1回だけ呼び、読めない人の行を消す。
---   cl あての行を足しておく（T4 は社内のみなので cl は K6 を読めない。判定が動けば消える）
+-- 関係ない列の更新（タイトル・状態）・見せ方とボールを同じ値で書く更新・ボールの受け渡しでは、トリガー関数を呼ばない。
+--   見せ方（client_scope）が変わったら1回だけ呼び、読めない人の行を消す。
+--   T2 のボールを相手先に渡すと vd は K5 を読めなくなるが、関数を呼ばないので vd あての行は残る
 begin;
 set local track_functions = 'all';
 select test.calls(:'FN_T') as base_t \gset
-select test.put_notice(:'K6', :'u_cl', 'comment_added');
 select test.check('same_task_title_update_saved',
-  test.run(:'u_au', 'authenticated', format('update public.tasks set title = %L where id = %L', '名前を変えた', :'T4')), 'ok');
+  test.run(:'u_au', 'authenticated', format('update public.tasks set title = %L where id = %L', '名前を変えた', :'T2')), 'ok');
 select test.check('same_task_status_update_saved',
-  test.run(:'u_au', 'authenticated', format('update public.tasks set status = %L where id = %L', 'todo', :'T4')), 'ok');
+  test.run(:'u_au', 'authenticated', format('update public.tasks set status = %L where id = %L', 'todo', :'T2')), 'ok');
 select test.check('same_task_same_scope_write_saved',
   test.run(:'u_au', 'authenticated',
-           format('update public.tasks set client_scope = %L, ball = %L, title = %L where id = %L', 'internal', 'internal', '同じ値を書く', :'T4')), 'ok');
-select test.check('same_task_unrelated_updates_not_called', test.calls_since(:'FN_T', :'base_t'), '0');
-select test.check('same_task_unrelated_updates_keep_notices', test.notices_all(:'K6'),
-  'as:in_app:comment_added,cl:in_app:comment_added');
+           format('update public.tasks set client_scope = %L, ball = %L, title = %L where id = %L', 'deliverable', 'internal', '同じ値を書く', :'T2')), 'ok');
 select test.check('same_task_ball_change_saved',
-  test.run(:'u_au', 'authenticated', format('update public.tasks set ball = %L where id = %L', 'agency', :'T4')), 'ok');
-select test.check('chg_task_ball_change_called_once', test.calls_since(:'FN_T', :'base_t'), '1');
-select test.check('chg_task_ball_change_rejudges', test.notices_all(:'K6'), 'as:in_app:comment_added');
+  test.run(:'u_au', 'authenticated', format('update public.tasks set ball = %L where id = %L', 'client', :'T2')), 'ok');
+select test.check('same_task_unrelated_updates_not_called', test.calls_since(:'FN_T', :'base_t'), '0');
+select test.check('same_task_unrelated_updates_keep_notices',
+  test.notices_of(array[:'K4', :'K5']::uuid[]), concat_ws('|', :'SEED_K4', :'SEED_K5'));
+-- ボールが相手先の間は見せ方を社内のみにできない（ball=client requires client_scope=deliverable）ので、ボールを戻してから狭める
+select test.check('same_task_ball_back_saved',
+  test.run(:'u_au', 'authenticated', format('update public.tasks set ball = %L where id = %L', 'internal', :'T2')), 'ok');
+select test.check('same_task_ball_back_not_called', test.calls_since(:'FN_T', :'base_t'), '0');
+select test.check('same_task_scope_change_saved',
+  test.run(:'u_au', 'authenticated', format('update public.tasks set client_scope = %L where id = %L', 'internal', :'T2')), 'ok');
+select test.check('chg_task_scope_change_called_once', test.calls_since(:'FN_T', :'base_t'), '1');
+select test.check('chg_task_scope_change_rejudges',
+  test.notices_of(array[:'K4', :'K5']::uuid[]), 'as:in_app:comment_added|as:in_app:comment_added');
 rollback;
 
--- コメントの無いタスク（T3）のボールを変えても、関数が1回呼ばれるだけで何も起きない
+-- コメントの無いタスク（T3）の見せ方を変えても、関数が1回呼ばれるだけで何も起きない
 begin;
 set local track_functions = 'all';
 select test.calls(:'FN_T') as base_t3 \gset
-select test.check('same_no_comment_task_ball_change_saved',
-  test.run(:'u_au', 'authenticated', format('update public.tasks set ball = %L where id = %L', 'agency', :'T3')), 'ok');
+select test.check('same_no_comment_task_scope_change_saved',
+  test.run(:'u_au', 'authenticated', format('update public.tasks set client_scope = %L where id = %L', 'internal', :'T3')), 'ok');
 select test.check('chg_no_comment_task_called_once', test.calls_since(:'FN_T', :'base_t3'), '1');
 select test.check('same_no_comment_task_changes_nothing',
   test.notices_of(array[:'K1', :'K2', :'K3', :'K4', :'K5', :'K6', :'K7']::uuid[]),
@@ -411,13 +471,10 @@ rollback;
 
 -- =============================================================================
 -- お知らせを消すのに失敗しても、元の更新（コメント・タスク）は止めない（警告を出し、お知らせは1行も消さない）。
+--   削除そのものが失敗するので、判定を使って消すのも、判定を使わずに消す（後備え）のも失敗する。
 --   そのあとも同じトランザクションで消せる
 -- =============================================================================
 begin;
-create function test.block_notice_delete() returns trigger language plpgsql as $f$
-begin
-  raise exception 'test: お知らせを消せない';
-end $f$;
 create trigger test_block_notice_delete before delete on public.notifications
   for each row execute function test.block_notice_delete();
 select test.check('same_visibility_saved_when_retract_fails',
@@ -432,7 +489,69 @@ select test.check('same_scope_value_when_retract_fails',
 select test.check('same_no_partial_retract_when_scope_retract_fails',
   test.notices_of(array[:'K4', :'K5']::uuid[]), concat_ws('|', :'SEED_K4', :'SEED_K5'));
 drop trigger test_block_notice_delete on public.notifications;
-select test.run(:'u_au', 'authenticated', format('update public.tasks set ball = %L where id = %L', 'agency', :'T2'));
+-- 見せ方を一度戻してから、もう一度狭める（2回目で読めない人の行が消える）
+select test.run(:'u_au', 'authenticated', format('update public.tasks set client_scope = %L where id = %L', 'deliverable', :'T2'));
+select test.run(:'u_au', 'authenticated', format('update public.tasks set client_scope = %L where id = %L', 'internal', :'T2'));
 select test.check('chg_retract_works_after_failure',
   test.notices_of(array[:'K4', :'K5']::uuid[]), 'as:in_app:comment_added|as:in_app:comment_added');
+rollback;
+
+
+-- =============================================================================
+-- 判定（補助関数）が失敗したら、判定を使わずに消す（後備え）。
+--   宛先を問わず、そのコメント（タスク側はそのタスクのコメント）の受信トレイの comment_added / mention を全部消す（社内の人の行も）。
+--   メールの行・ball_passed の行・ほかのコメントやタスクのお知らせは残す。コメント本体は残る。元の更新は成功する。
+--   判定を使わずに消したことは、消した件数と判定の失敗の理由を警告に1行ずつ出す（ハーネスが MARK fallback_success_begin 〜 end の間で確かめる。
+--   K1 は as・cl・nm の3件、T1 は K1 の3件＋K2 の2件＋K3 の1件で6件）
+-- =============================================================================
+do $$ begin raise notice 'MARK fallback_success_begin'; end $$;
+
+-- コメントの visibility を狭めたとき（K1: 相手先向け → 社内のみ）
+begin;
+select test.break_judge();
+select test.check('same_visibility_saved_when_judge_fails',
+  test.run(:'u_au', 'authenticated', format('update public.task_comments set visibility = %L where id = %L', 'internal', :'K1')), 'ok');
+select test.check('chg_visibility_judge_failure_falls_back_to_delete_all', test.notices_all(:'K1'),
+  'cl:email:comment_added,vd:in_app:ball_passed');
+select test.check('same_visibility_judge_failure_keeps_other_comments',
+  test.notices_of(array[:'K2', :'K3', :'K4', :'K5', :'K6', :'K7']::uuid[]),
+  concat_ws('|', :'SEED_K2', :'SEED_K3', :'SEED_K4', :'SEED_K5', :'SEED_K6', :'SEED_K7'));
+select test.check('same_visibility_judge_failure_keeps_comment',
+  (select visibility || '|' || (deleted_at is null)::text from public.task_comments where id = :'K1'), 'internal|true');
+rollback;
+
+-- タスクの見せ方を狭めたとき（T1: 相手先に見える → 社内のみ。K1〜K3 のお知らせ）
+begin;
+select test.break_judge();
+select test.check('same_scope_saved_when_judge_fails',
+  test.run(:'u_au', 'authenticated', format('update public.tasks set client_scope = %L where id = %L', 'internal', :'T1')), 'ok');
+select test.check('chg_scope_judge_failure_falls_back_to_delete_all',
+  test.notices_of(array[:'K1', :'K2', :'K3']::uuid[]), 'cl:email:comment_added,vd:in_app:ball_passed||');
+select test.check('same_scope_judge_failure_keeps_other_tasks',
+  test.notices_of(array[:'K4', :'K5', :'K6', :'K7']::uuid[]),
+  concat_ws('|', :'SEED_K4', :'SEED_K5', :'SEED_K6', :'SEED_K7'));
+select test.check('same_scope_judge_failure_keeps_comments',
+  (select count(*)::text || '|' || (select client_scope from public.tasks where id = :'T1')
+     from public.task_comments where task_id = :'T1' and deleted_at is null), '3|internal');
+rollback;
+
+do $$ begin raise notice 'MARK fallback_success_end'; end $$;
+
+-- 判定も、判定を使わずに消すのも失敗したとき: 元の更新は成功し、お知らせは1行も消えない。
+--   警告に両方の失敗の理由が出ることは、ハーネスが確かめる（chg_*_fallback_failure_warns）
+begin;
+select test.break_judge();
+create trigger test_block_notice_delete before delete on public.notifications
+  for each row execute function test.block_notice_delete();
+select test.check('same_visibility_saved_when_judge_and_fallback_fail',
+  test.run(:'u_au', 'authenticated', format('update public.task_comments set visibility = %L where id = %L', 'internal', :'K4')), 'ok');
+select test.check('same_visibility_value_when_judge_and_fallback_fail',
+  (select visibility from public.task_comments where id = :'K4'), 'internal');
+select test.check('same_scope_saved_when_judge_and_fallback_fail',
+  test.run(:'u_au', 'authenticated', format('update public.tasks set client_scope = %L where id = %L', 'internal', :'T1')), 'ok');
+select test.check('same_scope_value_when_judge_and_fallback_fail',
+  (select client_scope from public.tasks where id = :'T1'), 'internal');
+select test.check('same_no_retract_when_judge_and_fallback_fail',
+  test.notices_of(array[:'K1', :'K2', :'K3', :'K4', :'K5', :'K6', :'K7']::uuid[]),
+  concat_ws('|', :'SEED_K1', :'SEED_K2', :'SEED_K3', :'SEED_K4', :'SEED_K5', :'SEED_K6', :'SEED_K7'));
 rollback;
