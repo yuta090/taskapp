@@ -22,6 +22,7 @@ import {
   splitCommentBody,
   type MentionSelection,
 } from '@/lib/comments/mentions'
+import { formatCommentTime } from '@/lib/comments/formatCommentTime'
 import type { CommentVisibility } from '@/types/database'
 
 interface TaskCommentsProps {
@@ -33,22 +34,6 @@ interface TaskCommentsProps {
   clientOnly?: boolean
   /** If true, user is internal member and can set visibility */
   canSetVisibility?: boolean
-}
-
-function formatCommentTime(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMinutes = Math.floor(diffMs / (1000 * 60))
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-  if (diffMinutes < 1) return 'たった今'
-  if (diffMinutes < 60) return `${diffMinutes}分前`
-  if (diffHours < 24) return `${diffHours}時間前`
-  if (diffDays < 7) return `${diffDays}日前`
-
-  return date.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })
 }
 
 interface CommentItemProps {

@@ -11,6 +11,7 @@ import type {
 } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
+import { recentTaskCommentsQueryKey } from '@/lib/hooks/useRecentTaskComments'
 
 /**
  * タスク一覧・マイタスク一覧の吹き出しアイコンに出すコメント数は、一覧本体（['tasks', …] /
@@ -234,6 +235,8 @@ export function useTaskComments({
         // 保存に成功したので一覧の吹き出しの数を +1 する（社内のみのコメントでも、
         // 書いた本人の一覧では数に入れる）。一覧全体の取り直しはしない
         bumpCommentCounts(queryClient, spaceId, taskId, 1)
+        // ダッシュボードの「最近のコメント」を古い扱いにする（開いていれば取り直し、閉じていれば次に開いたときに取り直す）
+        void queryClient.invalidateQueries({ queryKey: recentTaskCommentsQueryKey(spaceId) })
 
         // Replace optimistic with real
         queryClient.setQueryData<CommentWithProfile[]>(queryKey, (old) =>
@@ -287,6 +290,9 @@ export function useTaskComments({
           .eq('id', commentId)
 
         if (updateError) throw updateError
+
+        // ダッシュボードの「最近のコメント」に直す前の本文が残らないように
+        void queryClient.invalidateQueries({ queryKey: recentTaskCommentsQueryKey(spaceId) })
       } catch (err) {
         // Revert optimistic update
         if (prevComments) {
@@ -295,7 +301,7 @@ export function useTaskComments({
         throw err
       }
     },
-    [supabase, queryClient, queryKey]
+    [supabase, queryClient, queryKey, spaceId]
   )
 
   const softDeleteComment = useCallback(
@@ -318,6 +324,7 @@ export function useTaskComments({
 
         // 保存に成功したので一覧の吹き出しの数を -1 する（0未満にはしない）
         bumpCommentCounts(queryClient, spaceId, taskId, -1)
+        void queryClient.invalidateQueries({ queryKey: recentTaskCommentsQueryKey(spaceId) })
       } catch (err) {
         // Revert optimistic update
         if (prevComments) {
