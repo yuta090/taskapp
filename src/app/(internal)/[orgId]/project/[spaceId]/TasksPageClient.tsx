@@ -30,6 +30,7 @@ import { useSpacePendingInvites, pendingInviteLabel } from '@/lib/hooks/useSpace
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { buildAssigneeOptions, groupTasksByAssignee, taskAssigneeKey } from '@/lib/tasks/taskAssignees'
 import { useTasks, type UpdateTaskInput } from '@/lib/hooks/useTasks'
+import { useSpaceTaskCommentCounts } from '@/lib/hooks/useTaskCommentCounts'
 import { useMyPendingReviews } from '@/lib/hooks/useMyPendingReviews'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
@@ -191,6 +192,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     useTasks({ orgId, spaceId })
   // 自分が社内承認を頼まれているタスク（行に「あなたの承認待ち」を出す）。タスクの取得と同時に読む
   const { taskIds: myPendingReviewTaskIds } = useMyPendingReviews(orgId)
+  // コメント数(吹き出しアイコン)は一覧本体(useTasks)とは別の問い合わせにし、一覧の表示を
+  // 待たせない（詳細は useTaskCommentCounts のコメント参照）
+  const commentCounts = useSpaceTaskCommentCounts(spaceId)
   const { milestones } = useMilestones({ spaceId })
   const { members, getMemberName } = useSpaceMembers(spaceId)
   // 閲覧者（viewer）・相手先には編集操作を出さない。判定の正本は canEditSpaceContent。
@@ -1339,6 +1343,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                     indent={row.indent}
                     onStatusChange={canEdit ? handleStatusChange : undefined}
                     reviewStatus={reviewStatuses[row.task.id]}
+                    commentCount={commentCounts[row.task.id]}
                     awaitingMyApproval={myPendingReviewTaskIds.has(row.task.id)}
                     assigneeName={assigneeNameOf(row.task)}
                     isNew={recentTaskIds.has(row.task.id)}

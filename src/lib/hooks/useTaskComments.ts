@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useRef, useEffect } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { fireNotification } from '@/lib/slack/notify'
 import type {
@@ -11,6 +11,34 @@ import type {
 } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
+
+/**
+ * タスク一覧・マイタスク一覧の吹き出しアイコンに出すコメント数は、一覧本体（['tasks', …] /
+ * ['myTasks', …]）ではなく、別読みのキャッシュ（['taskCommentCounts', …]、
+ * useTaskCommentCounts 参照）に持つ。ここではそのキャッシュだけを ±1 する — 一覧側の
+ * キャッシュ形を、このフックが知る必要は無い。
+ *
+ * - プロジェクトの数（['taskCommentCounts', 'space', spaceId]）は、そのコメントの space のものだけを触る
+ *   （別の space の一覧にこのタスクは無い）。マイタスクの数（['taskCommentCounts', 'assignee', …]）は、
+ *   このフックからは担当かどうか分からないので全部に足す（一覧に無いタスクの数は表示されない）
+ * - 取得時刻は据え置く。setQueriesData は書き換えたキャッシュを「今取った」扱いにするため、古い数の
+ *   キャッシュが取りたてに見えて、次に開いても取り直さなくなる。1件ずつ updatedAt を渡す
+ * - まだ読み込んでいないキャッシュは何もしない。0 未満にはしない
+ * 保存が成功したあとの最後の手順として呼ぶ（このあとに失敗しうる処理を置かない）。
+ */
+function bumpCommentCounts(queryClient: QueryClient, spaceId: string, taskId: string, delta: 1 | -1): void {
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ['taskCommentCounts'] })) {
+    const [, scope, scopeId] = query.queryKey
+    if (scope === 'space' && scopeId !== spaceId) continue
+    const old = query.state.data as Record<string, number> | undefined
+    if (!old) continue
+    queryClient.setQueryData<Record<string, number>>(
+      query.queryKey,
+      { ...old, [taskId]: Math.max(0, (old[taskId] ?? 0) + delta) },
+      { updatedAt: query.state.dataUpdatedAt }
+    )
+  }
+}
 
 interface UseTaskCommentsOptions {
   orgId: string
@@ -198,6 +226,10 @@ export function useTaskComments({
 
         const createdComment = created as TaskComment
 
+        // 保存に成功したので一覧の吹き出しの数を +1 する（社内のみのコメントでも、
+        // 書いた本人の一覧では数に入れる）。一覧全体の取り直しはしない
+        bumpCommentCounts(queryClient, spaceId, taskId, 1)
+
         // Replace optimistic with real
         queryClient.setQueryData<CommentWithProfile[]>(queryKey, (old) =>
           (old ?? []).map((c) =>
@@ -278,6 +310,9 @@ export function useTaskComments({
           .eq('id', commentId)
 
         if (deleteError) throw deleteError
+
+        // 保存に成功したので一覧の吹き出しの数を -1 する（0未満にはしない）
+        bumpCommentCounts(queryClient, spaceId, taskId, -1)
       } catch (err) {
         // Revert optimistic update
         if (prevComments) {
@@ -286,7 +321,7 @@ export function useTaskComments({
         throw err
       }
     },
-    [supabase, queryClient, queryKey]
+    [supabase, queryClient, queryKey, spaceId, taskId]
   )
 
   const canEdit = useCallback(
