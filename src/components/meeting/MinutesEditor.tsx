@@ -434,15 +434,18 @@ function MinutesEditorImpl({
       const inserted = editor.insertBlocks([block] as never, anchor as never, 'after')
       setTaskLineOpen(false)
       const target = inserted?.[0] as { id?: string } | undefined
+      if (target?.id) editor.setTextCursorPosition(target as never, 'end')
+      // 先に本文へ戻す。contenteditable に手が戻るとブラウザが勝手に画面を動かすので、
+      // **そのあとに**寄せて位置を決める（逆にすると focus 側の位置で終わる）
+      editor.focus()
       if (target?.id) {
-        editor.setTextCursorPosition(target as never, 'end')
         // カーソルを置くだけでは画面は動かない（BlockNote は選択を変えるだけ）。
         // 入れた行そのものを画面に入れる
         editorContainerRef.current
           ?.querySelector(`[data-id="${target.id}"]`)
-          ?.scrollIntoView({ block: 'nearest' })
+          // jsdom のように scrollIntoView を持たない場合もある（useSpotlightRect と同じ守り）
+          ?.scrollIntoView?.({ block: 'nearest' })
       }
-      editor.focus()
     },
     [editor, orgId, spaceId, editorContainerRef]
   )
