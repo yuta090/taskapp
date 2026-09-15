@@ -346,7 +346,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         tool: 'review_list',
         options: [
           spaceOpt,
-          { flags: '--status <status>', description: 'Filter: open|approved|changes_requested', param: 'status', choices: ['open', 'approved', 'changes_requested'] },
+          { flags: '--status <status>', description: 'Filter: open|approved|changes_requested|cancelled', param: 'status', choices: ['open', 'approved', 'changes_requested', 'cancelled'] },
           { flags: '--limit <n>', description: 'Max results', param: 'limit', type: 'int', default: '20' },
         ],
       },
@@ -377,6 +377,15 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           spaceOpt,
           { flags: '--task-id <uuid>', description: 'Task UUID', param: 'taskId', required: true },
           { flags: '--reason <reason>', description: 'Block reason', param: 'reason', required: true },
+        ],
+      },
+      {
+        name: 'cancel',
+        description: 'Cancel a review request (requester / space admin / org owner)',
+        tool: 'review_cancel',
+        options: [
+          spaceOpt,
+          { flags: '--task-id <uuid>', description: 'Task UUID', param: 'taskId', required: true },
         ],
       },
       {
@@ -1042,6 +1051,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     id: '2026-09-13-task-description-links',
     date: '2026-09-13',
     message: 'タスクの説明文に書いた URL が押せるようになりました。link の値をそのまま書いてください（説明文はただの文字なので [名前](link) の形にはしない）: agentpm task update --task-id <id> --description "仕様は /<org>/project/<space>/wiki?page=<id> を参照"',
+  },
+  {
+    id: '2026-09-16-review-cancel',
+    date: '2026-09-16',
+    message: '社内承認の依頼を CLI から取り消せるようになりました: agentpm review cancel --task-id <ID>（画面の「レビューを取り消す」と同じ。承認待ち・差し戻しのものが対象で、取り消したあとは依頼し直せます）',
   },
 ]
 

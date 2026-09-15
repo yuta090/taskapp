@@ -109,6 +109,7 @@ AgentPMのプロジェクト一覧を表示して
 | `review_open` | タスクのレビューを開始（レビュアー指定） |
 | `review_approve` | レビューを承認 |
 | `review_block` | レビューをブロック（変更依頼、理由必須） |
+| `review_cancel` | レビューを取り消し（承認待ち・差し戻しのみ。依頼者・space admin・org owner） |
 | `review_list` | レビュー一覧を取得 |
 | `review_get` | レビュー詳細と各レビュアーの状態を取得 |
 

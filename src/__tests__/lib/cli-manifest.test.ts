@@ -233,3 +233,24 @@ describe('cli-manifest: activity log の案内', () => {
     }
   })
 })
+
+/**
+ * 承認依頼の取り消し。画面には「レビューを取り消す」があるのに CLI には無く、
+ * レビュアーが離れた依頼を CLI 側から畳めなかった。
+ */
+describe('cli-manifest: review cancel', () => {
+  const manifest = getManifest()
+  const review = manifest.commands.find((c) => c.name === 'review')!
+
+  it('review cancel が review_cancel を呼ぶ形で並んでいる', () => {
+    const cancel = review.subcommands!.find((s) => s.name === 'cancel')!
+    expect(cancel.tool).toBe('review_cancel')
+  })
+
+  it('取り消す対象は、他の review コマンドと同じく --space-id と --task-id で指す', () => {
+    const cancel = review.subcommands!.find((s) => s.name === 'cancel')!
+    const flags = cancel.options.map((o) => o.flags)
+    expect(flags).toEqual(expect.arrayContaining(['-s, --space-id <uuid>', '--task-id <uuid>']))
+    expect(cancel.options.find((o) => o.param === 'taskId')!.required).toBe(true)
+  })
+})

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { meetingStatusLabel, proposalStatusLabel } from './statusLabels.js'
+import { meetingStatusLabel, proposalStatusLabel, reviewStatusLabel } from './statusLabels.js'
 
 /**
  * 会議・日程調整提案の状態(status)を、呼んだ人に見せてよい日本語のラベルにする。
@@ -28,5 +28,18 @@ describe('proposalStatusLabel', () => {
 
   it('見覚えのない値はそのまま返す', () => {
     expect(proposalStatusLabel('unknown_status')).toBe('unknown_status')
+  })
+})
+
+describe('reviewStatusLabel', () => {
+  it('open / approved / changes_requested / cancelled を画面と同じ日本語にする', () => {
+    expect(reviewStatusLabel('open')).toBe('社内承認待ち')
+    expect(reviewStatusLabel('approved')).toBe('社内承認済み')
+    expect(reviewStatusLabel('changes_requested')).toBe('差し戻し')
+    expect(reviewStatusLabel('cancelled')).toBe('取り消し済み')
+  })
+
+  it('見覚えのない値はそのまま返す', () => {
+    expect(reviewStatusLabel('unknown_status')).toBe('unknown_status')
   })
 })
