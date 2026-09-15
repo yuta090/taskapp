@@ -382,20 +382,6 @@ export declare const allTools: ({
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
         taskId: import("zod").ZodString;
-    }, "strip", import("zod").ZodTypeAny, {
-        spaceId: string;
-        taskId: string;
-    }, {
-        spaceId: string;
-        taskId: string;
-    }>;
-    handler: typeof import("./reviews.js").reviewApprove;
-} | {
-    name: string;
-    description: string;
-    inputSchema: import("zod").ZodObject<{
-        spaceId: import("zod").ZodString;
-        taskId: import("zod").ZodString;
         reason: import("zod").ZodString;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
@@ -412,15 +398,29 @@ export declare const allTools: ({
     description: string;
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
-        status: import("zod").ZodOptional<import("zod").ZodEnum<["open", "approved", "changes_requested"]>>;
+        taskId: import("zod").ZodString;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        taskId: string;
+    }, {
+        spaceId: string;
+        taskId: string;
+    }>;
+    handler: typeof import("./reviews.js").reviewCancel;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        status: import("zod").ZodOptional<import("zod").ZodEnum<["open", "approved", "changes_requested", "cancelled"]>>;
         limit: import("zod").ZodDefault<import("zod").ZodNumber>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         limit: number;
-        status?: "open" | "approved" | "changes_requested" | undefined;
+        status?: "open" | "approved" | "changes_requested" | "cancelled" | undefined;
     }, {
         spaceId: string;
-        status?: "open" | "approved" | "changes_requested" | undefined;
+        status?: "open" | "approved" | "changes_requested" | "cancelled" | undefined;
         limit?: number | undefined;
     }>;
     handler: typeof import("./reviews.js").reviewList;
@@ -1051,10 +1051,10 @@ export declare const allTools: ({
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         limit: number;
-        status?: "open" | "confirmed" | "cancelled" | "expired" | undefined;
+        status?: "open" | "cancelled" | "confirmed" | "expired" | undefined;
     }, {
         spaceId: string;
-        status?: "open" | "confirmed" | "cancelled" | "expired" | undefined;
+        status?: "open" | "cancelled" | "confirmed" | "expired" | undefined;
         limit?: number | undefined;
     }>;
     handler: typeof import("./scheduling.js").schedulingList;

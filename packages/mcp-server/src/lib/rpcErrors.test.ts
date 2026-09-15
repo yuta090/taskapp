@@ -81,6 +81,27 @@ describe('mapRaiseExceptionError', () => {
     expect(err).not.toMatchObject({ name: 'ToolUserError' })
     expect((err as Error).message).toBe('ボール移動に失敗しました')
   })
+  it('取り消せない状態のレビューは409で、状態を画面と同じ日本語にする', () => {
+    const err = mapRaiseExceptionError(
+      'Review cannot be cancelled from status: approved',
+      'レビューの取り消しに失敗しました',
+    )
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 409 })
+    expect(err.message).toContain('社内承認済み')
+  })
+
+  it('取り消す権限が無い場合は403', () => {
+    const err = mapRaiseExceptionError(
+      'Insufficient permissions: only the requester, a space admin, or an org owner can cancel this review',
+      'レビューの取り消しに失敗しました',
+    )
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 403 })
+  })
+
+  it('レビューが見つからない場合は404', () => {
+    const err = mapRaiseExceptionError('Review not found: abc-123', 'レビューの取り消しに失敗しました')
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 404 })
+  })
 })
 
 describe('mapConfirmProposalError', () => {
