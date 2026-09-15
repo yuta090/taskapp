@@ -110,3 +110,25 @@ describe('collectCheckedTaskIds: 本文1つから拾う', () => {
     expect(collectCheckedTaskIds('')).toEqual([])
   })
 })
+
+/**
+ * 目印は本文に書かれた文字なので、人や AI が壊れた形で書くことがある。
+ * UUID の形でないものを渡すと、DB 側が `invalid input syntax for type uuid` で落ち、
+ * **その会議のぶんが丸ごと失敗する**（CLI の `minutes complete-checked`）。
+ * 形を確かめて、違う行は飛ばす。
+ */
+describe('壊れた目印は飛ばす', () => {
+  it('UUID の形でない目印は拾わない', () => {
+    expect(collectCheckedTaskIds('- [x] A <!--task:abc-->')).toEqual([])
+    expect(detectCheckedTaskIds('- [ ] A <!--task:abc-->', '- [x] A <!--task:abc-->')).toEqual([])
+  })
+
+  it('壊れた目印があっても、同じ本文の正しい目印は拾う', () => {
+    const md = `- [x] 壊れ <!--task:abc-->\n- [x] 正しい <!--task:${T1}-->`
+    expect(collectCheckedTaskIds(md)).toEqual([T1])
+  })
+
+  it('空の目印も拾わない', () => {
+    expect(collectCheckedTaskIds('- [x] A <!--task:-->')).toEqual([])
+  })
+})

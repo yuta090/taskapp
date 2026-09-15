@@ -6,10 +6,18 @@
  * `src/__tests__/lib/checkboxCompletionParity.test.ts` で振る舞いを突き合わせている
  * （specLinkParity.test.ts と同じ考え方）。
  */
-/** 行から `<!--task:uuid-->` の uuid を取る。無ければ null */
+/**
+ * 目印の中身が UUID の形か。目印は本文に書かれたただの文字なので、人や AI が
+ * 壊れた形で書くことがある。形を確かめずに DB へ渡すと `invalid input syntax for
+ * type uuid` で落ち、**その会議のぶんが丸ごと失敗する**。画面側と同じ形を見る。
+ */
+const TASK_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** 行から `<!--task:uuid-->` の uuid を取る。無い・形が違うなら null（その行は飛ばす） */
 function markerOf(line) {
     const m = /<!--task:([^>]+)-->/.exec(line);
-    return m ? m[1] : null;
+    if (!m)
+        return null;
+    return TASK_ID_RE.test(m[1]) ? m[1] : null;
 }
 /** チェックリスト行なら、チェックが入っているかを返す。チェックリストでなければ null */
 function checkedOf(line) {
