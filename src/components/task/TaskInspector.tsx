@@ -81,6 +81,11 @@ interface TaskInspectorProps {
    * canEditSpaceMoney（spaceRoles.ts）で判定して渡す。既定は false（安全側）。
    */
   canEditPricing?: boolean
+  /**
+   * このタスクの自分宛ての未読のコメントの数（マイタスクから渡す）。1以上なら「コメント」の横に
+   * 「未読 N」を出し、コメント欄を開いておく。既読にするのは開いたコメント欄（TaskComments）
+   */
+  unreadCommentCount?: number
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -109,6 +114,7 @@ export function TaskInspector({
   childTasks = [],
   onOpenTask,
   canEditPricing = false,
+  unreadCommentCount = 0,
 }: TaskInspectorProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -119,6 +125,13 @@ export function TaskInspector({
   const [isSavingOwners, setIsSavingOwners] = useState(false)
   const [showSaved, setShowSaved] = useState(false)
   const [showComments, setShowComments] = useState(false)
+  // 未読のコメントがあるタスクを開いたら、コメント欄を開いておく（開いたコメント欄が既読にする）。
+  // タスクごとに1回だけ開く。自分で閉じたら、同じタスクのあいだは開き直さない
+  const [commentsAutoOpenedFor, setCommentsAutoOpenedFor] = useState<string | null>(null)
+  if (unreadCommentCount > 0 && commentsAutoOpenedFor !== task.id) {
+    setCommentsAutoOpenedFor(task.id)
+    setShowComments(true)
+  }
   const [showHistory, setShowHistory] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [estimateInput, setEstimateInput] = useState('')
@@ -1805,11 +1818,21 @@ export function TaskInspector({
         <div className="space-y-2">
           <button
             type="button"
+            data-testid="task-inspector-comments-toggle"
             onClick={() => setShowComments(!showComments)}
             className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors w-full"
           >
             <ChatCircleText className="text-sm" />
             <span>コメント</span>
+            {unreadCommentCount > 0 && (
+              // bg-blue-600 と白文字は、どちらのテーマでも入れ替わらない組み合わせ
+              <span
+                data-testid="task-inspector-unread-comments"
+                className="rounded-full bg-blue-600 px-1.5 text-[10px] font-medium leading-4 text-white"
+              >
+                未読 {unreadCommentCount}
+              </span>
+            )}
             {showComments ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
           </button>
           {showComments && (

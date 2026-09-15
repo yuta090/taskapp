@@ -13,6 +13,7 @@ import {
 import Image from 'next/image'
 import { useConfirmDialog } from '@/components/shared'
 import { useTaskComments, type CommentWithProfile } from '@/lib/hooks/useTaskComments'
+import { useMarkTaskCommentsReadWhenSeen } from '@/lib/hooks/useUnreadTaskComments'
 import { useSpaceMembers, type SpaceMember } from '@/lib/hooks/useSpaceMembers'
 import {
   detectMentionQuery,
@@ -253,6 +254,14 @@ export function TaskComments({
     softDeleteComment,
     canEdit,
   } = useTaskComments({ orgId, spaceId, taskId, clientOnly })
+  // 既読の目印にする「自分以外の最新のコメント」。お知らせは自分以外が書いたコメントにだけ届く
+  const latestOthersComment = useMemo(() => {
+    for (let i = comments.length - 1; i >= 0; i--) {
+      const comment = comments[i]
+      if (comment.actor_id !== currentUserId) return { id: comment.id, createdAt: comment.created_at }
+    }
+    return null
+  }, [comments, currentUserId])
   const { members } = useSpaceMembers(spaceId)
 
   const [newComment, setNewComment] = useState('')
@@ -261,6 +270,10 @@ export function TaskComments({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const commentsEndRef = useRef<HTMLDivElement>(null)
   const prevCommentsLengthRef = useRef<number>(0)
+
+  // 自分宛ての未読のコメント（受信トレイのお知らせ）は、コメント一覧の末尾が画面に入ったとき＝いちばん新しい
+  // コメントまで見えたときに既読にする。一覧は古い順で、枠の中の下に新しいコメントが隠れていることがある
+  useMarkTaskCommentsReadWhenSeen({ taskId, orgId, latestComment: latestOthersComment, targetRef: commentsEndRef })
 
   // 公開範囲が選べない画面（クライアントポータル等）は常に 'client' 扱い
   const effectiveVisibility: CommentVisibility = canSetVisibility ? visibility : 'client'
