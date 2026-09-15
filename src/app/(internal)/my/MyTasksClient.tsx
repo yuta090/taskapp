@@ -13,6 +13,7 @@ import { useInspector } from '@/components/layout'
 import { useTasks } from '@/lib/hooks/useTasks'
 import type { TasksQueryData } from '@/lib/hooks/useTasks'
 import { useMyPendingReviews } from '@/lib/hooks/useMyPendingReviews'
+import { useMyTaskCommentCounts } from '@/lib/hooks/useTaskCommentCounts'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { Task, Space, Milestone, TaskStatus, ReviewStatus } from '@/types/database'
@@ -509,6 +510,10 @@ export default function MyTasksClient() {
   const { taskIds: myPendingReviewTaskIds } = useMyPendingReviews(activeOrgId ?? null, { enabled: !orgLoading })
   const spaces = useMemo(() => myTasksQuery.data?.spaces ?? [], [myTasksQuery.data?.spaces])
   const milestones = useMemo(() => myTasksQuery.data?.milestones ?? [], [myTasksQuery.data?.milestones])
+  // コメント数(吹き出しアイコン)は一覧本体(myTasksQuery)とは別の問い合わせにし、tasks の
+  // 結果を待たない（詳細は useTaskCommentCounts のコメント参照）。読み込み条件は myTasksQuery と揃え、
+  // 組織の判定が終わるまでは読まない（判定前に全組織ぶんを1回読んでから、もう1回読み直すのを防ぐ）
+  const commentCounts = useMyTaskCommentCounts(userId, activeOrgId ?? null, { enabled: !orgLoading })
   // /my の一覧を読み込み始めた時刻。MyTaskInspector 側で「useTasks のキャッシュが
   // 一覧と同じくらい新しいか」を判定するために渡す（詳細参照）
   const listFetchedAt = myTasksQuery.data?.fetchedAt ?? 0
@@ -1206,6 +1211,7 @@ export default function MyTasksClient() {
                                   onClick={handleTaskClick}
                                   onStatusChange={canEditSpace(task.space_id, task.org_id) ? updateTaskStatus : undefined}
                                   reviewStatus={reviewStatuses[task.id]}
+                                  commentCount={commentCounts[task.id]}
                                   awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
                                 />
                               ))}
@@ -1235,6 +1241,7 @@ export default function MyTasksClient() {
                         onClick={handleTaskClick}
                         onStatusChange={canEditSpace(task.space_id, task.org_id) ? updateTaskStatus : undefined}
                         reviewStatus={reviewStatuses[task.id]}
+                        commentCount={commentCounts[task.id]}
                         awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
                       />
                     ))}

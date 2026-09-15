@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
+import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check, ChatCircle } from '@phosphor-icons/react'
 import { AmberDot, Tooltip, TruncatedText } from '@/components/shared'
 import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import type { Task, BallSide, TaskStatus, ReviewStatus } from '@/types/database'
@@ -31,6 +31,24 @@ interface TaskRowProps {
   isMobile?: boolean
   /** Injectable "current time" for the client-waiting-days badge (testing only). */
   now?: Date
+  /** コメント数。1件以上のときだけ吹き出しアイコンと数字を出す（0/未指定は非表示） */
+  commentCount?: number
+}
+
+/** コメント数の吹き出しアイコン＋数字。1件以上のときだけ描画する（呼び出し側で判定しない） */
+function CommentCountBadge({ count, className = '' }: { count: number | undefined; className?: string }) {
+  if (!count || count < 1) return null
+  return (
+    <span
+      data-testid="task-row-comment-count"
+      aria-label={`コメント ${count}件`}
+      title={`コメント ${count}件`}
+      className={`flex items-center gap-0.5 text-[11px] text-gray-500 ${className}`}
+    >
+      <ChatCircle className="text-[12px]" />
+      {count}
+    </span>
+  )
 }
 
 function formatDate(dateStr: string | null): string | null {
@@ -280,7 +298,7 @@ function ReviewStatusBadge({
   )
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, awaitingMyApproval = false, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, awaitingMyApproval = false, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now, commentCount }: TaskRowProps) {
   // 取消済みレビューは「レビュー無し」と同じ扱い（バッジ非表示・再依頼クイックアクション表示）
   const reviewStatus = rawReviewStatus === 'cancelled' ? undefined : rawReviewStatus
   // 自分の番の承認。承認済み・差し戻し・取り消しになった依頼には出さない（一覧の状態のほうが新しいことがある）
@@ -374,6 +392,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
           {/* Line 2: meta — due date, ball status, badges, assignee (clips gracefully) */}
           <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+            <CommentCountBadge count={commentCount} className="flex-shrink-0" />
             {formattedDueDate && (
               <span className={`flex-shrink-0 flex items-center gap-0.5 text-[11px] ${overdue ? 'text-red-500' : 'text-gray-500'}`}>
                 <CalendarBlank className="text-[12px]" />
@@ -552,6 +571,9 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         {/* Review status badge */}
         <ReviewStatusBadge reviewStatus={reviewStatus} isMyTurn={isMyApprovalTurn} />
       </div>
+
+      {/* Comment count — 期限の左に置く */}
+      <CommentCountBadge count={commentCount} className="flex-shrink-0" />
 
       {/* Due date */}
       {formattedDueDate && (

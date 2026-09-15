@@ -373,6 +373,21 @@ describe('MinutesEditor の「/」メニュー', () => {
       expect(screen.queryByTestId('minutes-insert-task-line')).not.toBeInTheDocument()
     })
 
+    /**
+     * 「/」から選ぶ道は、ボタンから開く道と別の入口。項目が一覧に出ることだけを見ていて
+     * 押したあとを見ていなかったため、「選んでも何も起きない」に気づけなかった。
+     */
+    it('「/」メニューから選んでもパネルが開く', async () => {
+      render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+      const items = (await capturedSlashMenuProps!.getItems!('')) as unknown as Array<{
+        key: string
+        onItemClick: () => void
+      }>
+      const item = items.find((i) => i.key === 'insert_task_line')!
+      act(() => item.onItemClick())
+      expect(await screen.findByTestId('minutes-task-line-panel')).toBeInTheDocument()
+    })
+
     it('入れ子の中で押しても、字下げされない場所に入れる', async () => {
       mockCursorBlockId = 'b1'
       render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
