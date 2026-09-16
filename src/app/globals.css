@@ -346,6 +346,67 @@
   --gantt-risk-none-border: #333B49;
 }
 
+/* ============================================
+   バーンダウンチャートの色（SVG 用）
+   ガントと同じく、SVG の fill/stroke には Tailwind の utility が効かないため、
+   色をここに集め src/lib/burndown/constants.ts が var(--burndown-*) で参照する。
+   ライトの値は従来の見た目そのまま。
+   ============================================ */
+:root {
+  /* 2本の線（理想ペースと実績） */
+  --burndown-ideal-line: #9CA3AF;
+  --burndown-actual-line: #3B82F6;
+  --burndown-actual-fill: #DBEAFE;
+  --burndown-added-tasks: #FEF3C7;
+
+  /* 目盛り・軸 */
+  --burndown-grid: #E2E8F0;
+  --burndown-today: #EF4444;
+  --burndown-axis-text: #64748B;
+  --burndown-label-text: #0F172A;
+
+  /* 実績の点（縁は背景と同色で抜く） */
+  --burndown-point: #3B82F6;
+  --burndown-point-hover: #1D4ED8;
+  --burndown-point-stroke: #FFFFFF;
+
+  /* 記録が無い期間の帯 */
+  --burndown-estimate-band: #F1F5F9;
+  --burndown-estimate-text: #94A3B8;
+
+  /* ホバーで出る吹き出し */
+  --burndown-tooltip-bg: #1E293B;
+  --burndown-tooltip-fg: #FFFFFF;
+  --burndown-tooltip-fg-muted: #94A3B8;
+  --burndown-tooltip-added: #FCD34D;
+  --burndown-tooltip-reopened: #F87171;
+}
+
+.dark {
+  --burndown-ideal-line: #7C8698;
+  --burndown-actual-line: #60A5FA;
+  --burndown-actual-fill: #1C3A63;
+  --burndown-added-tasks: #4A3A0F;
+
+  --burndown-grid: #2E3542;
+  --burndown-today: #F87171;
+  --burndown-axis-text: #9DA6B4;
+  --burndown-label-text: #F2F4F7;
+
+  --burndown-point: #60A5FA;
+  --burndown-point-hover: #93C5FD;
+  --burndown-point-stroke: #191E27;
+
+  --burndown-estimate-band: #232B38;
+  --burndown-estimate-text: #8A93A2;
+
+  --burndown-tooltip-bg: #2A3241;
+  --burndown-tooltip-fg: #F2F4F7;
+  --burndown-tooltip-fg-muted: #A8B2C1;
+  --burndown-tooltip-added: #FCD34D;
+  --burndown-tooltip-reopened: #F87171;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
