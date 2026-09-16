@@ -670,7 +670,12 @@ function MinutesEditorImpl({
    * **色の番号自体は会期中変わらない**（変えても相手の画面には届かないため。
    * 理由は `cursorColors.ts`）。
    */
-  const lastUserRef = useRef<string>('')
+  // 載せるときに部品が入れた1通目と同じ値を覚えておく（同じ内容をもう1通配らない）
+  const lastUserRef = useRef<string>(
+    collaboration
+      ? `${collaboration.userName}\u0000${cursorFallbackAt(collaboration.colorIndex)}`
+      : ''
+  )
   useEffect(() => {
     if (!collaboration) return
     const next = {

@@ -25,6 +25,8 @@ let capturedTabId = ''
 let othersState: MinutesPresencePeer[] = []
 const sendCollabSpy = vi.fn()
 const setCollabActiveSpy = vi.fn()
+/** 取った色の番号を在席で配る口 */
+const setColorIndexSpy = vi.fn()
 
 vi.mock('@/lib/hooks/useMinutesPresence', () => ({
   useMinutesPresence: (options: { collab?: MinutesCollabWiring; tabId: string }) => {
@@ -35,6 +37,7 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
       setEditing: vi.fn(),
       sendCollab: sendCollabSpy,
       setCollabActive: setCollabActiveSpy,
+      setColorIndex: setColorIndexSpy,
     }
   },
 }))
@@ -227,6 +230,15 @@ describe('カーソルの色', () => {
     const { result } = await mount()
     announce([{ id: 'self', joinedAt: 2_000 }])
     expect(result.current.colorIndex).toBe(0)
+  })
+
+  it('取った番号を在席で配る（あとから入った人が同じ番号を取らないように）', async () => {
+    await mount()
+    announce([
+      { id: 'u-old', userId: 'u-old', joinedAt: 1_000 },
+      { id: 'self', joinedAt: 2_000 },
+    ])
+    expect(setColorIndexSpy).toHaveBeenCalledWith(1)
   })
 })
 

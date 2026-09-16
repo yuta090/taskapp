@@ -18,6 +18,7 @@
  */
 import type * as Y from 'yjs'
 import { minutesSeedHash } from './hash'
+import { CURSOR_COLOR_COUNT } from './cursorColors'
 
 export interface CollabPeer {
   /**
@@ -45,6 +46,11 @@ export interface CollabPeer {
    * **誰の書いた内容も列に残らなくなる**。付け忘れを型で止めるため必須にしてある。
    */
   collab: boolean
+  /**
+   * カーソルの色の番号。まだ決まっていなければ null。
+   * 在席に載せて配ることで、**あとから入った人が空いている番号を取れる**ようにする。
+   */
+  colorIndex?: number | null
   /**
    * 同時編集がタブ単位になる**前の版**の画面か。
    * その相手は人ごとに数えているので、こちらが指した返事役に応えられない。
@@ -101,24 +107,46 @@ export function rankOf(peers: CollabPeer[], id: string): number {
  * 部屋の中で**重ならない**ようにするのが目的。人ごとにハッシュで選ぶと、運が悪いと
  * 2人が同じ色になり、どちらが書いているのか分からなくなる。
  *
+ * 決め方は「**いま誰も使っていない番号のうち、いちばん小さいもの**」。単純に入った順で
+ * 数えると、誰かが抜けたあとに入った人が、残っている人と同じ番号になってしまう
+ * （2人の部屋で先に居たほうが抜けると、次に入った人は必ずぶつかる）。
+ *
  * 並べ方は**入った順 → 名札順**だけで決める。書記の決め方（`activeOrdered`）とは
  * 分けてあるのが要点で、あちらは「手前に出ているか」で先頭が入れ替わるため、
- * 誰かがタブを切り替えるたびに全員の色がずれてしまう。輪に入っているかでも絞らない
- * （自分が名乗る前は一覧に居らず、本物の0番の人と同じ色になってしまう）。
+ * 誰かがタブを切り替えるたびに全員の色がずれてしまう。
  *
  * 同じ人のタブはまとめて1つ（自分の2つのタブは同じ色）。
  * **呼び出し側は、一度決めた番号を会期中は変えないこと**（理由は `cursorColors.ts`）。
  */
 export function colorIndexOf(peers: CollabPeer[], userId: string): number {
-  const seen: string[] = []
-  const ordered = [...peers].sort((a, b) =>
-    a.joinedAt !== b.joinedAt ? a.joinedAt - b.joinedAt : a.id.localeCompare(b.id)
-  )
-  for (const peer of ordered) {
-    if (!seen.includes(peer.userId)) seen.push(peer.userId)
+  // もう名乗っているなら、それを使い続ける
+  const mine = peers.find((peer) => peer.userId === userId && typeof peer.colorIndex === 'number')
+  if (typeof mine?.colorIndex === 'number') return mine.colorIndex
+
+  const taken = new Set<number>()
+  for (const peer of peers) {
+    if (peer.userId === userId) continue
+    if (typeof peer.colorIndex === 'number') taken.add(peer.colorIndex)
   }
-  const index = seen.indexOf(userId)
-  return index === -1 ? 0 : index
+  const free: number[] = []
+  for (let i = 0; i < CURSOR_COLOR_COUNT; i++) if (!taken.has(i)) free.push(i)
+
+  // まだ名乗っていない人だけを並べ、自分が何番目かを見る。
+  // 同時に入った2人が、同じ空きを取らないようにするため。
+  // 輪に入っているかでは絞らない（自分は名乗る前でも数える。絞ると一覧に居らず
+  // 0番に落ちて、本物の0番の人とぶつかる）。ただし**自分以外の輪の外の人は数えない**
+  // ——数えると7人以上で番号が一周して重なる
+  const waiting: string[] = []
+  const ordered = [...peers]
+    .filter((peer) => peer.collab || peer.userId === userId)
+    .sort((a, b) => (a.joinedAt !== b.joinedAt ? a.joinedAt - b.joinedAt : a.id.localeCompare(b.id)))
+  for (const peer of ordered) {
+    if (typeof peer.colorIndex === 'number') continue
+    if (!waiting.includes(peer.userId)) waiting.push(peer.userId)
+  }
+  const rank = Math.max(0, waiting.indexOf(userId))
+  if (free.length === 0) return rank % CURSOR_COLOR_COUNT
+  return free[rank % free.length]
 }
 
 /** 共有の覚え書きに置く「最後にどこまで保存したか」 */

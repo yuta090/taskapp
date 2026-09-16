@@ -19,8 +19,8 @@ import {
   cursorFallbackAt,
 } from '@/lib/collab/cursorColors'
 
-function peer(id: string, userId: string, joinedAt: number): CollabPeer {
-  return { id, userId, joinedAt, collab: true }
+function peer(id: string, userId: string, joinedAt: number, colorIndex?: number): CollabPeer {
+  return { id, userId, joinedAt, collab: true, colorIndex: colorIndex ?? null }
 }
 
 describe('部屋の中での色の割り当て', () => {
@@ -53,13 +53,47 @@ describe('部屋の中での色の割り当て', () => {
     expect(colorIndexOf([peer('tab-1', 'u-a', 100)], 'u-z')).toBe(0)
   })
 
-  it('輪から降りた人も数に入れる（自分が名乗る前に0番とぶつからないように）', () => {
+  it('自分は輪に入る前でも数える（一覧に居ないと0番に落ちて、本物の0番とぶつかる）', () => {
     const room: CollabPeer[] = [
-      { id: 'tab-1', userId: 'u-a', joinedAt: 100, collab: false },
-      peer('tab-2', 'u-b', 200),
+      peer('tab-1', 'u-a', 100, 0),
+      { id: 'tab-2', userId: 'u-b', joinedAt: 200, collab: false, colorIndex: null },
     ]
-    expect(colorIndexOf(room, 'u-a')).toBe(0)
     expect(colorIndexOf(room, 'u-b')).toBe(1)
+  })
+
+  it('誰かが抜けたあとに入った人は、空いた番号を取る', () => {
+    // 単純に入った順で数えると、残っている人と同じ番号になってしまう
+    // （2人の部屋で先に居たほうが抜けると、次に入った人は必ずぶつかる）
+    const room = [peer('tab-b', 'u-b', 200, 1), peer('tab-c', 'u-c', 300)]
+    expect(colorIndexOf(room, 'u-c')).toBe(0)
+  })
+
+  it('空いている番号のうち、いちばん小さいものを取る', () => {
+    const room = [peer('tab-a', 'u-a', 100, 0), peer('tab-c', 'u-c', 300, 2), peer('tab-d', 'u-d', 400)]
+    expect(colorIndexOf(room, 'u-d')).toBe(1)
+  })
+
+  it('同時に入った2人は、別々の空きを取る', () => {
+    const room = [
+      peer('tab-a', 'u-a', 100, 0),
+      peer('tab-b', 'u-b', 200),
+      peer('tab-c', 'u-c', 200),
+    ]
+    expect(colorIndexOf(room, 'u-b')).toBe(1)
+    expect(colorIndexOf(room, 'u-c')).toBe(2)
+  })
+
+  it('もう名乗っていれば、その番号を使い続ける', () => {
+    const room = [peer('tab-a', 'u-a', 100, 0), peer('tab-b', 'u-b', 200, 3)]
+    expect(colorIndexOf(room, 'u-b')).toBe(3)
+  })
+
+  it('輪に入っていない他人は数に入れない（7人以上で色が一周しないように）', () => {
+    const room: CollabPeer[] = [
+      { id: 'tab-a', userId: 'u-a', joinedAt: 100, collab: false, colorIndex: null },
+      peer('tab-b', 'u-b', 200),
+    ]
+    expect(colorIndexOf(room, 'u-b')).toBe(0)
   })
 
   it('タブを切り替えても番号が入れ替わらない（書記の決め方とは分ける）', () => {

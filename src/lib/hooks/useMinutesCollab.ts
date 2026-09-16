@@ -188,6 +188,7 @@ export function useMinutesCollab({
   const sessionRef = useRef<MinutesCollabSession | null>(null)
   const onRoomReloadRef = useRef(onRoomReload)
   const setCollabActiveRef = useRef<(active: boolean) => void>(() => {})
+  const setColorIndexRef = useRef<(index: number) => void>(() => {})
 
   const [transport] = useState(() => createChannelTransport())
 
@@ -284,6 +285,8 @@ export function useMinutesCollab({
               if (colorIndexRef.current === null) {
                 colorIndexRef.current = colorIndexOf(peers, selfUserIdRef.current)
                 setColorIndex(colorIndexRef.current)
+                // 取った番号を在席で配る。配らないと、あとから入った人が同じ番号を取る
+                setColorIndexRef.current(colorIndexRef.current)
               }
               // 人数が多い部屋では、**あとから入ったタブから**輪に入らない形に落とす
               // （全員で落とすと、先に書いていた人まで巻き込む）
@@ -299,7 +302,7 @@ export function useMinutesCollab({
 
   // 顔ぶれは `onPeers` で直に受け取る（React の状態より早く、取りこぼしが無い）。
   // ここで受ける `others` は「〇〇さんが書いています」の表示にだけ使う
-  const { others, setEditing, sendCollab, setCollabActive } = useMinutesPresence({
+  const { others, setEditing, sendCollab, setCollabActive, setColorIndex: publishColorIndex } = useMinutesPresence({
     meetingId,
     enabled: presenceEnabled,
     self,
@@ -310,9 +313,10 @@ export function useMinutesCollab({
   useEffect(() => {
     selfUserIdRef.current = self.userId
     setCollabActiveRef.current = setCollabActive
+    setColorIndexRef.current = publishColorIndex
     transport.setSender(sendCollab)
     return () => transport.setSender(null)
-  }, [transport, sendCollab, setCollabActive, tabId, self.userId])
+  }, [transport, sendCollab, setCollabActive, publishColorIndex, tabId, self.userId])
 
   const registerSeeder = useCallback((seeder: MinutesSeeder | null) => {
     seederRef.current = seeder
