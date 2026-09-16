@@ -315,6 +315,7 @@ export function useMinutesPresence({
           const hasTabId = typeof meta.client_id === 'string' && !!meta.client_id
           room.push({
             id: tab,
+            userId: peerId,
             joinedAt,
             collab: meta.collab === true,
             // 印が読めない相手は手前に出ている扱い（今までと同じ順番になる）
@@ -365,6 +366,7 @@ export function useMinutesPresence({
       // 自分のタブは、在席が配られる前でも顔ぶれに入れる（自分の印は自分がいちばん新しい）
       const self: CollabPeer = {
         id: tabIdRef.current,
+        userId: userIdRef.current,
         joinedAt: joinedAtRef.current,
         collab: collabActiveRef.current,
         visible: visibleRef.current,

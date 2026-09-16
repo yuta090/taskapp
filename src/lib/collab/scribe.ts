@@ -26,6 +26,11 @@ export interface CollabPeer {
    * 2つのタブが互いを相手と見なさず、どちらも保存しに行って弾き合う。
    */
   id: string
+  /**
+   * そのタブを開いている人。**見分けには使わない**（見分けは `id`）。
+   * 使うのは表示まわりだけ — カーソルの色を人ごとに割り当てるのに要る。
+   */
+  userId: string
   /** そのタブが部屋に入った時刻（epoch ミリ秒）。各自の時計なので多少のずれは前提 */
   joinedAt: number
   /**
@@ -88,6 +93,23 @@ export function rankOf(peers: CollabPeer[], id: string): number {
   const sorted = activeOrdered(peers)
   const index = sorted.findIndex((peer) => peer.id === id)
   return index === -1 ? sorted.length : index
+}
+
+/**
+ * その人のカーソルを何番の色で描くか。
+ *
+ * 部屋の中で**重ならない**ようにするのが目的。人ごとにハッシュで選ぶと、運が悪いと
+ * 2人が同じ色になり、どちらが書いているのか分からなくなる。並べ方は書記の決め方と
+ * 同じ（入った順 → 名札順）なので、誰が計算しても同じ答えになる。
+ * 同じ人のタブはまとめて1つ（自分の2つのタブは同じ色）。
+ */
+export function colorIndexOf(peers: CollabPeer[], userId: string): number {
+  const seen: string[] = []
+  for (const peer of activeOrdered(peers)) {
+    if (!seen.includes(peer.userId)) seen.push(peer.userId)
+  }
+  const index = seen.indexOf(userId)
+  return index === -1 ? 0 : index
 }
 
 /** 共有の覚え書きに置く「最後にどこまで保存したか」 */

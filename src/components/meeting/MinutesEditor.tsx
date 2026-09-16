@@ -20,7 +20,7 @@ import { CheckCircle, Checks, Flag, NotePencil, User } from '@phosphor-icons/rea
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { seedMinutesDoc } from '@/lib/collab/seed'
-import { cursorColorFor } from '@/lib/collab/cursorColors'
+import { cursorColorAt } from '@/lib/collab/cursorColors'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
@@ -93,7 +93,11 @@ export interface MinutesEditorCollaboration {
   awareness: Awareness
   /** カーソルの脇に出す自分の名前 */
   userName: string
-  userId: string
+  /**
+   * 何番の色でカーソルを描くか。部屋の中で重ならないように呼び出し側が決める
+   * （人ごとにハッシュで選ぶと、運が悪いと2人が同じ色になる）
+   */
+  colorIndex: number
 }
 
 interface MinutesEditorProps {
@@ -495,7 +499,7 @@ function MinutesEditorImpl({
       ? {
           collaboration: {
             fragment: collaboration.fragment,
-            user: { name: collaboration.userName, color: cursorColorFor(collaboration.userId) },
+            user: { name: collaboration.userName, color: cursorColorAt(collaboration.colorIndex) },
             provider: { awareness: collaboration.awareness },
           },
         }
@@ -655,6 +659,19 @@ function MinutesEditorImpl({
     registerApi?.({ appendMarkdown, seedCollabDoc })
     return () => registerApi?.(null)
   }, [registerApi, appendMarkdown, seedCollabDoc])
+
+  /**
+   * 自分の名前と色を、部屋のみんなへ伝え直す。
+   * 色の番号は部屋の顔ぶれで決まるので、誰かが入ったり抜けたりすると変わる。
+   * エディタは載せるときに1回しか読まないので、変わったぶんはここで伝える。
+   */
+  useEffect(() => {
+    if (!collaboration) return
+    collaboration.awareness.setLocalStateField('user', {
+      name: collaboration.userName,
+      color: cursorColorAt(collaboration.colorIndex),
+    })
+  }, [collaboration])
 
   /**
    * 直前の本文。チェックが「入った」瞬間だけを拾うために持つ。
