@@ -415,6 +415,10 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
                   } catch {
                     // 無視。次に開いたときの取り直しに委ねる
                   }
+                  // 同じ議事録を開いている人にも読み直してもらう。伝えないと、相手の
+                  // 画面には目印が入らないまま残り、以後その人の書いた内容が
+                  // いっさい保存されなくなる（列と食い違ったままになるため）
+                  minutesViewRef.current?.notifyRoomReload()
                   setMinutesReloadToken((t) => t + 1)
 
                   if (result.createdCount > 0) {
