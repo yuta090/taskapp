@@ -353,7 +353,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
       {/* Mobile gate: Gantt editing is desktop-only (touch drag is out of scope) */}
       <div className="md:hidden flex-1 flex items-center justify-center p-8">
         <div className="max-w-xs text-center">
-          <SquaresFour className="text-4xl text-gray-300 mx-auto mb-3" />
+          <SquaresFour className="text-4xl text-gray-400 mx-auto mb-3" />
           <p className="text-sm font-medium text-gray-700 mb-1">
             ガントチャートはPCでの表示を推奨します
           </p>

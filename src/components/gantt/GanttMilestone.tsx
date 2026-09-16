@@ -16,12 +16,14 @@ interface GanttMilestoneProps {
 
 type UrgencyLevel = 'normal' | 'warning' | 'urgent' | 'past'
 
+const C = GANTT_CONFIG.COLORS
+
 const RISK_BADGE = {
-  high: { bg: '#FEE2E2', text: '#DC2626', border: '#FECACA', label: '高' },
-  medium: { bg: '#FEF3C7', text: '#D97706', border: '#FDE68A', label: '中' },
-  low: { bg: '#DCFCE7', text: '#16A34A', border: '#BBF7D0', label: '低' },
-  none: { bg: '#F1F5F9', text: '#64748B', border: '#E2E8F0', label: '-' },
-  unknown: { bg: '#F1F5F9', text: '#64748B', border: '#E2E8F0', label: '?' },
+  high: { bg: C.RISK_HIGH_BG, text: C.RISK_HIGH, border: C.RISK_HIGH_BORDER, label: '高' },
+  medium: { bg: C.RISK_MEDIUM_BG, text: C.RISK_MEDIUM, border: C.RISK_MEDIUM_BORDER, label: '中' },
+  low: { bg: C.RISK_LOW_BG, text: C.RISK_LOW, border: C.RISK_LOW_BORDER, label: '低' },
+  none: { bg: C.RISK_NONE_BG, text: C.RISK_NONE, border: C.RISK_NONE_BORDER, label: '-' },
+  unknown: { bg: C.RISK_NONE_BG, text: C.RISK_NONE, border: C.RISK_NONE_BORDER, label: '?' },
 } as const
 
 function getUrgencyLevel(daysUntil: number): UrgencyLevel {
@@ -218,7 +220,7 @@ export function GanttMilestone({
         y={labelHeight / 2 + 4}
         fontSize={11}
         fontWeight={600}
-        fill={isHovering ? 'white' : colors.text}
+        fill={isHovering ? C.ON_ACCENT : colors.text}
         textAnchor="middle"
         style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
       >
@@ -271,7 +273,7 @@ export function GanttMilestone({
         {/* Diamond shadow */}
         <path
           d={`M 0 ${-diamondSize / 2} L ${diamondSize / 2} 0 L 0 ${diamondSize / 2} L ${-diamondSize / 2} 0 Z`}
-          fill="black"
+          fill={C.BAR_SHADOW}
           opacity={0.1}
           transform="translate(1, 1)"
         />
@@ -279,7 +281,7 @@ export function GanttMilestone({
         <path
           d={`M 0 ${-diamondSize / 2} L ${diamondSize / 2} 0 L 0 ${diamondSize / 2} L ${-diamondSize / 2} 0 Z`}
           fill={colors.line}
-          stroke="white"
+          stroke={C.DIAMOND_STROKE}
           strokeWidth={2}
         />
       </g>
@@ -293,7 +295,7 @@ export function GanttMilestone({
             width={tooltipWidth}
             height={tooltipHeight}
             rx={6}
-            fill="#1E293B"
+            fill={C.TOOLTIP_BG}
             opacity={0.95}
           />
           <text
@@ -301,7 +303,7 @@ export function GanttMilestone({
             y={labelHeight + diamondSize + 28}
             fontSize={12}
             fontWeight={600}
-            fill="white"
+            fill={C.TOOLTIP_FG}
             textAnchor="middle"
             style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
           >
@@ -311,7 +313,7 @@ export function GanttMilestone({
             x={x}
             y={labelHeight + diamondSize + 44}
             fontSize={11}
-            fill="#94A3B8"
+            fill={C.TOOLTIP_FG_MUTED}
             textAnchor="middle"
             style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
           >
@@ -327,7 +329,7 @@ export function GanttMilestone({
                 y1={labelHeight + diamondSize + 52}
                 x2={x + tooltipWidth / 2 - 12}
                 y2={labelHeight + diamondSize + 52}
-                stroke="#334155"
+                stroke={C.TOOLTIP_LINE}
                 strokeWidth={0.5}
               />
               {riskTooltipLines.map((line, i) => (
@@ -336,7 +338,7 @@ export function GanttMilestone({
                   x={x}
                   y={labelHeight + diamondSize + 66 + i * 14}
                   fontSize={10}
-                  fill="#CBD5E1"
+                  fill={C.TOOLTIP_FG_DIM}
                   textAnchor="middle"
                   style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
                 >

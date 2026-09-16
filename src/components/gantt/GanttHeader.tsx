@@ -444,7 +444,7 @@ function GanttHeaderInner({
                       y={dayRowY}
                       width={dayWidth}
                       height={DAY_ROW_H}
-                      fill="#FEE2E2"
+                      fill={GANTT_CONFIG.COLORS.TODAY_COLUMN}
                     />
                   )}
 
