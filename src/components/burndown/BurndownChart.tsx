@@ -222,7 +222,7 @@ export function BurndownChart({ data }: BurndownChartProps) {
           fill={hoveredIndex === i
             ? BURNDOWN_CONFIG.COLORS.POINT_HOVER
             : BURNDOWN_CONFIG.COLORS.POINT}
-          stroke="white"
+          stroke={BURNDOWN_CONFIG.COLORS.POINT_STROKE}
           strokeWidth={2}
           onMouseEnter={() => setHoveredIndex(i)}
           onMouseLeave={() => setHoveredIndex(null)}
@@ -274,14 +274,14 @@ export function BurndownChart({ data }: BurndownChartProps) {
               ) - padding.left
             )}
             height={innerHeight}
-            fill="#F1F5F9"
+            fill={BURNDOWN_CONFIG.COLORS.ESTIMATE_BAND}
             opacity={0.5}
           />
           <text
             x={padding.left + 4}
             y={padding.top + 14}
             fontSize={9}
-            fill="#94A3B8"
+            fill={BURNDOWN_CONFIG.COLORS.ESTIMATE_TEXT}
           >
             推定値
           </text>
