@@ -171,10 +171,16 @@ function degradeMessage(reason: DegradeReason): string | null {
   const tail = '書いた内容はこれまでどおり保存されます'
   if (reason === 'duplicate-seed') return null
   if (reason === 'too-many-peers') {
-    return `開いている人が多いので、いまは一人ずつ書く形に戻しました。${tail}`
+    return `開いている画面が多いので、いまは一人ずつ書く形に戻しました。${tail}`
   }
   if (reason === 'too-large') {
     return `議事録が長くなったので、いまは一人ずつ書く形に戻しました。${tail}`
+  }
+  if (reason === 'peer-outdated') {
+    return (
+      '同じ議事録を、更新前の画面で開いている人がいます。いまは一人ずつ書く形にします。' +
+      `あとでこの画面を開き直すと、また一緒に書けます。${tail}`
+    )
   }
   if (reason === 'apply-failed') {
     return `ほかの人の書いた内容を取り込めなかったので、いまは一人ずつ書く形に戻しました。${tail}`
@@ -704,6 +710,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
 
         saveTimerRef.current = setTimeout(() => {
           saveTimerRef.current = null
+          // 待っているあいだに書記を降ろされていることがある（タブを切り替えると
+          // 交代する）。古い基準のまま書きに行くと弾かれるので、ここでもう一度見る
+          if (collabActiveRef.current && !isScribeRef.current) return
           void scheduleSave(trimmed)
         }, AUTO_SAVE_DEBOUNCE_MS)
       },

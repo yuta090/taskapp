@@ -82,7 +82,7 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
       {/* Mobile hint: chart is readable but cramped on small screens (gantt と足並みを揃える) */}
       <div className="md:hidden flex items-start gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-100">
         <ChartLine className="text-base text-amber-600 mt-0.5 flex-shrink-0" />
-        <p className="text-xs text-amber-800">
+        <p className="text-xs text-amber-ink">
           バーンダウンは画面幅が広いPCでの表示を推奨します。スマホでは横スクロールでご覧ください。
         </p>
       </div>

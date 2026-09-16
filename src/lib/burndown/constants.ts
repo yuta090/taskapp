@@ -11,18 +11,31 @@ export const BURNDOWN_CONFIG = {
   POINT_RADIUS: 4,
   POINT_RADIUS_HOVER: 6,
 
-  // Colors (consistent with GANTT_CONFIG)
+  // Colors - 実値は globals.css の :root / .dark（ダークで面と文字が入れ替わる）。
+  // SVG には Tailwind の utility が効かないため、var() 参照をそのまま fill/stroke に渡す。
   COLORS: {
-    IDEAL_LINE: '#9CA3AF',      // Gray-400
-    ACTUAL_LINE: '#3B82F6',     // Blue-500
-    ACTUAL_FILL: '#DBEAFE',     // Blue-100 (area under actual line)
-    ADDED_TASKS: '#FEF3C7',     // Amber-100 (scope increase band)
-    TODAY: '#EF4444',           // Red-500
-    GRID: '#E2E8F0',           // Slate-200
-    POINT: '#3B82F6',          // Blue-500
-    POINT_HOVER: '#1D4ED8',    // Blue-700
-    AXIS_TEXT: '#64748B',      // Slate-500
-    LABEL_TEXT: '#0F172A',     // Slate-900
+    IDEAL_LINE: 'var(--burndown-ideal-line)',
+    ACTUAL_LINE: 'var(--burndown-actual-line)',
+    ACTUAL_FILL: 'var(--burndown-actual-fill)',   // area under actual line
+    ADDED_TASKS: 'var(--burndown-added-tasks)',   // scope increase band
+    TODAY: 'var(--burndown-today)',
+    GRID: 'var(--burndown-grid)',
+    POINT: 'var(--burndown-point)',
+    POINT_HOVER: 'var(--burndown-point-hover)',
+    POINT_STROKE: 'var(--burndown-point-stroke)',
+    AXIS_TEXT: 'var(--burndown-axis-text)',
+    LABEL_TEXT: 'var(--burndown-label-text)',
+
+    // 記録が無い期間の帯
+    ESTIMATE_BAND: 'var(--burndown-estimate-band)',
+    ESTIMATE_TEXT: 'var(--burndown-estimate-text)',
+
+    // ホバーで出る吹き出し
+    TOOLTIP_BG: 'var(--burndown-tooltip-bg)',
+    TOOLTIP_FG: 'var(--burndown-tooltip-fg)',
+    TOOLTIP_FG_MUTED: 'var(--burndown-tooltip-fg-muted)',
+    TOOLTIP_ADDED: 'var(--burndown-tooltip-added)',
+    TOOLTIP_REOPENED: 'var(--burndown-tooltip-reopened)',
   },
 
   // Display
