@@ -20,7 +20,7 @@ import { CheckCircle, Checks, Flag, NotePencil, User } from '@phosphor-icons/rea
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { seedMinutesDoc } from '@/lib/collab/seed'
-import { cursorColorAt } from '@/lib/collab/cursorColors'
+import { cursorColorAt, cursorFallbackAt } from '@/lib/collab/cursorColors'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
@@ -499,7 +499,9 @@ function MinutesEditorImpl({
       ? {
           collaboration: {
             fragment: collaboration.fragment,
-            user: { name: collaboration.userName, color: cursorColorAt(collaboration.colorIndex) },
+            // 載せるときは控えの値で作る（画面を測るのは描画が終わったあと）。
+            // 実際の値は下の effect が入れ直す
+            user: { name: collaboration.userName, color: cursorFallbackAt(collaboration.colorIndex) },
             provider: { awareness: collaboration.awareness },
           },
         }
@@ -661,16 +663,25 @@ function MinutesEditorImpl({
   }, [registerApi, appendMarkdown, seedCollabDoc])
 
   /**
-   * 自分の名前と色を、部屋のみんなへ伝え直す。
-   * 色の番号は部屋の顔ぶれで決まるので、誰かが入ったり抜けたりすると変わる。
-   * エディタは載せるときに1回しか読まないので、変わったぶんはここで伝える。
+   * 自分の名前と色を、部屋のみんなへ伝える。
+   *
+   * 載せるときは控えの値で作ってあるので、ここで画面のトークンから読み替えた値に
+   * 入れ替える。名前はメンバー一覧が遅れて届くことがあるので、そのぶんもここで届く。
+   * **色の番号自体は会期中変わらない**（変えても相手の画面には届かないため。
+   * 理由は `cursorColors.ts`）。
    */
+  const lastUserRef = useRef<string>('')
   useEffect(() => {
     if (!collaboration) return
-    collaboration.awareness.setLocalStateField('user', {
+    const next = {
       name: collaboration.userName,
       color: cursorColorAt(collaboration.colorIndex),
-    })
+    }
+    // 中身が同じなら送らない（載せた直後に、同じ値をもう1通配らないため）
+    const key = `${next.name}\u0000${next.color}`
+    if (lastUserRef.current === key) return
+    lastUserRef.current = key
+    collaboration.awareness.setLocalStateField('user', next)
   }, [collaboration])
 
   /**

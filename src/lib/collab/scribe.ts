@@ -99,13 +99,22 @@ export function rankOf(peers: CollabPeer[], id: string): number {
  * その人のカーソルを何番の色で描くか。
  *
  * 部屋の中で**重ならない**ようにするのが目的。人ごとにハッシュで選ぶと、運が悪いと
- * 2人が同じ色になり、どちらが書いているのか分からなくなる。並べ方は書記の決め方と
- * 同じ（入った順 → 名札順）なので、誰が計算しても同じ答えになる。
+ * 2人が同じ色になり、どちらが書いているのか分からなくなる。
+ *
+ * 並べ方は**入った順 → 名札順**だけで決める。書記の決め方（`activeOrdered`）とは
+ * 分けてあるのが要点で、あちらは「手前に出ているか」で先頭が入れ替わるため、
+ * 誰かがタブを切り替えるたびに全員の色がずれてしまう。輪に入っているかでも絞らない
+ * （自分が名乗る前は一覧に居らず、本物の0番の人と同じ色になってしまう）。
+ *
  * 同じ人のタブはまとめて1つ（自分の2つのタブは同じ色）。
+ * **呼び出し側は、一度決めた番号を会期中は変えないこと**（理由は `cursorColors.ts`）。
  */
 export function colorIndexOf(peers: CollabPeer[], userId: string): number {
   const seen: string[] = []
-  for (const peer of activeOrdered(peers)) {
+  const ordered = [...peers].sort((a, b) =>
+    a.joinedAt !== b.joinedAt ? a.joinedAt - b.joinedAt : a.id.localeCompare(b.id)
+  )
+  for (const peer of ordered) {
     if (!seen.includes(peer.userId)) seen.push(peer.userId)
   }
   const index = seen.indexOf(userId)

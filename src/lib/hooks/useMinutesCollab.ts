@@ -168,6 +168,11 @@ export function useMinutesCollab({
   const [scribeId, setScribeId] = useState<string | null>(null)
   const [synced, setSynced] = useState(false)
   const [colorIndex, setColorIndex] = useState(0)
+  /**
+   * 色の番号は**一度決めたら変えない**。カーソルを描く部品は相手ごとに札を1回だけ
+   * 作って使い回すので、あとから変えても相手の画面には届かない（`cursorColors.ts`）。
+   */
+  const colorIndexRef = useRef<number | null>(null)
   /** 落ちた時点で本文が入っていたか。入る前に落ちたら1人用のエディタへ載せ替える */
   const [soloFallback, setSoloFallback] = useState(false)
 
@@ -276,7 +281,10 @@ export function useMinutesCollab({
                 return
               }
               setScribeId(electScribe(peers))
-              setColorIndex(colorIndexOf(peers, selfUserIdRef.current))
+              if (colorIndexRef.current === null) {
+                colorIndexRef.current = colorIndexOf(peers, selfUserIdRef.current)
+                setColorIndex(colorIndexRef.current)
+              }
               // 人数が多い部屋では、**あとから入ったタブから**輪に入らない形に落とす
               // （全員で落とすと、先に書いていた人まで巻き込む）
               if (tabIdRef.current && rankOf(peers, tabIdRef.current) >= MAX_COLLAB_PEERS) {

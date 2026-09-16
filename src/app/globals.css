@@ -106,6 +106,17 @@
   --color-green-500: #22C55E;
   --color-green-600: #16A34A;
 
+  /* 同時編集のカーソルの色（議事録）。誰が書いているかを色で見分けるためだけに使う。
+     隣り合う番号で色相を変えて、6人まで見分けられるようにしてある。
+     アンバー/オレンジは「相手先に見える」印、赤は失敗の印なので使わない。
+     値を変えたら src/lib/collab/cursorColors.ts の控えも合わせること（テストが検査する）。 */
+  --color-cursor-1: #6366F1;
+  --color-cursor-2: #059669;
+  --color-cursor-3: #0EA5E9;
+  --color-cursor-4: #7C3AED;
+  --color-cursor-5: #0D9488;
+  --color-cursor-6: #C026D3;
+
   /* Shadows */
   --shadow-subtle: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-pane: -1px 0 0 0 #E5E7EB;
