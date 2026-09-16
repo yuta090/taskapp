@@ -29,6 +29,13 @@ export const MAX_COLLAB_LENGTH = 100_000
 /** デスクトップの下限。スマホは今までどおり1人用のエディタにする（UI_RULES と同じ `md`） */
 const DESKTOP_MIN_WIDTH = 768
 
+/** このタブの見分け札を作る。同じ端末で並べて開いても必ず別の値になる */
+function newTabId(): string {
+  const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID()
+  return `tab-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+}
+
 export interface UseMinutesCollabOptions {
   meetingId: string
   /** 在席を共有するか（書ける人だけ）。同時編集の可否とは別 */
@@ -134,6 +141,21 @@ export function useMinutesCollab({
     () => collabAllowed && presenceEnabled && !!self.userId && initialMarkdown.length <= MAX_COLLAB_LENGTH
   )
 
+  /**
+   * このタブの見分け札。**人ではなくタブで見分ける**のが要点。
+   * 人ごとにすると、同じ人が並べて開いた2つのタブが互いを相手と見なさず、
+   * どちらも保存しに行って弾き合う（＝競合の帯が出続ける）。
+   * 値を作るのは描画のあと（effect）にする。描画の途中で作ると、同じ描画が
+   * 2回走ったときに別の値になる。
+   */
+  const [tabId, setTabId] = useState('')
+  const tabIdRef = useRef('')
+  useEffect(() => {
+    if (tabIdRef.current) return
+    tabIdRef.current = newTabId()
+    setTabId(tabIdRef.current)
+  }, [])
+
   const [session, setSession] = useState<MinutesCollabSession | null>(null)
   /** 器を用意している途中か。用意しないと決めたら false になる */
   const [preparing, setPreparing] = useState(wanted)
@@ -144,7 +166,12 @@ export function useMinutesCollab({
   const [soloFallback, setSoloFallback] = useState(false)
 
   const syncedRef = useRef(false)
-  const selfIdRef = useRef(self.userId)
+  /**
+   * 1つ前の版の画面が部屋に居ると分かったか。
+   * 器は使うときだけ読み込むので、**できる前に在席が届くことがある**。覚えておかないと、
+   * あとからできた器が縮退しておらず、「自分ひとりだ」と見えて種をまいてしまう。
+   */
+  const peerOutdatedRef = useRef(false)
   const seederRef = useRef<MinutesSeeder | null>(null)
   const sessionRef = useRef<MinutesCollabSession | null>(null)
   const onRoomReloadRef = useRef(onRoomReload)
@@ -172,7 +199,7 @@ export function useMinutesCollab({
    * エディタが空の読み取り専用のまま固まる。
    */
   useEffect(() => {
-    if (!wanted) return
+    if (!wanted || !tabId) return
     // スマホは今までどおり1人用のエディタ（UI_RULES の `md` に合わせる）
     if (typeof window !== 'undefined' && window.innerWidth < DESKTOP_MIN_WIDTH) {
       setPreparing(false)
@@ -185,7 +212,7 @@ export function useMinutesCollab({
       .then((module) => {
         if (cancelled) return
         created = new module.MinutesCollabSession({
-          selfId: selfIdRef.current,
+          selfId: tabId,
           transport,
           onDegrade: handleDegrade,
           onSynced: () => {
@@ -198,7 +225,10 @@ export function useMinutesCollab({
           },
           onRoomReload: () => onRoomReloadRef.current?.(),
         })
-        if (seederRef.current) {
+        // 器ができる前に受け取っていた印を、ここで当てる。当てないと、
+        // 縮退していない器が「自分ひとりだ」と見えて種をまく
+        if (peerOutdatedRef.current) created.degrade('peer-outdated')
+        if (seederRef.current && !created.isDegraded) {
           created.setSeeder(seederRef.current)
           created.start()
         }
@@ -218,7 +248,7 @@ export function useMinutesCollab({
       if (sessionRef.current === created) sessionRef.current = null
       setSession(null)
     }
-  }, [wanted, transport, handleDegrade])
+  }, [wanted, tabId, transport, handleDegrade])
 
   const collabWiring = useMemo(
     () =>
@@ -226,11 +256,22 @@ export function useMinutesCollab({
         ? {
             onMessage: (message: CollabMessage) => transport.deliver(message),
             onPeers: (peers: CollabPeer[]) => {
+              // 顔ぶれは先に渡しておく。降りる判断で先に返すと、取りこぼしたときに
+              // 顔ぶれが空のまま＝「自分ひとりだ」と見えてしまう
               sessionRef.current?.setPeers(peers)
+              // 1つ前の版の画面が混ざっている間は、こちらが輪から降りる。
+              // 相手は人ごとに数えているので、こちらが指した返事役に応えられず、
+              // 待ちぼうけの末に各自が種をまいて本文が二重になる
+              if (peers.some((peer) => peer.outdated && peer.id !== tabIdRef.current)) {
+                peerOutdatedRef.current = true
+                sessionRef.current?.degrade('peer-outdated')
+                setDegradedReason((prev) => prev ?? 'peer-outdated')
+                return
+              }
               setScribeId(electScribe(peers))
-              // 人数が多い部屋では、**あとから入った人から**輪に入らない形に落とす
+              // 人数が多い部屋では、**あとから入ったタブから**輪に入らない形に落とす
               // （全員で落とすと、先に書いていた人まで巻き込む）
-              if (rankOf(peers, selfIdRef.current) >= MAX_COLLAB_PEERS) {
+              if (tabIdRef.current && rankOf(peers, tabIdRef.current) >= MAX_COLLAB_PEERS) {
                 sessionRef.current?.degrade('too-many-peers')
               }
             },
@@ -246,15 +287,15 @@ export function useMinutesCollab({
     meetingId,
     enabled: presenceEnabled,
     self,
+    tabId,
     collab: collabWiring,
   })
 
   useEffect(() => {
-    selfIdRef.current = self.userId
     setCollabActiveRef.current = setCollabActive
     transport.setSender(sendCollab)
     return () => transport.setSender(null)
-  }, [transport, sendCollab, setCollabActive, self.userId])
+  }, [transport, sendCollab, setCollabActive, tabId])
 
   const registerSeeder = useCallback((seeder: MinutesSeeder | null) => {
     seederRef.current = seeder
@@ -282,7 +323,7 @@ export function useMinutesCollab({
      * 書記として振る舞うのは**本文が入ってから**。入る前に保存へ行くと、
      * 空の器の中身で議事録を上書きしてしまう。
      */
-    isScribe: solo || !!degradedReason || (synced && scribeId === self.userId),
+    isScribe: solo || !!degradedReason || (synced && !!tabId && scribeId === tabId),
     fragment: solo ? null : (session?.fragment ?? null),
     awareness: solo ? null : (session?.awareness ?? null),
     meta: session?.meta ?? null,

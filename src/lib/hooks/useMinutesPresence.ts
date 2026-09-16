@@ -9,6 +9,7 @@ import {
   type CollabMessage,
   type CollabStatus,
 } from '@/lib/collab/transport'
+import type { CollabPeer } from '@/lib/collab/scribe'
 
 /**
  * 議事録の「いま誰が書いているか」を、同じ会議を開いている人どうしで見せ合う。
@@ -45,9 +46,12 @@ export interface MinutesPresencePeer {
   name: string
   /** いま書いている最中か */
   editing: boolean
-  /** その人が部屋に入った時刻（epoch ミリ秒）。書記を決めるのに使う */
+  /**
+   * その人がいちばん早く入った時刻（epoch ミリ秒）。
+   * 書記を決めるのに使うのは**タブごとの一覧のほう**（`CollabPeer`）で、これは表示用。
+   */
   joinedAt: number
-  /** いま同時編集の輪に入っているか。落ちた人は書記の候補から外す */
+  /** その人のどれかのタブが同時編集の輪に入っているか。表示用 */
   collab: boolean
 }
 
@@ -71,7 +75,7 @@ export interface MinutesCollabWiring {
    * そこで書記を決めると、入ったばかりの人が「自分しか居ない」と思い込んで書記になり、
    * 自分の持っている本文で種をまいてしまう（＝本文が二重になる）。
    */
-  onPeers: (peers: { userId: string; joinedAt: number; collab: boolean }[]) => void
+  onPeers: (peers: CollabPeer[]) => void
   /**
    * `joined` は**在席の一覧が届いてから**呼ぶ（参加の返事の時点では呼ばない）。
    * 一定時間届かなければ `error` を呼ぶ。
@@ -84,6 +88,11 @@ interface UseMinutesPresenceOptions {
   /** 書ける人が、詳細を読み込み終えて開いている間だけ true。閲覧だけの人は購読しない */
   enabled: boolean
   self: MinutesPresenceSelf
+  /**
+   * このタブの見分け札。**在席の鍵にもこれを使う**（人ごとにすると、同じ人の
+   * 2つ目のタブが1つ目に上書きされて消える）。空のあいだは購読を始めない。
+   */
+  tabId: string
   /** 同時編集を使うときだけ渡す。渡すと broadcast も受け取る */
   collab?: MinutesCollabWiring
 }
@@ -109,6 +118,8 @@ interface UseMinutesPresenceResult {
  */
 type PresencePayload = {
   user_id: string
+  /** このタブの見分け札。同じ人の別タブを別々の参加者として扱うために載せる */
+  client_id: string
   name: string
   editing: boolean
   since: number
@@ -116,6 +127,8 @@ type PresencePayload = {
   joined_at: number
   /** 同時編集の輪に入っているか。落ちた人を書記にすると誰の内容も保存されなくなる */
   collab: boolean
+  /** このタブが手前に出ているか。裏のタブを書記にすると保存が何分も遅れる */
+  visible: boolean
 }
 
 /** 同時編集でやり取りする4種類（broadcast のイベント名） */
@@ -154,6 +167,7 @@ export function useMinutesPresence({
   meetingId,
   enabled,
   self,
+  tabId,
   collab,
 }: UseMinutesPresenceOptions): UseMinutesPresenceResult {
   // クライアントは1回だけ作って使い回す
@@ -165,10 +179,12 @@ export function useMinutesPresence({
   // 購読し直さずに最新の値を読めるようにする（名前の取得が後から届いても送り直さない）
   const userIdRef = useRef(userId)
   const nameRef = useRef(name)
+  const tabIdRef = useRef(tabId)
   useEffect(() => {
     userIdRef.current = userId
     nameRef.current = name
-  }, [userId, name])
+    tabIdRef.current = tabId
+  }, [userId, name, tabId])
 
   // 同時編集の口は、購読をやり直さずに最新の関数を読めるよう ref に詰め替える
   // （毎レンダーで新しい関数が来ても、チャネルを作り直さない）
@@ -193,6 +209,8 @@ export function useMinutesPresence({
    * 書記（列へ保存する1人）に選ばれ、**部屋の誰の書いた内容も列に残らなくなる**。
    */
   const collabActiveRef = useRef(false)
+  /** このタブが手前に出ているか。裏に回ると書記の候補から後ろへ下がる */
+  const visibleRef = useRef(true)
   /** 最後にチャネルへ送った editing。まだ送っていなければ null */
   const trackedRef = useRef<boolean | null>(null)
   const sinceRef = useRef(0)
@@ -206,11 +224,13 @@ export function useMinutesPresence({
     trackedRef.current = editingRef.current
     const payload: PresencePayload = {
       user_id: userIdRef.current,
+      client_id: tabIdRef.current,
       name: nameRef.current || FALLBACK_NAME,
       editing: editingRef.current,
       since: sinceRef.current,
       joined_at: joinedAtRef.current,
       collab: collabActiveRef.current,
+      visible: visibleRef.current,
     }
     try {
       void Promise.resolve(channel.track(payload)).catch((err) => {
@@ -254,7 +274,7 @@ export function useMinutesPresence({
   )
 
   useEffect(() => {
-    if (!enabled || !meetingId || !userId) return
+    if (!enabled || !meetingId || !userId || !tabId) return
 
     let disposed = false
     let channel: RealtimeChannel | null = null
@@ -265,35 +285,67 @@ export function useMinutesPresence({
     let presenceArrived = false
     let presenceWaitTimer: ReturnType<typeof setTimeout> | null = null
 
-    /** いま部屋に居る自分以外の人。読み取れなければ null（＝分からない） */
-    const syncOthers = (): MinutesPresencePeer[] | null => {
+    /**
+     * 在席を読み直す。**2つの一覧を作る**のが要点。
+     *  - 帯用（`others`）: 人ごと。自分は出さず、同じ人の別タブは1人にまとめる
+     *  - 同時編集用（`room`）: タブごと。自分のタブも入れる（書記を決めるため）
+     * 読み取れなければ null（＝分からない）。
+     */
+    const syncOthers = (): { others: MinutesPresencePeer[]; room: CollabPeer[] } | null => {
       const current = channel
       if (!current) return null
       try {
         const state = current.presenceState<Partial<PresencePayload>>()
         const next: MinutesPresencePeer[] = []
+        const room: CollabPeer[] = []
         for (const [key, metas] of Object.entries(state)) {
           const meta = metas[metas.length - 1]
           if (!meta) continue
+          const tab = typeof meta.client_id === 'string' && meta.client_id ? meta.client_id : key
           const peerId = typeof meta.user_id === 'string' && meta.user_id ? meta.user_id : key
-          // 自分は出さない（別のタブで開いていても自分は自分）
+          // 入った時刻が読めない相手は「ついさっき入った」扱いにする。書記を
+          // 取り合わないよう、いちばん新しい側へ倒す
+          const joinedAt = typeof meta.joined_at === 'number' ? meta.joined_at : Number.MAX_SAFE_INTEGER
+          // 印が無い相手は、同時編集を持たない版の画面を開いている人。輪には
+          // 入れない（その人はこれまでどおり自分で保存する）
+          // 見分け札を持たない相手は、同時編集がタブ単位になる前の版の画面。
+          // **輪から外すのではなく印を付けて渡す**。外すと「自分ひとりだ」と見えて
+          // 目録合わせをせずに種をまいてしまい、相手の器と食い違って本文が二重になる。
+          // 混ざっている間は、こちら（新しい版）が輪から降りる（useMinutesCollab）
+          const hasTabId = typeof meta.client_id === 'string' && !!meta.client_id
+          room.push({
+            id: tab,
+            joinedAt,
+            collab: meta.collab === true,
+            // 印が読めない相手は手前に出ている扱い（今までと同じ順番になる）
+            visible: meta.visible !== false,
+            outdated: !hasTabId,
+          })
+
+          // ここから帯用。自分は出さない（別のタブで開いていても自分は自分）
           if (peerId === userId) continue
-          if (next.some((peer) => peer.userId === peerId)) continue
+          const editing = meta.editing === true
+          const already = next.find((peer) => peer.userId === peerId)
           const peerName = typeof meta.name === 'string' ? meta.name.trim() : ''
+          if (already) {
+            // 同じ人の別タブ。どれか1つでも書いていれば「書いています」にする
+            if (editing) already.editing = true
+            if (joinedAt < already.joinedAt) already.joinedAt = joinedAt
+            if (meta.collab === true) already.collab = true
+            // 名前が読めないタブを先に拾っていたら、読めるほうで上書きする
+            if (already.name === FALLBACK_NAME && peerName) already.name = peerName
+            continue
+          }
           next.push({
             userId: peerId,
             name: peerName || FALLBACK_NAME,
-            editing: meta.editing === true,
-            // 入った時刻が読めない相手は「ついさっき入った」扱いにする。書記を
-            // 取り合わないよう、いちばん新しい側へ倒す
-            joinedAt: typeof meta.joined_at === 'number' ? meta.joined_at : Number.MAX_SAFE_INTEGER,
-            // 印が無い相手は、同時編集を持たない版の画面を開いている人。輪には
-            // 入れない（その人はこれまでどおり自分で保存する）
+            editing,
+            joinedAt,
             collab: meta.collab === true,
           })
         }
         setOthers((prev) => (samePeers(prev, next) ? prev : next))
-        return next
+        return { others: next, room }
       } catch (err) {
         warnPresence('在席を読み取れませんでした', err)
         return null
@@ -306,14 +358,22 @@ export function useMinutesPresence({
      * 見えるので、そこで始めると入った人が毎回自分の本文で器を作り直してしまう。
      */
     const handlePresence = () => {
-      const peers = syncOthers()
-      if (peers === null) return
+      const read = syncOthers()
+      if (read === null) return
       const wiring = collabRef.current
       if (!wiring) return
-      wiring.onPeers([
-        { userId: userIdRef.current, joinedAt: joinedAtRef.current, collab: collabActiveRef.current },
-        ...peers.map((peer) => ({ userId: peer.userId, joinedAt: peer.joinedAt, collab: peer.collab })),
-      ])
+      // 自分のタブは、在席が配られる前でも顔ぶれに入れる（自分の印は自分がいちばん新しい）
+      const self: CollabPeer = {
+        id: tabIdRef.current,
+        joinedAt: joinedAtRef.current,
+        collab: collabActiveRef.current,
+        visible: visibleRef.current,
+        outdated: false,
+      }
+      const room = read.room.some((peer) => peer.id === self.id)
+        ? read.room.map((peer) => (peer.id === self.id ? { ...peer, ...self } : peer))
+        : [self, ...read.room]
+      wiring.onPeers(room)
       if (presenceArrived) return
       presenceArrived = true
       clearPresenceWaitTimer()
@@ -388,7 +448,15 @@ export function useMinutesPresence({
     }
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') setEditing(false)
+      const hidden = document.visibilityState === 'hidden'
+      const visibleChanged = visibleRef.current !== !hidden
+      // 手前かどうかを在席で伝える。裏のタブが書記だと、ブラウザが時間の進みを
+      // 間引くので、手前で打っているのに保存だけが何分も遅れる。
+      // 先に印を入れ替えてから「書くのをやめた」を送れば、1通にまとまる
+      visibleRef.current = !hidden
+      const sentByEditing = hidden && editingRef.current
+      if (hidden) setEditing(false)
+      if (visibleChanged && !sentByEditing) pushTrack(true)
     }
 
     const handlePageHide = () => {
@@ -400,6 +468,9 @@ export function useMinutesPresence({
       attempt += 1
       // 書記を決めるのに使うので、つなぎに行く前に必ず入っている状態にする
       if (joinedAtRef.current === 0) joinedAtRef.current = Date.now()
+      // 新しいタブで開いてそのまま別の作業をすると、このタブでは
+      // `visibilitychange` が鳴らない。最初に一度、いまの状態を読む
+      visibleRef.current = document.visibilityState !== 'hidden'
 
       // private チャネルのポリシーは本人（authenticated）にしか効かない。
       // 生成時の anon キーのままつなぎに行かないよう、鍵を取って明示的に渡す
@@ -429,7 +500,9 @@ export function useMinutesPresence({
         const created = supabase.channel(`${TOPIC_PREFIX}${meetingId}`, {
           config: {
             private: true,
-            presence: { key: userId },
+            // 鍵はタブごと。人ごとにすると、同じ人の2つ目のタブが1つ目を
+            // 上書きして、部屋から消えてしまう
+            presence: { key: tabId },
             // 自分が送ったものは受け取らない（器へ二重に取り込まないため）。
             // 受領確認は待たない（1秒に何通も流れるので待つと詰まる）
             broadcast: { self: false, ack: false },
@@ -499,7 +572,7 @@ export function useMinutesPresence({
       teardown()
       setOthers((prev) => (prev.length === 0 ? prev : EMPTY_PEERS))
     }
-  }, [enabled, meetingId, userId, supabase, pushTrack, setEditing, clearIdleTimer])
+  }, [enabled, meetingId, userId, tabId, supabase, pushTrack, setEditing, clearIdleTimer])
 
   /**
    * 同時編集の更新を配る。つながっていなければ黙って捨てる（打つ手は止めない。
@@ -514,7 +587,9 @@ export function useMinutesPresence({
           type: 'broadcast',
           event,
           payload: {
-            from: userIdRef.current,
+            // **在席の鍵と同じ値**を載せる。人のIDを載せると、受け取る側が
+            // 自分の見分け札と突き合わせられず、宛先付きの返事が全部捨てられる
+            from: tabIdRef.current,
             ...(to ? { to } : {}),
             data: bytes.length === 0 ? '' : bytesToBase64(bytes),
           },
