@@ -352,19 +352,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     [updateQuery]
   )
 
+  /**
+   * 画面の「戻る」は、履歴を戻すのではなく必ず一覧の URL に差し替える。
+   *
+   * 実ブラウザで確かめたところ、ブラウザの「戻る」で一覧に帰ったあともう一度ページを開くと、
+   * 「履歴を積んだ」という印と実際の履歴がずれ、history.back() が一覧を飛び越して
+   * その前の画面（ダッシュボード）まで戻った。押したら必ず一覧が出ることを優先する。
+   * ブラウザの「戻る」で一覧に帰れる（本来の目的）は、開くときに履歴を積む側で果たしている。
+   */
   const closePageView = useCallback(() => {
-    // 戻る途中なら何もしない（2回目の押下で履歴を余分に食わないため）
-    if (backInFlightRef.current) return
-    // 履歴を戻してよいのは「いま開いているページを、この画面で開いたとき」だけ。
-    // 本文のリンクで別のページへ移っていると、戻る先は一覧ではなく前のページになる
-    const openedHere = pushedPageIdRef.current !== null && pushedPageIdRef.current === selectedPageId
-    if (openedHere) {
-      pushedPageIdRef.current = null
-      goBack()
-      return
-    }
+    pushedPageIdRef.current = null
     updateQuery({ page: null, [INFO_QUERY_PARAM]: null })
-  }, [goBack, selectedPageId, updateQuery])
+  }, [updateQuery])
 
   // スマホのページ情報（シート）。開くときに履歴を1つ積み、閉じるときは1つ戻す。
   // こうすると端末の「戻る」でシートだけが閉じる（ページは開いたまま）。
@@ -379,13 +378,15 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const closeInfoSheet = useCallback(() => {
     // 戻る途中なら何もしない（2回目の押下で履歴を余分に食わないため）
     if (backInFlightRef.current) return
-    if (pushedInfoRef.current) {
+    // 履歴を戻すのは「自分で積んだシートを、いま開いている」ときだけ。
+    // URL（showInfo）と突き合わせるので、印だけを信じて一覧を飛び越すことがない
+    if (pushedInfoRef.current && showInfo) {
       pushedInfoRef.current = false
       goBack()
       return
     }
     updateQuery({ [INFO_QUERY_PARAM]: null })
-  }, [goBack, updateQuery])
+  }, [goBack, showInfo, updateQuery])
 
   // シートが閉じたら、履歴を積んだ印を落とす（端末の「戻る」で閉じた場合を含む）
   useEffect(() => {

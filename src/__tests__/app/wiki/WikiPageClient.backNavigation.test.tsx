@@ -131,7 +131,9 @@ describe('WikiPageClient — ページを開いたあとの「戻る」', () => 
     expect(replaceSpy).not.toHaveBeenCalled()
   })
 
-  it('一覧から開いたページの「戻る」は、履歴を1つ戻して一覧に帰る', async () => {
+  it('画面の「戻る」は、履歴を戻さず必ず一覧の URL にする（押したら必ず一覧が出る）', async () => {
+    // 実ブラウザでの確認で、履歴を戻す方式だと「ブラウザの戻るで一覧 → もう一度開く」のあとに
+    // 一覧を飛び越してダッシュボードまで戻った。押したら必ず一覧、を優先する
     const { rerenderPage } = renderPage()
     fireEvent.click(screen.getByText('設計メモ'))
 
@@ -142,8 +144,8 @@ describe('WikiPageClient — ページを開いたあとの「戻る」', () => 
 
     fireEvent.click(screen.getByRole('button', { name: '一覧へ戻る' }))
 
-    expect(backSpy).toHaveBeenCalledTimes(1)
-    expect(replaceSpy).not.toHaveBeenCalled()
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', LIST_URL)
+    expect(backSpy).not.toHaveBeenCalled()
   })
 
   it('リンクから直接開いたときの「戻る」は、履歴を戻さず一覧の URL に差し替える', async () => {

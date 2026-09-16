@@ -324,20 +324,19 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
 
   // 議事録を閉じて一覧へ戻るときは全画面表示も必ず解除する
   // （戻さないと、次に別の会議を開いたときも左メニューが消えたままになる）。
+  /**
+   * 画面の「戻る」は、履歴を戻すのではなく必ず一覧の URL に差し替える。
+   *
+   * Wiki で実ブラウザで確かめたところ、ブラウザの「戻る」で一覧に帰ったあと、もう一度開くと
+   * 「履歴を積んだ」という印と実際の履歴がずれ、history.back() が一覧を飛び越してその前の画面
+   * まで戻った。押したら必ず一覧が出ることを優先する（ブラウザの「戻る」で一覧に帰れる、という
+   * 本来の目的は、開くときに履歴を積む側で果たしている）。議事録も同じ作りにそろえる。
+   */
   const closeMinutesDocument = useCallback(() => {
     setFullscreen(false)
-    // 戻る途中なら何もしない（2回目の押下で履歴を余分に食わないため）
-    if (backInFlightRef.current) return
-    // 履歴を戻してよいのは「いま開いている議事録を、この画面で開いたとき」だけ
-    const openedHere =
-      pushedMinutesIdRef.current !== null && pushedMinutesIdRef.current === selectedMeetingId
-    if (openedHere) {
-      pushedMinutesIdRef.current = null
-      goBack()
-      return
-    }
+    pushedMinutesIdRef.current = null
     updateQuery({ meeting: null, [INFO_QUERY_PARAM]: null })
-  }, [setFullscreen, goBack, selectedMeetingId, updateQuery])
+  }, [setFullscreen, updateQuery])
 
   // スマホの会議詳細（シート）。開くときに履歴を1つ積み、閉じるときは1つ戻す。
   // こうすると端末の「戻る」でシートだけが閉じる（議事録は開いたまま）。
@@ -352,13 +351,15 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const closeInfoSheet = useCallback(() => {
     // 戻る途中なら何もしない（2回目の押下で履歴を余分に食わないため）
     if (backInFlightRef.current) return
-    if (pushedInfoRef.current) {
+    // 履歴を戻すのは「自分で積んだシートを、いま開いている」ときだけ。
+    // URL（showInfo）と突き合わせるので、印だけを信じて一覧を飛び越すことがない
+    if (pushedInfoRef.current && showInfo) {
       pushedInfoRef.current = false
       goBack()
       return
     }
     updateQuery({ [INFO_QUERY_PARAM]: null })
-  }, [goBack, updateQuery])
+  }, [goBack, showInfo, updateQuery])
 
   // MEDIUM-B: Inspector の×（一覧へ戻る）から離れるときは、保存されていない書きかけが
   // あれば確認してから戻る（文書ビュー自身の「戻る」ボタンは内部で同じ確認をしてから
