@@ -218,6 +218,30 @@ describe('1つ前の版の画面が混ざっているとき', () => {
     expect(result.current.active).toBe(false)
     expect(result.current.isScribe).toBe(true)
   })
+
+  it('器ができる前に印を受け取っても、種をまかない', async () => {
+    // 器は使うときだけ読み込むので、取り込みが終わる前に在席が届くことがある。
+    // そこで受け取った印を覚えておかないと、あとからできた器が縮退しておらず、
+    // 「自分ひとりだ」と見えて種をまき、古い画面の器と食い違って本文が二重になる
+    const rendered = renderHook(() =>
+      useMinutesCollab({
+        meetingId: 'm1',
+        presenceEnabled: true,
+        self: { userId: 'u-self', name: '自分' },
+        collabAllowed: true,
+        initialMarkdown: BASE,
+      })
+    )
+    act(() =>
+      capturedCollab?.onPeers([{ id: 'u-old', joinedAt: 1_000, collab: true, outdated: true }])
+    )
+    await settle(() => rendered.result.current.pending === false)
+    act(() => rendered.result.current.registerSeeder(seedWith(BASE)))
+
+    expect(rendered.result.current.degradedReason).toBe('peer-outdated')
+    expect(rendered.result.current.solo).toBe(true)
+    expect(rendered.result.current.fragment).toBeNull()
+  })
 })
 
 describe('使わない場合', () => {

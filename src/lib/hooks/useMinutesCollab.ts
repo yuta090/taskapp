@@ -166,6 +166,12 @@ export function useMinutesCollab({
   const [soloFallback, setSoloFallback] = useState(false)
 
   const syncedRef = useRef(false)
+  /**
+   * 1つ前の版の画面が部屋に居ると分かったか。
+   * 器は使うときだけ読み込むので、**できる前に在席が届くことがある**。覚えておかないと、
+   * あとからできた器が縮退しておらず、「自分ひとりだ」と見えて種をまいてしまう。
+   */
+  const peerOutdatedRef = useRef(false)
   const seederRef = useRef<MinutesSeeder | null>(null)
   const sessionRef = useRef<MinutesCollabSession | null>(null)
   const onRoomReloadRef = useRef(onRoomReload)
@@ -219,6 +225,9 @@ export function useMinutesCollab({
           },
           onRoomReload: () => onRoomReloadRef.current?.(),
         })
+        // 器ができる前に受け取っていた印を、ここで当てる。当てないと、
+        // 縮退していない器が「自分ひとりだ」と見えて種をまく
+        if (peerOutdatedRef.current) created.degrade('peer-outdated')
         if (seederRef.current) {
           created.setSeeder(seederRef.current)
           created.start()
@@ -247,15 +256,18 @@ export function useMinutesCollab({
         ? {
             onMessage: (message: CollabMessage) => transport.deliver(message),
             onPeers: (peers: CollabPeer[]) => {
+              // 顔ぶれは先に渡しておく。降りる判断で先に返すと、取りこぼしたときに
+              // 顔ぶれが空のまま＝「自分ひとりだ」と見えてしまう
+              sessionRef.current?.setPeers(peers)
               // 1つ前の版の画面が混ざっている間は、こちらが輪から降りる。
               // 相手は人ごとに数えているので、こちらが指した返事役に応えられず、
               // 待ちぼうけの末に各自が種をまいて本文が二重になる
               if (peers.some((peer) => peer.outdated && peer.id !== tabIdRef.current)) {
+                peerOutdatedRef.current = true
                 sessionRef.current?.degrade('peer-outdated')
                 setDegradedReason((prev) => prev ?? 'peer-outdated')
                 return
               }
-              sessionRef.current?.setPeers(peers)
               setScribeId(electScribe(peers))
               // 人数が多い部屋では、**あとから入ったタブから**輪に入らない形に落とす
               // （全員で落とすと、先に書いていた人まで巻き込む）

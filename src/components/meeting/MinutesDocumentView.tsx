@@ -177,7 +177,10 @@ function degradeMessage(reason: DegradeReason): string | null {
     return `議事録が長くなったので、いまは一人ずつ書く形に戻しました。${tail}`
   }
   if (reason === 'peer-outdated') {
-    return `同じ議事録を開いている人の画面が新しくなるまで、いまは一人ずつ書く形にします。${tail}`
+    return (
+      '同じ議事録を、更新前の画面で開いている人がいます。いまは一人ずつ書く形にします。' +
+      `あとでこの画面を開き直すと、また一緒に書けます。${tail}`
+    )
   }
   if (reason === 'apply-failed') {
     return `ほかの人の書いた内容を取り込めなかったので、いまは一人ずつ書く形に戻しました。${tail}`
