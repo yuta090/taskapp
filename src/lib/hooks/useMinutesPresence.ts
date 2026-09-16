@@ -75,7 +75,7 @@ export interface MinutesCollabWiring {
    * そこで書記を決めると、入ったばかりの人が「自分しか居ない」と思い込んで書記になり、
    * 自分の持っている本文で種をまいてしまう（＝本文が二重になる）。
    */
-  onPeers: (peers: { id: string; joinedAt: number; collab: boolean }[]) => void
+  onPeers: (peers: CollabPeer[]) => void
   /**
    * `joined` は**在席の一覧が届いてから**呼ぶ（参加の返事の時点では呼ばない）。
    * 一定時間届かなければ `error` を呼ぶ。
@@ -309,16 +309,17 @@ export function useMinutesPresence({
           // 印が無い相手は、同時編集を持たない版の画面を開いている人。輪には
           // 入れない（その人はこれまでどおり自分で保存する）
           // 見分け札を持たない相手は、同時編集がタブ単位になる前の版の画面。
-          // 輪に入れると、こちらが指した返事役にその人が応えられない（相手は
-          // 人ごとに数えているため）。輪から外し、その人はこれまでどおり
-          // 自分で保存してもらう
+          // **輪から外すのではなく印を付けて渡す**。外すと「自分ひとりだ」と見えて
+          // 目録合わせをせずに種をまいてしまい、相手の器と食い違って本文が二重になる。
+          // 混ざっている間は、こちら（新しい版）が輪から降りる（useMinutesCollab）
           const hasTabId = typeof meta.client_id === 'string' && !!meta.client_id
           room.push({
             id: tab,
             joinedAt,
-            collab: meta.collab === true && hasTabId,
+            collab: meta.collab === true,
             // 印が読めない相手は手前に出ている扱い（今までと同じ順番になる）
             visible: meta.visible !== false,
+            outdated: !hasTabId,
           })
 
           // ここから帯用。自分は出さない（別のタブで開いていても自分は自分）
@@ -362,11 +363,12 @@ export function useMinutesPresence({
       const wiring = collabRef.current
       if (!wiring) return
       // 自分のタブは、在席が配られる前でも顔ぶれに入れる（自分の印は自分がいちばん新しい）
-      const self = {
+      const self: CollabPeer = {
         id: tabIdRef.current,
         joinedAt: joinedAtRef.current,
         collab: collabActiveRef.current,
         visible: visibleRef.current,
+        outdated: false,
       }
       const room = read.room.some((peer) => peer.id === self.id)
         ? read.room.map((peer) => (peer.id === self.id ? { ...peer, ...self } : peer))
@@ -466,6 +468,9 @@ export function useMinutesPresence({
       attempt += 1
       // 書記を決めるのに使うので、つなぎに行く前に必ず入っている状態にする
       if (joinedAtRef.current === 0) joinedAtRef.current = Date.now()
+      // 新しいタブで開いてそのまま別の作業をすると、このタブでは
+      // `visibilitychange` が鳴らない。最初に一度、いまの状態を読む
+      visibleRef.current = document.visibilityState !== 'hidden'
 
       // private チャネルのポリシーは本人（authenticated）にしか効かない。
       // 生成時の anon キーのままつなぎに行かないよう、鍵を取って明示的に渡す

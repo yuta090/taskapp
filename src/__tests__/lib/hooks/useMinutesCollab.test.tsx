@@ -201,6 +201,25 @@ describe('本文が入る前に落ちたとき', () => {
   })
 })
 
+describe('1つ前の版の画面が混ざっているとき', () => {
+  it('こちらが輪から降りて、これまでどおり自分で保存する', async () => {
+    // 相手は人ごとに数えているので、こちらが指した返事役に応えられない。
+    // 無理に輪を作ると、待ちぼうけの末に各自が種をまいて本文が二重になる
+    const { result } = await mount()
+    act(() => result.current.registerSeeder(seedWith(BASE)))
+    act(() =>
+      capturedCollab?.onPeers([
+        { id: capturedTabId, joinedAt: 2_000, collab: true },
+        { id: 'u-old', joinedAt: 1_000, collab: true, outdated: true },
+      ])
+    )
+
+    expect(result.current.degradedReason).toBe('peer-outdated')
+    expect(result.current.active).toBe(false)
+    expect(result.current.isScribe).toBe(true)
+  })
+})
+
 describe('使わない場合', () => {
   it('組織で開いていなければ、器そのものを作らない', async () => {
     const { result } = renderHook(() =>

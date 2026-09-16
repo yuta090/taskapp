@@ -176,6 +176,9 @@ function degradeMessage(reason: DegradeReason): string | null {
   if (reason === 'too-large') {
     return `議事録が長くなったので、いまは一人ずつ書く形に戻しました。${tail}`
   }
+  if (reason === 'peer-outdated') {
+    return `同じ議事録を開いている人の画面が新しくなるまで、いまは一人ずつ書く形にします。${tail}`
+  }
   if (reason === 'apply-failed') {
     return `ほかの人の書いた内容を取り込めなかったので、いまは一人ずつ書く形に戻しました。${tail}`
   }
@@ -704,6 +707,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
 
         saveTimerRef.current = setTimeout(() => {
           saveTimerRef.current = null
+          // 待っているあいだに書記を降ろされていることがある（タブを切り替えると
+          // 交代する）。古い基準のまま書きに行くと弾かれるので、ここでもう一度見る
+          if (collabActiveRef.current && !isScribeRef.current) return
           void scheduleSave(trimmed)
         }, AUTO_SAVE_DEBOUNCE_MS)
       },

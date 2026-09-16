@@ -41,6 +41,7 @@ export type DegradeReason =
   | 'apply-failed'
   | 'too-many-peers'
   | 'too-large'
+  | 'peer-outdated'
 
 export interface MinutesSessionOptions {
   /**

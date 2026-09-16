@@ -247,6 +247,14 @@ export function useMinutesCollab({
         ? {
             onMessage: (message: CollabMessage) => transport.deliver(message),
             onPeers: (peers: CollabPeer[]) => {
+              // 1つ前の版の画面が混ざっている間は、こちらが輪から降りる。
+              // 相手は人ごとに数えているので、こちらが指した返事役に応えられず、
+              // 待ちぼうけの末に各自が種をまいて本文が二重になる
+              if (peers.some((peer) => peer.outdated && peer.id !== tabIdRef.current)) {
+                sessionRef.current?.degrade('peer-outdated')
+                setDegradedReason((prev) => prev ?? 'peer-outdated')
+                return
+              }
               sessionRef.current?.setPeers(peers)
               setScribeId(electScribe(peers))
               // 人数が多い部屋では、**あとから入ったタブから**輪に入らない形に落とす

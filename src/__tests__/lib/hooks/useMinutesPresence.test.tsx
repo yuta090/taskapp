@@ -422,7 +422,8 @@ describe('useMinutesPresence 書くのをやめたと見なす条件', () => {
       await Promise.resolve()
     })
     expect(channel.track).toHaveBeenCalledTimes(3)
-    expect(channel.track.mock.calls[2][0]).toMatchObject({ editing: false })
+    // 隠れたことも同じ1通で伝える（裏のタブを書記に選ばせないため）
+    expect(channel.track.mock.calls[2][0]).toMatchObject({ editing: false, visible: false })
   })
 })
 
@@ -646,9 +647,9 @@ describe('useMinutesPresence 同じ人の別のタブ', () => {
     expect(peers.map((p) => p.id).sort()).toEqual(['tab-a', 'tab-b', 'tab-self'])
   })
 
-  it('見分け札を持たない相手（1つ前の版の画面）は、輪に入れない', async () => {
-    // 相手は人ごとに数えているので、こちらが指した返事役に応えられない。
-    // 輪から外して、その人にはこれまでどおり自分で保存してもらう
+  it('見分け札を持たない相手（1つ前の版の画面）には、印を付けて渡す', async () => {
+    // **輪から外さない**のが要点。外すと「自分ひとりだ」と見えて目録合わせをせずに
+    // 種をまき、相手の器と食い違って本文が二重になる。印を見た側が自分で降りる
     const collab = collabWiring()
     renderPresence({ collab })
     const channel = await subscribed()
@@ -663,8 +664,16 @@ describe('useMinutesPresence 同じ人の別のタブ', () => {
       await Promise.resolve()
     })
 
-    const peers = collab.onPeers.mock.calls.at(-1)?.[0] as { id: string; collab: boolean }[]
-    expect(peers.find((p) => p.id === 'u-old')?.collab).toBe(false)
+    const peers = collab.onPeers.mock.calls.at(-1)?.[0] as {
+      id: string
+      collab: boolean
+      outdated?: boolean
+    }[]
+    const old = peers.find((p) => p.id === 'u-old')
+    expect(old?.outdated).toBe(true)
+    expect(old?.collab).toBe(true)
+    // 自分のタブには印が付かない
+    expect(peers.find((p) => p.id === 'tab-self')?.outdated).toBe(false)
   })
 
   it('自分は帯に出さない（別のタブで開いていても自分は自分）', async () => {
