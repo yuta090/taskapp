@@ -253,8 +253,11 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   // 表示速度: サーバーとの往復を避けるため router.replace ではなく history.replaceState で
   // URL だけを変える（手本: TasksPageClient.tsx の syncUrlWithState）。useSearchParams は
   // これに追従する。
+  //
+  // 一覧から議事録を開くときだけは履歴を1つ積む（push）。差し替えるだけだと履歴が増えないので、
+  // 議事録を開いたあとブラウザの「戻る」を押すと、議事録一覧ではなく、その前に見ていたページが出る。
   const updateQuery = useCallback(
-    (updates: Record<string, string | null>) => {
+    (updates: Record<string, string | null>, options?: { push?: boolean }) => {
       const params = new URLSearchParams(searchParams.toString())
       // Always clean up legacy tab param
       params.delete('tab')
@@ -267,15 +270,40 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       })
       const query = params.toString()
       const newUrl = query ? `${projectBasePath}?${query}` : projectBasePath
-      window.history.replaceState(null, '', newUrl)
+      if (options?.push) {
+        window.history.pushState(null, '', newUrl)
+      } else {
+        window.history.replaceState(null, '', newUrl)
+      }
     },
     [projectBasePath, searchParams]
+  )
+
+  // この画面で議事録を開いて履歴を積んだか。積んでいれば「戻る」は history.back() で1つ戻す
+  // （URL を差し替えると履歴に一覧が2つ並び、戻るをもう1回押さないと前の画面に帰れない）。
+  // リンク・お知らせ・ダッシュボードから直接 ?meeting= で来たときは積んでいないので差し替える。
+  const pushedMinutesRef = useRef(false)
+
+  const openMinutesDocument = useCallback(
+    (meetingId: string) => {
+      // 既に積んでいたら積み増さない。URL の反映は一拍遅れるので、同じ行を素早く2回押すと
+      // 履歴が2つ並び、1回目の「戻る」で同じ議事録に帰る（直したい症状と同じに見える）。
+      const alreadyPushed = pushedMinutesRef.current
+      pushedMinutesRef.current = true
+      updateQuery({ meeting: meetingId, proposal: null }, { push: !alreadyPushed })
+    },
+    [updateQuery]
   )
 
   // 議事録を閉じて一覧へ戻るときは全画面表示も必ず解除する
   // （戻さないと、次に別の会議を開いたときも左メニューが消えたままになる）。
   const closeMinutesDocument = useCallback(() => {
     setFullscreen(false)
+    if (pushedMinutesRef.current) {
+      pushedMinutesRef.current = false
+      window.history.back()
+      return
+    }
     updateQuery({ meeting: null })
   }, [setFullscreen, updateQuery])
 
@@ -308,6 +336,14 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   useEffect(() => {
     setShowInfo(false)
   }, [selectedMeetingId])
+
+  // 議事録の画面が閉じたら、履歴を積んだ印を落とす。残したままだと、次にリンクから直接開いた
+  // 議事録の「戻る」で history.back() を呼び、一覧ではなく前に見ていたページへ飛ぶ。
+  // 条件は ?meeting= の有無ではなく「議事録の画面が出ているか」にする — 開いたまま会議を
+  // 削除すると一覧に戻っても URL の ?meeting= は残るため、有無で見ると印が落ちない。
+  useEffect(() => {
+    if (!isMinutesDocumentOpen) pushedMinutesRef.current = false
+  }, [isMinutesDocumentOpen])
 
   useEffect(() => {
     // Mutual exclusivity: proposal takes priority if both params exist
@@ -347,6 +383,9 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         onDelete={async () => {
           try {
             await deleteMeeting(selectedMeeting.id)
+            // 消した会議の ?meeting= を URL に残さない（残すと、そのあと開いた議事録の
+            // 「戻る」で消えた会議の URL に帰ってしまう）。履歴は戻さず差し替えるだけにする
+            updateQuery({ meeting: null })
             toast.success('会議を削除しました')
           } catch (err) {
             toast.error(err instanceof Error ? err.message : '会議の削除に失敗しました')
@@ -499,7 +538,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         internalParticipantIds: data.internalParticipantIds,
       })
       setIsCreateSheetOpen(false)
-      updateQuery({ meeting: created.id, proposal: null })
+      // 作った会議の議事録も一覧から開いたのと同じ扱いにする（「戻る」で一覧に帰れるように）
+      openMinutesDocument(created.id)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '会議の作成に失敗しました')
     }
@@ -745,7 +785,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
                     key={`meeting-${item.data.id}`}
                     meeting={item.data}
                     isSelected={item.data.id === selectedMeetingId}
-                    onClick={() => updateQuery({ meeting: item.data.id, proposal: null })}
+                    onClick={() => openMinutesDocument(item.data.id)}
                   />
                 ) : (
                   <ProposalRow
