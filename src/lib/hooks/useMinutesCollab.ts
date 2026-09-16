@@ -228,7 +228,7 @@ export function useMinutesCollab({
         // 器ができる前に受け取っていた印を、ここで当てる。当てないと、
         // 縮退していない器が「自分ひとりだ」と見えて種をまく
         if (peerOutdatedRef.current) created.degrade('peer-outdated')
-        if (seederRef.current) {
+        if (seederRef.current && !created.isDegraded) {
           created.setSeeder(seederRef.current)
           created.start()
         }
