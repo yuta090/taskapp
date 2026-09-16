@@ -160,7 +160,13 @@ describe('useMinutesPresence 購読するかどうか', () => {
     renderPresence()
     await subscribed()
     expect(mockChannel).toHaveBeenCalledWith('meeting-minutes:m1', {
-      config: { private: true, presence: { key: 'u-self' } },
+      config: {
+        private: true,
+        presence: { key: 'u-self' },
+        // 同時編集はこのチャネルに相乗りする（同じ名前のチャネルに2回は入れない）。
+        // 自分が送ったものは受け取らない・受領確認は待たない
+        broadcast: { self: false, ack: false },
+      },
     })
   })
 })
@@ -530,9 +536,12 @@ describe('useMinutesPresence 在席の一覧', () => {
       await Promise.resolve()
     })
 
+    // joined_at を載せていない相手は「ついさっき入った」扱いにする（書記を取り合わない）
     expect(result.current.others).toEqual([
-      { userId: 'u-a', name: '佐藤', editing: true },
-      { userId: 'u-b', name: '鈴木', editing: false },
+      // collab の印が無い相手は、同時編集を持たない版の画面を開いている人。
+      // 輪には入れない（その人はこれまでどおり自分で保存する）
+      { userId: 'u-a', name: '佐藤', editing: true, joinedAt: Number.MAX_SAFE_INTEGER, collab: false },
+      { userId: 'u-b', name: '鈴木', editing: false, joinedAt: Number.MAX_SAFE_INTEGER, collab: false },
     ])
   })
 
@@ -569,7 +578,9 @@ describe('useMinutesPresence 在席の一覧', () => {
       await Promise.resolve()
     })
 
-    expect(result.current.others).toEqual([{ userId: 'u-a', name: 'メンバー', editing: true }])
+    expect(result.current.others).toEqual([
+      { userId: 'u-a', name: 'メンバー', editing: true, joinedAt: Number.MAX_SAFE_INTEGER, collab: false },
+    ])
   })
 
   it('同じ在席が続いたら others の中身を作り直さない（余計な再描画を起こさない）', async () => {

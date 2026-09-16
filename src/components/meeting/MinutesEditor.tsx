@@ -17,6 +17,10 @@ import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultS
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { CheckCircle, Checks, Flag, NotePencil, User } from '@phosphor-icons/react'
+import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
+import { seedMinutesDoc } from '@/lib/collab/seed'
+import { cursorColorFor } from '@/lib/collab/cursorColors'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
@@ -75,6 +79,20 @@ export type MinutesEditorAppendResult = 'applied' | 'busy' | 'failed'
  */
 export interface MinutesEditorApi {
   appendMarkdown: (markdown: string) => MinutesEditorAppendResult
+  /**
+   * 同時編集の器に、この本文で種をまく。種まきには ProseMirror のスキーマが要り、
+   * それを持っているのはこのエディタだけなので、ここから貸す。
+   */
+  seedCollabDoc: (doc: YDoc, markdown: string) => string
+}
+
+/** 同時編集をするときだけ渡す。渡さなければ、これまでどおり1人用のエディタになる */
+export interface MinutesEditorCollaboration {
+  fragment: YXmlFragment
+  awareness: Awareness
+  /** カーソルの脇に出す自分の名前 */
+  userName: string
+  userId: string
 }
 
 interface MinutesEditorProps {
@@ -102,6 +120,14 @@ interface MinutesEditorProps {
    * メンバー一覧の読み込み中や分からないときは空で、そのときは日時だけが残る。
    */
   noteAuthorName?: string
+  /** 同時編集をするときだけ渡す。渡すと本文の正本は器（Y.Doc）側になる */
+  collaboration?: MinutesEditorCollaboration
+  /**
+   * いま相手の更新を取り込んでいる最中か。取り込みもエディタの変更として届くので、
+   * これが true の間は「自分が操作した」ことが前提の処理（チェックでタスクを完了に
+   * する等）を走らせない。全員の画面で一斉に走ってしまうため。
+   */
+  isApplyingRemote?: () => boolean
 }
 
 /**
@@ -405,6 +431,8 @@ function MinutesEditorImpl({
   registerApi,
   onResolveTask,
   noteAuthorName,
+  collaboration,
+  isApplyingRemote,
 }: MinutesEditorProps) {
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
   // 名前はメンバー一覧を読み終えてから届く。値のまま「/」メニューの項目に閉じ込めると、
@@ -449,9 +477,25 @@ function MinutesEditorImpl({
 
   const effectiveEditable = editable && !parseFailedRef.current
 
+  /**
+   * 同時編集をするときは `initialContent` を渡さない。
+   *
+   * BlockNote 0.46 は collaboration が付いていると、載せた直後に器（Y.XmlFragment）の
+   * 中身で本文を**置き換える**（`initialContent` は警告が出るだけで捨てられる。
+   * y-prosemirror の `_forceRerender`）。渡しても消えるだけなので、本文は器へ
+   * 種をまく形で入れる（`seedCollabDoc` → `MinutesCollabSession`）。
+   */
   const editor = useCreateBlockNote({
     schema,
-    initialContent,
+    ...(collaboration
+      ? {
+          collaboration: {
+            fragment: collaboration.fragment,
+            user: { name: collaboration.userName, color: cursorColorFor(collaboration.userId) },
+            provider: { awareness: collaboration.awareness },
+          },
+        }
+      : { initialContent }),
     dictionary: MINUTES_DICTIONARY,
   })
 
@@ -594,10 +638,19 @@ function MinutesEditorImpl({
     [editor, effectiveEditable]
   )
 
+  /**
+   * 同時編集の器に種をまく。ここでしか取れない ProseMirror のスキーマを使う。
+   * 同じ本文からは必ず同じ更新になるので、2人が同時にまいても二重にならない。
+   */
+  const seedCollabDoc = useCallback(
+    (doc: YDoc, markdown: string) => seedMinutesDoc(doc, markdown, editor.pmSchema, schema.styleSchema),
+    [editor, schema]
+  )
+
   useEffect(() => {
-    registerApi?.({ appendMarkdown })
+    registerApi?.({ appendMarkdown, seedCollabDoc })
     return () => registerApi?.(null)
-  }, [registerApi, appendMarkdown])
+  }, [registerApi, appendMarkdown, seedCollabDoc])
 
   /**
    * 直前の本文。チェックが「入った」瞬間だけを拾うために持つ。
@@ -645,6 +698,9 @@ function MinutesEditorImpl({
       lastMarkdownRef.current = markdown
       const resolver = resolverRef.current
       if (!resolver) return
+      // 相手がチェックを入れたぶんは、その人の画面で完了になる。こちらでも走らせると
+      // 同じタスクを全員が完了にしに行く
+      if (isApplyingRemote?.()) return
 
       const taskIds = detectCheckedTaskIds(prev, markdown)
       if (taskIds.length === 0) return
@@ -683,7 +739,7 @@ function MinutesEditorImpl({
         })
       }
     },
-    [setChecked]
+    [setChecked, isApplyingRemote]
   )
 
   return (
