@@ -86,6 +86,13 @@
   --color-red-500: #EF4444;
   --color-red-600: #DC2626;
 
+  /* Blue/Green/Amber ink — それぞれの 50/100 の面の上に置く文字色。
+     本体(400-600)は塗りボタンや amber=クライアント可視の印として色相を保つため
+     .dark で反転できない。文字用の別トークンを立ててこちらだけ反転させる。 */
+  --color-blue-ink: #2563EB;
+  --color-green-ink: #16A34A;
+  --color-amber-ink: #D97706;
+
   /* Blue (Info / in_progress status) */
   --color-blue-50: #EFF6FF;
   --color-blue-100: #DBEAFE;
@@ -169,6 +176,9 @@
   --color-orange-ink: #FDBA74;
   --color-indigo-50:  #1E2140;
   --color-indigo-ink: #C7D2FE;
+  --color-blue-ink:   #93C5FD;
+  --color-green-ink:  #86EFAC;
+  --color-amber-ink:  #FCD34D;
   --color-red-50:  #2E1416;
   --color-red-100: #43191C;
   --color-blue-50:  #101F35;
@@ -178,6 +188,162 @@
 
   /* 影はダークで見えないため境界線ベースへ */
   --shadow-pane: -1px 0 0 0 #272D38;
+}
+
+/* ============================================
+   ガントチャートの色（SVG 用）
+   SVG の fill/stroke には Tailwind の utility が効かないため、
+   色はここに集め、src/lib/gantt/constants.ts が var(--gantt-*) で参照する。
+   ライトの値は従来の見た目そのまま。ダークは暗い面(--color-surface #191E27)の上で
+   読めるよう、面は暗色・線と文字は明るめに割り当てる。
+   ============================================ */
+:root {
+  /* ボールの所在（誰の番か）— amber はクライアント可視のシグナルなので両テーマ共通 */
+  --gantt-client: #F59E0B;
+  --gantt-internal: #3B82F6;
+
+  /* 状態 */
+  --gantt-done: #6B7280;
+  --gantt-in-progress: #3B82F6;
+  --gantt-backlog: #9CA3AF;
+  --gantt-overdue: #DC2626;
+
+  /* 目盛り・面 */
+  --gantt-today: #EF4444;
+  --gantt-today-column: #FEE2E2;
+  --gantt-weekend: #F9FAFB;
+  --gantt-grid-line: #E5E7EB;
+  --gantt-header-bg: #F9FAFB;
+  --gantt-group-header-bg: #F8FAFC;
+  --gantt-row-selected: #F1F5F9;
+
+  /* マイルストーン（残り日数で色が変わる） */
+  --gantt-milestone: #60A5FA;
+  --gantt-milestone-bg: #EFF6FF;
+  --gantt-milestone-warn: #F59E0B;
+  --gantt-milestone-warn-bg: #FEF3C7;
+  --gantt-milestone-urgent: #EF4444;
+  --gantt-milestone-urgent-bg: #FEE2E2;
+  --gantt-milestone-past: #6B7280;
+  --gantt-milestone-past-bg: #F3F4F6;
+
+  /* 親タスクのまとめバー */
+  --gantt-parent-bar: #6366F1;
+  --gantt-parent-bar-bg: #E0E7FF;
+
+  /* 文字 */
+  --gantt-text-primary: #111827;
+  --gantt-text-secondary: #6B7280;
+  --gantt-text-muted: #9CA3AF;
+
+  /* 親子のつなぎ線・ドラッグ中の線 */
+  --gantt-connector: #94A3B8;
+  --gantt-link-child: #6366F1;
+  --gantt-link-parent: #10B981;
+  --gantt-link-child-tint: #EEF2FF;
+  --gantt-link-parent-tint: #ECFDF5;
+  --gantt-link-child-strong: #C7D2FE;
+  --gantt-link-parent-strong: #A7F3D0;
+
+  /* バーの影・ひし形の縁（縁は背景と同色で抜く） */
+  --gantt-bar-shadow: #000000;
+  --gantt-diamond-stroke: #FFFFFF;
+  --gantt-on-accent: #FFFFFF;
+
+  /* 横スクロールバー */
+  --gantt-scrollbar-track: #F1F5F9;
+  --gantt-scrollbar-thumb: #C1C9D4;
+  --gantt-scrollbar-thumb-hover: #94A3B8;
+
+  /* ポップアップ（暗い面に明るい文字） */
+  --gantt-tooltip-bg: #1E293B;
+  --gantt-tooltip-fg: #FFFFFF;
+  --gantt-tooltip-fg-muted: #94A3B8;
+  --gantt-tooltip-fg-dim: #CBD5E1;
+  --gantt-tooltip-line: #334155;
+
+  /* 遅れの見込み（高・中・低・判定なし） */
+  --gantt-risk-high: #DC2626;
+  --gantt-risk-high-bg: #FEE2E2;
+  --gantt-risk-high-border: #FECACA;
+  --gantt-risk-medium: #D97706;
+  --gantt-risk-medium-bg: #FEF3C7;
+  --gantt-risk-medium-border: #FDE68A;
+  --gantt-risk-low: #16A34A;
+  --gantt-risk-low-bg: #DCFCE7;
+  --gantt-risk-low-border: #BBF7D0;
+  --gantt-risk-none: #64748B;
+  --gantt-risk-none-bg: #F1F5F9;
+  --gantt-risk-none-border: #E2E8F0;
+}
+
+.dark {
+  --gantt-client: #F59E0B;
+  --gantt-internal: #60A5FA;
+
+  --gantt-done: #6E7787;
+  --gantt-in-progress: #60A5FA;
+  --gantt-backlog: #5B6475;
+  --gantt-overdue: #F87171;
+
+  --gantt-today: #F87171;
+  --gantt-today-column: #4D1D21;
+  --gantt-weekend: #272E37;
+  --gantt-grid-line: #333B49;
+  --gantt-header-bg: #151A22;
+  --gantt-group-header-bg: #202734;
+  --gantt-row-selected: #2A3446;
+
+  --gantt-milestone: #60A5FA;
+  --gantt-milestone-bg: #1C3050;
+  --gantt-milestone-warn: #FBBF24;
+  --gantt-milestone-warn-bg: #4A3A0F;
+  --gantt-milestone-urgent: #F87171;
+  --gantt-milestone-urgent-bg: #4D1D21;
+  --gantt-milestone-past: #9DA6B4;
+  --gantt-milestone-past-bg: #242B36;
+
+  --gantt-parent-bar: #818CF8;
+  --gantt-parent-bar-bg: #2A2F5C;
+
+  --gantt-text-primary: #F2F4F7;
+  --gantt-text-secondary: #9DA6B4;
+  --gantt-text-muted: #8A93A2;
+
+  --gantt-connector: #78839A;
+  --gantt-link-child: #818CF8;
+  --gantt-link-parent: #34D399;
+  --gantt-link-child-tint: #262C56;
+  --gantt-link-parent-tint: #14432F;
+  --gantt-link-child-strong: #3A4380;
+  --gantt-link-parent-strong: #1C5C42;
+
+  --gantt-bar-shadow: #000000;
+  --gantt-diamond-stroke: #191E27;
+  --gantt-on-accent: #13161D;
+
+  --gantt-scrollbar-track: #1B2028;
+  --gantt-scrollbar-thumb: #3A414E;
+  --gantt-scrollbar-thumb-hover: #4E5666;
+
+  --gantt-tooltip-bg: #2A3241;
+  --gantt-tooltip-fg: #F2F4F7;
+  --gantt-tooltip-fg-muted: #A8B2C1;
+  --gantt-tooltip-fg-dim: #D5DCE6;
+  --gantt-tooltip-line: #414B5C;
+
+  --gantt-risk-high: #F87171;
+  --gantt-risk-high-bg: #4D1D21;
+  --gantt-risk-high-border: #6B2A2E;
+  --gantt-risk-medium: #FBBF24;
+  --gantt-risk-medium-bg: #4A3A0F;
+  --gantt-risk-medium-border: #6B5518;
+  --gantt-risk-low: #4ADE80;
+  --gantt-risk-low-bg: #123D24;
+  --gantt-risk-low-border: #1C5C35;
+  --gantt-risk-none: #9DA6B4;
+  --gantt-risk-none-bg: #242B36;
+  --gantt-risk-none-border: #333B49;
 }
 
 body {
@@ -353,17 +519,17 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 }
 
 .gantt-scroll::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: var(--gantt-scrollbar-track);
 }
 
 .gantt-scroll::-webkit-scrollbar-thumb {
-  background: #c1c9d4;
+  background: var(--gantt-scrollbar-thumb);
   border-radius: 5px;
-  border: 2px solid #f1f5f9;
+  border: 2px solid var(--gantt-scrollbar-track);
 }
 
 .gantt-scroll::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--gantt-scrollbar-thumb-hover);
 }
 
 /* Popover shadow */

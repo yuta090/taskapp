@@ -270,21 +270,21 @@ export const GanttRow = memo(function GanttRow({
         y={y}
         width={totalWidth}
         height={GANTT_CONFIG.ROW_HEIGHT}
-        fill={isSelected ? '#F1F5F9' : 'transparent'}
+        fill={isSelected ? GANTT_CONFIG.COLORS.ROW_SELECTED : 'transparent'}
       />
 
       {/* Link highlight: row-wide glow for eligible targets */}
       {highlightType === 'eligible' && (
         <rect
           x={0} y={y} width={totalWidth} height={GANTT_CONFIG.ROW_HEIGHT}
-          fill={highlightMode === 'child' ? '#EEF2FF' : '#ECFDF5'}
+          fill={highlightMode === 'child' ? GANTT_CONFIG.COLORS.LINK_CHILD_TINT : GANTT_CONFIG.COLORS.LINK_PARENT_TINT}
           opacity={0.4}
         />
       )}
       {highlightType === 'over' && (
         <rect
           x={0} y={y} width={totalWidth} height={GANTT_CONFIG.ROW_HEIGHT}
-          fill={highlightMode === 'child' ? '#C7D2FE' : '#A7F3D0'}
+          fill={highlightMode === 'child' ? GANTT_CONFIG.COLORS.LINK_CHILD_STRONG : GANTT_CONFIG.COLORS.LINK_PARENT_STRONG}
           opacity={0.5}
         />
       )}
@@ -345,7 +345,7 @@ export const GanttRow = memo(function GanttRow({
             y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 1}
             width={displayPosition.width} height={GANTT_CONFIG.BAR_HEIGHT}
             rx={GANTT_CONFIG.RADIUS.SM}
-            fill="black" opacity={0.05}
+            fill={GANTT_CONFIG.COLORS.BAR_SHADOW} opacity={0.05}
             style={{ pointerEvents: 'none' }}
           />
 
@@ -358,7 +358,7 @@ export const GanttRow = memo(function GanttRow({
               height={GANTT_CONFIG.BAR_HEIGHT + 4}
               rx={GANTT_CONFIG.RADIUS.SM + 2}
               fill="none"
-              stroke={highlightMode === 'child' ? '#6366F1' : '#10B981'}
+              stroke={highlightMode === 'child' ? GANTT_CONFIG.COLORS.LINK_CHILD : GANTT_CONFIG.COLORS.LINK_PARENT}
               strokeWidth={2} opacity={0.8}
               style={{ pointerEvents: 'none' }}
             />
@@ -465,7 +465,7 @@ export const GanttRow = memo(function GanttRow({
               x={displayPosition.x + 2}
               y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
               width={3} height={GANTT_CONFIG.BAR_HEIGHT - 8} rx={1}
-              fill="white" opacity={0.9}
+              fill={GANTT_CONFIG.COLORS.ON_ACCENT} opacity={0.9}
               style={{ pointerEvents: 'none' }}
             />
           )}
@@ -474,7 +474,7 @@ export const GanttRow = memo(function GanttRow({
               x={displayPosition.x + displayPosition.width - 5}
               y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
               width={3} height={GANTT_CONFIG.BAR_HEIGHT - 8} rx={1}
-              fill="white" opacity={0.9}
+              fill={GANTT_CONFIG.COLORS.ON_ACCENT} opacity={0.9}
               style={{ pointerEvents: 'none' }}
             />
           )}
@@ -486,13 +486,13 @@ export const GanttRow = memo(function GanttRow({
               <circle
                 cx={displayPosition.x - 12}
                 cy={y + GANTT_CONFIG.ROW_HEIGHT / 2}
-                r={7} fill="#6366F1" opacity={0.85}
+                r={7} fill={GANTT_CONFIG.COLORS.LINK_CHILD} opacity={0.85}
                 style={{ pointerEvents: 'none' }}
               />
               <text
                 x={displayPosition.x - 12}
                 y={y + GANTT_CONFIG.ROW_HEIGHT / 2 + 1}
-                fontSize={8} fill="white" fontWeight={700}
+                fontSize={8} fill={GANTT_CONFIG.COLORS.ON_ACCENT} fontWeight={700}
                 textAnchor="middle" dominantBaseline="middle"
                 style={{ pointerEvents: 'none' }}
               >
@@ -511,13 +511,13 @@ export const GanttRow = memo(function GanttRow({
               <circle
                 cx={displayPosition.x + displayPosition.width + 12}
                 cy={y + GANTT_CONFIG.ROW_HEIGHT / 2}
-                r={7} fill="#10B981" opacity={0.85}
+                r={7} fill={GANTT_CONFIG.COLORS.LINK_PARENT} opacity={0.85}
                 style={{ pointerEvents: 'none' }}
               />
               <text
                 x={displayPosition.x + displayPosition.width + 12}
                 y={y + GANTT_CONFIG.ROW_HEIGHT / 2 + 1}
-                fontSize={8} fill="white" fontWeight={700}
+                fontSize={8} fill={GANTT_CONFIG.COLORS.ON_ACCENT} fontWeight={700}
                 textAnchor="middle" dominantBaseline="middle"
                 style={{ pointerEvents: 'none' }}
               >
@@ -542,12 +542,12 @@ export const GanttRow = memo(function GanttRow({
                 y={y - 28}
                 width={Math.max(displayPosition.width, 140)}
                 height={24} rx={4}
-                fill="#1E293B" opacity={0.95}
+                fill={GANTT_CONFIG.COLORS.TOOLTIP_BG} opacity={0.95}
               />
               <text
                 x={displayPosition.x + 8}
                 y={y - 12}
-                fontSize={11} fill="white"
+                fontSize={11} fill={GANTT_CONFIG.COLORS.TOOLTIP_FG}
                 style={{ fontFamily: 'inherit' }}
               >
                 {tooltipText}

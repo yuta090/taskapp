@@ -606,7 +606,7 @@ export function GanttChart({
 
             <button
               onClick={scrollToToday}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-blue-ink bg-blue-50 hover:bg-blue-100 transition-colors"
             >
               <CalendarBlank className="w-3.5 h-3.5" />
               今日
@@ -626,7 +626,7 @@ export function GanttChart({
                   onClick={() => setGroupBy(opt.value)}
                   className={`px-2 py-1 rounded transition-colors ${
                     groupBy === opt.value
-                      ? 'bg-blue-50 text-blue-700 font-medium'
+                      ? 'bg-blue-50 text-blue-ink font-medium'
                       : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
@@ -649,7 +649,7 @@ export function GanttChart({
                   onClick={() => setStatusFilter(opt.value)}
                   className={`px-2 py-1 rounded transition-colors ${
                     statusFilter === opt.value
-                      ? 'bg-blue-50 text-blue-700 font-medium'
+                      ? 'bg-blue-50 text-blue-ink font-medium'
                       : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
@@ -776,10 +776,11 @@ export function GanttChart({
               return (
                 <div
                   key={`header-${group.groupKey}`}
-                  className="flex items-center px-3 bg-gray-50 border-b font-medium"
+                  className="flex items-center px-3 border-b font-medium"
                   style={{
                     height: GANTT_CONFIG.ROW_HEIGHT,
                     borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
+                    backgroundColor: GANTT_CONFIG.COLORS.GROUP_HEADER_BG,
                   }}
                 >
                   <div
@@ -799,9 +800,9 @@ export function GanttChart({
                     const risk = riskForecasts.get(milestoneForRisk.id)!
                     if (risk.level === 'none' || risk.remainingTasks === 0) return null
                     const badgeColors = {
-                      high: { bg: '#FEE2E2', text: '#DC2626' },
-                      medium: { bg: '#FEF3C7', text: '#D97706' },
-                      low: { bg: '#DCFCE7', text: '#16A34A' },
+                      high: { bg: GANTT_CONFIG.COLORS.RISK_HIGH_BG, text: GANTT_CONFIG.COLORS.RISK_HIGH },
+                      medium: { bg: GANTT_CONFIG.COLORS.RISK_MEDIUM_BG, text: GANTT_CONFIG.COLORS.RISK_MEDIUM },
+                      low: { bg: GANTT_CONFIG.COLORS.RISK_LOW_BG, text: GANTT_CONFIG.COLORS.RISK_LOW },
                     } as const
                     const c = badgeColors[risk.level as keyof typeof badgeColors]
                     if (!c) return null
@@ -823,7 +824,7 @@ export function GanttChart({
 
             const task = row.task!
             const isSelected = task.id === selectedTaskId
-            const statusColors = getStatusBadge(task.status)
+            const statusBadgeClass = getStatusBadgeClass(task.status)
             const hasParent = !!task.parent_task_id
             const depth = row.depth || 0
             const basePadding = isGrouped ? 21 : 9
@@ -836,7 +837,7 @@ export function GanttChart({
                 className="flex items-center gap-2 cursor-pointer transition-colors hover:bg-gray-50 group"
                 style={{
                   height: GANTT_CONFIG.ROW_HEIGHT,
-                  backgroundColor: isSelected ? '#F1F5F9' : undefined,
+                  backgroundColor: isSelected ? GANTT_CONFIG.COLORS.ROW_SELECTED : undefined,
                   borderBottom: `0.5px solid ${GANTT_CONFIG.COLORS.GRID_LINE}`,
                   paddingLeft: basePadding + depthIndent,
                   paddingRight: 12,
@@ -855,7 +856,7 @@ export function GanttChart({
                 />
 
                 {hasParent && (
-                  <span className="text-gray-300 text-[10px] flex-shrink-0">└</span>
+                  <span className="text-gray-400 text-[10px] flex-shrink-0">└</span>
                 )}
 
                 <span
@@ -885,11 +886,7 @@ export function GanttChart({
 
                 {/* Status badge */}
                 <span
-                  className="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0"
-                  style={{
-                    backgroundColor: statusColors.bg,
-                    color: statusColors.text,
-                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${statusBadgeClass}`}
                 >
                   {statusLabels[task.status] || task.status}
                 </span>
@@ -976,7 +973,7 @@ export function GanttChart({
                         y={row.rowIndex * GANTT_CONFIG.ROW_HEIGHT}
                         width={totalWidth}
                         height={GANTT_CONFIG.ROW_HEIGHT}
-                        fill="#F8FAFC"
+                        fill={GANTT_CONFIG.COLORS.GROUP_HEADER_BG}
                       />
                       <line
                         x1={0}
@@ -1018,7 +1015,7 @@ export function GanttChart({
                     <path
                       d={`M ${line.parentEndX} ${line.parentY} L ${midX} ${line.parentY} L ${midX} ${line.childY} L ${line.childStartX} ${line.childY}`}
                       fill="none"
-                      stroke="#94A3B8"
+                      stroke={GANTT_CONFIG.COLORS.CONNECTOR}
                       strokeWidth={1.5}
                       strokeDasharray="4 3"
                       opacity={0.6}
@@ -1026,7 +1023,7 @@ export function GanttChart({
                     {/* Arrow at child end */}
                     <polygon
                       points={`${line.childStartX},${line.childY} ${line.childStartX - 5},${line.childY - 3} ${line.childStartX - 5},${line.childY + 3}`}
-                      fill="#94A3B8"
+                      fill={GANTT_CONFIG.COLORS.CONNECTOR}
                       opacity={0.6}
                     />
                   </g>
@@ -1074,7 +1071,7 @@ export function GanttChart({
                     y1={linkDrag.startY}
                     x2={linkDrag.currentX}
                     y2={linkDrag.currentY}
-                    stroke={linkDrag.mode === 'child' ? '#6366F1' : '#10B981'}
+                    stroke={linkDrag.mode === 'child' ? GANTT_CONFIG.COLORS.LINK_CHILD : GANTT_CONFIG.COLORS.LINK_PARENT}
                     strokeWidth={2}
                     strokeDasharray="6 4"
                     opacity={0.7}
@@ -1084,14 +1081,14 @@ export function GanttChart({
                     cx={linkDrag.startX}
                     cy={linkDrag.startY}
                     r={4}
-                    fill={linkDrag.mode === 'child' ? '#6366F1' : '#10B981'}
+                    fill={linkDrag.mode === 'child' ? GANTT_CONFIG.COLORS.LINK_CHILD : GANTT_CONFIG.COLORS.LINK_PARENT}
                   />
                   {/* Cursor dot */}
                   <circle
                     cx={linkDrag.currentX}
                     cy={linkDrag.currentY}
                     r={4}
-                    fill={linkDrag.mode === 'child' ? '#6366F1' : '#10B981'}
+                    fill={linkDrag.mode === 'child' ? GANTT_CONFIG.COLORS.LINK_CHILD : GANTT_CONFIG.COLORS.LINK_PARENT}
                     opacity={0.6}
                   />
                   {/* Hint text */}
@@ -1099,7 +1096,7 @@ export function GanttChart({
                     x={linkDrag.currentX + 12}
                     y={linkDrag.currentY - 8}
                     fontSize={11}
-                    fill={linkDrag.mode === 'child' ? '#6366F1' : '#10B981'}
+                    fill={linkDrag.mode === 'child' ? GANTT_CONFIG.COLORS.LINK_CHILD : GANTT_CONFIG.COLORS.LINK_PARENT}
                     fontWeight={600}
                   >
                     {hoverTaskId && eligibleTargetIds.has(hoverTaskId)
@@ -1168,16 +1165,19 @@ export function GanttChart({
   )
 }
 
-function getStatusBadge(status: string): { bg: string; text: string } {
-  const colors: Record<string, { bg: string; text: string }> = {
-    backlog: { bg: '#F3F4F6', text: '#6B7280' },
-    todo: { bg: '#F3F4F6', text: '#6B7280' },
-    in_progress: { bg: '#EFF6FF', text: '#2563EB' },
-    in_review: { bg: '#FFFBEB', text: '#D97706' },
-    done: { bg: '#F0FDF4', text: '#16A34A' },
-    considering: { bg: '#F3F4F6', text: '#6B7280' },
-  }
-  return colors[status] || colors.backlog
+// 状態バッジの配色はアプリ共通の utility に寄せる（ダークは中央トークンの反転で追従する）。
+// 行ごとに作り直さないようモジュール直下に置く。
+const STATUS_BADGE_CLASS: Record<string, string> = {
+  backlog: 'bg-gray-100 text-gray-500',
+  todo: 'bg-gray-100 text-gray-500',
+  in_progress: 'bg-blue-50 text-blue-ink',
+  in_review: 'bg-amber-50 text-amber-ink',
+  done: 'bg-green-50 text-green-ink',
+  considering: 'bg-gray-100 text-gray-500',
+}
+
+function getStatusBadgeClass(status: string): string {
+  return STATUS_BADGE_CLASS[status] || STATUS_BADGE_CLASS.backlog
 }
 
 const statusLabels: Record<string, string> = {

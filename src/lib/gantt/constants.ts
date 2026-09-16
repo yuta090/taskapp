@@ -19,42 +19,81 @@ export const GANTT_CONFIG = {
   MONTH_WIDTH: 8, // per day when in month mode
   MIN_BAR_WIDTH: 4,
 
-  // Colors - Cool foundation with semantic accents
+  // Colors - 実値は globals.css の :root / .dark（ダークで面と文字が入れ替わる）。
+  // SVG には Tailwind の utility が効かないため、var() 参照をそのまま fill/stroke に渡す。
   COLORS: {
     // Ball ownership (functional meaning)
-    CLIENT: '#F59E0B',      // Amber-500 - client visible
-    INTERNAL: '#3B82F6',    // Blue-500 - internal
+    CLIENT: 'var(--gantt-client)',      // Amber-500 - client visible
+    INTERNAL: 'var(--gantt-internal)',
 
     // Status
-    DONE: '#6B7280',        // Gray-500
-    IN_PROGRESS: '#3B82F6', // Blue-500
-    BACKLOG: '#9CA3AF',     // Gray-400
-    OVERDUE: '#DC2626',     // Red-600 - 期限切れ・未完了のバーの枠（塗りはボールの色のまま）
+    DONE: 'var(--gantt-done)',
+    IN_PROGRESS: 'var(--gantt-in-progress)',
+    BACKLOG: 'var(--gantt-backlog)',
+    OVERDUE: 'var(--gantt-overdue)',    // 期限切れ・未完了のバーの枠（塗りはボールの色のまま）
 
     // Timeline
-    TODAY: '#EF4444',       // Red-500
-    WEEKEND: '#F9FAFB',     // Gray-50
-    GRID_LINE: '#E5E7EB',   // Gray-200
-    HEADER_BG: '#F9FAFB',   // Gray-50
+    TODAY: 'var(--gantt-today)',
+    TODAY_COLUMN: 'var(--gantt-today-column)',
+    WEEKEND: 'var(--gantt-weekend)',
+    GRID_LINE: 'var(--gantt-grid-line)',
+    HEADER_BG: 'var(--gantt-header-bg)',
+    GROUP_HEADER_BG: 'var(--gantt-group-header-bg)',
+    ROW_SELECTED: 'var(--gantt-row-selected)',
 
     // Milestones - urgency based colors
-    MILESTONE: '#60A5FA',        // Blue-400 - normal (8+ days)
-    MILESTONE_BG: '#EFF6FF',     // Blue-50
-    MILESTONE_WARN: '#F59E0B',   // Amber-500 - warning (4-7 days)
-    MILESTONE_WARN_BG: '#FEF3C7', // Amber-100
-    MILESTONE_URGENT: '#EF4444', // Red-500 - urgent (0-3 days)
-    MILESTONE_URGENT_BG: '#FEE2E2', // Red-100
-    MILESTONE_PAST: '#6B7280',   // Gray-500 - overdue
-    MILESTONE_PAST_BG: '#F3F4F6', // Gray-100
+    MILESTONE: 'var(--gantt-milestone)',
+    MILESTONE_BG: 'var(--gantt-milestone-bg)',
+    MILESTONE_WARN: 'var(--gantt-milestone-warn)',
+    MILESTONE_WARN_BG: 'var(--gantt-milestone-warn-bg)',
+    MILESTONE_URGENT: 'var(--gantt-milestone-urgent)',
+    MILESTONE_URGENT_BG: 'var(--gantt-milestone-urgent-bg)',
+    MILESTONE_PAST: 'var(--gantt-milestone-past)',
+    MILESTONE_PAST_BG: 'var(--gantt-milestone-past-bg)',
 
     // Parent task summary bar
-    PARENT_BAR: '#6366F1',       // Indigo-500
-    PARENT_BAR_BG: '#E0E7FF',    // Indigo-100
+    PARENT_BAR: 'var(--gantt-parent-bar)',
+    PARENT_BAR_BG: 'var(--gantt-parent-bar-bg)',
 
     // Text
-    TEXT_PRIMARY: '#111827',   // Gray-900
-    TEXT_SECONDARY: '#6B7280', // Gray-500
-    TEXT_MUTED: '#9CA3AF',     // Gray-400
+    TEXT_PRIMARY: 'var(--gantt-text-primary)',
+    TEXT_SECONDARY: 'var(--gantt-text-secondary)',
+    TEXT_MUTED: 'var(--gantt-text-muted)',
+
+    // 親子のつなぎ線・リンクドラッグ中の線
+    CONNECTOR: 'var(--gantt-connector)',
+    LINK_CHILD: 'var(--gantt-link-child)',
+    LINK_PARENT: 'var(--gantt-link-parent)',
+    LINK_CHILD_TINT: 'var(--gantt-link-child-tint)',
+    LINK_PARENT_TINT: 'var(--gantt-link-parent-tint)',
+    LINK_CHILD_STRONG: 'var(--gantt-link-child-strong)',
+    LINK_PARENT_STRONG: 'var(--gantt-link-parent-strong)',
+
+    // バーの影・マイルストーンのひし形の縁（縁は背景と同色で抜く）
+    BAR_SHADOW: 'var(--gantt-bar-shadow)',
+    DIAMOND_STROKE: 'var(--gantt-diamond-stroke)',
+    ON_ACCENT: 'var(--gantt-on-accent)',
+
+    // ホバー時のポップアップ
+    TOOLTIP_BG: 'var(--gantt-tooltip-bg)',
+    TOOLTIP_FG: 'var(--gantt-tooltip-fg)',
+    TOOLTIP_FG_MUTED: 'var(--gantt-tooltip-fg-muted)',
+    TOOLTIP_FG_DIM: 'var(--gantt-tooltip-fg-dim)',
+    TOOLTIP_LINE: 'var(--gantt-tooltip-line)',
+
+    // 遅れの見込み（マイルストーンのバッジ）
+    RISK_HIGH: 'var(--gantt-risk-high)',
+    RISK_HIGH_BG: 'var(--gantt-risk-high-bg)',
+    RISK_HIGH_BORDER: 'var(--gantt-risk-high-border)',
+    RISK_MEDIUM: 'var(--gantt-risk-medium)',
+    RISK_MEDIUM_BG: 'var(--gantt-risk-medium-bg)',
+    RISK_MEDIUM_BORDER: 'var(--gantt-risk-medium-border)',
+    RISK_LOW: 'var(--gantt-risk-low)',
+    RISK_LOW_BG: 'var(--gantt-risk-low-bg)',
+    RISK_LOW_BORDER: 'var(--gantt-risk-low-border)',
+    RISK_NONE: 'var(--gantt-risk-none)',
+    RISK_NONE_BG: 'var(--gantt-risk-none-bg)',
+    RISK_NONE_BORDER: 'var(--gantt-risk-none-border)',
   },
 
   // Typography
