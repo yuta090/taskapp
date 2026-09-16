@@ -51,6 +51,12 @@ const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
   { value: 'past', label: '過去' },
 ]
 
+/**
+ * スマホの会議詳細（シート）を開いているかを URL に載せる印。
+ * state で持つと端末の「戻る」でシートではなく議事録ごと閉じてしまうため、URL に出す。
+ */
+const INFO_QUERY_PARAM = 'info'
+
 export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) {
   const spaceName = useSpaceName(spaceId)
   const searchParams = useSearchParams()
@@ -67,9 +73,6 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const [proposalDetail, setProposalDetail] = useState<ProposalDetail | null>(null)
   const [showCreateMenu, setShowCreateMenu] = useState(false)
   const createMenuRef = useRef<HTMLDivElement>(null)
-  // モバイルでは文書ビューを開いても会議詳細(Inspector)は自動で出さず、情報ボタンで開く
-  // （Wiki の showInfo と同じ考え方。オーバーレイ禁止のためモバイルはシート表示）
-  const [showInfo, setShowInfo] = useState(false)
   // 議事録の文書ビュー。タスク化直後に「詳細を取り直して基準を更新→エディタを作り直す」ため、
   // key に含めて丸ごと再マウントする（目印がチップになった最新の本文で作り直す）
   const [minutesReloadToken, setMinutesReloadToken] = useState(0)
@@ -114,6 +117,10 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const projectBasePath = `/${orgId}/project/${spaceId}/meetings`
   const selectedMeetingId = searchParams.get(MEETING_QUERY_PARAM)
   const selectedProposalId = searchParams.get(PROPOSAL_QUERY_PARAM)
+  // スマホでは、議事録を開いても会議詳細(Inspector)は自動で出さず、情報ボタンで開く
+  // （オーバーレイ禁止のためシート表示）。開いているかは state ではなく URL に載せる —
+  // 端末の「戻る」で ?info= が外れ、議事録は開いたままシートだけが閉じる
+  const showInfo = searchParams.get(INFO_QUERY_PARAM) === '1'
 
   // 会議メモに残す「書いた人」の名前。書ける人が議事録を開いているときだけ読む
   // （会議詳細の MeetingInspector が出ていれば同じ一覧を共有する。全画面などで出ていない
@@ -279,33 +286,80 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     [projectBasePath, searchParams]
   )
 
+  // history.back() は実際に戻り切るまで一拍ある。その間にもう一度押されたら何もしない
+  // （2回目が「差し替え」に回ると、来た履歴を1つ余分に食って意図より手前の画面に着く）。
+  const backInFlightRef = useRef(false)
+  const goBack = useCallback(() => {
+    if (backInFlightRef.current) return
+    backInFlightRef.current = true
+    window.history.back()
+  }, [])
+
+  // URL が実際に変わったら「戻る途中」の印を落とす。
+  // 依存は searchParams そのものではなく文字列にする — 本番は URL が変わったときだけ新しい実体に
+  // なるが、テストの差し替えは毎回新しい実体を返すので、文字列にしないと意味がずれる
+  const searchParamsKey = searchParams.toString()
+  useEffect(() => {
+    backInFlightRef.current = false
+  }, [searchParamsKey])
+
   // この画面で議事録を開いて履歴を積んだか。積んでいれば「戻る」は history.back() で1つ戻す
   // （URL を差し替えると履歴に一覧が2つ並び、戻るをもう1回押さないと前の画面に帰れない）。
   // リンク・お知らせ・ダッシュボードから直接 ?meeting= で来たときは積んでいないので差し替える。
-  const pushedMinutesRef = useRef(false)
+  // 「どの議事録を開くときに積んだか」まで覚える。真偽値だと、別の議事録へ移ったあとも印が
+  // 立ったままになり、その議事録の「戻る」が一覧ではなく前の議事録に帰ってしまう
+  const pushedMinutesIdRef = useRef<string | null>(null)
 
   const openMinutesDocument = useCallback(
     (meetingId: string) => {
       // 既に積んでいたら積み増さない。URL の反映は一拍遅れるので、同じ行を素早く2回押すと
       // 履歴が2つ並び、1回目の「戻る」で同じ議事録に帰る（直したい症状と同じに見える）。
-      const alreadyPushed = pushedMinutesRef.current
-      pushedMinutesRef.current = true
-      updateQuery({ meeting: meetingId, proposal: null }, { push: !alreadyPushed })
+      const alreadyPushed = pushedMinutesIdRef.current !== null
+      pushedMinutesIdRef.current = meetingId
+      // 前の会議で開いていたシート（?info=1）は持ち越さない
+      updateQuery({ meeting: meetingId, proposal: null, [INFO_QUERY_PARAM]: null }, { push: !alreadyPushed })
     },
     [updateQuery]
   )
 
   // 議事録を閉じて一覧へ戻るときは全画面表示も必ず解除する
   // （戻さないと、次に別の会議を開いたときも左メニューが消えたままになる）。
+  /**
+   * 画面の「戻る」は、履歴を戻すのではなく必ず一覧の URL に差し替える。
+   *
+   * Wiki で実ブラウザで確かめたところ、ブラウザの「戻る」で一覧に帰ったあと、もう一度開くと
+   * 「履歴を積んだ」という印と実際の履歴がずれ、history.back() が一覧を飛び越してその前の画面
+   * まで戻った。押したら必ず一覧が出ることを優先する（ブラウザの「戻る」で一覧に帰れる、という
+   * 本来の目的は、開くときに履歴を積む側で果たしている）。議事録も同じ作りにそろえる。
+   */
   const closeMinutesDocument = useCallback(() => {
     setFullscreen(false)
-    if (pushedMinutesRef.current) {
-      pushedMinutesRef.current = false
-      window.history.back()
+    pushedMinutesIdRef.current = null
+    updateQuery({ meeting: null, [INFO_QUERY_PARAM]: null })
+  }, [setFullscreen, updateQuery])
+
+  // スマホの会議詳細（シート）。開くときに履歴を1つ積み、閉じるときは1つ戻す。
+  // こうすると端末の「戻る」でシートだけが閉じる（議事録は開いたまま）。
+  const pushedInfoRef = useRef(false)
+
+  const openInfoSheet = useCallback(() => {
+    const alreadyPushed = pushedInfoRef.current
+    pushedInfoRef.current = true
+    updateQuery({ [INFO_QUERY_PARAM]: '1' }, { push: !alreadyPushed })
+  }, [updateQuery])
+
+  const closeInfoSheet = useCallback(() => {
+    // 戻る途中なら何もしない（2回目の押下で履歴を余分に食わないため）
+    if (backInFlightRef.current) return
+    // 履歴を戻すのは「自分で積んだシートを、いま開いている」ときだけ。
+    // URL（showInfo）と突き合わせるので、印だけを信じて一覧を飛び越すことがない
+    if (pushedInfoRef.current && showInfo) {
+      pushedInfoRef.current = false
+      goBack()
       return
     }
-    updateQuery({ meeting: null })
-  }, [setFullscreen, updateQuery])
+    updateQuery({ [INFO_QUERY_PARAM]: null })
+  }, [goBack, showInfo, updateQuery])
 
   // MEDIUM-B: Inspector の×（一覧へ戻る）から離れるときは、保存されていない書きかけが
   // あれば確認してから戻る（文書ビュー自身の「戻る」ボタンは内部で同じ確認をしてから
@@ -331,18 +385,17 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     if (!isMinutesDocumentOpen) setFullscreen(false)
   }, [isMinutesDocumentOpen, setFullscreen])
 
-  // 会議を切り替えたら、モバイルの情報シート表示は毎回閉じ直す
-  // （前の会議で開いていた状態のまま次の会議に持ち越さない）
+  // シートが閉じたら、履歴を積んだ印を落とす（端末の「戻る」で閉じた場合を含む）
   useEffect(() => {
-    setShowInfo(false)
-  }, [selectedMeetingId])
+    if (!showInfo) pushedInfoRef.current = false
+  }, [showInfo])
 
   // 議事録の画面が閉じたら、履歴を積んだ印を落とす。残したままだと、次にリンクから直接開いた
   // 議事録の「戻る」で history.back() を呼び、一覧ではなく前に見ていたページへ飛ぶ。
   // 条件は ?meeting= の有無ではなく「議事録の画面が出ているか」にする — 開いたまま会議を
   // 削除すると一覧に戻っても URL の ?meeting= は残るため、有無で見ると印が落ちない。
   useEffect(() => {
-    if (!isMinutesDocumentOpen) pushedMinutesRef.current = false
+    if (!isMinutesDocumentOpen) pushedMinutesIdRef.current = null
   }, [isMinutesDocumentOpen])
 
   useEffect(() => {
@@ -365,7 +418,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       <MeetingInspector
         meeting={selectedMeeting}
         participants={participants[selectedMeeting.id] || []}
-        onClose={() => (isMobile ? setShowInfo(false) : void handleCloseFromInspector())}
+        onClose={() => (isMobile ? closeInfoSheet() : void handleCloseFromInspector())}
         onStart={async () => {
           try {
             await startMeeting(selectedMeeting.id)
@@ -383,9 +436,10 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         onDelete={async () => {
           try {
             await deleteMeeting(selectedMeeting.id)
-            // 消した会議の ?meeting= を URL に残さない（残すと、そのあと開いた議事録の
-            // 「戻る」で消えた会議の URL に帰ってしまう）。履歴は戻さず差し替えるだけにする
-            updateQuery({ meeting: null })
+            // 消した会議の ?meeting= と、スマホのシートの ?info= を URL に残さない（残すと、
+            // そのあと開いた議事録の「戻る」で消えた会議の URL に帰ってしまう）。
+            // 履歴は戻さず差し替えるだけにする
+            updateQuery({ meeting: null, [INFO_QUERY_PARAM]: null })
             toast.success('会議を削除しました')
           } catch (err) {
             toast.error(err instanceof Error ? err.message : '会議の削除に失敗しました')
@@ -487,6 +541,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     previewMinutes,
     isMobile,
     showInfo,
+    closeInfoSheet,
     fullscreen,
     fetchMeetingDetail,
     canEdit,
@@ -573,7 +628,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         canEdit={canEdit}
         forceReadOnly={isTaskifying}
         onBack={closeMinutesDocument}
-        onOpenInfo={() => setShowInfo(true)}
+        onOpenInfo={openInfoSheet}
         updateMinutes={updateMinutes}
         fetchMeetingDetail={fetchMeetingDetail}
         fullscreen={fullscreen}
@@ -792,7 +847,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
                     key={`proposal-${item.data.id}`}
                     proposal={item.data}
                     isSelected={item.data.id === selectedProposalId}
-                    onClick={() => updateQuery({ proposal: item.data.id, meeting: null })}
+                    onClick={() => updateQuery({ proposal: item.data.id, meeting: null, [INFO_QUERY_PARAM]: null })}
                   />
                 )
               )}

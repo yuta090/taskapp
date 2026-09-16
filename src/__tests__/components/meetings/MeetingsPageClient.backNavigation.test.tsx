@@ -189,7 +189,9 @@ describe('MeetingsPageClient — 議事録を開いたあとの「戻る」', ()
     expect(replaceSpy).not.toHaveBeenCalled()
   })
 
-  it('一覧から開いた議事録の「戻る」は、履歴を1つ戻して一覧に帰る', () => {
+  it('画面の「戻る」は、履歴を戻さず必ず一覧の URL にする（押したら必ず一覧が出る）', () => {
+    // 実ブラウザでの確認で、履歴を戻す方式だと「ブラウザの戻るで一覧 → もう一度開く」のあとに
+    // 一覧を飛び越してその前の画面まで戻った。押したら必ず一覧、を優先する
     const { rerenderPage } = renderPage()
     fireEvent.click(screen.getByText('定例MTG'))
 
@@ -200,9 +202,8 @@ describe('MeetingsPageClient — 議事録を開いたあとの「戻る」', ()
 
     fireEvent.click(screen.getByText('戻る'))
 
-    expect(backSpy).toHaveBeenCalledTimes(1)
-    // 履歴を戻すので、URL の差し替えはしない（差し替えると「戻る」がもう1回必要になる）
-    expect(replaceSpy).not.toHaveBeenCalled()
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', LIST_URL)
+    expect(backSpy).not.toHaveBeenCalled()
   })
 
   it('リンクやお知らせから直接開いたときの「戻る」は、履歴を戻さず一覧の URL に差し替える', () => {
@@ -231,6 +232,27 @@ describe('MeetingsPageClient — 議事録を開いたあとの「戻る」', ()
     fireEvent.click(screen.getByText('定例MTG'))
 
     expect(pushSpy).toHaveBeenCalledWith(null, '', MINUTES_URL)
+  })
+
+  it('別の議事録へ移ったあとの「戻る」は、前の議事録ではなく一覧に帰る', () => {
+    // 一覧 → 議事録A（履歴を積む）→ リンクなどで議事録B。「積んだ」印を議事録の id で持たないと、
+    // B の「戻る」が history.back() になり A に帰ってしまう
+    mockMeetingsList = [makeMeeting(), makeMeeting({ id: 'm2', title: '別のMTG' })]
+    const { rerenderPage } = renderPage()
+    fireEvent.click(screen.getByText('定例MTG'))
+
+    searchParamsValue = 'meeting=m1'
+    rerenderPage()
+
+    searchParamsValue = 'meeting=m2'
+    rerenderPage()
+    replaceSpy.mockClear()
+    backSpy.mockClear()
+
+    fireEvent.click(screen.getByText('戻る'))
+
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', LIST_URL)
+    expect(backSpy).not.toHaveBeenCalled()
   })
 
   it('同じ行を続けて2回押しても、積む履歴は1つだけ（1回の「戻る」で一覧に帰れるように）', () => {
@@ -285,8 +307,8 @@ describe('MeetingsPageClient — 議事録を開いたあとの「戻る」', ()
 
     fireEvent.click(screen.getByText('戻る'))
 
-    expect(backSpy).toHaveBeenCalledTimes(1)
-    expect(replaceSpy).not.toHaveBeenCalled()
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', LIST_URL)
+    expect(backSpy).not.toHaveBeenCalled()
   })
 
   it('開いている会議を削除したら、URL から ?meeting= を外す（消えた会議の URL を履歴に残さない）', async () => {

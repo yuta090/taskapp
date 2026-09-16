@@ -212,6 +212,8 @@ function WikiPageRowInner({
   return (
     <div
       onClick={handleClick}
+      // 実ブラウザでの確認・E2E から行を押せるようにする目印（日程調整の行 proposal-row-* と同じ作法）
+      data-testid={`wiki-page-row-${page.id}`}
       style={{ paddingLeft: 16 + (depth ?? 0) * 20 }}
       className={`flex items-center gap-3 pr-4 py-3 cursor-pointer transition-all border-b border-gray-100 last:border-b-0 ${
         isSelected

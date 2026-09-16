@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { BookOpen, Plus, ArrowLeft, Sparkle, Info, ArrowsOut, ArrowsIn } from '@phosphor-icons/react'
 import { useInspector, useShellFullscreen } from '@/components/layout'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
@@ -91,19 +91,22 @@ function canonicalizeWikiBody(value: string | null): string | null {
   }
 }
 
+/**
+ * スマホのページ情報（シート）を開いているかを URL に載せる印。
+ * state で持つと端末の「戻る」でシートではなくページごと閉じてしまうため、URL に出す
+ * （議事録の MeetingsPageClient と同じ作り）。
+ */
+const INFO_QUERY_PARAM = 'info'
+
 interface WikiPageClientProps {
   orgId: string
   spaceId: string
 }
 
 export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
   const isMobile = useIsMobile()
-  // On mobile, opening a page shows the editor directly; the page-info inspector
-  // is opened on demand (info button) instead of auto-overlaying the editor.
-  const [showInfo, setShowInfo] = useState(false)
   // 全画面表示（デスクトップのみ）。状態は画面の枠（AppShell）が持ち、デスクトップの LeftNav を隠す。
   // 重ね表示（fixed）にしないのは、main の z-0 の中からは LeftNav の上に出られず本文の左端が隠れたため。
   // ページ切り替え・Wikiから離脱で必ずOFFに戻す（戻さないとほかの画面で LeftNav が消えたままになる）。
@@ -283,9 +286,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   const projectBasePath = `/${orgId}/project/${spaceId}/wiki`
   const selectedPageId = searchParams.get('page')
+  // スマホでは、ページを開いてもページ情報（インスペクター）は自動で出さず、情報ボタンで開く
+  // （オーバーレイ禁止のためシート表示）。開いているかは state ではなく URL に載せる —
+  // 端末の「戻る」で ?info= が外れ、ページは開いたままシートだけが閉じる
+  const showInfo = searchParams.get(INFO_QUERY_PARAM) === '1'
 
+  // 表示速度: サーバーとの往復を避けるため router.replace ではなく history.replaceState で
+  // URL だけを変える（手本: MeetingsPageClient / TasksPageClient）。useSearchParams は追従する。
+  //
+  // 一覧からページを開くときだけ履歴を1つ積む（push）。差し替えるだけだと履歴が増えないので、
+  // ページを開いたあとブラウザの「戻る」を押すと、Wiki 一覧ではなく前に見ていたページが出る。
   const updateQuery = useCallback(
-    (updates: Record<string, string | null>) => {
+    (updates: Record<string, string | null>, options?: { push?: boolean }) => {
       const params = new URLSearchParams(searchParams.toString())
       Object.entries(updates).forEach(([key, value]) => {
         if (value === null) {
@@ -295,17 +307,99 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         }
       })
       const query = params.toString()
-      router.replace(query ? `${projectBasePath}?${query}` : projectBasePath)
+      const newUrl = query ? `${projectBasePath}?${query}` : projectBasePath
+      if (options?.push) {
+        window.history.pushState(null, '', newUrl)
+      } else {
+        window.history.replaceState(null, '', newUrl)
+      }
     },
-    [router, projectBasePath, searchParams]
+    [projectBasePath, searchParams]
   )
+
+  // history.back() は実際に戻り切るまで一拍ある。その間にもう一度押されたら何もしない
+  // （2回目が「差し替え」に回ると、来た履歴を1つ余分に食って意図より手前の画面に着く）。
+  const backInFlightRef = useRef(false)
+  const goBack = useCallback(() => {
+    if (backInFlightRef.current) return
+    backInFlightRef.current = true
+    window.history.back()
+  }, [])
+
+  // URL が実際に変わったら「戻る途中」の印を落とす。
+  // 依存は searchParams そのものではなく文字列にする — 本番は URL が変わったときだけ新しい実体に
+  // なるが、テストの差し替えは毎回新しい実体を返すので、文字列にしないと意味がずれる
+  const searchParamsKey = searchParams.toString()
+  useEffect(() => {
+    backInFlightRef.current = false
+  }, [searchParamsKey])
+
+  // この画面でページを開いて履歴を積んだか。積んでいれば「戻る」は history.back() で1つ戻す
+  // （URL を差し替えると履歴に一覧が2つ並び、戻るをもう1回押さないと前の画面に帰れない）。
+  // リンク・お知らせから直接 ?page= で来たときは積んでいないので差し替える。
+  // 「どのページを開くときに積んだか」まで覚える。真偽値だと、本文のリンクで別のページへ移った
+  // あとも印が立ったままになり、そのページの「戻る」が一覧ではなく前のページに帰ってしまう
+  const pushedPageIdRef = useRef<string | null>(null)
+
+  const openPage = useCallback(
+    (pageId: string) => {
+      // 既に積んでいたら積み増さない（URL の反映は一拍遅れるので、素早く2回押すと履歴が2つ並ぶ）
+      const alreadyPushed = pushedPageIdRef.current !== null
+      pushedPageIdRef.current = pageId
+      // 前のページで開いていたシート（?info=1）は持ち越さない
+      updateQuery({ page: pageId, [INFO_QUERY_PARAM]: null }, { push: !alreadyPushed })
+    },
+    [updateQuery]
+  )
+
+  /**
+   * 画面の「戻る」は、履歴を戻すのではなく必ず一覧の URL に差し替える。
+   *
+   * 実ブラウザで確かめたところ、ブラウザの「戻る」で一覧に帰ったあともう一度ページを開くと、
+   * 「履歴を積んだ」という印と実際の履歴がずれ、history.back() が一覧を飛び越して
+   * その前の画面（ダッシュボード）まで戻った。押したら必ず一覧が出ることを優先する。
+   * ブラウザの「戻る」で一覧に帰れる（本来の目的）は、開くときに履歴を積む側で果たしている。
+   */
+  const closePageView = useCallback(() => {
+    pushedPageIdRef.current = null
+    updateQuery({ page: null, [INFO_QUERY_PARAM]: null })
+  }, [updateQuery])
+
+  // スマホのページ情報（シート）。開くときに履歴を1つ積み、閉じるときは1つ戻す。
+  // こうすると端末の「戻る」でシートだけが閉じる（ページは開いたまま）。
+  const pushedInfoRef = useRef(false)
+
+  const openInfoSheet = useCallback(() => {
+    const alreadyPushed = pushedInfoRef.current
+    pushedInfoRef.current = true
+    updateQuery({ [INFO_QUERY_PARAM]: '1' }, { push: !alreadyPushed })
+  }, [updateQuery])
+
+  const closeInfoSheet = useCallback(() => {
+    // 戻る途中なら何もしない（2回目の押下で履歴を余分に食わないため）
+    if (backInFlightRef.current) return
+    // 履歴を戻すのは「自分で積んだシートを、いま開いている」ときだけ。
+    // URL（showInfo）と突き合わせるので、印だけを信じて一覧を飛び越すことがない
+    if (pushedInfoRef.current && showInfo) {
+      pushedInfoRef.current = false
+      goBack()
+      return
+    }
+    updateQuery({ [INFO_QUERY_PARAM]: null })
+  }, [goBack, showInfo, updateQuery])
+
+  // シートが閉じたら、履歴を積んだ印を落とす（端末の「戻る」で閉じた場合を含む）
+  useEffect(() => {
+    if (!showInfo) pushedInfoRef.current = false
+  }, [showInfo])
 
   // Auto-navigate to default page when it's first created
   const autoNavigatedRef = useRef(false)
   useEffect(() => {
     if (autoCreatedPageId && !selectedPageId && !autoNavigatedRef.current) {
       autoNavigatedRef.current = true
-      updateQuery({ page: autoCreatedPageId })
+      // 自動で開くので履歴は積まない（利用者が押していないため、「戻る」の行き先は一覧のまま）
+      updateQuery({ page: autoCreatedPageId, [INFO_QUERY_PARAM]: null })
     }
   }, [autoCreatedPageId, selectedPageId, updateQuery])
 
@@ -498,8 +592,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       setPageDeleted(false)
     }
 
-    setShowInfo(false)
     // ページを切り替えたら全画面表示は必ず解除する
+    // （スマホのシートは URL の ?info= で持つので、ページを開く openPage 側で外す）
     setIsFullscreen(false)
 
     let cancelled = false
@@ -554,7 +648,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
     const handleDelete = async () => {
       await deletePage(activePage.id)
-      updateQuery({ page: null })
+      // 消したページの ?page= と、スマホのシートの ?info= を URL に残さない
+      updateQuery({ page: null, [INFO_QUERY_PARAM]: null })
     }
 
     const handleRestoreVersion = (version: WikiPageVersionSummary) => {
@@ -620,7 +715,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         page={activePage}
         // Mobile: close just hides the info sheet (keeps the editor open).
         // Desktop: close navigates back to the page list (unchanged).
-        onClose={() => (isMobile ? setShowInfo(false) : updateQuery({ page: null }))}
+        onClose={() => (isMobile ? closeInfoSheet() : closePageView())}
         // 閲覧者（viewer）・相手先には編集操作を渡さない（onUpdate 等が無ければ表示だけになる設計）
         onUpdate={canEdit ? handleUpdate : undefined}
         onDelete={canEdit ? handleDelete : undefined}
@@ -644,6 +739,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     fetchPage,
     fetchVersions,
     fetchVersionBody,
+    closePageView,
+    closeInfoSheet,
     updateQuery,
     pages,
     milestones,
@@ -670,12 +767,13 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   // memo 化した WikiPageRow に渡すため安定参照にする
   const handleSelectPage = useCallback((pageId: string) => {
-    updateQuery({ page: pageId })
-  }, [updateQuery])
+    openPage(pageId)
+  }, [openPage])
 
   const handleCreatePage = async (data: { title: string; tags?: string[] }) => {
     const created = await createPage(data)
-    updateQuery({ page: created.id })
+    // 作ったページも一覧から開いたのと同じ扱いにする（「戻る」で一覧に帰れるように）
+    openPage(created.id)
   }
 
   const handleEditorChange = useCallback((content: string) => {
@@ -788,8 +886,16 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }
   }, [])
 
+  // ページの画面が閉じたら、履歴を積んだ印を落とす（ブラウザの「戻る」・ページの削除を含む）。
+  // 残したままだと、次にリンクから直接開いたページの「戻る」で history.back() を呼び、
+  // 一覧ではなく前に見ていたページへ飛ぶ。
+  const isPageViewOpen = !!(selectedPageId && activePage)
+  useEffect(() => {
+    if (!isPageViewOpen) pushedPageIdRef.current = null
+  }, [isPageViewOpen])
+
   const handleBackToList = () => {
-    updateQuery({ page: null })
+    closePageView()
   }
 
   // Editor view
@@ -803,6 +909,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             {!isFullscreen && (
               <button
                 onClick={handleBackToList}
+                aria-label="一覧へ戻る"
                 className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <ArrowLeft className="text-lg" />
@@ -826,7 +933,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 {/* Mobile: open page-info inspector on demand (desktop shows it alongside) */}
                 <button
                   type="button"
-                  onClick={() => setShowInfo(true)}
+                  onClick={openInfoSheet}
                   className="md:hidden p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                   aria-label="ページ情報"
                 >
