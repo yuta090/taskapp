@@ -60,6 +60,7 @@ import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActi
 import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
 import { completeFailureMessage } from '@/lib/minutes/taskActions'
 import { MinutesCompleteError } from '@/lib/hooks/useMinutesTaskActions'
+import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
 
 /**
  * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
@@ -485,6 +486,9 @@ function MinutesEditorImpl({
    * y-prosemirror の `_forceRerender`）。渡しても消えるだけなので、本文は器へ
    * 種をまく形で入れる（`seedCollabDoc` → `MinutesCollabSession`）。
    */
+  // BlockNote は色を CSS でなく props のテーマで受け取るので、真偽値で渡す
+  const isDark = useIsDarkTheme()
+
   const editor = useCreateBlockNote({
     schema,
     ...(collaboration
@@ -752,7 +756,7 @@ function MinutesEditorImpl({
           handleCheckboxCompletion(markdown)
           onChange?.(markdown)
         }}
-        theme="light"
+        theme={isDark ? 'dark' : 'light'}
         slashMenu={false}
       >
         {/* 既定のメニューの代わりに、Markdown で往復できる項目だけに絞ったメニューを置く。
