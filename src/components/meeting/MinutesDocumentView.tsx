@@ -171,7 +171,7 @@ function degradeMessage(reason: DegradeReason): string | null {
   const tail = '書いた内容はこれまでどおり保存されます'
   if (reason === 'duplicate-seed') return null
   if (reason === 'too-many-peers') {
-    return `開いている人が多いので、いまは一人ずつ書く形に戻しました。${tail}`
+    return `開いている画面が多いので、いまは一人ずつ書く形に戻しました。${tail}`
   }
   if (reason === 'too-large') {
     return `議事録が長くなったので、いまは一人ずつ書く形に戻しました。${tail}`

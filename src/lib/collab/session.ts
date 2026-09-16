@@ -43,7 +43,10 @@ export type DegradeReason =
   | 'too-large'
 
 export interface MinutesSessionOptions {
-  /** 自分の user id。返事を返す人かどうかの判定に使う */
+  /**
+   * 自分の見分け札。**タブごと**（人ごとではない）。
+   * 同じ人の別タブを相手として扱うために、人ではなくタブで見分ける。
+   */
   selfId: string
   transport: CollabTransport
   /** 1人で書く形へ落とすときに呼ぶ。以後このセッションは何も送らない */
@@ -198,7 +201,7 @@ export class MinutesCollabSession {
    */
   private handleJoined(): void {
     if (this.disposed || this.degraded) return
-    const others = this.peers.filter((peer) => peer.userId !== this.options.selfId && peer.collab)
+    const others = this.peers.filter((peer) => peer.id !== this.options.selfId && peer.collab)
     // 自分ひとりなら誰の返事も待たずに列の本文で満たす。先客が居れば必ず握手する
     // （既に本文を持っていても、切れている間に増えた分をもらうため）
     if (others.length === 0) {

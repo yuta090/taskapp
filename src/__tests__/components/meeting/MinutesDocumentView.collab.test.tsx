@@ -236,7 +236,7 @@ describe('同時編集が止まったとき', () => {
     setup()
     await loaded()
 
-    expect(screen.getByTestId('minutes-collab-degraded-notice')).toHaveTextContent('開いている人が多いので')
+    expect(screen.getByTestId('minutes-collab-degraded-notice')).toHaveTextContent('開いている画面が多いので')
   })
 
   it('本文が二重になったら、その内容は保存せず列から読み直す', async () => {

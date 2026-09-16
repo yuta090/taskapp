@@ -1,11 +1,13 @@
 /**
- * 書記 — 同時編集中に、列（`meetings.minutes_md`）へ実際に保存する1人。
+ * 書記 — 同時編集中に、列（`meetings.minutes_md`）へ実際に保存する1つのタブ。
  *
  * 全員が保存すると、更新時刻の楽観ロックで互いを弾き合う（COEDITING_SPEC 4）。
  * そこで保存だけを1人に寄せる。誰が書いても内容は器（Y.Doc）で全員に届くので、
  * 保存する人が1人でも取りこぼしは起きない。
  *
- * 決め方は「いま部屋に居る、輪に入っている人のうち、いちばん古くから居る人」。
+ * 決め方は「いま部屋に居る、輪に入っているタブのうち、いちばん古くから居るタブ」。
+ * **人ではなくタブで数える**のが要点。同じ人が2つのタブで開いていたら、その2つは
+ * 別々の参加者として扱う（そうしないと互いを相手と見なさず、両方が保存しに行く）。
  * **在席の一覧だけから決まる純粋な計算**にしてあるのが要点で、こうすると各自の時計が
  * ずれていても全員が同じ人を指す。以前は「いまの書記が残っていれば替えない」という
  * 据え置きの規則を置いていたが、「いまの書記」は各自が別々に覚えている値なので、
@@ -18,9 +20,20 @@ import type * as Y from 'yjs'
 import { minutesSeedHash } from './hash'
 
 export interface CollabPeer {
-  userId: string
-  /** その人が部屋に入った時刻（epoch ミリ秒）。各自の時計なので多少のずれは前提 */
+  /**
+   * **タブごとの見分け札**（人ごとではない）。
+   * 同じ人がタブを2つ並べて開くのは普通の使い方で、人ごとに見分けると自分の
+   * 2つのタブが互いを相手と見なさず、どちらも保存しに行って弾き合う。
+   */
+  id: string
+  /** そのタブが部屋に入った時刻（epoch ミリ秒）。各自の時計なので多少のずれは前提 */
   joinedAt: number
+  /**
+   * そのタブが手前に出ているか。
+   * ブラウザは裏に回ったタブの時間の進みを間引き、数分で止める。裏のタブが書記だと
+   * **手前で打っているのに保存だけが何分も遅れる**。手前のタブを先に選ぶ。
+   */
+  visible?: boolean
   /**
    * いま輪に入っているか＝**本文の入った器を持っているか**。
    * 持っていない人を書記にすると、その人の器には他の人の更新が入らないので、
@@ -29,16 +42,25 @@ export interface CollabPeer {
   collab: boolean
 }
 
-/** 輪に入っている人だけを、古い順に並べる（並べ方は全員で同じ） */
+/**
+ * 輪に入っているタブだけを並べる。順番は「手前に出ている → 古い → 名札順」。
+ * 並べ方は全員で同じなので、誰が計算しても同じ答えになる。
+ */
 function activeOrdered(peers: CollabPeer[]): CollabPeer[] {
   return peers
     .filter((peer) => peer.collab)
-    .sort((a, b) => (a.joinedAt !== b.joinedAt ? a.joinedAt - b.joinedAt : a.userId.localeCompare(b.userId)))
+    .sort((a, b) => {
+      const aVisible = a.visible !== false
+      const bVisible = b.visible !== false
+      if (aVisible !== bVisible) return aVisible ? -1 : 1
+      if (a.joinedAt !== b.joinedAt) return a.joinedAt - b.joinedAt
+      return a.id.localeCompare(b.id)
+    })
 }
 
 /** 書記を決める。いちばん古くから居る人。居なければ null */
 export function electScribe(peers: CollabPeer[]): string | null {
-  return activeOrdered(peers)[0]?.userId ?? null
+  return activeOrdered(peers)[0]?.id ?? null
 }
 
 /**
@@ -49,16 +71,16 @@ export function electScribe(peers: CollabPeer[]): string | null {
  * 古い人**にすると、全員が同じ人を指しつつ、書記が尋ねる側でも返事が返る。
  */
 export function electAnswerer(peers: CollabPeer[], askerId: string): string | null {
-  return activeOrdered(peers).find((peer) => peer.userId !== askerId)?.userId ?? null
+  return activeOrdered(peers).find((peer) => peer.id !== askerId)?.id ?? null
 }
 
 /**
  * その人が部屋で何番目に古いか（0 から数える）。人数の上限を当てるのに使う。
  * 並べ方は `electScribe` と同じなので、全員が同じ答えになる。
  */
-export function rankOf(peers: CollabPeer[], userId: string): number {
+export function rankOf(peers: CollabPeer[], id: string): number {
   const sorted = activeOrdered(peers)
-  const index = sorted.findIndex((peer) => peer.userId === userId)
+  const index = sorted.findIndex((peer) => peer.id === id)
   return index === -1 ? sorted.length : index
 }
 
