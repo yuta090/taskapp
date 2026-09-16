@@ -233,6 +233,27 @@ describe('MeetingsPageClient — 議事録を開いたあとの「戻る」', ()
     expect(pushSpy).toHaveBeenCalledWith(null, '', MINUTES_URL)
   })
 
+  it('別の議事録へ移ったあとの「戻る」は、前の議事録ではなく一覧に帰る', () => {
+    // 一覧 → 議事録A（履歴を積む）→ リンクなどで議事録B。「積んだ」印を議事録の id で持たないと、
+    // B の「戻る」が history.back() になり A に帰ってしまう
+    mockMeetingsList = [makeMeeting(), makeMeeting({ id: 'm2', title: '別のMTG' })]
+    const { rerenderPage } = renderPage()
+    fireEvent.click(screen.getByText('定例MTG'))
+
+    searchParamsValue = 'meeting=m1'
+    rerenderPage()
+
+    searchParamsValue = 'meeting=m2'
+    rerenderPage()
+    replaceSpy.mockClear()
+    backSpy.mockClear()
+
+    fireEvent.click(screen.getByText('戻る'))
+
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', LIST_URL)
+    expect(backSpy).not.toHaveBeenCalled()
+  })
+
   it('同じ行を続けて2回押しても、積む履歴は1つだけ（1回の「戻る」で一覧に帰れるように）', () => {
     // URL の反映は一拍遅れるので、素早く2回押すと押した時点ではまだ一覧が出ている。
     // 2回積むと1回目の「戻る」で同じ議事録に帰り、直そうとした症状と同じに見える
