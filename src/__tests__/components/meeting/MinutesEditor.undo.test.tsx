@@ -325,6 +325,8 @@ describe('MinutesEditor: 取り消し（Ctrl+Z / Cmd+Z）', () => {
     })
 
     expect(screen.body().getAttribute('contenteditable')).toBe('false')
+    // 読めるだけの本文にも、キーボードだけで入れること
+    expect(screen.body().getAttribute('tabindex')).toBe('0')
     // 差し込み口も「いまは無理」を返す（AI秘書の末尾追記を空振りさせない）
     expect(screen.getApi()?.appendMarkdown('入れてはいけない行')).toBe('busy')
     expect(screen.body().textContent).not.toContain('入れてはいけない行')
