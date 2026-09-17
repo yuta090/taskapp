@@ -1,10 +1,9 @@
 import { z } from 'zod'
 import { assertWriteApplied } from '../lib/staleWrite.js'
 import { getSupabaseClient, WikiPage, WikiPageVersion } from '../supabase/client.js'
-import { config } from '../config.js'
 import { checkAuth } from '../auth/helpers.js'
 import { toWikiBlocksJson, type WikiBodyFormat } from '../lib/wikiBody.js'
-import { assertInSpace } from '../auth/scope.js'
+import { assertInSpace, requireActorUserId } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
 import { buildWikiPageLink, withLink } from '../lib/appLinks.js'
 
@@ -126,7 +125,7 @@ export async function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Prom
   await checkAuth(params.spaceId, 'write', 'wiki_create', 'wiki')
   const supabase = getSupabaseClient()
   const orgId = await getOrgId(params.spaceId)
-  const actorId = config.actorId
+  const actorId = requireActorUserId()
   // Wiki 画面はブロック JSON しか読めない。Markdown/HTML のまま保存すると画面で空に見える
   const body = await toWikiBlocksJson(params.body || '', params.format as WikiBodyFormat | undefined)
 
@@ -179,7 +178,7 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
   await checkAuth(params.spaceId, 'write', 'wiki_update', 'wiki', params.pageId)
   const supabase = getSupabaseClient()
   const orgId = await getOrgId(params.spaceId)
-  const actorId = config.actorId
+  const actorId = requireActorUserId()
 
   // Build update payload
   const updateData: Record<string, unknown> = { updated_by: actorId }

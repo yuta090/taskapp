@@ -23,7 +23,10 @@ function chain(table: string) {
 }
 
 vi.mock('../supabase/client.js', () => ({ getSupabaseClient: () => ({ from: (t: string) => chain(t) }) }))
-vi.mock('../config.js', () => ({ config: { actorId: 'actor-1' } }))
+vi.mock('../config.js', () => ({
+  config: { actorId: 'actor-1' },
+  getAuthContext: () => ({ keyId: 'k', userId: 'actor-1', orgId: 'org-1', scope: 'org', allowedSpaceIds: null, allowedActions: ['read', 'write'] }),
+}))
 vi.mock('../auth/helpers.js', () => ({ checkAuth: async () => ({ ctx: {}, role: 'admin' }) }))
 
 const { activityLog } = await import('./activity.js')
