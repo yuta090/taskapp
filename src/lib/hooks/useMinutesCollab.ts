@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import type { DegradeReason, MinutesCollabSession, MinutesSeeder } from '@/lib/collab/session'
-import { electScribe, rankOf, type CollabPeer } from '@/lib/collab/scribe'
+import { colorIndexOf, electScribe, rankOf, type CollabPeer } from '@/lib/collab/scribe'
 import type { CollabEvent, CollabHandlers, CollabMessage, CollabStatus, CollabTransport } from '@/lib/collab/transport'
 import { useMinutesPresence, type MinutesPresencePeer } from './useMinutesPresence'
 
@@ -78,6 +78,11 @@ export interface UseMinutesCollabResult {
    * （空のまま打つと、あとから届いた本文と混ざる）。同時編集を使わないときは常に true
    */
   synced: boolean
+  /**
+   * 自分のカーソルを何番の色で描くか。部屋の中で重ならないように割り当てる
+   * （人ごとにハッシュで選ぶと、運が悪いと2人が同じ色になる）
+   */
+  colorIndex: number
   /** 1人で書く形へ落ちた理由。落ちていなければ null */
   degradedReason: DegradeReason | null
   /** エディタが載ったら、種をまく係を登録する（null で解除） */
@@ -162,10 +167,17 @@ export function useMinutesCollab({
   const [degradedReason, setDegradedReason] = useState<DegradeReason | null>(null)
   const [scribeId, setScribeId] = useState<string | null>(null)
   const [synced, setSynced] = useState(false)
+  const [colorIndex, setColorIndex] = useState(0)
+  /**
+   * 色の番号は**一度決めたら変えない**。カーソルを描く部品は相手ごとに札を1回だけ
+   * 作って使い回すので、あとから変えても相手の画面には届かない（`cursorColors.ts`）。
+   */
+  const colorIndexRef = useRef<number | null>(null)
   /** 落ちた時点で本文が入っていたか。入る前に落ちたら1人用のエディタへ載せ替える */
   const [soloFallback, setSoloFallback] = useState(false)
 
   const syncedRef = useRef(false)
+  const selfUserIdRef = useRef(self.userId)
   /**
    * 1つ前の版の画面が部屋に居ると分かったか。
    * 器は使うときだけ読み込むので、**できる前に在席が届くことがある**。覚えておかないと、
@@ -176,6 +188,7 @@ export function useMinutesCollab({
   const sessionRef = useRef<MinutesCollabSession | null>(null)
   const onRoomReloadRef = useRef(onRoomReload)
   const setCollabActiveRef = useRef<(active: boolean) => void>(() => {})
+  const setColorIndexRef = useRef<(index: number) => void>(() => {})
 
   const [transport] = useState(() => createChannelTransport())
 
@@ -269,6 +282,12 @@ export function useMinutesCollab({
                 return
               }
               setScribeId(electScribe(peers))
+              if (colorIndexRef.current === null) {
+                colorIndexRef.current = colorIndexOf(peers, selfUserIdRef.current)
+                setColorIndex(colorIndexRef.current)
+                // 取った番号を在席で配る。配らないと、あとから入った人が同じ番号を取る
+                setColorIndexRef.current(colorIndexRef.current)
+              }
               // 人数が多い部屋では、**あとから入ったタブから**輪に入らない形に落とす
               // （全員で落とすと、先に書いていた人まで巻き込む）
               if (tabIdRef.current && rankOf(peers, tabIdRef.current) >= MAX_COLLAB_PEERS) {
@@ -283,7 +302,7 @@ export function useMinutesCollab({
 
   // 顔ぶれは `onPeers` で直に受け取る（React の状態より早く、取りこぼしが無い）。
   // ここで受ける `others` は「〇〇さんが書いています」の表示にだけ使う
-  const { others, setEditing, sendCollab, setCollabActive } = useMinutesPresence({
+  const { others, setEditing, sendCollab, setCollabActive, setColorIndex: publishColorIndex } = useMinutesPresence({
     meetingId,
     enabled: presenceEnabled,
     self,
@@ -292,10 +311,12 @@ export function useMinutesCollab({
   })
 
   useEffect(() => {
+    selfUserIdRef.current = self.userId
     setCollabActiveRef.current = setCollabActive
+    setColorIndexRef.current = publishColorIndex
     transport.setSender(sendCollab)
     return () => transport.setSender(null)
-  }, [transport, sendCollab, setCollabActive, tabId])
+  }, [transport, sendCollab, setCollabActive, publishColorIndex, tabId, self.userId])
 
   const registerSeeder = useCallback((seeder: MinutesSeeder | null) => {
     seederRef.current = seeder
@@ -329,6 +350,7 @@ export function useMinutesCollab({
     meta: session?.meta ?? null,
     isApplyingRemote,
     synced: solo || synced,
+    colorIndex,
     degradedReason,
     registerSeeder,
     requestRoomReload,

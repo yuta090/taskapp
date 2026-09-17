@@ -25,6 +25,8 @@ let capturedTabId = ''
 let othersState: MinutesPresencePeer[] = []
 const sendCollabSpy = vi.fn()
 const setCollabActiveSpy = vi.fn()
+/** 取った色の番号を在席で配る口 */
+const setColorIndexSpy = vi.fn()
 
 vi.mock('@/lib/hooks/useMinutesPresence', () => ({
   useMinutesPresence: (options: { collab?: MinutesCollabWiring; tabId: string }) => {
@@ -35,6 +37,7 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
       setEditing: vi.fn(),
       sendCollab: sendCollabSpy,
       setCollabActive: setCollabActiveSpy,
+      setColorIndex: setColorIndexSpy,
     }
   },
 }))
@@ -80,10 +83,15 @@ function docOf(fragment: unknown): YDoc {
  * 部屋の顔ぶれが届いたことにする（在席の一覧は参加の返事より後に来る）。
  * `id` はタブごとの見分け札。`'self'` と書いたら、このタブ自身に読み替える。
  */
-function announce(peers: { id: string; joinedAt: number; collab?: boolean }[]) {
+function announce(peers: { id: string; userId?: string; joinedAt: number; collab?: boolean }[]) {
   act(() =>
     capturedCollab?.onPeers(
-      peers.map((peer) => ({ collab: true, ...peer, id: peer.id === 'self' ? capturedTabId : peer.id }))
+      peers.map((peer) => ({
+        collab: true,
+        userId: peer.userId ?? (peer.id === 'self' ? 'u-self' : peer.id),
+        ...peer,
+        id: peer.id === 'self' ? capturedTabId : peer.id,
+      }))
     )
   )
 }
@@ -105,8 +113,8 @@ describe('書記の決め方', () => {
     const { result } = await mount()
     act(() => result.current.registerSeeder(seedWith(BASE)))
     announce([
-      { id: 'self', joinedAt: 2_000 },
-      { id: 'u-old', joinedAt: 1_000 },
+      { id: 'self', userId: 'self', joinedAt: 2_000 },
+      { id: 'u-old', userId: 'u-old', joinedAt: 1_000 },
     ])
     act(() => capturedCollab?.onStatus('joined'))
 
@@ -116,7 +124,7 @@ describe('書記の決め方', () => {
   it('自分しか居なければ自分が書記になり、列の本文で器を満たす', async () => {
     const { result } = await mount()
     act(() => result.current.registerSeeder(seedWith(BASE)))
-    announce([{ id: 'self', joinedAt: 2_000 }])
+    announce([{ id: 'self', userId: 'self', joinedAt: 2_000 }])
     act(() => capturedCollab?.onStatus('joined'))
 
     expect(readBackMarkdown(docOf(result.current.fragment))).toBe(BASE)
@@ -130,7 +138,7 @@ describe('書記の決め方', () => {
     expect(setCollabActiveSpy).not.toHaveBeenCalledWith(true)
 
     act(() => result.current.registerSeeder(seedWith(BASE)))
-    announce([{ id: 'self', joinedAt: 2_000 }])
+    announce([{ id: 'self', userId: 'self', joinedAt: 2_000 }])
     act(() => capturedCollab?.onStatus('joined'))
 
     expect(setCollabActiveSpy).toHaveBeenCalledWith(true)
@@ -141,8 +149,8 @@ describe('書記の決め方', () => {
     const { result } = await mount()
     act(() => result.current.registerSeeder(seedWith(BASE)))
     announce([
-      { id: 'self', joinedAt: 1_000 },
-      { id: 'u-other', joinedAt: 2_000 },
+      { id: 'self', userId: 'self', joinedAt: 1_000 },
+      { id: 'u-other', userId: 'u-other', joinedAt: 2_000 },
     ])
     // 顔ぶれ上は自分が書記だが、まだ誰からも本文をもらっていない
     expect(result.current.synced).toBe(false)
@@ -153,7 +161,7 @@ describe('書記の決め方', () => {
 describe('エディタが遅れて載る場合', () => {
   it('つながったあとにエディタが載っても、器に本文が入る', async () => {
     const { result } = await mount()
-    announce([{ id: 'self', joinedAt: 2_000 }])
+    announce([{ id: 'self', userId: 'self', joinedAt: 2_000 }])
     act(() => capturedCollab?.onStatus('joined'))
     expect(readBackMarkdown(docOf(result.current.fragment))).toBe('')
 
@@ -166,7 +174,7 @@ describe('本文が入る前に落ちたとき', () => {
   it('器につながずに1人用のエディタへ載せ替える', async () => {
     const { result } = await mount()
     act(() => result.current.registerSeeder(seedWith(BASE)))
-    announce([{ id: 'self', joinedAt: 2_000 }])
+    announce([{ id: 'self', userId: 'self', joinedAt: 2_000 }])
     act(() => capturedCollab?.onStatus('error'))
 
     expect(result.current.solo).toBe(true)
@@ -180,7 +188,7 @@ describe('本文が入る前に落ちたとき', () => {
   it('落ちたことを在席で知らせる（落ちた人を書記に選ばせない）', async () => {
     const { result } = await mount()
     act(() => result.current.registerSeeder(seedWith(BASE)))
-    announce([{ id: 'self', joinedAt: 2_000 }])
+    announce([{ id: 'self', userId: 'self', joinedAt: 2_000 }])
     act(() => capturedCollab?.onStatus('error'))
 
     expect(setCollabActiveSpy).toHaveBeenCalledWith(false)
@@ -189,7 +197,7 @@ describe('本文が入る前に落ちたとき', () => {
   it('本文が入ったあとに落ちたときは、器を残したまま自分が保存係になる', async () => {
     const { result } = await mount()
     act(() => result.current.registerSeeder(seedWith(BASE)))
-    announce([{ id: 'self', joinedAt: 2_000 }])
+    announce([{ id: 'self', userId: 'self', joinedAt: 2_000 }])
     act(() => capturedCollab?.onStatus('joined'))
     expect(result.current.synced).toBe(true)
 
@@ -201,6 +209,39 @@ describe('本文が入る前に落ちたとき', () => {
   })
 })
 
+describe('カーソルの色', () => {
+  it('部屋に入ったときに決めて、そのあとは変えない', async () => {
+    // カーソルの札は相手ごとに1回しか作られないので、あとから色を変えても
+    // 相手の画面には届かない。途中で番号を動かすと、帯だけ新しい色になって
+    // カーソルは古い色のまま残り、別の人と同じ色になることがある
+    const { result } = await mount()
+    announce([
+      { id: 'u-old', userId: 'u-old', joinedAt: 1_000 },
+      { id: 'self', joinedAt: 2_000 },
+    ])
+    expect(result.current.colorIndex).toBe(1)
+
+    // 先に居た人が抜けても、自分の番号は変わらない
+    announce([{ id: 'self', joinedAt: 2_000 }])
+    expect(result.current.colorIndex).toBe(1)
+  })
+
+  it('自分ひとりなら 0 番', async () => {
+    const { result } = await mount()
+    announce([{ id: 'self', joinedAt: 2_000 }])
+    expect(result.current.colorIndex).toBe(0)
+  })
+
+  it('取った番号を在席で配る（あとから入った人が同じ番号を取らないように）', async () => {
+    await mount()
+    announce([
+      { id: 'u-old', userId: 'u-old', joinedAt: 1_000 },
+      { id: 'self', joinedAt: 2_000 },
+    ])
+    expect(setColorIndexSpy).toHaveBeenCalledWith(1)
+  })
+})
+
 describe('1つ前の版の画面が混ざっているとき', () => {
   it('こちらが輪から降りて、これまでどおり自分で保存する', async () => {
     // 相手は人ごとに数えているので、こちらが指した返事役に応えられない。
@@ -209,8 +250,8 @@ describe('1つ前の版の画面が混ざっているとき', () => {
     act(() => result.current.registerSeeder(seedWith(BASE)))
     act(() =>
       capturedCollab?.onPeers([
-        { id: capturedTabId, joinedAt: 2_000, collab: true },
-        { id: 'u-old', joinedAt: 1_000, collab: true, outdated: true },
+        { id: capturedTabId, userId: 'u-self', joinedAt: 2_000, collab: true },
+        { id: 'u-old', userId: 'u-old', joinedAt: 1_000, collab: true, outdated: true },
       ])
     )
 
@@ -233,7 +274,7 @@ describe('1つ前の版の画面が混ざっているとき', () => {
       })
     )
     act(() =>
-      capturedCollab?.onPeers([{ id: 'u-old', joinedAt: 1_000, collab: true, outdated: true }])
+      capturedCollab?.onPeers([{ id: 'u-old', userId: 'u-old', joinedAt: 1_000, collab: true, outdated: true }])
     )
     await settle(() => rendered.result.current.pending === false)
     act(() => rendered.result.current.registerSeeder(seedWith(BASE)))

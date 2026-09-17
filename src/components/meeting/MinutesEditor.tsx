@@ -20,7 +20,7 @@ import { CheckCircle, Checks, Flag, NotePencil, User } from '@phosphor-icons/rea
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { seedMinutesDoc } from '@/lib/collab/seed'
-import { cursorColorFor } from '@/lib/collab/cursorColors'
+import { cursorColorAt, cursorFallbackAt } from '@/lib/collab/cursorColors'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
@@ -93,7 +93,11 @@ export interface MinutesEditorCollaboration {
   awareness: Awareness
   /** カーソルの脇に出す自分の名前 */
   userName: string
-  userId: string
+  /**
+   * 何番の色でカーソルを描くか。部屋の中で重ならないように呼び出し側が決める
+   * （人ごとにハッシュで選ぶと、運が悪いと2人が同じ色になる）
+   */
+  colorIndex: number
 }
 
 interface MinutesEditorProps {
@@ -495,7 +499,9 @@ function MinutesEditorImpl({
       ? {
           collaboration: {
             fragment: collaboration.fragment,
-            user: { name: collaboration.userName, color: cursorColorFor(collaboration.userId) },
+            // 載せるときは控えの値で作る（画面を測るのは描画が終わったあと）。
+            // 実際の値は下の effect が入れ直す
+            user: { name: collaboration.userName, color: cursorFallbackAt(collaboration.colorIndex) },
             provider: { awareness: collaboration.awareness },
           },
         }
@@ -655,6 +661,33 @@ function MinutesEditorImpl({
     registerApi?.({ appendMarkdown, seedCollabDoc })
     return () => registerApi?.(null)
   }, [registerApi, appendMarkdown, seedCollabDoc])
+
+  /**
+   * 自分の名前と色を、部屋のみんなへ伝える。
+   *
+   * 載せるときは控えの値で作ってあるので、ここで画面のトークンから読み替えた値に
+   * 入れ替える。名前はメンバー一覧が遅れて届くことがあるので、そのぶんもここで届く。
+   * **色の番号自体は会期中変わらない**（変えても相手の画面には届かないため。
+   * 理由は `cursorColors.ts`）。
+   */
+  // 載せるときに部品が入れた1通目と同じ値を覚えておく（同じ内容をもう1通配らない）
+  const lastUserRef = useRef<string>(
+    collaboration
+      ? `${collaboration.userName}\u0000${cursorFallbackAt(collaboration.colorIndex)}`
+      : ''
+  )
+  useEffect(() => {
+    if (!collaboration) return
+    const next = {
+      name: collaboration.userName,
+      color: cursorColorAt(collaboration.colorIndex),
+    }
+    // 中身が同じなら送らない（載せた直後に、同じ値をもう1通配らないため）
+    const key = `${next.name}\u0000${next.color}`
+    if (lastUserRef.current === key) return
+    lastUserRef.current = key
+    collaboration.awareness.setLocalStateField('user', next)
+  }, [collaboration])
 
   /**
    * 直前の本文。チェックが「入った」瞬間だけを拾うために持つ。
