@@ -242,25 +242,37 @@ const fitForOthers = [
   },
 ]
 
+/**
+ * 稟議パックを画面に出すか。
+ *
+ * 押せないカードを並べて「ダウンロードできます」と書くと、約束だけして渡さない状態になる。
+ * 資料（public/docs/）を差し替えるときは、中の数字が pricing と compare と食い違わないか見る。
+ */
+const APPROVAL_PACK_READY = true
+
 const approvalPackItems = [
   {
-    title: '比較表PDF',
+    title: '比較表（PDF・A4 2枚）',
     description: 'このページの内容をA4にまとめてあります。社内で配れます',
+    href: '/docs/agentpm-comparison.pdf',
     icon: FileArrowDown,
   },
   {
-    title: 'ROI試算シート',
-    description: '削減できる時間を、自社の人件費で試算できます',
+    title: '費用の試算シート（Excel）',
+    description: '時給と案件数を入れると、削減できる人件費が出ます',
+    href: '/docs/agentpm-roi.xlsx',
     icon: FileArrowDown,
   },
   {
-    title: 'セキュリティチェックシート',
+    title: 'セキュリティチェックシート（PDF・A4 2枚）',
     description: '暗号化・認証・記録の残り方をまとめています。情報システム部門向けです',
+    href: '/docs/agentpm-security.pdf',
     icon: ShieldCheck,
   },
   {
-    title: '移行計画テンプレート',
-    description: 'いま使っているツールから移すときの、日程の組み方を示しています',
+    title: '移行計画の雛形（Excel）',
+    description: 'いま使っているツールから移すときの、4週間の進め方です',
+    href: '/docs/agentpm-migration-plan.xlsx',
     icon: FileArrowDown,
   },
 ]
@@ -753,7 +765,8 @@ export default function ComparePage() {
         </div>
       </section>
 
-      {/* ──── 稟議パック ──── */}
+      {/* ──── 稟議パック（資料ができるまで非公開） ──── */}
+      {APPROVAL_PACK_READY && (
       <section id="approval-pack" className="py-20 bg-surface">
         <div className="container mx-auto px-6 max-w-4xl">
           <motion.div
@@ -764,26 +777,28 @@ export default function ComparePage() {
           >
             <h2 className="text-3xl font-bold text-slate-900 mb-4">稟議パック</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              社内稟議に必要な資料をまとめてダウンロードできます。
+              社内で検討していただくための資料です。そのまま落として配れます。
             </p>
           </motion.div>
 
           <div className="grid sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
             {approvalPackItems.map((item, i) => (
-              <motion.div
+              <motion.a
                 key={item.title}
+                href={item.href}
+                download
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
-                className="bg-slate-50 rounded-2xl border border-slate-200 p-6 hover:border-amber-300 hover:shadow-md transition-all cursor-pointer group"
+                className="bg-slate-50 rounded-2xl border border-slate-200 p-6 hover:border-amber-300 hover:shadow-md transition-all group block"
               >
                 <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center mb-4 group-hover:bg-amber-200 transition-colors">
                   <item.icon weight="duotone" size={24} className="text-amber-600" />
                 </div>
                 <h3 className="text-base font-bold text-slate-900 mb-1.5">{item.title}</h3>
                 <p className="text-sm text-slate-500 leading-relaxed">{item.description}</p>
-              </motion.div>
+              </motion.a>
             ))}
           </div>
 
@@ -793,10 +808,11 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-xs text-slate-400 text-center mt-6"
           >
-            ※ ダウンロードにはメールアドレスの入力が必要です
+            ※ そのまま落とせます。メールアドレスの入力は要りません。2026年9月時点の内容です
           </motion.p>
         </div>
       </section>
+      )}
 
       {/* ──── 移行について ──── */}
       <section className="py-16 bg-slate-50">

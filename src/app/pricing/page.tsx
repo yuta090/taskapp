@@ -722,13 +722,13 @@ export default function PricingPage() {
               稟議・社内検討が必要な方へ
             </h3>
             <p className="text-slate-600 text-sm mb-6">
-              比較表・ROI試算・セキュリティチェックシートをまとめた稟議パックをご用意しています。
+              比較表・費用の試算・セキュリティのチェックシート・移行計画の雛形を用意しています。
             </p>
             <Link
               href="/compare#approval-pack"
               className="inline-flex items-center gap-2 px-6 py-3 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors text-sm"
             >
-              稟議用資料をダウンロード
+              稟議用の資料を見る
               <ArrowRight weight="bold" size={16} />
             </Link>
           </motion.div>
