@@ -202,9 +202,9 @@ export function WikiEditor({
             行の左の「＋」もこのメニューを開くので、これを外すと「＋」も押して何も起きなくなる */}
         <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
       </BlockNoteView>
-      {/* 本文の下の差し込みツールバー */}
+      {/* 本文の下の差し込みツールバー。PDFで保存するときは紙に載せない（押すためのもの） */}
       {editable && (
-        <div className="flex items-center gap-2 mt-2 px-1">
+        <div data-print-hide className="flex items-center gap-2 mt-2 px-1">
           {/* 「/」を知らなくても押せる場所に出す（議事録の「会議メモ」ボタンと同じ） */}
           <EditorToolbarButton
             icon={<NotePencil />}

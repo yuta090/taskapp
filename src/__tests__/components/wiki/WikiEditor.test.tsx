@@ -108,6 +108,13 @@ describe('WikiEditor のメモ', () => {
     expect(screen.queryByTestId('wiki-insert-note')).not.toBeInTheDocument()
   })
 
+  // PDFで保存したときに、本文の下の差し込みツールバーが紙に載らないようにする印。
+  // 印を外すと、押しても何も起きないボタンの列が PDF の末尾に刷られる
+  it('本文の下の差し込みツールバーには「紙に載せない」印が付いている', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByTestId('wiki-insert-note').closest('[data-print-hide]')).not.toBeNull()
+  })
+
   it('「メモ」ボタンで、書いた日時と書いた人の名前を持つメモを入れる', () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} noteAuthorName="高橋 優太" />)
     fireEvent.click(screen.getByTestId('wiki-insert-note'))

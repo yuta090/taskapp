@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
-import { X, Trash, Clock, Tag, PencilSimple, Check } from '@phosphor-icons/react'
+import { X, Trash, Clock, Tag, PencilSimple, Check, FilePdf } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { Milestone, WikiPage } from '@/types/database'
 import type { WikiPageVersionSummary } from '@/lib/hooks/useWikiPages'
@@ -186,6 +186,19 @@ export function WikiPageInspector({
     }
   }
 
+  // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
+  // ページ名と本文だけに絞る指定は globals.css の @media print 側にあり、画面に置いた
+  // data-print-root / data-print-hide の印を見ている（WikiPageClient.tsx）。
+  //
+  // 出さないと決めた2か所（2026-09-18・ユーザー判断。増やすならここを更新する）:
+  //  - 全画面表示の間はこのパネルごと閉じるのでボタンも出ない。Ctrl+P / Cmd+P は効き、
+  //    紙に載る中身は同じなので、全画面のバーにはボタンを並べない
+  //  - 相手先ポータル（PortalWikiClient）にはこのパネルが無いので付けていない。
+  //    社内アプリに相手先として入っている人には出る
+  const handlePrintPdf = () => {
+    window.print()
+  }
+
   const handleToggleVersions = async () => {
     if (showVersions) {
       setShowVersions(false)
@@ -279,6 +292,20 @@ export function WikiPageInspector({
               <PencilSimple className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>
           )}
+        </div>
+
+        {/* PDFで保存。読むだけの人にも出す（控えを持ち帰れるように） */}
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={handlePrintPdf}
+            data-testid="wiki-print-pdf"
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <FilePdf className="text-base" />
+            PDFで保存
+          </button>
+          <p className="text-[10px] text-gray-400">印刷の画面が開きます。保存先で「PDF」を選んでください</p>
         </div>
 
         {/* Spec switch: タグの '仕様書' をトグルで表す */}

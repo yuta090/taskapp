@@ -968,4 +968,18 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
     })
     expect(mockUpdatePage).not.toHaveBeenCalled()
   })
+
+  // 競合の帯は画面の警告なので、PDFで保存したときに本文へ混ざらないようにする
+  // （紙に載せない印。印刷の指定は globals.css の @media print 側）
+  it('競合の帯には「紙に載せない」印が付いている', async () => {
+    mockUpdatePage.mockRejectedValueOnce(new WikiConflictError())
+    mockFetchPage
+      .mockResolvedValueOnce(INITIAL_PAGE)
+      .mockResolvedValueOnce(page({ body: '他の人が書いた本文', updated_at: '2026-09-13T00:08:00+09:00' }))
+
+    await setup()
+    await typeAndFlush()
+
+    expect(screen.getByTestId('wiki-conflict-banner')).toHaveAttribute('data-print-hide')
+  })
 })
