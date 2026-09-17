@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { assertWriteApplied } from '../lib/staleWrite.js'
 import { getSupabaseClient, WikiPage, WikiPageVersion } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
-import { toWikiBlocksJson, type WikiBodyFormat } from '../lib/wikiBody.js'
+import { toWikiBlocksJson, type Block, type WikiBodyFormat } from '../lib/wikiBody.js'
 import { assertInSpace, requireActorUserId } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
 import { buildWikiPageLink, withLink } from '../lib/appLinks.js'
@@ -11,6 +11,13 @@ const bodyFormatSchema = z
   .enum(['markdown', 'html', 'blocks'])
   .optional()
   .describe('本文の形式。省略時は自動判定（JSONブロック配列→blocks / HTML→html / それ以外→markdown）')
+
+/**
+ * 目次ブロックの種別。Wiki 画面（src/components/wiki/WikiEditor.tsx）の「/」メニューが
+ * 挿入するブロックと同じ名前（src/lib/minutes/markdown.ts の TOC_TYPE）。アプリ本体とは
+ * 別パッケージで import できないため文字列を複製している。一致はテストで見張る。
+ */
+const TOC_TYPE = 'tableOfContents'
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -78,6 +85,21 @@ const wikiVersionsSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   pageId: z.string().describe('WikiページID'),
   limit: z.number().int().positive().max(100).default(20).describe('取得件数上限'),
+})
+
+const wikiTocSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
+  pageId: z.string().describe('WikiページID'),
+  action: z
+    .enum(['add', 'remove'])
+    .default('add')
+    .describe('add: 見出し1の直後（無ければ先頭）に目次ブロックを追加。既にあれば何もしない / remove: 目次ブロックを外す'),
+  expectedUpdatedAt: z
+    .string()
+    .optional()
+    .describe(
+      '直前の wiki_get で受け取った updated_at をそのまま渡す。渡すと、その版のままのときだけ書き換える。渡さないと、他の人やAIが先に書いた内容を黙って上書きする'
+    ),
 })
 
 // ── Handlers ─────────────────────────────────────────────
@@ -264,6 +286,87 @@ export async function wikiVersions(params: z.infer<typeof wikiVersionsSchema>): 
   return (data || []) as WikiPageVersion[]
 }
 
+/** 本文のブロック JSON を読む。空なら空配列（新規ページ）。JSON でなければ操作できない本文として断る。 */
+function parseWikiBlocks(body: string): Block[] {
+  if (!body.trim()) return []
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (Array.isArray(parsed)) return parsed as Block[]
+  } catch {
+    // JSON ではない → 下で断る
+  }
+  throw new ToolUserError('本文がブロック形式ではないため、目次を操作できません', 400)
+}
+
+/** 見出し1（H1）を最上位のブロックから探す。無ければ -1。 */
+function findH1Index(blocks: Block[]): number {
+  return blocks.findIndex((b) => b.type === 'heading' && b.props?.level === 1)
+}
+
+/**
+ * 目次ブロックを見出し1の直後（無ければ先頭）に挿入する。既にあれば null（何もしない＝冪等）。
+ */
+function insertToc(blocks: Block[]): Block[] | null {
+  if (blocks.some((b) => b.type === TOC_TYPE)) return null
+  const next = [...blocks]
+  const at = findH1Index(next) + 1 // 見出し1が無ければ findH1Index は -1 → 先頭(0)に入る
+  next.splice(at, 0, { type: TOC_TYPE, props: {} })
+  return next
+}
+
+/** 目次ブロックを外す。無ければ null（何もしない）。 */
+function removeToc(blocks: Block[]): Block[] | null {
+  if (!blocks.some((b) => b.type === TOC_TYPE)) return null
+  return blocks.filter((b) => b.type !== TOC_TYPE)
+}
+
+export async function wikiToc(params: z.infer<typeof wikiTocSchema>): Promise<WikiPage> {
+  await checkAuth(params.spaceId, 'write', 'wiki_toc', 'wiki', params.pageId)
+  const supabase = getSupabaseClient()
+  const orgId = await getOrgId(params.spaceId)
+  const actorId = requireActorUserId()
+
+  const { data: page, error: getError } = await supabase
+    .from('wiki_pages')
+    .select('*')
+    .eq('id', params.pageId)
+    .eq('org_id', orgId)
+    .eq('space_id', params.spaceId)
+    .single()
+  if (getError || !page) throw new Error('Wikiページが見つかりません')
+
+  const blocks = parseWikiBlocks((page as WikiPage).body)
+  const next = params.action === 'remove' ? removeToc(blocks) : insertToc(blocks)
+  if (next === null) return page as WikiPage // 変わらないので書かない
+
+  const body = JSON.stringify(next)
+
+  // expectedUpdatedAt を渡されたときだけ、その版のままの行に限って書く（wiki_update と同じ楽観ロック）
+  let query = supabase
+    .from('wiki_pages')
+    .update({ body, updated_by: actorId })
+    .eq('id', params.pageId)
+    .eq('org_id', orgId)
+    .eq('space_id', params.spaceId)
+  if (params.expectedUpdatedAt !== undefined) {
+    query = query.eq('updated_at', params.expectedUpdatedAt)
+  }
+
+  const { data: rows, error } = await query.select('*')
+  if (error) throw new Error('Wikiページの更新に失敗しました')
+
+  const updated = (rows ?? []) as WikiPage[]
+  assertWriteApplied(updated.length, params.expectedUpdatedAt, 'Wikiページが見つかりません')
+  const data = updated[0]
+
+  const { error: vErr } = await supabase
+    .from('wiki_page_versions')
+    .insert({ org_id: orgId, page_id: params.pageId, title: (data as WikiPage).title, body, created_by: actorId })
+  if (vErr) console.error('バージョン保存失敗:', vErr.message)
+
+  return data as WikiPage
+}
+
 // ── Tool definitions ─────────────────────────────────────
 
 export const wikiTools = [
@@ -302,5 +405,11 @@ export const wikiTools = [
     description: 'Wikiバージョン履歴取得',
     inputSchema: wikiVersionsSchema,
     handler: wikiVersions,
+  },
+  {
+    name: 'wiki_toc',
+    description: '目次ブロックの追加/削除。追加は見出し1の直後（無ければ先頭）、既にあれば何もしない',
+    inputSchema: wikiTocSchema,
+    handler: wikiToc,
   },
 ]
