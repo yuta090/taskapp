@@ -1224,6 +1224,14 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
     overflow-wrap: anywhere;
   }
 
+  /* 目次（Wiki・議事録どちらにも差せる）は紙にも載せる — 押して飛ぶためのものだが、
+     紙でも「何が書いてあるか」の見取り図として読める。ただし画面では1行に収めて「…」で
+     省いているので、ページ名(h1)と同じく紙では折り返させないと右端で切れる */
+  [data-print-root] [data-testid='doc-toc-item'] {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+
   /* コードのブロックは BlockNote が「黒い地に白い文字」で描く。印刷は地の色を落として
      文字色だけ残すので、明るい配色のまま刷ると白い紙に白い文字＝丸ごと消える。
      長い行も紙からはみ出して切れるので、紙では折り返す */

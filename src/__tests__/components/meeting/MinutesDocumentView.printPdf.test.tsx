@@ -1,4 +1,6 @@
 import React, { createRef } from 'react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import {
@@ -134,6 +136,19 @@ describe('MinutesDocumentView — PDFで保存したときに紙へ載る範囲'
     })
 
     expect(screen.getByTestId('minutes-conflict-banner').closest('[data-print-hide]')).not.toBeNull()
+  })
+
+  // 目次（Wiki・議事録どちらにも差せる）は押して飛ぶためのものだが、紙でも「何が書いてあるか」の
+  // 見取り図として読めるので載せる。ただし画面では1行に収めて「…」で省いているため、
+  // 紙では折り返させないと長い見出しが右端で切れる（ページ名の h1 と同じ症状）
+  it('目次の行は紙では折り返す（切れずに全部出る）', () => {
+    const css = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8')
+    const printRules = css.slice(css.indexOf('@media print'))
+    const tocRuleIndex = printRules.indexOf("[data-print-root] [data-testid='doc-toc-item']")
+    expect(tocRuleIndex).toBeGreaterThan(-1)
+
+    const rule = printRules.slice(tocRuleIndex, printRules.indexOf('}', tocRuleIndex))
+    expect(rule).toContain('white-space: normal')
   })
 
   it('本文が空のときの書き出しの案内は紙に載せない', async () => {
