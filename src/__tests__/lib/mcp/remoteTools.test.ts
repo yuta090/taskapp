@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { REMOTE_TOOLS, isRemoteTool } from '@/lib/mcp/remoteTools'
+import { REMOTE_TOOLS, isRemoteTool, isRemoteToolAllowedFor } from '@/lib/mcp/remoteTools'
 
 /**
  * リモートMCP（ChatGPT 等の外部チャットからの接続）に出すツールの許可リスト。
@@ -76,5 +76,35 @@ describe('REMOTE_TOOLS — リモートMCPに出すツールの許可リスト',
     expect(isRemoteTool('task_list')).toBe(true)
     expect(isRemoteTool('task_delete')).toBe(false)
     expect(isRemoteTool('存在しないツール')).toBe(false)
+  })
+})
+
+describe('isRemoteToolAllowedFor — 接続ごとの権限で絞る', () => {
+  const READ_ONLY = ['read']
+  const READ_WRITE = ['read', 'write']
+
+  it('「見るだけ」の接続では、書き込みの道具を出さない', () => {
+    expect(isRemoteToolAllowedFor('task_create', READ_ONLY)).toBe(false)
+    expect(isRemoteToolAllowedFor('task_update', READ_ONLY)).toBe(false)
+    expect(isRemoteToolAllowedFor('ball_pass', READ_ONLY)).toBe(false)
+  })
+
+  it('「見るだけ」でも、読み取りの道具は出す', () => {
+    expect(isRemoteToolAllowedFor('task_list', READ_ONLY)).toBe(true)
+    expect(isRemoteToolAllowedFor('wiki_get', READ_ONLY)).toBe(true)
+  })
+
+  it('「見る＋書く」なら両方出す', () => {
+    expect(isRemoteToolAllowedFor('task_list', READ_WRITE)).toBe(true)
+    expect(isRemoteToolAllowedFor('task_create', READ_WRITE)).toBe(true)
+  })
+
+  it('許可リストの外は、どんな権限でも出さない', () => {
+    expect(isRemoteToolAllowedFor('task_delete', ['read', 'write', 'delete', 'bulk'])).toBe(false)
+    expect(isRemoteToolAllowedFor('review_approve', ['read', 'write'])).toBe(false)
+  })
+
+  it('権限が空なら何も出さない', () => {
+    expect(isRemoteToolAllowedFor('task_list', [])).toBe(false)
   })
 })

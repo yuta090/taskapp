@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { revokeConnection } from '@/lib/mcp/oauth/store'
 
 /**
@@ -19,6 +21,10 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'ログインが必要です' }, { status: 401 })
+  // 二要素認証: 登録済み×コード未入力のまま service role で読み書きさせない
+  // （同じ形のルートと揃える。往復は増えない）
+  const mfaBlock = await mfaGuardResponse(supabase as unknown as SupabaseClient, user)
+  if (mfaBlock) return mfaBlock
 
   const admin = createAdminClient()
   const { data: row } = await admin

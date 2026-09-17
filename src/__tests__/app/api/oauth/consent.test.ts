@@ -29,6 +29,13 @@ vi.mock('@/lib/mcp/oauth/store', () => ({
   },
 }))
 
+/** プランの枠。同意が確定する瞬間の1箇所でだけ見る */
+let capacity = { activeCount: 0, maxMcpConnections: 2 as number | null }
+vi.mock('@/lib/billing/mcpConnectionCapacity', async (orig) => {
+  const actual = (await orig()) as Record<string, unknown>
+  return { ...actual, orgMcpConnectionCapacity: async () => capacity }
+})
+
 vi.mock('@/lib/mcp/oauth/consent', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>
   return { ...actual, canConnectOrg: async () => connectable }
@@ -56,6 +63,7 @@ beforeEach(() => {
   codes.length = 0
   currentUser = { id: 'user-1' }
   connectable = true
+  capacity = { activeCount: 0, maxMcpConnections: 2 }
 })
 
 describe('/api/oauth/consent — 許可する', () => {
@@ -126,5 +134,28 @@ describe('/api/oauth/consent — 通してはいけないもの', () => {
     const res = await POST(post({ ...APPROVE, level: 'admin' }))
     expect(res.status).toBe(400)
     expect(codes).toEqual([])
+  })
+})
+
+describe('/api/oauth/consent — プランの枠', () => {
+  it('枠が埋まっていたら、新しい接続を断る', async () => {
+    capacity = { activeCount: 2, maxMcpConnections: 2 }
+    const res = await POST(post(APPROVE))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toContain('2 件まで')
+    expect(codes).toEqual([])
+  })
+
+  it('上限が無いプランなら、いくつでもつなげる', async () => {
+    capacity = { activeCount: 99, maxMcpConnections: null }
+    const res = await POST(post(APPROVE))
+    expect(res.status).toBe(303)
+    expect(codes).toHaveLength(1)
+  })
+
+  it('断るときは、戻り先へ飛ばさずこちらで止める', async () => {
+    capacity = { activeCount: 2, maxMcpConnections: 2 }
+    const res = await POST(post(APPROVE))
+    expect(res.headers.get('location')).toBeNull()
   })
 })

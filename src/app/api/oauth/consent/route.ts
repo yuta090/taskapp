@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { matchesRegisteredRedirectUri } from '@/lib/mcp/oauth/validation'
 import { createAuthorizationCode, getClient } from '@/lib/mcp/oauth/store'
 import { actionsForLevel, canConnectOrg, isConsentLevel } from '@/lib/mcp/oauth/consent'
+import { isMcpConnectionLimitReached, orgMcpConnectionCapacity } from '@/lib/billing/mcpConnectionCapacity'
 
 /**
  * 同意画面の「許可する」を受ける口。
@@ -63,6 +64,19 @@ export async function POST(request: NextRequest) {
   if (!(await canConnectOrg(supabase, user.id, orgId))) {
     return NextResponse.json(
       { error: 'この組織では外部チャットにつなげません（社内メンバーのみ）' },
+      { status: 403 },
+    )
+  }
+
+  // プランの枠はここ1箇所でだけ見る（新しい接続の拒否のみ）。以降のツール呼び出しや
+  // 合鍵の付け替えでは見ない＝いったんつないだ接続は、プランが下がっても切らない
+  const capacity = await orgMcpConnectionCapacity(orgId)
+  if (isMcpConnectionLimitReached(capacity)) {
+    return NextResponse.json(
+      {
+        error: `この組織でつなげる外部チャットは ${capacity.maxMcpConnections} 件までです。`
+          + '使っていない接続を「設定 → 外部チャットとの接続」で解除するか、プランを上げてください',
+      },
       { status: 403 },
     )
   }

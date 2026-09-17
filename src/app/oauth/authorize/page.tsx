@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getClient } from '@/lib/mcp/oauth/store'
 import { matchesRegisteredRedirectUri } from '@/lib/mcp/oauth/validation'
-import { listConnectableOrgs } from '@/lib/mcp/oauth/consent'
+import { listConnectableOrgs, type ConnectableOrg } from '@/lib/mcp/oauth/consent'
 
 /**
  * 外部チャット（ChatGPT など）からの接続の同意画面。
@@ -62,7 +62,13 @@ export default async function OAuthAuthorizePage({ searchParams }: Props) {
 
   if (!clientId) return <ErrorScreen message="つなぎ先の指定がありません。" />
 
-  const client = await getClient(clientId)
+  // 2つの問い合わせは互いの結果を使わないので同時に始める。ただし **await の順は変えない**
+  // ＝「つなぎ先の検証 → 組織一覧」という判断の順序と、エラー画面で止める挙動はそのまま。
+  // 組織一覧はログイン済み本人の行を読むだけで、つなぎ先から渡された値は入らない
+  const clientPromise = getClient(clientId)
+  const orgsPromise = listConnectableOrgs(supabase, user.id).catch(() => [] as ConnectableOrg[])
+
+  const client = await clientPromise
   if (!client) return <ErrorScreen message="登録されていないつなぎ先です。" />
 
   if (!matchesRegisteredRedirectUri(client.redirectUris, redirectUri)) {
@@ -75,9 +81,7 @@ export default async function OAuthAuthorizePage({ searchParams }: Props) {
     return <ErrorScreen message="つなぎ先が古い方式で接続しようとしています（PKCE S256 が必要です）。" />
   }
 
-  // ⚠ ここまでの確認を通ってから組織を引く（並列にしない）。登録は誰でもできるので、
-  // 不正な指定で叩かれたときに DB の問い合わせを増やさないため
-  const orgs = await listConnectableOrgs(supabase, user.id)
+  const orgs = await orgsPromise
   if (orgs.length === 0) {
     return (
       <ErrorScreen message="外部チャットにつなげる組織がありません。相手先・協力会社のアカウントからは接続できません。" />

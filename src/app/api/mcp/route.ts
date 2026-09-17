@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { isRemoteTool } from '@/lib/mcp/remoteTools'
+import { isRemoteTool, isRemoteToolAllowedFor } from '@/lib/mcp/remoteTools'
 import { resolveApiKey, type ResolvedKey } from '@/lib/mcp/resolveApiKey'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -109,8 +109,11 @@ async function buildServer(ctx: ResolvedKey): Promise<Server> {
 
   const server = new Server(SERVER_INFO, { capabilities: { tools: {} } })
 
+  // 許可リスト ∩ この接続の権限。「見るだけ」の接続には書き込みの道具を出さない
+  const canUse = (name: string) => isRemoteToolAllowedFor(name, ctx.allowedActions)
+
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: toolListPayload(isRemoteTool),
+    tools: toolListPayload(canUse),
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -122,6 +125,14 @@ async function buildServer(ctx: ResolvedKey): Promise<Server> {
     if (!isRemoteTool(name)) {
       return {
         content: [{ type: 'text', text: `このツールは外部チャットからは使えません: ${name}` }],
+        isError: true,
+      }
+    }
+    // 一覧に出していない＝この接続の権限では使えない道具。名指しで来ても止める
+    // （最後の砦は DB 側の mcp_authorize。ここは理由を分かる言葉で返すため）
+    if (!canUse(name)) {
+      return {
+        content: [{ type: 'text', text: `この接続は「見るだけ」で許可されています: ${name}` }],
         isError: true,
       }
     }

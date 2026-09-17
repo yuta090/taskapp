@@ -45,8 +45,23 @@ const WRITE_TOOLS = ['task_create', 'task_update', 'ball_pass'] as const
 export const REMOTE_TOOLS: readonly string[] = [...READ_TOOLS, ...WRITE_TOOLS]
 
 const REMOTE_TOOL_SET = new Set(REMOTE_TOOLS)
+const WRITE_TOOL_SET = new Set<string>(WRITE_TOOLS)
 
 /** その名前のツールをリモートMCPに出してよいか */
 export function isRemoteTool(name: string): boolean {
   return REMOTE_TOOL_SET.has(name)
+}
+
+/**
+ * その接続の権限で使ってよいツールか。
+ *
+ * 「見るだけ」で許可した接続には、書き込みの道具を**一覧にも出さない**。
+ * 出したうえで実行時に断ると、AI が何度も試して利用者には理由が見えない。
+ * 一覧に出さないのは親切のためで、守りの本体は DB 側（mcp_authorize が
+ * 鍵の allowed_actions を再検査する）。
+ */
+export function isRemoteToolAllowedFor(name: string, allowedActions: readonly string[]): boolean {
+  if (!REMOTE_TOOL_SET.has(name)) return false
+  if (WRITE_TOOL_SET.has(name)) return allowedActions.includes('write')
+  return allowedActions.includes('read')
 }

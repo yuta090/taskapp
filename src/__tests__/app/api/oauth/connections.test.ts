@@ -37,6 +37,10 @@ function makeAdminQuery(table: string) {
       return chain
     },
     order: () => chain,
+    limit: (n: number) => {
+      filters.push(`limit:${n}`)
+      return chain
+    },
     update: (patch: Record<string, unknown>) => {
       filters.push(`update:${JSON.stringify(patch)}`)
       return chain
@@ -67,6 +71,13 @@ vi.mock('@/lib/supabase/server', () => ({
   }),
 }))
 
+/** 二要素認証の関門。null=通す、Response=そこで止める */
+let mfaBlocked = false
+vi.mock('@/lib/auth/apiMfaGuard', () => ({
+  mfaGuardResponse: async () =>
+    mfaBlocked ? new Response(JSON.stringify({ error: 'mfa' }), { status: 403 }) : null,
+}))
+
 vi.mock('@/lib/mcp/oauth/store', () => ({
   revokeConnection: async (id: string) => {
     revokedIds.push(id)
@@ -82,12 +93,20 @@ beforeEach(() => {
   adminQueries.length = 0
   apiKeyRows = []
   revokedIds = []
+  mfaBlocked = false
 })
 
 describe('GET /api/oauth/connections — 見える範囲', () => {
   it('ログインしていなければ 401', async () => {
     currentUser = null
     expect((await GET()).status).toBe(401)
+  })
+
+  it('二要素認証が必要な状態なら、service role で読む前に止める', async () => {
+    mfaBlocked = true
+    const res = await GET()
+    expect(res.status).toBe(403)
+    expect(adminQueries).toEqual([])
   })
 
   it('オーナーの組織が無ければ、自分の接続だけに絞る', async () => {
@@ -114,6 +133,12 @@ describe('GET /api/oauth/connections — 見える範囲', () => {
     const keysQuery = adminQueries.find((q) => q.table === 'api_keys')!
     expect(keysQuery.filters).toContain('eq:issued_via=oauth')
   })
+
+  it('際限なく返さない（件数の上限を付けている）', async () => {
+    await GET()
+    const keysQuery = adminQueries.find((q) => q.table === 'api_keys')!
+    expect(keysQuery.filters.some((f) => f.startsWith('limit:'))).toBe(true)
+  })
 })
 
 describe('DELETE /api/oauth/connections/[id] — 解除できる人', () => {
@@ -122,6 +147,14 @@ describe('DELETE /api/oauth/connections/[id] — 解除できる人', () => {
   it('ログインしていなければ 401', async () => {
     currentUser = null
     expect((await DELETE(new Request('https://x.test'), ctx)).status).toBe(401)
+    expect(revokedIds).toEqual([])
+  })
+
+  it('二要素認証が必要な状態なら、解除しない', async () => {
+    mfaBlocked = true
+    apiKeyRows = [{ id: 'conn-1', org_id: 'org-1', user_id: 'user-1', issued_via: 'oauth' }]
+    const res = await DELETE(new Request('https://x.test'), ctx)
+    expect(res.status).toBe(403)
     expect(revokedIds).toEqual([])
   })
 

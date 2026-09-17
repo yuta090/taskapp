@@ -1,4 +1,4 @@
-import { hashSecret } from '@/lib/mcp/oauth/secrets'
+import { hashSecret, looksLikeOAuthToken } from '@/lib/mcp/oauth/secrets'
 
 /**
  * /api/mcp に来た Bearer が誰のものかを1本に解決する。
@@ -27,11 +27,10 @@ export async function resolveApiKey(bearer: string): Promise<ResolvedKey> {
   // 動的 import。ビルド時に環境変数の確認が走るのを避ける（/api/tools と同じ理由）
   const { resolveAuthContext, resolveAuthContextFromOAuthToken } = await import('agentpm-core/dist/config.js')
 
-  // 先に OAuth の合鍵として引く。外部チャットからの接続はこちらが主
-  try {
+  // 目印で先に振り分ける。DBを2回引かずに済む
+  // （目印は権限ではない。本体は下の控えの照合・鍵の照合）
+  if (looksLikeOAuthToken(bearer)) {
     return (await resolveAuthContextFromOAuthToken(hashSecret(bearer))) as ResolvedKey
-  } catch {
-    // 合鍵ではなかった。APIキーとして引き直す
   }
 
   return (await resolveAuthContext(bearer)) as ResolvedKey

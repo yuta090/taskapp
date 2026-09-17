@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * 外部チャット（ChatGPT 等）との接続の一覧。
@@ -16,6 +18,10 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'ログインが必要です' }, { status: 401 })
+  // 二要素認証: 登録済み×コード未入力のまま service role で読み書きさせない
+  // （同じ形のルートと揃える。往復は増えない）
+  const mfaBlock = await mfaGuardResponse(supabase as unknown as SupabaseClient, user)
+  if (mfaBlock) return mfaBlock
 
   // この人がオーナーの組織（その組織の全接続が見える）
   const { data: membershipRows } = await supabase
@@ -27,7 +33,11 @@ export async function GET() {
   const ownedOrgIds = memberships.filter((m) => m.role === 'owner').map((m) => m.org_id)
 
   // api_keys は RLS で読める範囲が限られるうえ、oauth_tokens は service role 専用。
-  // 表示に必要な最小限だけを admin で引き、見せる範囲はここで絞る
+  // 表示に必要な最小限だけを admin で引き、見せる範囲はここで絞る。
+  //
+  // ⚠ ここから下は「ログイン確認 → 所属の確認 → 接続 → 名前」の直列。並列にしない判断をした：
+  // 滅多に開かない設定画面で、クエリを割って重複を取り除く手数に見合わない。2回目以降は
+  // 画面側のキャッシュが効く
   const admin = createAdminClient()
   let query = admin
     .from('api_keys')
@@ -35,6 +45,8 @@ export async function GET() {
     .eq('issued_via', 'oauth')
     .eq('is_active', true)
     .order('created_at', { ascending: false })
+    // 上限。ここは滅多に増えないが、際限なく返す形にはしない
+    .limit(200)
 
   query = ownedOrgIds.length > 0
     ? query.or(`user_id.eq.${user.id},org_id.in.(${ownedOrgIds.join(',')})`)

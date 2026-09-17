@@ -133,6 +133,12 @@ comment on column public.api_keys.oauth_client_id is
 create index if not exists idx_api_keys_oauth_client
   on public.api_keys(oauth_client_id) where oauth_client_id is not null;
 
+-- 「自分の接続」の一覧（/settings/連携画面）と、org の接続数の数え上げ（プランの枠）に効かせる
+create index if not exists idx_api_keys_oauth_user
+  on public.api_keys(user_id) where issued_via = 'oauth' and is_active;
+create index if not exists idx_api_keys_oauth_org
+  on public.api_keys(org_id) where issued_via = 'oauth' and is_active;
+
 -- =============================================================================
 -- 5) 合鍵から「誰の・どの範囲か」を引く
 -- =============================================================================
@@ -249,9 +255,37 @@ begin
   end if;
 end $$;
 
+-- =============================================================================
+-- 7) 二要素認証の関門（RLS を有効にした表には必ず要る）
+-- =============================================================================
+
+-- RLS を有効にした表には、認証アプリを登録済みの人がコード未入力のまま触れないよう
+-- RESTRICTIVE ポリシーを必ず1本置く（20260907142526_mfa_rls_enforcement.sql の約束）。
+-- この3表は service_role からしか触らない想定だが、**表を足したら必ずここも足す**。
+-- 空DBからの再生の検査（scripts/verify-migrations-from-scratch.sh）が抜けを見つける。
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['oauth_clients', 'oauth_authorization_codes', 'oauth_tokens']
+  loop
+    if not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = t and policyname = 'mfa_required_when_enrolled'
+    ) then
+      execute format(
+        'create policy mfa_required_when_enrolled on public.%I as restrictive for all to authenticated using ((select public.mfa_satisfied())) with check ((select public.mfa_satisfied()))',
+        t
+      );
+    end if;
+  end loop;
+end $$;
+
 -- ロールバック:
 --   select cron.unschedule('cleanup-oauth-clients');
 --   drop function if exists public.cleanup_oauth_clients();
+--   drop index if exists public.idx_api_keys_oauth_org;
+--   drop index if exists public.idx_api_keys_oauth_user;
 --   alter table public.api_keys drop column if exists oauth_client_id;
 --   alter table public.api_keys drop constraint if exists api_keys_issued_via_check;
 --   alter table public.api_keys drop column if exists issued_via;

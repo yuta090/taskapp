@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { hashSecret } from '@/lib/mcp/oauth/secrets'
+import { hashSecret, newOAuthToken } from '@/lib/mcp/oauth/secrets'
 
 /**
  * /api/mcp に来た Bearer を1本に解決する。
@@ -34,14 +34,15 @@ beforeEach(() => {
 
 describe('resolveApiKey', () => {
   it('OAuth の合鍵を、控えで引き当てる', async () => {
-    oauthTokens.set(hashSecret('oauth-token-abc'), { orgId: 'org-oauth' })
+    const token = newOAuthToken()
+    oauthTokens.set(hashSecret(token), { orgId: 'org-oauth' })
 
-    const ctx = await resolveApiKey('oauth-token-abc')
+    const ctx = await resolveApiKey(token)
     expect(ctx.keyId).toBe('k-oauth')
     expect(ctx.orgId).toBe('org-oauth')
   })
 
-  it('合鍵でなければ、APIキーとして引き直す', async () => {
+  it('目印が無ければ、合鍵の表は引かずにAPIキーとして扱う', async () => {
     apiKeys.set('tsk_live_abcdef', { orgId: 'org-api' })
 
     const ctx = await resolveApiKey('tsk_live_abcdef')
@@ -53,10 +54,13 @@ describe('resolveApiKey', () => {
     await expect(resolveApiKey('知らない値')).rejects.toThrow()
   })
 
-  it('APIキーの生の値を合鍵として渡しても、合鍵側では引き当たらない', async () => {
-    apiKeys.set('tsk_live_abcdef', { orgId: 'org-api' })
-    // 合鍵の表には入っていないので、APIキーとして解決される（＝権限はAPIキーのもの）
-    const ctx = await resolveApiKey('tsk_live_abcdef')
-    expect(ctx.keyId).toBe('k-api')
+  it('目印だけ真似ても、控えが合わなければ通らない（目印は権限ではない）', async () => {
+    await expect(resolveApiKey(newOAuthToken())).rejects.toThrow()
+  })
+
+  it('目印を付けた値は、APIキーとしては引き直さない（取り違えを作らない）', async () => {
+    const fake = newOAuthToken()
+    apiKeys.set(fake, { orgId: 'org-api' })
+    await expect(resolveApiKey(fake)).rejects.toThrow()
   })
 })

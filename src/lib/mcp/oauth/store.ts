@@ -5,6 +5,7 @@ import {
   REFRESH_TOKEN_TTL_SECONDS,
   expiresAt,
   hashSecret,
+  newOAuthToken,
   newSecret,
 } from './secrets'
 
@@ -181,8 +182,8 @@ export async function issueTokens(params: {
   familyId?: string
 }): Promise<IssuedTokens> {
   const admin = createAdminClient()
-  const accessToken = newSecret()
-  const refreshToken = newSecret()
+  const accessToken = newOAuthToken()
+  const refreshToken = newOAuthToken()
   const base = {
     client_id: params.clientId,
     user_id: params.userId,

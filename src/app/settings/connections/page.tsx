@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Plug, Trash, CircleNotch } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
+import { useConfirmDialog, SettingsBackButton, ErrorRetry } from '@/components/shared'
 
 /**
  * 外部チャット（ChatGPT など）との接続の一覧と解除。
@@ -33,15 +33,16 @@ export default function ConnectionsSettingsPage() {
   const queryClient = useQueryClient()
   const [revoking, setRevoking] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery<{ connections: Connection[] }>({
+  const { data, isLoading, error, refetch } = useQuery<{ connections: Connection[] }>({
     queryKey: ['oauthConnections'],
     queryFn: async () => {
       const res = await fetch('/api/oauth/connections')
       if (!res.ok) throw new Error('接続を読み込めませんでした')
       return res.json()
     },
-    // staleTime は QueryProvider の既定(2分)のまま。解除したときは invalidate で
-    // すぐ入れ替わるので、この画面のために短くする必要はない
+    // 既定(2分)より短くしている。ChatGPT 側でつないだ直後にこの画面を開く人がいるので、
+    // 長いと「つないだのに出てこない」に見える
+    staleTime: 30_000,
   })
 
   const connections = data?.connections ?? []
@@ -60,6 +61,10 @@ export default function ConnectionsSettingsPage() {
       const res = await fetch(`/api/oauth/connections/${conn.id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error((await res.json()).error || '解除できませんでした')
       toast.success('接続を解除しました')
+      // 押したその場で消す。取り直しを待つと、消えるまで一拍あく
+      queryClient.setQueryData<{ connections: Connection[] }>(['oauthConnections'], (prev) =>
+        prev ? { connections: prev.connections.filter((c) => c.id !== conn.id) } : prev,
+      )
       queryClient.invalidateQueries({ queryKey: ['oauthConnections'] })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '解除できませんでした')
@@ -83,6 +88,12 @@ export default function ConnectionsSettingsPage() {
         <div className="mt-8 flex items-center gap-2 text-sm text-gray-500">
           <CircleNotch className="animate-spin" size={16} />
           読み込んでいます
+        </div>
+      ) : error ? (
+        // ⚠ 失敗を「接続はありません」と出さない。心当たりのない接続を切るための画面なので、
+        // 通信が一瞬こけただけで「何もつながっていない」と言い切るのは危ない
+        <div className="mt-8">
+          <ErrorRetry message="接続を読み込めませんでした" onRetry={() => refetch()} />
         </div>
       ) : connections.length === 0 ? (
         <div className="mt-8 rounded-lg border border-gray-200 bg-surface p-8 text-center">
