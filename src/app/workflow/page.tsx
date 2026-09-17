@@ -93,31 +93,23 @@ export default function WorkflowPage() {
       {/* ──── Hero ──── */}
       <section className="pt-32 pb-20 bg-slate-50">
         <div className="container mx-auto px-6 text-center max-w-3xl">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             className="inline-block px-3 py-1 mb-4 text-xs font-bold tracking-wide text-amber-600 bg-amber-100 rounded-full"
           >
             使い方
-          </motion.div>
-          <motion.h1
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+          </div>
+          <h1
             className="text-4xl lg:text-5xl font-bold mb-6 text-slate-900"
           >
             新しい企画を1本、<br className="hidden sm:block" />
             最初から最後まで。
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+          </h1>
+          <p
             className="text-lg text-slate-600 leading-relaxed"
           >
             立ち上げから会議、決まったことの記録、資料集めまで。<br className="hidden md:block" />
             実際の順番でたどります。社内の企画でも、お客様の案件でも同じです。
-          </motion.p>
+          </p>
         </div>
       </section>
 

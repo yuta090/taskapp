@@ -101,31 +101,23 @@ export default function IntegrationsPage() {
       {/* ──── Hero ──── */}
       <section className="pt-32 pb-20 bg-slate-50">
         <div className="container mx-auto px-6 text-center max-w-3xl">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             className="inline-block px-3 py-1 mb-4 text-xs font-bold tracking-wide text-amber-600 bg-amber-100 rounded-full"
           >
             連携できるサービス
-          </motion.div>
-          <motion.h1
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+          </div>
+          <h1
             className="text-4xl lg:text-5xl font-bold mb-6 text-slate-900"
           >
             いま使っているものは、<br className="hidden sm:block" />
             そのまま使えます。
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+          </h1>
+          <p
             className="text-lg text-slate-600 leading-relaxed"
           >
             チャットもタスク管理ツールも、乗り換える必要はありません。<br className="hidden md:block" />
             お客様に新しいツールを覚えていただく手間もかかりません。
-          </motion.p>
+          </p>
         </div>
       </section>
 

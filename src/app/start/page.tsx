@@ -69,31 +69,23 @@ export default function StartPage() {
       {/* ──── Hero ──── */}
       <section className="pt-32 pb-20 bg-slate-50">
         <div className="container mx-auto px-6 text-center max-w-3xl">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             className="inline-block px-3 py-1 mb-4 text-xs font-bold tracking-wide text-amber-600 bg-amber-100 rounded-full"
           >
             導入の流れ
-          </motion.div>
-          <motion.h1
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+          </div>
+          <h1
             className="text-4xl lg:text-5xl font-bold mb-6 text-slate-900"
           >
             登録した日から、<br className="hidden sm:block" />
             案件を動かせます。
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+          </h1>
+          <p
             className="text-lg text-slate-600 leading-relaxed"
           >
             登録からチャット連携まで、あわせて20分ほど。<br className="hidden md:block" />
             いま使っているツールを止める必要はありません。
-          </motion.p>
+          </p>
         </div>
       </section>
 

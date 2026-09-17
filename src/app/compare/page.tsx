@@ -291,36 +291,25 @@ export default function ComparePage() {
       {/* ──── Hero ──── */}
       <section className="pt-32 pb-20 bg-slate-50">
         <div className="container mx-auto px-6 text-center max-w-3xl">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             className="inline-block px-3 py-1 mb-4 text-xs font-bold tracking-wide text-amber-600 bg-amber-100 rounded-full"
           >
             ツール比較
-          </motion.div>
-          <motion.h1
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+          </div>
+          <h1
             className="text-4xl lg:text-5xl font-bold mb-6 text-slate-900"
           >
             {/* 自然折返しだと「向かな／い場合。」で切れるため、読点で改行を固定する */}
             AgentPMが向く場合と、<br className="hidden sm:block" />
             向かない場合。
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+          </h1>
+          <p
             className="text-lg text-slate-600 mb-8 leading-relaxed"
           >
             プロジェクト管理ツールと、チャットからタスクを拾うツール。<br className="hidden md:block" />
             AgentPMが力を発揮する場面と、他のツールのほうが適している場面を、どちらも載せています。
-          </motion.p>
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
+          </p>
+          <div
             className="space-y-1"
           >
             <p className="text-xs text-slate-400">
@@ -329,7 +318,7 @@ export default function ComparePage() {
             <p className="text-xs text-slate-400">
               ※ 各製品の最新情報は公式サイトをご確認ください
             </p>
-          </motion.div>
+          </div>
         </div>
       </section>
 
