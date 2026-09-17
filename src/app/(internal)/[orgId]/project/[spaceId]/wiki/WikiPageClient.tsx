@@ -901,7 +901,10 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   // Editor view
   if (selectedPageId && activePage) {
     return (
-      <div className="flex-1 flex flex-col min-h-0">
+      // data-print-root: 「PDFで保存」(ページ情報パネル)で刷るとき、紙に載せるのはこのかたまり
+      // だけにする。中でも押すためのもの・警告の帯には data-print-hide を付けて外す。
+      // 実際に隠す指定は globals.css の @media print 側。
+      <div data-print-root className="flex-1 flex flex-col min-h-0">
         {/* Editor Header — 全画面時はページ名＋閉じるボタンだけの簡易バーに切り替える
             （エディタ本体(WikiEditorDynamic)の位置・key はどちらの状態でも変えない = 再マウントしない） */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-surface flex-shrink-0">
@@ -910,6 +913,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               <button
                 onClick={handleBackToList}
                 aria-label="一覧へ戻る"
+                data-print-hide
                 className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <ArrowLeft className="text-lg" />
@@ -917,7 +921,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             )}
             <h1 className="text-lg font-semibold text-gray-900 truncate">{activePage.title}</h1>
           </div>
-          <div className="flex items-center gap-2">
+          {/* 保存の状態・全画面・お知らせベルは画面のためのもの。紙には載せない */}
+          <div data-print-hide className="flex items-center gap-2">
             {/* 保存の状態は全画面でも出す（全画面で書いていても保存されたか分かるように） */}
             {saveStatus === 'saving' && (
               <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -978,7 +983,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             出さない（読み直しても null のままなので無意味）。「書きかけをコピー」は
             控えを残せるよう出したままにする。 */}
         {conflict && (
-          <div data-testid="wiki-conflict-banner" className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
+          <div data-testid="wiki-conflict-banner" data-print-hide className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
             <p className="text-sm text-orange-ink">{pageDeleted ? WIKI_PAGE_DELETED_MESSAGE : WIKI_CONFLICT_MESSAGE}</p>
             <div className="mt-2 flex items-center gap-3">
               <button

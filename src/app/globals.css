@@ -1139,3 +1139,97 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
     font-size: 1.1875rem;
   }
 }
+
+/* ==========================================================================
+   紙に出す（ページ情報パネルの「PDFで保存」）
+   ==========================================================================
+   PDF を組み立てる部品は入れず、ブラウザの印刷を借りて PDF にする。
+   紙に載せるのは data-print-root を付けたかたまり（Wikiページのページ名と本文）だけ。
+
+   仕組み: data-print-root の「先祖」と「自分と中身」以外を消す。先祖は :has() で
+   名指しできるので、間の入れ子がどれだけ深くても書き換えずに済む。
+   あわせて先祖の「画面の高さに収める」指定も外す。外さないと、この画面は枠の中だけを
+   スクロールする作りなので1画面分で切れてしまう。
+   ========================================================================== */
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  /* 紙に載せるかたまりの外にあるもの（左メニュー・右のページ情報・一覧など）は出さない。
+     先頭の body:has(...) は外せない。外すと、目印の無い画面（タスク一覧など）で
+     Ctrl+P したときに何も残らず白紙が刷られる */
+  body:has([data-print-root])
+    :not(:has([data-print-root])):not([data-print-root]):not([data-print-root] *) {
+    display: none !important;
+  }
+
+  /* かたまりの中でも、押すためのもの・警告の帯は出さない */
+  [data-print-hide],
+  [data-print-root] button,
+  [data-print-root] .bn-side-menu,
+  [data-print-root] .bn-drag-handle,
+  [data-print-root] .bn-formatting-toolbar,
+  [data-print-root] .bn-link-toolbar,
+  [data-print-root] .bn-table-handle,
+  [data-print-root] .bn-tooltip {
+    display: none !important;
+  }
+
+  /* 先祖とかたまりの「画面に収める」指定を外す。外さないと1画面分で切れる */
+  body :has([data-print-root]),
+  [data-print-root],
+  [data-print-root] * {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  body :has([data-print-root]),
+  [data-print-root] {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* 本文の左右の余白は、行の取っ手（ドラッグして並べ替える印）を置くためのもの。
+     紙には取っ手を出さないので詰めて、ページ名と本文の左端をそろえる */
+  [data-print-root] .bn-editor {
+    padding-inline: 0 !important;
+  }
+
+  /* 暗い配色のまま刷ると、白い紙に薄い文字が乗って読めない。
+     暗くしている人のときだけ、黒い文字・白い地に倒す（明るい配色の人は色をそのまま刷る） */
+  html.dark [data-print-root],
+  html.dark [data-print-root] * {
+    color: #111827 !important;
+    background-color: transparent !important;
+    border-color: #d1d5db !important;
+  }
+
+  /* 見出しの直後や、図・表の途中でページが変わらないようにする */
+  [data-print-root] h1,
+  [data-print-root] h2,
+  [data-print-root] h3 {
+    break-after: avoid;
+  }
+
+  [data-print-root] img,
+  [data-print-root] table,
+  [data-print-root] blockquote,
+  [data-print-root] pre {
+    break-inside: avoid;
+  }
+}
