@@ -85,7 +85,8 @@ const groups = [
     title: 'AIから直接つなぐ',
     lead: 'お使いのAIから、AgentPMのタスクや議事録を直接さわれます。',
     items: [
-      { name: 'MCP（Claude・ChatGPT など）', status: 'ga' as Status, note: 'APIキーを発行してつなぐ' },
+      { name: 'MCP（Claude Code など手元のAIツール）', status: 'ga' as Status, note: 'APIキーを発行してつなぐ' },
+      { name: 'ブラウザのAIから直接つなぐ', status: 'planned' as Status, note: 'ChatGPT などの「コネクタ」対応' },
       { name: 'コマンドライン（agentpm）', status: 'ga' as Status, note: 'npm から入れて使う' },
     ],
   },
