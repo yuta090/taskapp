@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, GearSix, Eye, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, CheckSquare, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
+import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useInspector } from '@/components/layout'
@@ -186,6 +187,7 @@ function SampleTaskBanner({ count, onDeleteAll }: { count: number; onDeleteAll: 
 
 export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
   const { setInspector } = useInspector()
   const isMobile = useIsMobile()
   const { tasks, owners, reviewStatuses, loading, error, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange } =
@@ -567,8 +569,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         decisionState,
       })
       await fetchTasks()
+      // ダッシュボードの「確定事項」に出す「決まった日」を取り直させる
+      invalidateSpecDecisionEvents(queryClient, spaceId)
     },
-    [tasks, fetchTasks]
+    [tasks, fetchTasks, queryClient, spaceId]
   )
 
   useEffect(() => {

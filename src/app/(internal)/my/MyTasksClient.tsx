@@ -38,6 +38,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext, PAGE_LOADED_AT } from '@/lib/org/ActiveOrgProvider'
 import { useCanEditSpace, useCanEditSpaces } from '@/lib/hooks/useCanEditSpace'
+import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
@@ -183,6 +184,7 @@ const SHOW_TOLERANCE_MS = DEFAULT_STALE_TIME_MS
  */
 function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted, onOpenTask, unreadCommentCount }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
+  const inspectorQueryClient = useQueryClient()
 
   // TaskInspector 自体（コード）は、データが揃うのを待たずマウント時点から先読みしておく。
   // 待ってから import すると「データ取得→chunk取得→内部の追加取得」が直列になってしまう。
@@ -355,6 +357,8 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
                 }
                 await rpc.setSpecState(createClient(), { taskId: current.id, decisionState })
                 await fetchTasks()
+                // ダッシュボードの「確定事項」に出す「決まった日」を取り直させる
+                invalidateSpecDecisionEvents(inspectorQueryClient, current.space_id)
               }
             : undefined
         }
@@ -364,7 +368,7 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
         unreadCommentCount={unreadCommentCount}
       />
     )
-  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange, unreadCommentCount])
+  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange, unreadCommentCount, inspectorQueryClient])
 
   return null
 }

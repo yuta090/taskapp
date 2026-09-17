@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { DashboardClient } from '@/app/(internal)/[orgId]/project/[spaceId]/dashboard/DashboardClient'
-import { DASHBOARD_WIDGET_PREFS_KEY } from '@/lib/dashboard/widgetPrefs'
+import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_PREFS_KEY } from '@/lib/dashboard/widgetPrefs'
 import type { Task } from '@/types/database'
 
 /**
@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   recentComments: [] as Array<{ id: string; task_id: string; actor_id: string; body: string; created_at: string }>,
   recentCommentsEnabled: [] as boolean[],
   membersPending: false,
+  decisionEvents: [] as Array<{ task_id: string; action: string; created_at: string }>,
+  decisionEventsEnabled: [] as boolean[],
 }))
 
 vi.mock('@/lib/hooks/useTasks', () => ({
@@ -55,6 +57,12 @@ vi.mock('@/lib/hooks/useRecentTaskComments', () => ({
     return { comments: options.enabled ? mocks.recentComments : [], loading: false, error: null }
   },
 }))
+vi.mock('@/lib/hooks/useSpecDecisionEvents', () => ({
+  useSpecDecisionEvents: (_spaceId: string, options: { enabled: boolean }) => {
+    mocks.decisionEventsEnabled.push(options.enabled)
+    return { events: options.enabled ? mocks.decisionEvents : [], loading: false, error: null }
+  },
+}))
 vi.mock('@/lib/hooks/useAnnouncements', () => ({
   useAnnouncements: () => ({ announcements: [], unreadCount: 0, markAsRead: vi.fn(), markAllAsRead: vi.fn() }),
 }))
@@ -73,6 +81,8 @@ beforeEach(() => {
   mocks.recentComments = []
   mocks.recentCommentsEnabled = []
   mocks.membersPending = false
+  mocks.decisionEvents = []
+  mocks.decisionEventsEnabled = []
 })
 
 afterEach(() => {
@@ -183,6 +193,65 @@ describe('DashboardClient — 前からある項目の日付も、期限切れ�
   })
 })
 
+describe('DashboardClient — 確定事項', () => {
+  it('決まったことを新しい順に出し、状態と決まった日を添える。押すとそのタスクが開く', () => {
+    mocks.tasks = [
+      task({ id: 'd1', title: '見積の出し方', type: 'spec', decision_state: 'decided' }),
+      task({ id: 'd2', title: '納品の形式', type: 'spec', decision_state: 'implemented' }),
+    ]
+    mocks.decisionEvents = [
+      { task_id: 'd1', action: 'SPEC_DECIDE', created_at: '2026-09-10T03:00:00Z' },
+      { task_id: 'd2', action: 'SPEC_IMPLEMENT', created_at: '2026-09-14T03:00:00Z' },
+    ]
+    renderPage()
+
+    const section = screen.getByRole('region', { name: '確定事項' })
+    const links = within(section).getAllByRole('link')
+    expect(links[0]).toHaveTextContent('納品の形式')
+    expect(links[0]).toHaveTextContent('実装済み')
+    expect(links[0]).toHaveTextContent('9/14')
+    expect(links[0]).toHaveAttribute('href', '/org-1/project/space-1?task=d2')
+    expect(links[1]).toHaveTextContent('見積の出し方')
+    expect(links[1]).toHaveTextContent('決定済み')
+  })
+
+  it('まだ決まっていないもの（検討中）は「検討中」として別に出す', () => {
+    mocks.tasks = [
+      task({ id: 'c1', title: '保守の範囲', type: 'spec', decision_state: 'considering' }),
+      task({ id: 'plain', title: 'ふつうのタスク' }),
+    ]
+    renderPage()
+
+    const section = screen.getByRole('region', { name: '確定事項' })
+    expect(within(section).getByText('検討中')).toBeInTheDocument()
+    expect(within(section).getByRole('link', { name: /保守の範囲/ })).toBeInTheDocument()
+    expect(within(section).queryByText('決まったこと')).not.toBeInTheDocument()
+    expect(within(section).queryByText('ふつうのタスク')).not.toBeInTheDocument()
+  })
+
+  it('決定事項のタスクが無ければ、そう書く', () => {
+    mocks.tasks = [task({ id: 'plain', title: 'ふつうのタスク' })]
+    renderPage()
+    const section = screen.getByRole('region', { name: '確定事項' })
+    expect(within(section).getByText('まだ決まったことはありません')).toBeInTheDocument()
+  })
+
+  it('決まった日の記録がまだ届いていなくても、一覧は出す（日付だけ後から付く）', () => {
+    mocks.tasks = [task({ id: 'd1', title: '見積の出し方', type: 'spec', decision_state: 'decided' })]
+    renderPage()
+    const section = screen.getByRole('region', { name: '確定事項' })
+    expect(within(section).getByRole('link', { name: /見積の出し方/ })).toBeInTheDocument()
+  })
+
+  it('「確定事項」を外しているあいだは、決めたときの記録を読みに行かない', () => {
+    localStorage.setItem(DASHBOARD_WIDGET_PREFS_KEY, JSON.stringify({ hidden: ['decisions'] }))
+    renderPage()
+    expect(screen.queryByRole('region', { name: '確定事項' })).not.toBeInTheDocument()
+    expect(mocks.decisionEventsEnabled.length).toBeGreaterThan(0)
+    expect(mocks.decisionEventsEnabled.every((enabled) => enabled === false)).toBe(true)
+  })
+})
+
 describe('DashboardClient — 最近のコメント', () => {
   it('タスク名・書いた人・本文・いつ書いたかを出し、押すとタスクが開く', () => {
     mocks.tasks = [task({ id: 'task-a', title: 'ロゴの修正' })]
@@ -266,9 +335,7 @@ describe('DashboardClient — 表示する項目を選ぶ', () => {
   it('全部外したら、選び方を案内する', () => {
     localStorage.setItem(
       DASHBOARD_WIDGET_PREFS_KEY,
-      JSON.stringify({
-        hidden: ['kpi', 'overdue', 'recent_comments', 'client_follow_up', 'milestones', 'ball', 'upcoming_deadlines', 'meetings'],
-      })
+      JSON.stringify({ hidden: DASHBOARD_WIDGETS.map((w) => w.id) })
     )
     renderPage()
     expect(screen.getByText(/右上の「表示する項目」から選んでください/)).toBeInTheDocument()
