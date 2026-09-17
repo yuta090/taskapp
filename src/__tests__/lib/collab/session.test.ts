@@ -19,6 +19,7 @@ import {
   AWARENESS_FLUSH_MS,
 } from '@/lib/collab/session'
 import type { DegradeReason } from '@/lib/collab/session'
+import { minutesSeedHash, seedClientId } from '@/lib/collab/hash'
 import { readSavedState } from '@/lib/collab/scribe'
 import { createFakeHub } from './fakeTransport'
 import { applyMarkdown, blockGroupCount, readBackMarkdown, seedWith } from './minutesTestSchema'
@@ -242,6 +243,24 @@ describe('部屋に入ったとき', () => {
 })
 
 describe('切れて入り直したとき', () => {
+  it('既に本文を持っていれば、種は作らず握手をやり直す', () => {
+    // 作らずに黙って帰ると、留守の間に部屋で増えた分をもらい損ねる
+    const hub = createFakeHub()
+    const a = join(hub, 'tab-a', [{ id: 'tab-a', userId: 'u-a', joinedAt: 100, collab: false, present: true }])
+    expect(a.session.isSynced).toBe(true)
+    // 在席の上ではまだ誰も本文を持っておらず、自分がいちばん古い
+    a.session.setPeers([
+      { id: 'tab-a', userId: 'u-a', joinedAt: 100, collab: false, present: true },
+      { id: 'tab-b', userId: 'u-b', joinedAt: 200, collab: false, present: true },
+    ])
+    hub.sent.length = 0
+
+    hub.disconnect('tab-a')
+    hub.reconnect('tab-a')
+
+    expect(hub.sent.filter((s) => s.from === 'tab-a' && s.event === 'y-sync1')).toHaveLength(1)
+  })
+
   it('入り直した人が切れている間に打った分も、部屋へ届く', () => {
     const hub = createFakeHub()
     const room: Room = [
@@ -505,6 +524,46 @@ describe('本文が二重になったとき', () => {
     expect(readBackMarkdown(a.session.doc)).toBe(BASE)
     expect(blockGroupCount(a.session.doc)).toBe(1)
     expect(a.degraded).toEqual([])
+  })
+
+  it('残すはずの本文を自分が持っていないときは、何も消さない', () => {
+    // いちばん危ない道すじ。相手の本文の通を1通取りこぼした人が「消す」判断だけ
+    // すると、自分の本文が消えて**中身がゼロ**になる。議事録には版の控えが無く、
+    // そのまま1行打つと空の本文で列を上書きしてしまう
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], BASE, OLDER)
+    // 種の印だけが届き、本文そのものは届かなかった状態
+    const announce = new Y.Doc()
+    announce.getMap('seeds').set(minutesSeedHash(EXTRA), NEWER)
+    hub.sendAs('b', 'y-update', Y.encodeStateAsUpdate(announce))
+
+    expect(blockGroupCount(a.session.doc)).toBe(1)
+    expect(readBackMarkdown(a.session.doc)).toBe(BASE)
+    // 消せないので、これまでどおり列から読み直す形へ落ちる
+    expect(a.degraded).toContain('duplicate-seed')
+  })
+
+  it('どちらが新しいか分からないときは、勝手に選ばない', () => {
+    // 基準が読めない種どうし。判断材料が無いのに片方を消すと、消えた側は戻せない
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], BASE, null)
+    const other = new Y.Doc()
+    const { seedHash } = seedWith(EXTRA)(other)
+    other.getMap('seeds').set(seedHash, '')
+    hub.sendAs('b', 'y-update', Y.encodeStateAsUpdate(other))
+
+    // どちらも消さずに残し、列から読み直す形へ落ちる
+    expect(a.degraded).toContain('duplicate-seed')
+    expect(blockGroupCount(a.session.doc)).toBe(2)
+  })
+
+  it('本文のかたまりの持ち主は、種の合言葉から決まる番号で分かる', () => {
+    // Yjs の中の作りに頼っているので、上げたときに気づけるよう固定しておく。
+    // 読めなくなると、直しが静かに空振りして毎回読み直しに落ちる
+    const doc = new Y.Doc()
+    const { seedHash } = seedWith(BASE)(doc)
+    const first = doc.getXmlFragment('minutes').get(0) as { _item?: { id?: { client?: number } } }
+    expect(first._item?.id?.client).toBe(seedClientId(seedHash))
   })
 
   it('直しきれなければ、これまでどおり列から読み直す形へ落とす', () => {

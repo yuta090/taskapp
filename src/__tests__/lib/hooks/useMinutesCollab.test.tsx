@@ -342,6 +342,9 @@ describe('1つ前の版の画面が混ざっているとき', () => {
     expect(rendered.result.current.degradedReason).toBe('peer-outdated')
     expect(rendered.result.current.solo).toBe(true)
     expect(rendered.result.current.fragment).toBeNull()
+    // 名乗りも下ろす。器がまだ無いと縮退の処理が走らず、名乗ったまま輪に入らない人が
+    // 残り、ほかの人が猶予切れまで待たされる
+    expect(setCollabPresentSpy).toHaveBeenCalledWith(false)
   })
 })
 

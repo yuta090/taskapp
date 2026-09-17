@@ -301,6 +301,9 @@ export function useMinutesCollab({
               if (peers.some((peer) => peer.outdated && peer.id !== tabIdRef.current)) {
                 peerOutdatedRef.current = true
                 sessionRef.current?.degrade('peer-outdated')
+                // 器がまだ無いと上の縮退が走らないので、名乗りはここでも下ろす。
+                // 名乗ったまま輪に入らない人が残ると、ほかの人が猶予切れまで待たされる
+                setCollabPresentRef.current(false)
                 setDegradedReason((prev) => prev ?? 'peer-outdated')
                 return
               }

@@ -220,25 +220,24 @@ export class MinutesCollabSession {
     const others = peers.filter(
       (peer) => peer.id !== this.options.selfId && (peer.collab || peer.present)
     )
-    // 本当に自分ひとり。誰の返事も待たずに列の本文で満たす
+    // 本当に自分ひとり。もらう相手も居ないので、本文が無ければ列から作る
     if (others.length === 0) {
       this.seedNow()
       return
     }
     this.syncAttempts = 0
-    // 本文を持っている人が居るなら、その人からもらう（既に持っていても、切れている間に
-    // 増えた分をもらうため必ず握手する）
-    if (others.some((peer) => peer.collab)) {
+    // 本文を持っている人が居るなら、その人からもらう。
+    // **自分が既に持っている場合（入り直し）も必ず握手する** — 留守の間に部屋で
+    // 増えた分をもらい損ねないため
+    if (this.synced || others.some((peer) => peer.collab)) {
       this.sendSync1()
       return
     }
     // **誰も本文を持っていない部屋**。互いに尋ねても誰も答えられないので、猶予切れまで
     // 待つと全員が作って本文が二重になる。顔ぶれから係を1人決め、その人だけが先に作る。
     // ほかの人は待ち、300ms 後に配られる差分で同じ本文を受け取る
-    if (electSeeder(peers) === this.options.selfId) {
-      this.seedNow()
-      return
-    }
+    if (electSeeder(peers) === this.options.selfId && this.seedNow()) return
+    // 係なのに作れなかった（エディタがまだ載っていない）。黙って帰らず握手しておく
     this.sendSync1()
   }
 
@@ -288,12 +287,16 @@ export class MinutesCollabSession {
     }, SYNC_WAIT_MS)
   }
 
-  /** 列の本文から種をまく。まいた合言葉を共有の覚え書きに残す */
-  private seedNow(): void {
-    if (this.disposed || this.degraded || this.synced) return
+  /**
+   * 列の本文から種をまく。まいた合言葉を共有の覚え書きに残す。
+   * **まいたかどうかを返す** — 既に本文がある・エディタがまだ載っていないときは
+   * 何もせず false を返すので、呼び出し側は黙って帰らずに握手へ回れる。
+   */
+  private seedNow(): boolean {
+    if (this.disposed || this.degraded || this.synced) return false
     try {
       const seeder = this.seeder
-      if (!seeder) return
+      if (!seeder) return false
       const { seedHash, basis } = seeder(this.doc)
       this.doc.transact(() => {
         // 値は「その本文を読んだときの列の更新時刻」。種が2つ入ったとき、
@@ -301,8 +304,10 @@ export class MinutesCollabSession {
         this.seeds.set(seedHash, typeof basis === 'string' ? basis : '')
       })
       this.markSynced()
+      return true
     } catch {
       this.degrade('apply-failed')
+      return false
     }
   }
 
@@ -404,16 +409,31 @@ export class MinutesCollabSession {
       basis: typeof basis === 'string' ? basis : '',
     }))
     if (entries.length < 2) return
+    // どちらが新しいか分からないときは、勝手に選ばない。判断材料が無いのに片方を
+    // 消すと、消えた側は戻せない
+    if (entries.every((entry) => entry.basis === '')) {
+      this.degrade('duplicate-seed')
+      return
+    }
     // 列の更新時刻が新しいほうを残す。同じなら合言葉の大きいほう（全員で同じ答えになる）
     const winner = entries.reduce((best, entry) =>
       entry.basis > best.basis || (entry.basis === best.basis && entry.seedHash > best.seedHash) ? entry : best
     )
+    const winnerOwner = seedClientId(winner.seedHash)
+    // **残すほうを自分が持っているか、先に確かめる。**
+    // 通は1通ずつ配られるので、「消す判断のもとになった印」だけ先に届いて本文が
+    // まだ来ていないことがある。そこで消すと**手元の本文がゼロになる**（議事録には
+    // 版の控えが無いので戻せず、そのまま1行打つと空の本文で列を上書きしてしまう）
+    if (!this.hasBlockGroupFrom(winnerOwner)) {
+      this.degrade('duplicate-seed')
+      return
+    }
     const losers = new Set(
       entries.filter((entry) => entry.seedHash !== winner.seedHash).map((entry) => seedClientId(entry.seedHash))
     )
     // 万一、違う合言葉から同じ番号が出たら**何も消さない**（消すと本文が丸ごと消える）。
     // そのときは下の検査に引っかかり、列から読み直す形へ落ちる
-    losers.delete(seedClientId(winner.seedHash))
+    losers.delete(winnerOwner)
 
     try {
       this.doc.transact(() => {
@@ -435,9 +455,18 @@ export class MinutesCollabSession {
       return
     }
 
-    // 消しきれなかった＝持ち主の分からないかたまりが残っている。
-    // 二重のまま書かせず、列から読み直す形へ落とす（最後の砦）
-    if (this.fragment.length > 1) this.degrade('duplicate-seed')
+    // 直したあとは本文のかたまりがちょうど1つ。**0 も 2 も縮退させる**のが要点で、
+    // 0（消しすぎ）を見逃すと、白紙のまま打った1行で列を上書きしてしまう
+    if (this.fragment.length !== 1) this.degrade('duplicate-seed')
+  }
+
+  /** その番号が作った本文のかたまりが、いま手元にあるか */
+  private hasBlockGroupFrom(owner: number): boolean {
+    for (let i = 0; i < this.fragment.length; i++) {
+      const child = this.fragment.get(i) as { _item?: { id?: { client?: number } } } | undefined
+      if (child?._item?.id?.client === owner) return true
+    }
+    return false
   }
 
   // ── 送り出し ────────────────────────────────────────────
