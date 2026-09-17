@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { config as dotenvConfig } from 'dotenv'
 import type { AuthContext, ActionType } from './auth/authorize.js'
 import { createAuthContext } from './auth/authorize.js'
@@ -9,20 +10,8 @@ dotenvConfig()
 export interface McpServerConfig {
   supabaseUrl: string
   supabaseServiceKey: string
-  // 従来の固定値（後方互換性のため維持）
-  orgId: string
+  /** stdio モードの既定プロジェクト（TASKAPP_SPACE_ID）。HTTP では使わない */
   spaceId: string
-  actorId: string
-  // 新しい認証コンテキスト（APIキーから取得）
-  authContext: AuthContext | null
-}
-
-function getEnvOrThrow(key: string): string {
-  const value = process.env[key]
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${key}`)
-  }
-  return value
 }
 
 function getEnvWithFallback(primary: string, fallback: string): string {
@@ -39,85 +28,67 @@ function parseAllowedActions(value: string | undefined): ActionType[] {
 }
 
 export function loadConfig(): McpServerConfig {
-  // APIキーが環境変数で設定されている場合は認証コンテキストを作成
-  const apiKeyId = process.env.TASKAPP_API_KEY_ID
-  const apiKeyUserId = process.env.TASKAPP_API_KEY_USER_ID
-  const apiKeyScope = process.env.TASKAPP_API_KEY_SCOPE as 'space' | 'org' | 'user' | undefined
-  const apiKeyAllowedSpaceIds = process.env.TASKAPP_API_KEY_ALLOWED_SPACE_IDS
-  const apiKeyAllowedActions = process.env.TASKAPP_API_KEY_ALLOWED_ACTIONS
-
-  let authContext: AuthContext | null = null
-  if (apiKeyId) {
-    authContext = {
-      keyId: apiKeyId,
-      userId: apiKeyUserId || null,
-      orgId: getEnvOrDefault('TASKAPP_ORG_ID', '00000000-0000-0000-0000-000000000001'),
-      scope: apiKeyScope || 'space',
-      allowedSpaceIds: apiKeyAllowedSpaceIds ? apiKeyAllowedSpaceIds.split(',') : null,
-      allowedActions: parseAllowedActions(apiKeyAllowedActions),
-    }
-  }
-
   return {
     supabaseUrl: getEnvWithFallback('SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL'),
     supabaseServiceKey: getEnvWithFallback('SUPABASE_SERVICE_KEY', 'SUPABASE_SERVICE_ROLE_KEY'),
-    orgId: getEnvOrDefault('TASKAPP_ORG_ID', '00000000-0000-0000-0000-000000000001'),
     spaceId: getEnvOrDefault('TASKAPP_SPACE_ID', '00000000-0000-0000-0000-000000000010'),
-    actorId: getEnvOrDefault('TASKAPP_ACTOR_ID', '00000000-0000-0000-0000-000000000099'),
-    authContext,
   }
 }
 
 export const config = loadConfig()
 
+// =============================================================================
+// 認証コンテキスト（リクエストごとに分離する）
+// =============================================================================
+
 /**
- * ランタイムAPIキー検証
- * TASKAPP_API_KEY が設定されている場合、DB側の rpc_validate_api_key で検証し
- * 認証コンテキストを動的に設定する
+ * ⚠ テナント分離の要。
+ *
+ * 以前は認証コンテキストをこのモジュールの可変な変数に置き、dispatch 側で全リクエストを
+ * 直列化して混線を避けていた。HTTP の受け口（/api/mcp・/api/tools）は複数の利用者が同時に
+ * 叩くため、その作りでは「1人の遅い呼び出しが全員を待たせる」か「直列化を外した瞬間に
+ * 別の組織のデータが見える」かのどちらかになる。
+ *
+ * そこで AsyncLocalStorage に移す。await をまたいでも、その呼び出し自身のコンテキストが
+ * 追随する。ツール側のコードは getAuthContext() / getActorId() を呼ぶだけでよい。
+ *
+ * fail-closed: ストアが無ければ「誰でもない」ではなく **例外で止める**。
+ * 以前あった「開発用デフォルトの全権限コンテキスト」は、本番で認証漏れを黙って通す穴に
+ * なるため復活させないこと。
  */
-export async function initializeAuth(): Promise<void> {
-  const apiKey = process.env.TASKAPP_API_KEY
-  if (!apiKey) {
-    // 本番環境で API キー未設定は致命的エラー
-    if (process.env.NODE_ENV === 'production') {
-      console.error('FATAL: TASKAPP_API_KEY is required in production')
-      process.exit(1)
-    }
-    console.error('WARNING: TASKAPP_API_KEY not set, using static config (dev mode)')
-    return
-  }
+const authStore = new AsyncLocalStorage<AuthContext>()
 
-  const supabase = getSupabaseClient()
-  const { data, error } = await supabase.rpc('rpc_validate_api_key', { p_api_key: apiKey })
+/**
+ * プロセス全体のコンテキスト。stdio モード（1プロセス＝1利用者）でのみ設定する。
+ * HTTP では決して設定しない（設定するとリクエスト間で漏れる）。
+ */
+let processAuthContext: AuthContext | null = null
 
-  if (error || !data || (data as Record<string, unknown>[]).length === 0) {
-    console.error('FATAL: API key validation failed:', error?.message || 'key not found/expired')
-    process.exit(1)
-  }
-
-  const row = (data as Record<string, unknown>[])[0]
-
-  config.authContext = createAuthContext({
-    key_id: row.key_id as string,
-    user_id: (row.user_id as string) || null,
-    org_id: row.org_id as string,
-    scope: row.scope as string,
-    allowed_space_ids: (row.allowed_space_ids as string[]) || null,
-    allowed_actions: (row.allowed_actions as string[]) || ['read'],
-    space_id: (row.space_id as string) || null,
-  })
-  config.orgId = row.org_id as string
-  if (row.space_id) config.spaceId = row.space_id as string
-  if (row.user_id) config.actorId = row.user_id as string
-
-  console.error(`Auth initialized: scope=${row.scope}, org=${row.org_id}`)
+/** この呼び出しのあいだだけ ctx を有効にしてツールを実行する。ツール実行の唯一の入口 */
+export function runWithAuthContext<T>(ctx: AuthContext, fn: () => Promise<T>): Promise<T> {
+  return authStore.run(ctx, fn)
 }
 
 /**
- * 外部から API key を渡して認証コンテキストを設定する
- * HTTP API ルートから呼ばれる。process.exit せず throw する。
+ * 認証コンテキストを取得。
+ * リクエストのストア → stdio のプロセス全体 の順に見て、どちらも無ければ例外。
  */
-export async function initializeAuthWithApiKey(apiKey: string): Promise<void> {
+export function getAuthContext(): AuthContext {
+  const fromRequest = authStore.getStore()
+  if (fromRequest) return fromRequest
+  if (processAuthContext) return processAuthContext
+  throw new Error(AUTH_REASON_LABELS.noAuthContext)
+}
+
+// =============================================================================
+// APIキーの検証
+// =============================================================================
+
+/**
+ * API キーを検証して認証コンテキストを作って返す（グローバルは書き換えない）。
+ * 呼び出し元が runWithAuthContext に渡す。
+ */
+export async function resolveAuthContext(apiKey: string): Promise<AuthContext> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.rpc('rpc_validate_api_key', { p_api_key: apiKey })
 
@@ -127,7 +98,7 @@ export async function initializeAuthWithApiKey(apiKey: string): Promise<void> {
 
   const row = (data as Record<string, unknown>[])[0]
 
-  config.authContext = createAuthContext({
+  return createAuthContext({
     key_id: row.key_id as string,
     user_id: (row.user_id as string) || null,
     org_id: row.org_id as string,
@@ -136,28 +107,64 @@ export async function initializeAuthWithApiKey(apiKey: string): Promise<void> {
     allowed_actions: (row.allowed_actions as string[]) || ['read'],
     space_id: (row.space_id as string) || null,
   })
-  config.orgId = row.org_id as string
-  if (row.space_id) config.spaceId = row.space_id as string
-  if (row.user_id) config.actorId = row.user_id as string
 }
 
 /**
- * 認証コンテキストを取得
- * 設定されていない場合はデフォルトの全権限コンテキストを返す（開発用）
+ * OAuth の合鍵（の控え）から認証コンテキストを作る。
+ *
+ * 生のAPIキーを見る rpc_validate_api_key と別の関数にしてあるので、OAuth の合鍵は
+ * /api/mcp でしか通らない（CLI 用の /api/tools は生のAPIキーしか受け付けない）。
  */
-export function getAuthContext(): AuthContext {
-  if (config.authContext) {
-    return config.authContext
+export async function resolveAuthContextFromOAuthToken(tokenHash: string): Promise<AuthContext> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('rpc_validate_oauth_token', { p_token_hash: tokenHash })
+
+  if (error || !data || (data as Record<string, unknown>[]).length === 0) {
+    throw new Error(AUTH_REASON_LABELS.invalidOrExpiredApiKey)
   }
 
-  // 開発用デフォルト（全権限）
-  console.error('WARNING: No auth context configured, using default (full access)')
-  return {
-    keyId: 'dev-key',
-    userId: config.actorId,
-    orgId: config.orgId,
-    scope: 'space',
-    allowedSpaceIds: null,
-    allowedActions: ['read', 'write', 'delete', 'bulk'],
-  }
+  const row = (data as Record<string, unknown>[])[0]
+
+  return createAuthContext({
+    key_id: row.key_id as string,
+    user_id: (row.user_id as string) || null,
+    org_id: row.org_id as string,
+    scope: row.scope as string,
+    allowed_space_ids: (row.allowed_space_ids as string[]) || null,
+    allowed_actions: (row.allowed_actions as string[]) || ['read'],
+    space_id: (row.space_id as string) || null,
+  })
 }
+
+/**
+ * stdio サーバーの起動時に1回だけ呼ぶ。プロセス全体のコンテキストを決める。
+ * HTTP からは呼ばないこと（resolveAuthContext + runWithAuthContext を使う）。
+ */
+export async function initializeAuth(): Promise<void> {
+  const apiKey = process.env.TASKAPP_API_KEY
+  if (!apiKey) {
+    console.error('FATAL: TASKAPP_API_KEY is required')
+    process.exit(1)
+  }
+
+  try {
+    processAuthContext = await resolveAuthContext(apiKey)
+  } catch (e) {
+    console.error('FATAL: API key validation failed:', e instanceof Error ? e.message : String(e))
+    process.exit(1)
+  }
+
+  if (config.spaceId && !processAuthContext.spaceId) {
+    processAuthContext = { ...processAuthContext, spaceId: config.spaceId }
+  }
+
+  console.error(`Auth initialized: scope=${processAuthContext.scope}, org=${processAuthContext.orgId}`)
+}
+
+/** テスト専用。プロセス全体のコンテキストを差し替える */
+export function __setProcessAuthContextForTest(ctx: AuthContext | null): void {
+  processAuthContext = ctx
+}
+
+export type { AuthContext, ActionType }
+export { parseAllowedActions }

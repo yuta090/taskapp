@@ -19,30 +19,50 @@ import { fileTools } from './files.js'
 
 export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools]
 
+/** MCP の tools/list が返す1件分の形 */
+export interface ToolListEntry {
+  name: string
+  description: string
+  inputSchema: {
+    type: 'object'
+    properties: Record<string, { type: string; description: string }>
+    required: string[]
+  }
+}
+
+/**
+ * tools/list の中身を作る。zod スキーマを JSON Schema に直す唯一の場所。
+ *
+ * isAllowed を渡すと、そのツールだけを返す（リモートMCPは許可リストで絞る）。
+ * 呼び出し側でこの変換を書き直さないこと（形がずれると AI の引数が合わなくなる）。
+ */
+export function toolListPayload(isAllowed?: (name: string) => boolean): ToolListEntry[] {
+  const tools = isAllowed ? allTools.filter((t) => isAllowed(t.name)) : allTools
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: {
+      type: 'object' as const,
+      properties: Object.fromEntries(
+        Object.entries(tool.inputSchema.shape).map(([key, schema]) => [
+          key,
+          {
+            type: getZodType(schema),
+            description: (schema as { description?: string }).description || '',
+          },
+        ])
+      ),
+      required: Object.entries(tool.inputSchema.shape)
+        .filter(([, schema]) => !(schema as { isOptional?: () => boolean }).isOptional?.())
+        .map(([key]) => key),
+    },
+  }))
+}
+
 export function registerTools(server: Server): void {
   // List available tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: allTools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: {
-          type: 'object' as const,
-          properties: Object.fromEntries(
-            Object.entries(tool.inputSchema.shape).map(([key, schema]) => [
-              key,
-              {
-                type: getZodType(schema),
-                description: (schema as { description?: string }).description || '',
-              },
-            ])
-          ),
-          required: Object.entries(tool.inputSchema.shape)
-            .filter(([, schema]) => !(schema as { isOptional?: () => boolean }).isOptional?.())
-            .map(([key]) => key),
-        },
-      })),
-    }
+    return { tools: toolListPayload() }
   })
 
   // Handle tool calls

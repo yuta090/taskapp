@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import { getSupabaseClient, Space } from '../supabase/client.js'
-import { config } from '../config.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 import { authorizeAndLog } from '../auth/index.js'
 import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 import { AUTH_REASON_LABELS, actionNotAllowedReason, scopeRequiredReason } from '../lib/authReasonLabels.js'
+import { requireActorUserId } from '../auth/scope.js'
 
 // Schemas
 export const spaceCreateSchema = z.object({
@@ -37,7 +37,7 @@ export async function spaceCreate(params: z.infer<typeof spaceCreateSchema>): Pr
       org_id: orgId,
       name: params.name,
       type: params.type,
-      owner_user_id: params.type === 'personal' ? config.actorId : null,
+      owner_user_id: params.type === 'personal' ? requireActorUserId() : null,
     })
     .select('*')
     .single()

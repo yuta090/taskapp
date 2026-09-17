@@ -22,6 +22,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // agentpm-core はこのリポジトリの packages/mcp-server そのもの（package.json の
+      // "file:./packages/mcp-server"）。worktree では node_modules をメインの作業ディレクトリへ
+      // シンボリックリンクするため、これが無いとメイン側の古い dist を読んでしまい、
+      // 自分が直したはずのコードがテストに反映されない
+      'agentpm-core': path.resolve(__dirname, './packages/mcp-server'),
     },
   },
 })

@@ -33,6 +33,9 @@ export const publicPaths = [
   // タスク滞留診断: 未ログインのリード獲得ツール(multica-prj/shindan-appから移植)
   '/shindan',
   '/portal/email-action',
+  // 外部チャット(ChatGPT等)がリモートMCPの入口を見つけるための案内。
+  // 中身は接続先URLの案内だけで、データは含まない。未ログインで読めないと接続が始まらない
+  '/.well-known',
 ] as const
 
 // 静的LP: /lp1, /lp2, ... （public/lp<N>/index.html へ rewrite）。番号付きのみ公開

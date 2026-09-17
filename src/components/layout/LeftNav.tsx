@@ -38,6 +38,7 @@ import {
   Lifebuoy,
   Question,
   Robot,
+  Plug,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
@@ -300,6 +301,14 @@ function UserMenu({ collapsed, hydrated }: { collapsed?: boolean; hydrated: bool
             >
               <Key className="text-base text-gray-500" />
               APIキー管理
+            </Link>
+            <Link
+              href="/settings/connections"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Plug className="text-base text-gray-500" />
+              外部チャットとの接続
             </Link>
             <Link
               href="/docs/manual/internal"

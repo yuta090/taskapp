@@ -52,6 +52,7 @@ vi.mock('../supabase/client.js', () => ({
 }))
 vi.mock('../config.js', () => ({
   config: { orgId: 'org-from-key', actorId: 'actor-1' },
+  getAuthContext: () => ({ keyId: 'k', userId: 'actor-1', orgId: 'org-1', scope: 'org', allowedSpaceIds: null, allowedActions: ['read', 'write'] }),
 }))
 vi.mock('../auth/helpers.js', () => ({
   checkAuth: async () => ({ ctx: {}, role: 'admin' }),
