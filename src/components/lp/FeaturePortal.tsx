@@ -132,13 +132,13 @@ export function FeaturePortal() {
           >
             <div className="text-amber-500 font-bold tracking-wider uppercase mb-4 text-sm">For Clients</div>
             <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-6 leading-[1.15]">
-              URLを送るだけ。<br />
-              <span className="text-amber-500">アカウント登録不要。</span>
+              招待メールを送るだけ。<br />
+              <span className="text-amber-500">何人招いても無料。</span>
             </h2>
             <p className="text-base text-slate-600 mb-8 leading-relaxed">
-              クライアントにはポータルのURLをお送りするだけ。<br />
-              アプリもアカウントも必要ありません。<br />
-              進捗の確認、見積もりの承認、ファイルの閲覧がブラウザだけで完結します。
+              クライアントには招待メールをお送りするだけ。パスワードを一度決めていただければ、<br />
+              あとはブラウザだけで進捗の確認・見積もりの承認・ファイルの閲覧ができます。<br />
+              人数は何人招いても無料です。
             </p>
 
             {/* Portal features list */}
@@ -171,8 +171,8 @@ export function FeaturePortal() {
             <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
               <div className="text-xs font-bold text-amber-800 mb-2">ほかのツールとの違い</div>
               <p className="text-sm text-amber-700">
-                <strong>ほかのツール:</strong> クライアントも「ゲストユーザー」としてアカウント作成が必要<br />
-                <strong>AgentPM:</strong> URLを開くだけ。パスワード管理もログインも不要
+                <strong>ほかのツール:</strong> クライアントの人数分だけ料金がかかる。社内のタスクも見える<br />
+                <strong>AgentPM:</strong> クライアントは何人でも無料。見せると決めたものだけが相手の画面に出る
               </p>
             </div>
           </motion.div>

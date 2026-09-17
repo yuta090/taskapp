@@ -84,7 +84,7 @@ const scenes: SceneData[] = [
         after: [
             { step: 1, text: 'テンプレート「受託開発」を選択 → タスク・マイルストーン・Wiki・承認フローが自動生成' },
             { step: 2, text: '開発者はCLIでタスク更新 → ポータルに自動反映。報告作成が不要に' },
-            { step: 3, text: '発注者はポータルで進捗確認・バグ報告・見積もり承認 → アカウント不要' },
+            { step: 3, text: '発注者は招待メールから専用画面へ。進捗確認・バグ報告・見積もり承認まで完結' },
             { step: 4, text: '仕様変更はWiki + レビュー承認で証跡が残る → いつでも辿れる' },
             { step: 5, text: 'ボール管理で「誰待ち」が常に明確 → 催促の連絡が不要に' },
         ],
@@ -555,7 +555,7 @@ export default function UseCasesPage() {
                         className="max-w-3xl mx-auto glass-panel rounded-2xl shadow-xl overflow-hidden relative"
                     >
                         <div className="absolute top-4 right-4 md:-right-8 md:-top-4 z-20">
-                            <span className="pen-stamp text-lg">アカウント作成不要！</span>
+                            <span className="pen-stamp text-lg">相手先は何人でも無料！</span>
                         </div>
                         <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
                         <div className="p-8 lg:p-10">

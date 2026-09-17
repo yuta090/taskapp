@@ -5,7 +5,7 @@ import { ArrowRight } from '@phosphor-icons/react'
 import Link from 'next/link'
 
 const rows = [
-  { feature: 'ポータル（アカウント不要）', agentpm: true, others: false, note: '他ツールは全員アカウント必要' },
+  { feature: '相手先専用のポータル', agentpm: true, others: false, note: '何人招いても無料。社内のやりとりは見えない' },
   { feature: 'ボール管理', agentpm: true, others: false, note: '「誰待ち？」の可視化' },
   { feature: '代理店モード', agentpm: true, others: false, note: '原価/売値の分離管理' },
   { feature: '見積もり・承認連動', agentpm: true, others: false, note: 'ポータルからワンクリック承認' },

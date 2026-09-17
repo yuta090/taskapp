@@ -447,7 +447,7 @@ export default function Home() {
             </span>
             <span className="sh sh2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/top-assets/ui-portal.jpg" alt="クライアントポータル。相手はログイン不要で進捗確認と承認ができる" loading="lazy" />
+              <img src="/top-assets/ui-portal.jpg" alt="クライアントポータル。相手先専用の画面で進捗確認と承認ができる" loading="lazy" />
             </span>
             <span className="cap">実際の画面 ─ ボール管理とクライアントポータル</span>
           </div>

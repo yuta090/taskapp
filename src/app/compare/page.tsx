@@ -131,7 +131,9 @@ function ComparisonTable({ columns, rows }: { columns: string[]; rows: Compariso
 const pmComparisonColumns = ['AgentPM', 'A社', 'B社', 'C社', 'D社', 'E社']
 
 const pmComparisonRows = [
-  { feature: '相手先がアカウント不要で使える', values: ['◎', '×', '×', '△ 共有リンクのみ', '△ 公開ページのみ', '○ 英語のみ'] },
+  { feature: '相手先専用の画面がある', values: ['◎', '×', '×', '△ 共有リンクのみ', '△ 公開ページのみ', '○ 英語のみ'] },
+  { feature: '相手先は何人招いても無料', values: ['◎', '○ 人数無制限プラン', '× 1人ごと', '× 1人ごと', '× 1人ごと', '× 1人ごと'] },
+  { feature: '承認はメールから1クリック', values: ['◎', '×', '×', '×', '×', '△'] },
   { feature: 'ボール管理（次に動く人）', values: ['◎', '×', '×', '×', '×', '△'] },
   { feature: '見積もり→承認→請求', values: ['◎', '×', '×', '×', '×', '○'] },
   { feature: '代理店モード（原価と売値を分ける）', values: ['◎', '×', '×', '×', '×', '△'] },
