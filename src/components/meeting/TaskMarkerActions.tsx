@@ -77,6 +77,8 @@ export function TaskMarkerActions({
       ref={measure}
       contentEditable={false}
       data-testid="minutes-task-actions"
+      // 開いたまま「PDFで保存」を押しても紙には出さない（押すためのパネル）
+      data-print-hide
       role="dialog"
       aria-label="このタスクの操作"
       // 本文のカーソルを奪わない（ボタンの押下は onClick で受ける）

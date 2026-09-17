@@ -125,6 +125,13 @@ describe('会議メモに書いた人の名前を残す', () => {
     })
   })
 
+  // PDFで保存したときに、本文の下の差し込みツールバーが紙に載らないようにする印
+  // （Wiki の WikiEditor と同じ）。印を外すと、押しても何も起きないボタンの列が PDF の末尾に刷られる
+  it('本文の下の差し込みツールバーには「紙に載せない」印が付いている', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByTestId('minutes-insert-meeting-note').closest('[data-print-hide]')).not.toBeNull()
+  })
+
   it('名前が分からないときは名前を空のまま入れる（日時だけが出る）', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     fireEvent.click(screen.getByTestId('minutes-insert-meeting-note'))
