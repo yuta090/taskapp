@@ -27,9 +27,12 @@ import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { daysOverdue, groupOverdueTasks } from '@/lib/dashboard/overdue'
 import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 import { latestCommentPerTask, RECENT_COMMENT_TASK_LIMIT } from '@/lib/dashboard/recentComments'
+import { summarizeDecisions } from '@/lib/dashboard/decisions'
+import { useSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import { DASHBOARD_WIDGETS, useDashboardWidgetPrefs, type DashboardWidgetId } from '@/lib/dashboard/widgetPrefs'
 import { OverdueSection } from '@/components/dashboard/OverdueSection'
 import { RecentCommentsSection, type RecentCommentItem } from '@/components/dashboard/RecentCommentsSection'
+import { DecisionsSection } from '@/components/dashboard/DecisionsSection'
 import { DashboardWidgetMenu } from '@/components/dashboard/DashboardWidgetMenu'
 
 // -- Constants --
@@ -520,6 +523,7 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
   const widgets = useDashboardWidgetPrefs()
   const { isVisible } = widgets
   const showRecentComments = isVisible('recent_comments')
+  const showDecisions = isVisible('decisions')
 
   const { tasks, reviewStatuses, loading: tasksLoading, error: tasksError, fetchTasks } = useTasks({ orgId, spaceId })
   const { milestones, loading: msLoading } = useMilestones({ spaceId })
@@ -532,6 +536,8 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
     error: commentsError,
   } = useRecentTaskComments(spaceId, { enabled: showRecentComments })
   const { members, isPending: membersPending } = useSpaceMembers(showRecentComments ? spaceId : null)
+  // 「確定事項」を隠しているあいだは、決めたときの記録も読みに行かない
+  const { events: decisionEvents } = useSpecDecisionEvents(spaceId, { enabled: showDecisions })
 
   const loading = tasksLoading || msLoading
 
@@ -557,6 +563,9 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
     () => groupOverdueTasks(tasks, today, openReviewTaskIds),
     [tasks, today, openReviewTaskIds]
   )
+
+  // 確定事項。一覧はタスク（全件）から作り、決まった日だけ記録から後追いで足す
+  const decisionSummary = useMemo(() => summarizeDecisions(tasks, decisionEvents), [tasks, decisionEvents])
 
   // タスク名はタスク一覧（全件）から引く。一覧に無いタスク（消したタスクなど）のコメントは出さない
   const recentCommentItems = useMemo<RecentCommentItem[]>(() => {
@@ -638,6 +647,15 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
 
         {isVisible('overdue') && (
           <OverdueSection groups={overdueGroups} orgId={orgId} spaceId={spaceId} />
+        )}
+
+        {isVisible('decisions') && (
+          <DecisionsSection
+            summary={decisionSummary}
+            currentYear={Number(today.slice(0, 4))}
+            orgId={orgId}
+            spaceId={spaceId}
+          />
         )}
 
         {isVisible('recent_comments') && (

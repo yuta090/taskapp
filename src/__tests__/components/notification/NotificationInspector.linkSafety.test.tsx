@@ -1,5 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
@@ -35,9 +36,17 @@ function makeNotification(overrides: Partial<NotificationWithPayload> = {}): Not
 
 const noop = () => {}
 
+/**
+ * NotificationInspector は react-query の下で動く（決定を書いたあと、ダッシュボードの
+ * 「確定事項」に出す日付を取り直させる）。本番と同じく Provider の中で描く。
+ */
+function renderWithQuery(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
+}
+
 describe('NotificationInspector — payload.link は自アプリ内のパスのみ表示する', () => {
   it('scheduling 系アクション: 外部サイトへのリンクは表示しない', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           type: 'scheduling_reminder',
@@ -55,7 +64,7 @@ describe('NotificationInspector — payload.link は自アプリ内のパスの�
   })
 
   it('scheduling 系アクション: javascript: スキームは表示しない', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           type: 'scheduling_proposal_expired',
@@ -73,7 +82,7 @@ describe('NotificationInspector — payload.link は自アプリ内のパスの�
   })
 
   it('confirmation_request: 外部サイトへのリンクは表示しない', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           type: 'confirmation_request',
@@ -91,7 +100,7 @@ describe('NotificationInspector — payload.link は自アプリ内のパスの�
   })
 
   it('urgent_confirmation: javascript: スキームは表示しない', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           type: 'urgent_confirmation',
@@ -109,7 +118,7 @@ describe('NotificationInspector — payload.link は自アプリ内のパスの�
   })
 
   it('フッターの「詳細を見る」: 外部サイトへのリンクは表示しない', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           type: 'file_uploaded',

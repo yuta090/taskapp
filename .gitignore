@@ -62,3 +62,12 @@ supabase/.temp/
 
 # パッケージ配下の node_modules（worktree 作業用の symlink を誤ってコミットしない）
 **/node_modules
+
+# 競合調査・価格戦略はこのリポジトリに置かない（PUBLIC リポジトリのため）
+# 実名の比較・出典・こちらの戦略は手元（~/Documents/agentpm-調査/）で管理する
+docs/marketing/COMPETIT*
+docs/**/competitor*
+docs/**/COMPETITOR*
+docs/sales/
+docs/lp/LP_DRAFT_*
+docs/lp/PAGES_DRAFT_*

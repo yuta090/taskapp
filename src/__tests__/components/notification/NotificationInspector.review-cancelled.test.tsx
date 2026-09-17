@@ -1,5 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
@@ -39,9 +40,17 @@ function makeNotification(overrides: Partial<NotificationWithPayload> = {}): Not
 
 const noop = () => {}
 
+/**
+ * NotificationInspector は react-query の下で動く（決定を書いたあと、ダッシュボードの
+ * 「確定事項」に出す日付を取り直させる）。本番と同じく Provider の中で描く。
+ */
+function renderWithQuery(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
+}
+
 describe('NotificationInspector — review_cancelled notice', () => {
   it('shows the "レビュー取消" type label in the header', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           payload: { title: 'レビュー取消: 「デザイン修正」', message: 'このレビュー依頼は取り消されました。対応は不要です。' },
@@ -58,7 +67,7 @@ describe('NotificationInspector — review_cancelled notice', () => {
   })
 
   it('does not show the review approve/block action panel', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           payload: { title: 'レビュー取消', message: '対応は不要です。' },
@@ -76,7 +85,7 @@ describe('NotificationInspector — review_cancelled notice', () => {
   })
 
   it('shows a "詳細を見る" link when payload.link is present', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           payload: {

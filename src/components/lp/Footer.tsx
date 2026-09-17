@@ -7,7 +7,14 @@ import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 const productLinks = [
     { href: '/#features', label: '機能' },
+    { href: '/secretary', label: 'AI秘書' },
+    { href: '/screens', label: '画面を見る' },
     { href: '/pricing', label: '料金プラン' },
+    { href: '/start', label: '導入の流れ' },
+    { href: '/workflow', label: '使い方' },
+    { href: '/integrations', label: '連携できるサービス' },
+    { href: '/security', label: 'セキュリティ' },
+    { href: '/faq', label: 'よくある質問' },
     { href: '/shindan', label: 'タスク滞留診断（無料）' },
     { href: '/task6', label: '学びのメディア TASK6' },
     { href: '/contact', label: 'お問い合わせ' },
@@ -20,7 +27,9 @@ const legalLinks = [
 ]
 
 const companyLinks = [
-    { href: 'https://skara.co.jp', label: '会社概要' },
+    { href: '/company', label: '運営会社' },
+    { href: '/changelog', label: '更新情報' },
+    { href: 'https://skara.co.jp', label: 'コーポレートサイト' },
 ]
 
 export function LPFooter() {

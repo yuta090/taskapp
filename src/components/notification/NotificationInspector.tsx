@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   X,
@@ -25,6 +26,7 @@ import {
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
+import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { getNotificationTypeLabel } from '@/lib/notifications/labels'
@@ -129,6 +131,7 @@ export function NotificationInspector({
   hasPrev,
   hasNext,
 }: NotificationInspectorProps) {
+  const queryClient = useQueryClient()
   const payload = notification.payload
   const isUnread = notification.read_at === null
   const isUrgent = payload.urgent === true
@@ -394,6 +397,8 @@ export function NotificationInspector({
     setActionError(null)
     try {
       await rpc.setSpecState(supabase, { taskId, decisionState: 'decided' })
+      // ダッシュボードの「確定事項」に出す「決まった日」を取り直させる
+      invalidateSpecDecisionEvents(queryClient, task?.space_id)
       setActionCompleted('decided')
       scheduleAdvance()
     } catch (err: unknown) {
@@ -402,7 +407,7 @@ export function NotificationInspector({
     } finally {
       setActionLoading(false)
     }
-  }, [taskId, supabase, scheduleAdvance])
+  }, [taskId, supabase, scheduleAdvance, queryClient, task?.space_id])
 
   // Digest approval (Stage 2.7-B §5b): approve -> creates the real task / reject -> drops it.
   // Goes through the same console API (RPC re-checks the approver authorization).
