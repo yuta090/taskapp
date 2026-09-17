@@ -429,23 +429,31 @@
   --doc-link-hover-bg: rgba(129, 140, 248, 0.12);
 }
 
-/* BlockNote 既定のダーク（#1f1f1f 系）はアプリの紺寄りの面から浮くので、
-   中央トークンへ差し替える。詳細度は BlockNote 側より高くしてある。 */
-.dark .wiki-editor .bn-container,
-.dark .minutes-editor .bn-container {
+/* BlockNote 既定のダーク（#1f1f1f 系）はアプリの紺寄りの面から浮くので、中央トークンへ差し替える。
+ *
+ * セレクタが2つあるのは、色を使う場所が分かれるため:
+ *  - `html.dark` … 「/」メニュー・ツールバーは本文の外（body 直下のポータル）に出る。面の子孫に
+ *    限ったセレクタでは届かず、BlockNote 既定のダーク（選択の背景 #0f0f0f＝面より暗い）がそのまま
+ *    出て「選択中が真っ黒でどれを選んでいるか分からない」状態になっていた（ユーザー申告・2026-09-17）
+ *  - `html.dark [data-color-scheme="dark"]` … 本文の中。BlockNote 自身が
+ *    `.bn-container[data-color-scheme=dark]`（詳細度 0,2,0）で塗るので、こちら（0,2,1）で上回る
+ *
+ * 選択・ホバーは「面より明るい側」に取る。gray-100(#1B2028) は面(#191E27)とほぼ同じ暗さで沈む。 */
+html.dark,
+html.dark [data-color-scheme="dark"] {
   --bn-colors-editor-text: var(--color-gray-800);
   --bn-colors-editor-background: var(--color-surface);
   --bn-colors-menu-text: var(--color-gray-800);
   --bn-colors-menu-background: var(--color-surface);
-  --bn-colors-tooltip-text: var(--color-gray-800);
-  --bn-colors-tooltip-background: var(--color-gray-100);
+  --bn-colors-tooltip-text: var(--color-gray-900);
+  --bn-colors-tooltip-background: var(--color-gray-200);
   --bn-colors-hovered-text: var(--color-gray-900);
-  --bn-colors-hovered-background: var(--color-gray-100);
+  --bn-colors-hovered-background: var(--color-gray-200);
   --bn-colors-selected-text: var(--color-gray-900);
-  --bn-colors-selected-background: var(--color-gray-200);
+  --bn-colors-selected-background: var(--color-gray-300);
   --bn-colors-disabled-text: var(--color-gray-400);
   --bn-colors-disabled-background: var(--color-gray-100);
-  --bn-colors-border: var(--color-gray-200);
+  --bn-colors-border: var(--color-gray-300);
   --bn-colors-side-menu: var(--color-gray-400);
   --bn-colors-shadow: var(--color-gray-25);
 }

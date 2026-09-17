@@ -36,7 +36,9 @@ export function MeetingNoteBlock({
   return (
     <div
       data-testid="minutes-meeting-note"
-      className="flex w-full items-start gap-2 rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2"
+      // 背景は blue-100。blue-50 はダークで #101F35 になり、面（#191E27）と明度差がほとんど無く
+      // 帯が沈んで分かりづらかった（ユーザー申告・2026-09-17）。左の縦線は明るい水色のまま残す
+      className="flex w-full items-start gap-2 rounded border-l-4 border-blue-200 bg-blue-100 py-1 pl-3 pr-2"
     >
       {/* 文字を持てるのはこの中だけ。書いた人と日時は外に置き、打てないようにする */}
       <div className="min-w-0 flex-1" ref={contentRef} />
