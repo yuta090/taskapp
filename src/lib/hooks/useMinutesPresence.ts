@@ -109,6 +109,11 @@ interface UseMinutesPresenceResult {
    * 伝えないと、落ちた自分が書記に選ばれ続け、**誰の書いた内容も列に残らなくなる**。
    */
   setCollabActive: (active: boolean) => void
+  /**
+   * カーソルの色の番号を在席で伝える。
+   * 伝えないと、あとから入った人が同じ番号を取ってしまう。
+   */
+  setColorIndex: (index: number) => void
 }
 
 /**
@@ -129,6 +134,8 @@ type PresencePayload = {
   collab: boolean
   /** このタブが手前に出ているか。裏のタブを書記にすると保存が何分も遅れる */
   visible: boolean
+  /** カーソルの色の番号。まだ決まっていなければ null。空いている番号を配るために載せる */
+  color_index: number | null
 }
 
 /** 同時編集でやり取りする4種類（broadcast のイベント名） */
@@ -211,6 +218,8 @@ export function useMinutesPresence({
   const collabActiveRef = useRef(false)
   /** このタブが手前に出ているか。裏に回ると書記の候補から後ろへ下がる */
   const visibleRef = useRef(true)
+  /** カーソルの色の番号。決まったら在席に載せて、ほかの人が同じ番号を取らないようにする */
+  const colorIndexRef = useRef<number | null>(null)
   /** 最後にチャネルへ送った editing。まだ送っていなければ null */
   const trackedRef = useRef<boolean | null>(null)
   const sinceRef = useRef(0)
@@ -231,6 +240,7 @@ export function useMinutesPresence({
       joined_at: joinedAtRef.current,
       collab: collabActiveRef.current,
       visible: visibleRef.current,
+      color_index: colorIndexRef.current,
     }
     try {
       void Promise.resolve(channel.track(payload)).catch((err) => {
@@ -315,11 +325,13 @@ export function useMinutesPresence({
           const hasTabId = typeof meta.client_id === 'string' && !!meta.client_id
           room.push({
             id: tab,
+            userId: peerId,
             joinedAt,
             collab: meta.collab === true,
             // 印が読めない相手は手前に出ている扱い（今までと同じ順番になる）
             visible: meta.visible !== false,
             outdated: !hasTabId,
+            colorIndex: typeof meta.color_index === 'number' ? meta.color_index : null,
           })
 
           // ここから帯用。自分は出さない（別のタブで開いていても自分は自分）
@@ -365,10 +377,12 @@ export function useMinutesPresence({
       // 自分のタブは、在席が配られる前でも顔ぶれに入れる（自分の印は自分がいちばん新しい）
       const self: CollabPeer = {
         id: tabIdRef.current,
+        userId: userIdRef.current,
         joinedAt: joinedAtRef.current,
         collab: collabActiveRef.current,
         visible: visibleRef.current,
         outdated: false,
+        colorIndex: colorIndexRef.current,
       }
       const room = read.room.some((peer) => peer.id === self.id)
         ? read.room.map((peer) => (peer.id === self.id ? { ...peer, ...self } : peer))
@@ -610,5 +624,15 @@ export function useMinutesPresence({
     [pushTrack]
   )
 
-  return { others, setEditing, sendCollab, setCollabActive }
+  const setColorIndex = useCallback(
+    (index: number) => {
+      if (colorIndexRef.current === index) return
+      colorIndexRef.current = index
+      // editing が変わっていなくても送り直す（番号を配るため）
+      pushTrack(true)
+    },
+    [pushTrack]
+  )
+
+  return { others, setEditing, sendCollab, setCollabActive, setColorIndex }
 }

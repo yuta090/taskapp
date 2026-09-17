@@ -334,6 +334,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       meta: collabMeta,
       isApplyingRemote,
       synced: collabSynced,
+      colorIndex,
       pending: collabPending,
       solo: collabSolo,
       degradedReason,
@@ -981,9 +982,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const collaboration = useMemo(
       () =>
         fragment && awareness
-          ? { fragment, awareness, userName: selfName, userId: selfUserId }
+          ? { fragment, awareness, userName: selfName, colorIndex }
           : undefined,
-      [fragment, awareness, selfName, selfUserId]
+      [fragment, awareness, selfName, colorIndex]
     )
 
     return (

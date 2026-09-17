@@ -62,6 +62,7 @@ vi.mock('@/lib/hooks/useMinutesCollab', () => ({
       meta: collabState.active ? fakeMeta : null,
       isApplyingRemote: () => collabState.applyingRemote,
       synced: collabState.synced,
+      colorIndex: 2,
       pending: false,
       solo: collabState.solo,
       degradedReason: collabState.degradedReason,
@@ -308,11 +309,12 @@ describe('エディタへの受け渡し', () => {
     setup()
     await loaded()
 
+    // 色は部屋の中で決めた番号で渡す（人ごとにハッシュで選ぶと、運が悪いと重なる）
     expect(capturedCollaboration).toEqual({
       fragment: fakeFragment,
       awareness: fakeAwareness,
       userName: '自分',
-      userId: 'u-self',
+      colorIndex: 2,
     })
   })
 
