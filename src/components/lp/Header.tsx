@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, List, X, CaretDown, Terminal, Briefcase, Buildings, Code, GitBranch, FileText, ChartBar, Shield, CheckCircle, Notebook, TreeStructure, Handshake, Globe, Laptop, UserCircle, ChatCircle, ArrowsLeftRight, Question } from '@phosphor-icons/react'
+import { ArrowRight, List, X, CaretDown, Terminal, Briefcase, Buildings, Code, GitBranch, FileText, ChartBar, Shield, CheckCircle, Notebook, TreeStructure, Handshake, Globe, Laptop, UserCircle, ChatCircle, ArrowsLeftRight, Question, ShieldCheck, PlugsConnected, Rocket } from '@phosphor-icons/react'
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
@@ -38,7 +38,7 @@ const featureColumns: FeatureColumn[] = [
   {
     persona: '発注者向け',
     items: [
-      { href: '/features#for-clients', label: 'クライアントポータル', desc: 'アカウント不要。URLを開くだけ', icon: <Shield size={18} weight="duotone" /> },
+      { href: '/features#for-clients', label: 'クライアントポータル', desc: '招待メールから入るだけ。何人招いても無料', icon: <Shield size={18} weight="duotone" /> },
       { href: '/features#for-clients', label: 'バグ報告・要望起票', desc: 'ポータルから直接起票、進捗も追える', icon: <CheckCircle size={18} weight="duotone" /> },
       { href: '/features#for-clients', label: '見積もり承認', desc: 'ワンクリック承認、歩留まりゼロ', icon: <Notebook size={18} weight="duotone" /> },
     ],
@@ -60,12 +60,14 @@ const useCaseItems: DropdownItem[] = [
 ]
 
 const supportItems: DropdownItem[] = [
-  { href: '/shindan', label: 'タスク滞留診断（無料）', desc: '仕事が止まるタイプを約3分で自己診断', icon: <ChartBar size={18} weight="duotone" /> },
-  { href: '/task6', label: '学びのメディア TASK6', desc: 'タスク管理を初歩から学べる読みもの', icon: <Notebook size={18} weight="duotone" /> },
+  { href: '/start', label: '導入の流れ', desc: '登録からチャット連携まで、あわせて20分', icon: <Rocket size={18} weight="duotone" /> },
+  { href: '/workflow', label: '使い方（企画を1本動かす）', desc: '立ち上げ・会議・記録・資料集めの順にたどる', icon: <Notebook size={18} weight="duotone" /> },
+  { href: '/integrations', label: '連携できるサービス', desc: 'チャット・タスク管理・請求・AIから直接', icon: <PlugsConnected size={18} weight="duotone" /> },
+  { href: '/security', label: 'セキュリティ', desc: '暗号化・監査ログ・相手先ポータルのしくみ', icon: <ShieldCheck size={18} weight="duotone" /> },
+  { href: '/faq', label: 'よくある質問', desc: '料金・相手先・チャット・データ', icon: <Question size={18} weight="duotone" /> },
   { href: '/contact', label: '導入相談', desc: '無料でチームに合った運用を提案', icon: <UserCircle size={18} weight="duotone" /> },
-  { href: '/contact#chat', label: 'チャットサポート', desc: '使い方の質問に即対応', icon: <ChatCircle size={18} weight="duotone" /> },
-  { href: '/contact#migration', label: '移行サポート', desc: 'Backlog等からの移行をお手伝い', icon: <ArrowsLeftRight size={18} weight="duotone" /> },
-  { href: '/pricing#faq', label: 'よくある質問', desc: '導入・料金・セキュリティ等', icon: <Question size={18} weight="duotone" /> },
+  { href: '/shindan', label: 'タスク滞留診断（無料）', desc: '仕事が止まるタイプを約3分で自己診断', icon: <ChartBar size={18} weight="duotone" /> },
+  { href: '/task6', label: '学びのメディア TASK6', desc: 'タスク管理を初歩から学べる読みもの', icon: <ChatCircle size={18} weight="duotone" /> },
 ]
 
 /* ─── Dropdown wrapper (desktop) ─── */

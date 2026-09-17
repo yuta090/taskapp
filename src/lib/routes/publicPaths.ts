@@ -25,6 +25,12 @@ export const publicPaths = [
   '/features',
   '/compare',
   '/use-cases',
+  // 検討・稟議用の資料ページ: 未ログインの見込み客と、その社内の情シス・上長が読む
+  '/security',
+  '/integrations',
+  '/start',
+  '/faq',
+  '/workflow',
   // ヘルプ: 顧客・クライアント（アカウントを持たない相手を含む）が参照する
   '/help',
   // 学びのメディア「TASK6」: SEO記事。未ログインの検索流入が読む
