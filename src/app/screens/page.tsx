@@ -17,44 +17,44 @@ const H = 750
 
 const groups = [
   {
-    title: '社内で使う画面',
+    title: '案件を動かす画面（社内）',
     lead: '案件の状態を見て、タスクを動かす場所です。',
     shots: [
       { src: 'dashboard', caption: 'ダッシュボード', note: '案件の進み具合と、期限が近いもの・過ぎたものが一目で分かります。' },
-      { src: 'tasks', caption: 'タスク一覧', note: 'いま誰の番か（ボール）が行ごとに出ます。' },
-      { src: 'task-inspector', caption: 'タスクの詳細', note: '右側に開きます。画面が切り替わらないので、一覧を見失いません。' },
-      { src: 'my-tasks', caption: 'マイタスク', note: '自分が抱えているものだけを、案件をまたいで並べます。' },
-      { src: 'inbox', caption: '受信トレイ', note: '承認依頼やコメントなど、自分が動く必要のあるものだけ届きます。' },
+      { src: 'tasks', caption: 'タスク一覧', note: 'いま誰の番かが、行ごとに出ます。' },
+      { src: 'task-inspector', caption: 'タスクの詳細', note: '右側に開くので、一覧を見失わずに済みます。' },
+      { src: 'my-tasks', caption: 'マイタスク', note: '自分が抱えているものだけを、案件をまたいで並べられます。' },
+      { src: 'inbox', caption: '受信トレイ', note: '承認依頼やコメントなど、自分が動く必要のあるものだけが届きます。' },
       { src: 'gantt', caption: 'ガントチャート', note: '期限を過ぎたものは枠線で分かるようにしています。' },
     ],
   },
   {
-    title: '書いて残す画面',
+    title: '書いて残す画面（社内）',
     lead: '決めたことと、その根拠になった資料を同じ場所に置きます。',
     shots: [
-      { src: 'meetings', caption: '会議と議事録', note: '複数人で同時に書けます。誰がどこを書いているかが色で分かります。' },
-      { src: 'wiki', caption: 'Wiki', note: '仕様書やルールを置きます。議事録やタスクから直接リンクを貼れます。' },
-      { src: 'files', caption: 'ファイル', note: '案件ごとの置き場です。説明文と絞り込みで探せます。' },
-      { src: 'files-table', caption: 'CSVを表で開く', note: '別のソフトを開かずに、その場で書き換えられます。' },
+      { src: 'meetings', caption: '会議と議事録', note: '複数人で同時に書けます。誰がどこを書いているかは、色で見分けられます。' },
+      { src: 'wiki', caption: 'Wiki', note: '仕様書やルールの置き場です。議事録やタスクから、直接リンクを貼れます。' },
+      { src: 'files', caption: 'ファイル', note: '案件ごとの置き場です。説明文と絞り込みで、あとから探せます。' },
+      { src: 'files-table', caption: 'CSVを表で開く', note: '別のソフトを開かなくても、その場で書き換えられます。' },
     ],
   },
   {
-    title: '相手先（クライアント）が見る画面',
+    title: '相手先が見る画面',
     lead: '社内のやりとりや原価は出ません。見せると決めたものだけが並びます。',
     shots: [
-      { src: 'portal-dashboard', caption: '相手先のトップ', note: '自分が対応すべきものが、いちばん上に出ます。' },
-      { src: 'portal-tasks', caption: '相手先のタスク一覧', note: '進み具合を、報告を待たずに見られます。' },
-      { src: 'portal-requests', caption: '依頼・バグ報告', note: '相手先から直接起票できます。そのまま案件のタスクになります。' },
+      { src: 'portal-dashboard', caption: '相手先のトップ', note: '対応が必要なものから順に並びます。' },
+      { src: 'portal-tasks', caption: '相手先のタスク一覧', note: 'こちらの報告を待たずに、進み具合を確かめられます。' },
+      { src: 'portal-requests', caption: '依頼・バグ報告', note: '相手先から直接依頼を出せます。そのまま案件のタスクになります。' },
       { src: 'portal-files', caption: '相手先のファイル', note: '共有した資料だけが見えます。' },
     ],
   },
   {
     title: 'AI秘書の画面',
-    lead: 'チャットとのつなぎ方と、拾ったものの確認はここで行います。',
+    lead: 'チャットのつなぎ方と、拾ったものの確認はここでします。',
     shots: [
       { src: 'secretary', caption: '秘書のコンソール', note: 'つないだグループと、拾った申し送りが並びます。' },
-      { src: 'secretary-connect', caption: 'チャットをつなぐ', note: 'グループに招いて合言葉を入れるだけです。' },
-      { src: 'secretary-approvals', caption: '申し送りの確認', note: '拾ったものを見て、要るものだけタスクにします。' },
+      { src: 'secretary-connect', caption: 'チャットをつなぐ', note: 'グループに招いて、合言葉を入れれば終わりです。' },
+      { src: 'secretary-approvals', caption: '申し送りの確認', note: '拾ったものに目を通し、要るものだけタスクにします。' },
     ],
   },
 ]
@@ -73,10 +73,10 @@ export default function ScreensPage() {
             画面を見る
           </div>
           <h1 className="text-4xl lg:text-5xl font-bold mb-6 text-slate-900">
-            使うとこうなります。
+            登録しなくても、画面を見られます。
           </h1>
           <p className="text-lg text-slate-600 leading-relaxed">
-            登録しなくても、実際の画面をひととおり見られます。<br className="hidden md:block" />
+            実際の画面を、ひととおりご覧いただけます。<br className="hidden md:block" />
             社内の画面と、相手先に見える画面は別です。
           </p>
         </div>
@@ -138,8 +138,7 @@ export default function ScreensPage() {
           >
             <h2 className="text-xl font-bold text-slate-900 mb-3">実際に触ってみる</h2>
             <p className="text-sm text-slate-600 leading-relaxed mb-6">
-              無料プランなら、クレジットカードの登録なしで今すぐ使えます。
-              テンプレートを選べば、タスクもマイルストーンも入った状態で立ち上がります。
+              無料プランなら、クレジットカードの登録なしで今すぐ使えます。テンプレートを選べば、タスクもマイルストーンも入った状態で立ち上がります。
             </p>
             <div className="flex flex-wrap gap-3 justify-center">
               <Link

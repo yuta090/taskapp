@@ -21,8 +21,8 @@ const profile = [
 const business = [
   '定型業務の自動化',
   '仕事の進め方の設計',
-  '社内でAIを使える人を育てる支援',
-  '採用の支援',
+  '社内でAIを使える人を育てる',
+  '採用のお手伝い',
 ]
 
 /* ─── Page ─── */
@@ -58,8 +58,7 @@ export default function CompanyPage() {
           >
             <h2 className="text-2xl font-bold text-slate-900 mb-4">何をしている会社か</h2>
             <p className="text-slate-600 text-sm leading-relaxed mb-6">
-              中小企業が「AIと共に働く会社」になるまでを、そばで手伝う会社です。
-              ツールを売って終わりにせず、仕事の進め方そのものを一緒に組み立てます。
+              中小企業がAIを日々の仕事に取り入れるまでを手伝っています。ツールを渡して終わりにはせず、仕事の進め方から一緒に決めます。
             </p>
             <ul className="grid sm:grid-cols-2 gap-3 mb-8">
               {business.map((b) => (
@@ -89,22 +88,16 @@ export default function CompanyPage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <h2 className="text-2xl font-bold text-slate-900 mb-4">AgentPMが向き合っていること</h2>
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">なぜAgentPMを作ったか</h2>
             <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
               <p>
-                仕事が止まる理由の多くは、難しい作業ではありません。
-                資料が届かない、確認の返事が来ない、誰が次に動くのか分からない。
-                そういう「相手待ち」の時間です。
+                仕事が止まる理由の多くは、作業が難しいからではありません。資料が届かない、確認の返事が来ない、誰が次に動くか分からない。詰まっているのは、たいてい相手を待っている時間です。
               </p>
               <p>
-                この時間は、担当者が頑張っても縮みません。
-                催促するのは気を使うし、どこまで頼んだか覚えておくのも骨が折れます。
-                だから後回しになり、気づいたときには納期が近づいています。
+                ここは担当者が頑張っても縮みません。催促するのは気を使いますし、どこまで頼んだかを覚えておくのも骨が折れます。だから後回しになり、気づいたときには納期が迫っています。
               </p>
               <p>
-                AgentPMは、ここを引き受けるために作りました。
-                いま誰の番かを常に表に出し、期限が近づけばAI秘書が声をかけます。
-                お客様には専用の画面を用意して、わざわざ報告しなくても進み具合が見えるようにしました。
+                AgentPMは、この相手待ちの時間を引き受けるために作りました。いま誰の番かを画面に出し、期限が近づけば秘書が声をかけます。お客様には専用の画面を用意したので、わざわざ報告しなくても進み具合が伝わります。
               </p>
             </div>
           </motion.div>

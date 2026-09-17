@@ -10,7 +10,7 @@ import Link from 'next/link'
 /* ─── Data ─── */
 // 事実の出どころ:
 //   チャネルと状態      src/lib/channels/registry.ts
-//   拾い方の3段階      src/lib/channels/store.ts の PickupMode
+//   拾い方の選択肢      src/lib/channels/pickupModeOptions.ts（名前を一言一句そろえる）
 //   打てる合図          src/lib/channels/commandGuides.ts
 //   無料/Proの差        src/app/pricing/page.tsx の plans と entitlements.ts
 
@@ -18,44 +18,46 @@ const flow = [
   {
     n: 1,
     title: 'いつものグループに招く',
-    body: 'お客様とのLINEグループでも、社内のSlackでも構いません。秘書を1人、メンバーとして加えるだけです。相手先に新しいツールを覚えていただく必要はありません。',
+    body: 'お客様とのLINEグループでも、社内のSlackでも構いません。メンバーを1人増やす感覚で招くだけ。相手に新しいツールを覚えてもらう必要はありません。',
   },
   {
     n: 2,
     title: '会話から、やることを拾う',
-    body: '「来週までに見積もりください」のような一言を拾います。拾ったものはいきなりタスクにはならず、申し送りとして溜まります。',
+    body: '「来週までに見積もりください」。こうした一言を拾って、まず申し送りとして溜めます。いきなりタスクにはしません。',
   },
   {
     n: 3,
     title: '人が見て、タスクにする',
-    body: '溜まった申し送りを見て、要るものだけタスクにします。AIが勝手に増やして散らかることはありません。',
+    body: '溜まった申し送りに目を通し、要るものだけをタスクに変えます。AIが勝手に増やして散らかる、ということは起きません。',
   },
   {
     n: 4,
     title: '期限が近づいたら、秘書が聞く',
-    body: '期限の前に本人へ声をかけ、終わっているかを確かめます。終わっていなければ、角の立たない言い方で催促します。',
+    body: '期限の手前で本人に声をかけ、終わったかどうかを確かめます。まだなら、角の立たない言い方でもう一度お願いします。',
   },
 ]
 
+// 名前は設定画面と一言一句そろえる（src/lib/channels/pickupModeOptions.ts）。
+// ずれると「書いてあった言葉が画面に無い」ことになる
 const pickupModes = [
   {
-    label: 'すべて見る',
-    body: 'グループの会話を全部読んで、やることらしい発言を拾います。取りこぼしがいちばん少ない設定です。',
+    label: '毎時まとめて',
+    body: '1時間ごとに会話を読んで、やることらしい発言を拾います。取りこぼしはいちばん少なくなります。',
   },
   {
-    label: '呼ばれたときだけ',
-    body: '名前を呼ばれた発言だけを扱います。雑談が多いグループや、読まれるのが気になる場合はこちら。',
+    label: 'メンション時のみ（即時）',
+    body: '名前を呼ばれた発言だけを見ます。雑談の多いグループや、全部読まれるのが気になるときは、これを選んでください。',
   },
   {
-    label: '止める',
-    body: '拾いません。グループに居るだけの状態です。',
+    label: '取り込まない',
+    body: '何も拾いません。グループにいるだけの状態になります。',
   },
 ]
 
 const commands = [
   { input: '一覧', effect: '終わっていないタスクを番号付きでお送りします' },
   { input: '完了 3', effect: 'その番号のタスクを完了にします' },
-  { input: 'タスク追加 見積もりを送る', effect: 'その場でタスクを1件お預かりします' },
+  { input: 'タスク追加 見積もりを送る', effect: 'その場でタスクとして1件登録します' },
   { input: 'ヘルプ', effect: '使い方をお送りします' },
   { input: '練習', effect: 'タスクの登録と完了を、その場で練習できます' },
 ]
@@ -93,12 +95,12 @@ export default function SecretaryPage() {
             AI秘書
           </div>
           <h1 className="text-4xl lg:text-5xl font-bold mb-6 text-slate-900">
-            チャットの会話は、<br className="hidden sm:block" />
-            そのままにしておく。
+            チャットは、いつものまま<br className="hidden sm:block" />
+            使えます。
           </h1>
           <p className="text-lg text-slate-600 leading-relaxed">
-            秘書がグループに入って、やることを拾い、期限を追いかけます。<br className="hidden md:block" />
-            お客様にもチームにも、新しいツールを覚えていただく必要はありません。
+            秘書がグループに入り、やることを拾って、期限まで追いかけます。<br className="hidden md:block" />
+            お客様にもチームにも、新しいツールを覚えてもらう必要はありません。
           </p>
         </div>
       </section>
@@ -113,7 +115,7 @@ export default function SecretaryPage() {
             className="text-center mb-12"
           >
             <h2 className="text-3xl font-bold text-slate-900 mb-4">どう動くか</h2>
-            <p className="text-slate-500 text-sm">4つの手順です。難しい設定はありません。</p>
+            <p className="text-slate-500 text-sm">手順は4つ。難しい設定はいりません。</p>
           </motion.div>
 
           <div className="space-y-4">
@@ -152,8 +154,7 @@ export default function SecretaryPage() {
               <h2 className="text-2xl font-bold text-slate-900">どこまで読むかは、選べます</h2>
             </div>
             <p className="text-sm text-slate-600 leading-relaxed mb-6">
-              「会話を全部読まれるのは困る」という声は多いので、グループごとに3段階から選べるようにしています。
-              あとから変えられます。
+              会話を全部読まれるのが不安なときのために、グループごとに3つから選べるようにしました。あとから何度でも変えられます。Proなら「毎時まとめ＋即時（両方）」も使えます。
             </p>
 
             <div className="grid sm:grid-cols-3 gap-3">
@@ -198,7 +199,7 @@ export default function SecretaryPage() {
               ))}
             </div>
             <p className="text-xs text-slate-400 mt-3">
-              LINEでは、届いたお知らせのボタンを押しても完了にできます。
+              LINEなら、届いたお知らせのボタンを押すだけでも完了にできます。
             </p>
           </motion.div>
         </div>
@@ -212,7 +213,7 @@ export default function SecretaryPage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <h2 className="text-2xl font-bold text-slate-900 mb-6">入れる場所</h2>
+            <h2 className="text-2xl font-bold text-slate-900 mb-6">秘書を入れられるチャット</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
               {channels.map((c) => (
                 <div
@@ -291,7 +292,7 @@ export default function SecretaryPage() {
                 料金を見る
                 <ArrowRight weight="bold" size={14} />
               </Link>
-              <p className="text-xs text-slate-400">自社のLINE公式アカウントでの配信は、開通をこちらで代行します。</p>
+              <p className="text-xs text-slate-400">自社のLINE公式アカウントを使う場合、開通の手続きはこちらで代行します。</p>
             </div>
           </motion.div>
         </div>
@@ -308,14 +309,12 @@ export default function SecretaryPage() {
           >
             <div className="flex items-center gap-3 mb-5">
               <ShieldCheck size={24} weight="duotone" className="text-amber-600" />
-              <h2 className="text-2xl font-bold text-slate-900">勝手に増やしません</h2>
+              <h2 className="text-2xl font-bold text-slate-900">タスクにするかどうかは、人が決めます</h2>
             </div>
             <ul className="space-y-3 mb-6">
               {[
-                '拾ったものは申し送りとして溜まり、人が見てからタスクになります',
-                'グループごとに、どこまで読むかを3段階で選べます',
                 'つないだグループはいつでも外せます',
-                '秘書が行った操作も、ふつうの操作と同じように記録に残ります',
+                '秘書がやったことも、人が画面で触ったときと同じように記録に残ります',
               ].map((t) => (
                 <li key={t} className="flex items-start gap-2.5 text-sm text-slate-600">
                   <Check weight="bold" className="text-emerald-500 shrink-0 mt-0.5" size={16} />
@@ -343,7 +342,7 @@ export default function SecretaryPage() {
             viewport={{ once: true }}
           >
             <BellRinging size={28} weight="duotone" className="text-amber-600 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-slate-900 mb-3">業種ごとの動きも見られます</h2>
+            <h2 className="text-2xl font-bold text-slate-900 mb-3">業種ごとの使い方も見られます</h2>
             <p className="text-sm text-slate-600 leading-relaxed mb-6">
               税理士・社労士・建設の元請け・行政書士・賃貸管理・司法書士・人事労務・保険代理店。
               それぞれ回収する書類が違うので、業種ごとにページを用意しています。
@@ -352,7 +351,7 @@ export default function SecretaryPage() {
               href="/"
               className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-600 hover:text-amber-700 transition-colors"
             >
-              業種別のページを見る
+              業種別のページはトップから
               <ArrowRight weight="bold" size={14} />
             </Link>
           </motion.div>
