@@ -66,3 +66,21 @@ describe.each(CHARTS)('$name の色トークン', ({ prefix, colors, dir }) => {
     expect(offenders).toEqual([])
   })
 })
+
+/**
+ * 文書エディタ（Wiki・議事録）のリンク色も、片方のテーマだけ定義すると
+ * もう片方で沈む。globals.css の中で使っている --doc-* を同じ観点で見る。
+ */
+describe('文書エディタの色トークン', () => {
+  it('使われている --doc-* は :root と .dark の両方で定義されている', () => {
+    const light = varsIn(':root', '--doc-')
+    const dark = varsIn('\\.dark', '--doc-')
+    const used = new Set<string>()
+    for (const m of CSS.matchAll(/var\((--doc-[a-z0-9-]+)\)/g)) used.add(m[1])
+    expect(used.size, '--doc-* が1つも使われていない（セレクタ側の変更漏れ）').toBeGreaterThan(0)
+    for (const name of used) {
+      expect(light.has(name), `${name} が :root に無い`).toBe(true)
+      expect(dark.has(name), `${name} が .dark に無い（ダークで色が残る）`).toBe(true)
+    }
+  })
+})

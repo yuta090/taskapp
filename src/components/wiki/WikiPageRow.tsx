@@ -79,7 +79,7 @@ function MemberAvatar({ member, fallbackId }: { member: WikiRowMember | null; fa
 /** メタ行の各項目の間に「·」区切りを挟む。 */
 function withSeparators(nodes: ReactNode[]): ReactNode[] {
   return nodes.flatMap((node, index) =>
-    index === 0 ? [node] : [<span key={`sep-${index}`} className="text-gray-300">·</span>, node]
+    index === 0 ? [node] : [<span key={`sep-${index}`} className="text-gray-400">·</span>, node]
   )
 }
 

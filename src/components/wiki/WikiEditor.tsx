@@ -19,6 +19,7 @@ import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import type { AppLinkKind } from '@/lib/navigation/appLinks'
 import { MEETING_NOTE_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
+import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
 
 interface WikiEditorProps {
   initialContent?: string
@@ -78,6 +79,9 @@ export function WikiEditor({
    * 回数を持つのは、**同じ種類で開き直したとき**にもパネルを作り直して検索欄に
    * カーソルを戻すため（持たないと「/」から呼んでも何も起きないように見える）
    */
+  // BlockNote は色を CSS でなく props のテーマで受け取るので、真偽値で渡す
+  const isDark = useIsDarkTheme()
+
   const [linkPicker, setLinkPicker] = useState<{ kind: AppLinkKind; seq: number } | null>(null)
   const openLinkPicker = useCallback((kind: AppLinkKind) => {
     setLinkPicker((prev) => ({ kind, seq: (prev?.seq ?? 0) + 1 }))
@@ -185,7 +189,7 @@ export function WikiEditor({
           const json = JSON.stringify(editor.document)
           onChange?.(json)
         }}
-        theme="light"
+        theme={isDark ? 'dark' : 'light'}
         slashMenu={false}
       >
         {/* 既定のメニューの代わりに、出す項目を絞った「/」メニューを置く。
