@@ -19,15 +19,10 @@ import type { StyleSchema } from '@blocknote/core'
 import { prosemirrorToYXmlFragment } from 'y-prosemirror'
 import type { Schema } from 'prosemirror-model'
 import { parseMinutesMarkdown } from '@/lib/minutes/markdown'
-import { MINUTES_FRAGMENT_NAME, minutesSeedHash } from './hash'
+import { MINUTES_FRAGMENT_NAME, minutesSeedHash, seedClientId } from './hash'
 
-// ハッシュとチャネル内の名前は `hash.ts`（依存ゼロ）に置いてある。ここから再び出すと、
-// 取り込んだ側が BlockNote 一式まで引きずり込むので、**再輸出しない**。
-
-/** 種をまく器の clientID。0 は使わない（Yjs の既定と紛れないように） */
-function seedClientId(seedHash: string): number {
-  return (parseInt(seedHash.slice(0, 8), 16) >>> 0) || 1
-}
+// ハッシュ・チャネル内の名前・持ち主の番号は `hash.ts`（依存ゼロ）に置いてある。
+// ここから再び出すと、取り込んだ側が BlockNote 一式まで引きずり込むので、**再輸出しない**。
 
 /**
  * ブロックに決まった id を振る（入れ子も辿る）。

@@ -25,6 +25,10 @@ let capturedTabId = ''
 let othersState: MinutesPresencePeer[] = []
 const sendCollabSpy = vi.fn()
 const setCollabActiveSpy = vi.fn()
+/** 「いま開いている」を在席で伝える口 */
+const setCollabPresentSpy = vi.fn()
+/** 輪に入っているか・開いているつもりかを、まとめて伝える口 */
+const setCollabStateSpy = vi.fn()
 /** 取った色の番号を在席で配る口 */
 const setColorIndexSpy = vi.fn()
 
@@ -37,6 +41,8 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
       setEditing: vi.fn(),
       sendCollab: sendCollabSpy,
       setCollabActive: setCollabActiveSpy,
+      setCollabPresent: setCollabPresentSpy,
+      setCollabState: setCollabStateSpy,
       setColorIndex: setColorIndexSpy,
     }
   },
@@ -191,7 +197,8 @@ describe('本文が入る前に落ちたとき', () => {
     announce([{ id: 'self', userId: 'self', joinedAt: 2_000 }])
     act(() => capturedCollab?.onStatus('error'))
 
-    expect(setCollabActiveSpy).toHaveBeenCalledWith(false)
+    // 輪から降りたことと名乗りを下ろすことは、1通にまとめて送る
+    expect(setCollabStateSpy).toHaveBeenCalledWith({ active: false, present: false })
   })
 
   it('本文が入ったあとに落ちたときは、器を残したまま自分が保存係になる', async () => {
@@ -206,6 +213,59 @@ describe('本文が入る前に落ちたとき', () => {
     expect(result.current.solo).toBe(false)
     expect(result.current.fragment).not.toBeNull()
     expect(result.current.isScribe).toBe(true)
+  })
+})
+
+describe('「いま開いている」の知らせ', () => {
+  it('器の用意が終わる前から、在席で伝える', async () => {
+    // 伝えないと、ほぼ同時に開いた相手がこちらに気づかず、自分で本文を作ってしまう。
+    // 合流したときに中身が二重になり、片方を消してももう片方が残る
+    await mount()
+    expect(setCollabPresentSpy).toHaveBeenCalledWith(true)
+  })
+
+  it('スマホの幅では名乗らない（加われないのに相手を待たせるだけになる）', async () => {
+    const original = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 500 })
+    try {
+      await mount()
+      expect(setCollabPresentSpy).not.toHaveBeenCalledWith(true)
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: original })
+    }
+  })
+
+  it('1人で書く形へ落ちたら、伝えるのをやめる', async () => {
+    const { result } = await mount()
+    act(() => result.current.registerSeeder(seedWith(BASE)))
+    announce([{ id: 'self', joinedAt: 2_000 }])
+    act(() => capturedCollab?.onStatus('error'))
+
+    expect(setCollabStateSpy).toHaveBeenCalledWith({ active: false, present: false })
+  })
+})
+
+describe('器ができる前に顔ぶれが届いたとき', () => {
+  it('その顔ぶれで判断する（自分ひとりだと思って本文を作らない）', async () => {
+    // 器は使うときだけ読み込むので、**取り込みが終わる前に在席が届くことがある**。
+    // それは「2人がほぼ同時に開いた」場面そのもので、取りこぼすと先客が居るのに
+    // 自分で本文を作ってしまい、合流したときに中身が二重になる
+    const rendered = renderHook(() =>
+      useMinutesCollab({
+        meetingId: 'm1',
+        presenceEnabled: true,
+        self: { userId: 'u-self', name: '自分' },
+        collabAllowed: true,
+        initialMarkdown: BASE,
+      })
+    )
+    act(() => capturedCollab?.onPeers([{ id: 'u-old', userId: 'u-old', joinedAt: 1_000, collab: true }]))
+    await settle(() => rendered.result.current.pending === false)
+    act(() => rendered.result.current.registerSeeder(seedWith(BASE)))
+    act(() => capturedCollab?.onStatus('joined'))
+
+    expect(readBackMarkdown(docOf(rendered.result.current.fragment))).toBe('')
+    expect(rendered.result.current.isScribe).toBe(false)
   })
 })
 
@@ -282,6 +342,9 @@ describe('1つ前の版の画面が混ざっているとき', () => {
     expect(rendered.result.current.degradedReason).toBe('peer-outdated')
     expect(rendered.result.current.solo).toBe(true)
     expect(rendered.result.current.fragment).toBeNull()
+    // 名乗りも下ろす。器がまだ無いと縮退の処理が走らず、名乗ったまま輪に入らない人が
+    // 残り、ほかの人が猶予切れまで待たされる
+    expect(setCollabPresentSpy).toHaveBeenCalledWith(false)
   })
 })
 

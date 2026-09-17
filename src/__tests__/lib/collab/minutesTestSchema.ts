@@ -57,10 +57,21 @@ export const minutesTestSchema = BlockNoteSchema.create({
 /** pmSchema を取り出すためだけの器。画面には出さない */
 export const schemaProbe = BlockNoteEditor.create({ schema: minutesTestSchema })
 
-/** 本文から種をまく（`seed` オプションに渡す形） */
-export function seedWith(markdown: string) {
-  return (doc: Y.Doc): string =>
-    seedMinutesDoc(doc, markdown, schemaProbe.pmSchema, minutesTestSchema.styleSchema)
+/**
+ * 本文から種をまく（`seed` オプションに渡す形）。
+ * `basis` は、その本文を読んだときの列の更新時刻。種が2つ入ったときに
+ * **どちらが新しいか**を決めるのに使う。
+ */
+export function seedWith(markdown: string, basis: string | null = null) {
+  return (doc: Y.Doc): { seedHash: string; basis: string | null } => ({
+    seedHash: seedMinutesDoc(doc, markdown, schemaProbe.pmSchema, minutesTestSchema.styleSchema),
+    basis,
+  })
+}
+
+/** 器の直下にある本文のかたまりの数。2つ以上なら本文が二重になっている */
+export function blockGroupCount(doc: Y.Doc): number {
+  return doc.getXmlFragment(MINUTES_FRAGMENT_NAME).length
 }
 
 /**
