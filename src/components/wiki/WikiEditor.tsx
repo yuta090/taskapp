@@ -16,6 +16,7 @@ import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { EditorToolbarButton } from '@/components/editor/EditorToolbarButton'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
+import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import type { AppLinkKind } from '@/lib/navigation/appLinks'
 import { MEETING_NOTE_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
@@ -111,7 +112,12 @@ export function WikiEditor({
     schema,
     initialContent: parsedContent,
     dictionary: WIKI_DICTIONARY,
+    domAttributes: { editor: STABLE_EDITOR_DOM_ATTRIBUTES },
   })
+
+  // 「書いてよいか」は載せたときの値のまま渡し、以後の変化は載せ直さない道で当てる
+  // （変えるとエディタが丸ごと作り直される。理由は useStableEditable の注を参照）
+  const mountEditable = useStableEditable(editor, editable)
 
   /**
    * 今の行をメモに変える（空の行なら、その行がそのままメモになる）。
@@ -184,7 +190,7 @@ export function WikiEditor({
     <div className="wiki-editor" ref={editorContainerRef}>
       <BlockNoteView
         editor={editor}
-        editable={editable}
+        editable={mountEditable}
         onChange={() => {
           const json = JSON.stringify(editor.document)
           onChange?.(json)
