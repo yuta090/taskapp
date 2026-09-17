@@ -150,7 +150,7 @@ const SCREENS = [
 const MANUAL_LINKS = [
   { href: '/docs/manual/internal/secretary', icon: Robot, label: 'AI秘書・チャット連携', note: 'LINE等のつなぎ方・打てる合図' },
   { href: '/docs/manual/internal/notifications', icon: Bell, label: '通知ガイド', note: '届き方・設定・届かない時' },
-  { href: '/docs/manual/internal/files', icon: Folder, label: 'ファイル', note: 'アップロード・公開・CSVを表で見る' },
+  { href: '/docs/manual/internal/files', icon: Folder, label: 'ファイル', note: 'アップロード・公開・CSVを表で直す' },
   { href: '/docs/manual/internal/integrations', icon: SquaresFour, label: 'ツール連携', note: '他のタスク管理ツールとつなぐ' },
   { href: '/docs/manual/internal/security', icon: ShieldCheck, label: 'ログインとセキュリティ', note: '二要素認証・APIキー' },
   { href: '/docs/manual/internal/settings', icon: IdentificationBadge, label: 'プロジェクト設定', note: 'メンバー・承認・表示' },

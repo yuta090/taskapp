@@ -40,7 +40,7 @@ src/lib/table/
   decodeText.ts       # ArrayBuffer → 文字列（UTF-8 → Shift_JIS フォールバック）
   tableModel.ts       # sortRows / filterRows / isTabularFile / MAX_TABLE_FILE_BYTES
 src/lib/hooks/useFileTable.ts            # fetch → decode → parse（react-query, staleTime 10分, 永続キャッシュ対象外）
-src/components/table/DataTableView.tsx   # 読み取り専用グリッド（表示専用。編集は別コンポーネントに切り出す）
+src/components/table/DataTableEditor.tsx # グリッド本体（v1.0 で編集に対応。`editable=false` が読み取り専用）
 src/app/api/files/[id]/content/route.ts  # 生バイト返却（RLS で行を確認 → service role で download）
 src/app/(internal)/[orgId]/project/[spaceId]/files/[fileId]/  # ページ
 ```
@@ -61,29 +61,64 @@ src/app/(internal)/[orgId]/project/[spaceId]/files/[fileId]/  # ページ
 
 ### キャッシュ
 
-- `["fileTable", fileId]`。同じ id の中身は変わらない（差し替えは別 id）ため staleTime 10分。変換済みの表は数MB の CSV で 100MB 級のメモリになるため gcTime 5分。
+- `["fileTable", fileId]`。staleTime 10分・gcTime 5分（変換済みの表は数MB の CSV で 100MB 級のメモリになる）。v1.0 の編集で**同じ id のまま中身が変わる**ようになったが、自分の保存はキャッシュをその場で差し替える（`useSaveFileTable`）ので取り直しは要らない。ほかの人の編集は保存時の版の確認（409）で気づける。
+- GET の `Cache-Control` は `private, no-cache`（直した直後の再読み込みで、ブラウザが古い中身を出さないようにするため）。
 - 変換済みの表は大きくなり得るため **IDB 永続化の対象外**（`QueryProvider.shouldDehydrateQuery`）。
 - ファイル名・サイズは一覧 `['files', spaceId]` のキャッシュから引く（一覧→表の遷移で追加の待ちなし）。
 
-## v1.0 方針: 表をリッチに編集する（未実装・方針のみ）
+## v1.0 スコープ: 表を直す（実装済み）
 
-ユーザー決定（2026-09-07）: **今後、表をリッチに編集できる機能は作る**。
+ユーザー決定（2026-09-17）: **直したら、同じファイルを書き換える**（新しいファイルは作らない）。
+スプレッドシートから取り込んだ CSV を TaskApp の中で直す、という使い方に一番近いため。
 
-- **編集モデル**は v0.1 の `TableData` をそのまま使う。`parseDelimited` の逆変換 `serializeDelimited`（CSV 書き出し）を `src/lib/table/` に追加する。
-- **表示と編集を分ける**: `DataTableView` は表示専用のまま。編集は `DataTableEditor`（仮）として別に作り、セル編集・行追加/削除・列追加/名前変更・Undo を持たせる。
-- **保存先の候補**（要判断。Fable 裁定対象になり得る）:
-  1. **ファイルへ書き戻す**（新しい `files` 行＝新 id として保存。履歴＝ファイル版）。DDL 変更なし・最小。
-  2. **表を独自エンティティにする**（`space_tables` / `space_table_rows` 等）。列型・並び順・クライアント可視を列単位で持てるが、DDL・RLS 新規設計が必要。
-  - v1.0 の第一歩は **1（ファイルへ書き戻し）** を推奨。2 は「タスクと行を紐づける」「列単位の見せ分け」の需要が実際に出てから。
-- **Optimistic update 必須・保存ボタンなし**（UI Rules）。セル確定ごとに保存キューへ。
-- **同時編集**は v1.0 では扱わない（最後の保存が勝つ）。必要になったら `wiki_pages` の版管理に倣う。
-- portal（クライアント）側は**閲覧のみ**を先に開放し、編集は内部限定から始める。
+| 項目 | 内容 |
+|------|------|
+| 直せる人 | **社内メンバーだけ**（`useCanEditSpace` の `canEdit`／API 側でも client・vendor は 403）。閲覧者・相手先は**同じグリッドを `editable=false`** で見るだけ |
+| できること | セルの書き換え、行の追加・削除、列の追加・削除（確認あり）、見出しの名前の変更 |
+| 保存 | **保存ボタンなし**。入力が止まって 1.2 秒で自動保存。保存は同時に1本だけで、通信中に来た分は最後の1つだけ積む |
+| 保存先 | **同じ `files` 行・同じ `storage_path` を上書き**。id もダウンロードリンクも変わらない。版の履歴は残らない |
+| 文字コード | 保存は必ず **BOM 付き UTF-8**（Excel でダブルクリックしても化けない）。元が Shift_JIS のファイルは UTF-8 になる |
+| 区切り | 読み込んだときの区切りをそのまま使う（`.tsv` はタブのまま） |
+| 競合 | 保存に「基準の版」(`files.updated_at`) を添える。ズレていれば 409 → 帯を出して**自動保存を止める**。「書きかけをコピー」「最新を読み込む」で逃がす |
+| 並べ替え・絞り込み | 編集中も使える。書き込む先は**行の配列そのもの**から引く（見えている順番の番号では書かない） |
+| 対象外 | 同時編集（最後の保存が勝つ）、取り消し（Undo）、セルの結合・数式、`.xlsx`、クライアント portal での編集 |
+
+### API: `PUT /api/files/[id]/content`
+
+本文は CSV/TSV の生バイト（ブラウザ側で組み立てた BOM 付き UTF-8）。ヘッダ `X-Base-Updated-At` に基準の版を載せる。
+
+| 条件 | 応答 |
+|------|------|
+| 未ログイン | 401 |
+| id が UUID でない／`X-Base-Updated-At` 無し／本文が空 | 400 |
+| 本文が 4MB 超 | 413 |
+| RLS で見えない／`status != 'ready'` | 404 |
+| 表として扱えないファイル | 415 |
+| client・vendor（相手先） | 403 |
+| 基準の版がズレている（更新 0 行） | 409 |
+| 成功 | 200 `{ updatedAt, sizeBytes }` |
+
+**順番は DB が先・Storage が後**。逆にすると、競合に気づく前に相手のバイトを上書きしてしまう。
+Storage の書き込みだけ失敗したときは 500 に `updatedAt` を添えて返し、同じ基準でのやり直しが必ず 409 になるのを防ぐ。
+
+### 構成（v1.0 で足したもの）
+
+```
+src/lib/table/
+  serializeDelimited.ts   # TableData → CSV/TSV テキスト（parseDelimited の逆・往復をテストで保証）
+  editModel.ts            # setCell / insertRow / deleteRow / insertColumn / deleteColumn / renameColumn（純関数）
+src/lib/hooks/useSaveFileTable.ts        # PUT・競合(409)の判定・表キャッシュの差し替え
+src/components/table/DataTableEditor.tsx # グリッド本体（editable で「見るだけ」と「直せる」を切り替え）
+                                         #   ※ 読み取り専用の DataTableView は役目を終えたので削除した。
+                                         #     役割が決まってから出し分けると、先に表が届いたときに
+                                         #     グリッドを一度作って捨てることになる（page-perf 指摘）
+```
 
 ## テスト
 
-- `src/__tests__/lib/table/*.test.ts`（parse / decode / sort / filter / 判定）
-- `src/__tests__/lib/hooks/useFileTable.test.tsx`
-- `src/__tests__/components/table/DataTableView.test.tsx`
-- `src/__tests__/app/files/FileTablePageClient.test.tsx`
+- `src/__tests__/lib/table/*.test.ts`（parse / decode / sort / filter / 判定 / 書き出し / 編集操作）
+- `src/__tests__/lib/hooks/useFileTable.test.tsx`・`useSaveFileTable.test.tsx`
+- `src/__tests__/components/table/DataTableView.test.tsx`・`DataTableEditor.test.tsx`
+- `src/__tests__/app/files/FileTablePageClient.test.tsx`（自動保存・競合の帯）
 - `src/__tests__/components/files/FilesPageClient.test.tsx`（表で見る導線）
-- `src/__tests__/app/api/files/[id]/content/route.test.ts`
+- `src/__tests__/app/api/files/[id]/content/route.test.ts`・`put.test.ts`
