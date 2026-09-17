@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, List, X, CaretDown, Terminal, Briefcase, Buildings, Code, GitBranch, FileText, ChartBar, Shield, CheckCircle, Notebook, TreeStructure, Handshake, Globe, Laptop, UserCircle, ChatCircle, ArrowsLeftRight, Question, ShieldCheck, PlugsConnected, Rocket } from '@phosphor-icons/react'
+import { ArrowRight, List, X, CaretDown, Terminal, Briefcase, Buildings, Code, GitBranch, FileText, ChartBar, Shield, CheckCircle, Notebook, TreeStructure, Handshake, Globe, Laptop, UserCircle, ChatCircle, ArrowsLeftRight, Question, ShieldCheck, PlugsConnected, Rocket, Robot, Image as ImageIcon, ClockCounterClockwise } from '@phosphor-icons/react'
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
@@ -20,6 +20,13 @@ interface FeatureColumn {
 }
 
 const featureColumns: FeatureColumn[] = [
+  {
+    persona: '全員向け',
+    items: [
+      { href: '/secretary', label: 'AI秘書', desc: 'チャットの会話からやることを拾い、期限を追いかける', icon: <Robot size={18} weight="duotone" /> },
+      { href: '/screens', label: '画面を見る', desc: '登録しなくても実際の画面を見られる', icon: <ImageIcon size={18} weight="duotone" /> },
+    ],
+  },
   {
     persona: 'エンジニア向け',
     items: [
@@ -60,6 +67,8 @@ const useCaseItems: DropdownItem[] = [
 ]
 
 const supportItems: DropdownItem[] = [
+  { href: '/screens', label: '画面を見る', desc: '登録しなくても実際の画面をひととおり見られる', icon: <ImageIcon size={18} weight="duotone" /> },
+  { href: '/changelog', label: '更新情報', desc: 'どこが変わったかを日付順に', icon: <ClockCounterClockwise size={18} weight="duotone" /> },
   { href: '/start', label: '導入の流れ', desc: '登録からチャット連携まで、あわせて20分', icon: <Rocket size={18} weight="duotone" /> },
   { href: '/workflow', label: '使い方（企画を1本動かす）', desc: '立ち上げ・会議・記録・資料集めの順にたどる', icon: <Notebook size={18} weight="duotone" /> },
   { href: '/integrations', label: '連携できるサービス', desc: 'チャット・タスク管理・請求・AIから直接', icon: <PlugsConnected size={18} weight="duotone" /> },

@@ -31,6 +31,9 @@ export const publicPaths = [
   '/start',
   '/faq',
   '/workflow',
+  '/secretary',
+  '/screens',
+  '/changelog',
   // ヘルプ: 顧客・クライアント（アカウントを持たない相手を含む）が参照する
   '/help',
   // 学びのメディア「TASK6」: SEO記事。未ログインの検索流入が読む
