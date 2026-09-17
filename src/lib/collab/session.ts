@@ -202,9 +202,15 @@ export class MinutesCollabSession {
    */
   private handleJoined(): void {
     if (this.disposed || this.degraded) return
-    const others = this.peers.filter((peer) => peer.id !== this.options.selfId && peer.collab)
-    // 自分ひとりなら誰の返事も待たずに列の本文で満たす。先客が居れば必ず握手する
-    // （既に本文を持っていても、切れている間に増えた分をもらうため）
+    // **本文を持っている人だけでなく、いま開いている人も数える。**
+    // ほぼ同時に2人が開いたとき、持っている人だけを見ていると相手に気づけず、
+    // どちらも自分で本文を作ってしまう。合流すると中身が二重になり、片方を消しても
+    // もう片方が残る（＝書いた文字が消えない）
+    const others = this.peers.filter(
+      (peer) => peer.id !== this.options.selfId && (peer.collab || peer.present)
+    )
+    // 本当に自分ひとりのときだけ、誰の返事も待たずに列の本文で満たす。
+    // 誰か居れば必ず握手する（既に本文を持っていても、切れている間に増えた分をもらうため）
     if (others.length === 0) {
       this.seedNow()
       return

@@ -25,6 +25,8 @@ let capturedTabId = ''
 let othersState: MinutesPresencePeer[] = []
 const sendCollabSpy = vi.fn()
 const setCollabActiveSpy = vi.fn()
+/** 「いま開いている」を在席で伝える口 */
+const setCollabPresentSpy = vi.fn()
 /** 取った色の番号を在席で配る口 */
 const setColorIndexSpy = vi.fn()
 
@@ -37,6 +39,7 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
       setEditing: vi.fn(),
       sendCollab: sendCollabSpy,
       setCollabActive: setCollabActiveSpy,
+      setCollabPresent: setCollabPresentSpy,
       setColorIndex: setColorIndexSpy,
     }
   },
@@ -206,6 +209,24 @@ describe('本文が入る前に落ちたとき', () => {
     expect(result.current.solo).toBe(false)
     expect(result.current.fragment).not.toBeNull()
     expect(result.current.isScribe).toBe(true)
+  })
+})
+
+describe('「いま開いている」の知らせ', () => {
+  it('器の用意が終わる前から、在席で伝える', async () => {
+    // 伝えないと、ほぼ同時に開いた相手がこちらに気づかず、自分で本文を作ってしまう。
+    // 合流したときに中身が二重になり、片方を消してももう片方が残る
+    await mount()
+    expect(setCollabPresentSpy).toHaveBeenCalledWith(true)
+  })
+
+  it('1人で書く形へ落ちたら、伝えるのをやめる', async () => {
+    const { result } = await mount()
+    act(() => result.current.registerSeeder(seedWith(BASE)))
+    announce([{ id: 'self', joinedAt: 2_000 }])
+    act(() => capturedCollab?.onStatus('error'))
+
+    expect(setCollabPresentSpy).toHaveBeenCalledWith(false)
   })
 })
 

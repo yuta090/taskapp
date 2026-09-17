@@ -188,6 +188,7 @@ export function useMinutesCollab({
   const sessionRef = useRef<MinutesCollabSession | null>(null)
   const onRoomReloadRef = useRef(onRoomReload)
   const setCollabActiveRef = useRef<(active: boolean) => void>(() => {})
+  const setCollabPresentRef = useRef<(present: boolean) => void>(() => {})
   const setColorIndexRef = useRef<(index: number) => void>(() => {})
 
   const [transport] = useState(() => createChannelTransport())
@@ -204,6 +205,7 @@ export function useMinutesCollab({
     // 落ちたことを在席で伝える。伝えないと、落ちた自分が書記に選ばれ続け、
     // 誰の書いた内容も列に残らなくなる
     setCollabActiveRef.current(false)
+    setCollabPresentRef.current(false)
   }, [])
 
   /**
@@ -302,7 +304,14 @@ export function useMinutesCollab({
 
   // 顔ぶれは `onPeers` で直に受け取る（React の状態より早く、取りこぼしが無い）。
   // ここで受ける `others` は「〇〇さんが書いています」の表示にだけ使う
-  const { others, setEditing, sendCollab, setCollabActive, setColorIndex: publishColorIndex } = useMinutesPresence({
+  const {
+    others,
+    setEditing,
+    sendCollab,
+    setCollabActive,
+    setCollabPresent,
+    setColorIndex: publishColorIndex,
+  } = useMinutesPresence({
     meetingId,
     enabled: presenceEnabled,
     self,
@@ -313,10 +322,21 @@ export function useMinutesCollab({
   useEffect(() => {
     selfUserIdRef.current = self.userId
     setCollabActiveRef.current = setCollabActive
+    setCollabPresentRef.current = setCollabPresent
     setColorIndexRef.current = publishColorIndex
     transport.setSender(sendCollab)
     return () => transport.setSender(null)
-  }, [transport, sendCollab, setCollabActive, publishColorIndex, tabId, self.userId])
+  }, [transport, sendCollab, setCollabActive, setCollabPresent, publishColorIndex, tabId, self.userId])
+
+  /**
+   * 「いまこの議事録を開いて同時編集に加わるつもりだ」を、**器の用意が終わる前から**
+   * 在席で伝える。伝えないと、ほぼ同時に開いた相手がこちらに気づかず、自分で本文を
+   * 作ってしまい、合流したときに中身が二重になる（片方を消してももう片方が残る）。
+   */
+  useEffect(() => {
+    if (!wanted || degradedReason) return
+    setCollabPresent(true)
+  }, [wanted, degradedReason, setCollabPresent])
 
   const registerSeeder = useCallback((seeder: MinutesSeeder | null) => {
     seederRef.current = seeder

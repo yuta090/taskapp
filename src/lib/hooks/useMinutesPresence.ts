@@ -110,6 +110,12 @@ interface UseMinutesPresenceResult {
    */
   setCollabActive: (active: boolean) => void
   /**
+   * いまこの議事録を開いて同時編集に加わるつもりだ、と在席で伝える。
+   * 本文を持つより**先に**伝えるのが要点（伝えないと、ほぼ同時に開いた相手が
+   * こちらに気づかず、自分で本文を作って中身が二重になる）。
+   */
+  setCollabPresent: (present: boolean) => void
+  /**
    * カーソルの色の番号を在席で伝える。
    * 伝えないと、あとから入った人が同じ番号を取ってしまう。
    */
@@ -132,6 +138,11 @@ type PresencePayload = {
   joined_at: number
   /** 同時編集の輪に入っているか。落ちた人を書記にすると誰の内容も保存されなくなる */
   collab: boolean
+  /**
+   * いまこの議事録を開いていて、同時編集に加わるつもりか。`collab` より早く立つ。
+   * ほぼ同時に2人が開いたときに、互いに気づけるようにするための印
+   */
+  present: boolean
   /** このタブが手前に出ているか。裏のタブを書記にすると保存が何分も遅れる */
   visible: boolean
   /** カーソルの色の番号。まだ決まっていなければ null。空いている番号を配るために載せる */
@@ -216,6 +227,12 @@ export function useMinutesPresence({
    * 書記（列へ保存する1人）に選ばれ、**部屋の誰の書いた内容も列に残らなくなる**。
    */
   const collabActiveRef = useRef(false)
+  /**
+   * いまこの議事録を開いていて、同時編集に加わるつもりか。
+   * 器の用意が終わる前から立てるのが要点（`collabActiveRef` より早い）。
+   * 立てないと、ほぼ同時に開いた相手がこちらに気づかず、自分で本文を作ってしまう。
+   */
+  const collabPresentRef = useRef(false)
   /** このタブが手前に出ているか。裏に回ると書記の候補から後ろへ下がる */
   const visibleRef = useRef(true)
   /** カーソルの色の番号。決まったら在席に載せて、ほかの人が同じ番号を取らないようにする */
@@ -239,6 +256,7 @@ export function useMinutesPresence({
       since: sinceRef.current,
       joined_at: joinedAtRef.current,
       collab: collabActiveRef.current,
+      present: collabPresentRef.current,
       visible: visibleRef.current,
       color_index: colorIndexRef.current,
     }
@@ -328,6 +346,9 @@ export function useMinutesPresence({
             userId: peerId,
             joinedAt,
             collab: meta.collab === true,
+            // 開いている印が無い相手は、1つ前の版の画面。輪に入るつもりが読めないので、
+            // 本文を持っているかどうかだけで判断する（そちらは `outdated` で弾く）
+            present: meta.present === true,
             // 印が読めない相手は手前に出ている扱い（今までと同じ順番になる）
             visible: meta.visible !== false,
             outdated: !hasTabId,
@@ -380,6 +401,7 @@ export function useMinutesPresence({
         userId: userIdRef.current,
         joinedAt: joinedAtRef.current,
         collab: collabActiveRef.current,
+        present: collabPresentRef.current,
         visible: visibleRef.current,
         outdated: false,
         colorIndex: colorIndexRef.current,
@@ -634,5 +656,14 @@ export function useMinutesPresence({
     [pushTrack]
   )
 
-  return { others, setEditing, sendCollab, setCollabActive, setColorIndex }
+  const setCollabPresent = useCallback(
+    (present: boolean) => {
+      if (collabPresentRef.current === present) return
+      collabPresentRef.current = present
+      pushTrack(true)
+    },
+    [pushTrack]
+  )
+
+  return { others, setEditing, sendCollab, setCollabActive, setCollabPresent, setColorIndex }
 }

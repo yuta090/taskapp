@@ -34,7 +34,7 @@ interface Member {
  * 部屋の顔ぶれ。`id` は**タブごと**の見分け札（人ごとではない）。
  * `joinedAt` が小さいほど古株。`collab` は本文の入った器を持っているか。
  */
-type Room = { id: string; userId?: string; joinedAt: number; collab?: boolean }[]
+type Room = { id: string; userId?: string; joinedAt: number; collab?: boolean; present?: boolean }[]
 
 const members: Member[] = []
 
@@ -154,6 +154,33 @@ describe('部屋に入ったとき', () => {
     expect(yamada.session.isSynced).toBe(true)
     expect(readBackMarkdown(yamada.session.doc)).toBe(BASE)
     expect(hub.sent.filter((s) => s.event === 'y-sync1' && !s.to)).toHaveLength(2)
+  })
+
+  it('先客が本文をまだ持っていなくても、自分で本文を作らずに待つ', () => {
+    // 2人がほぼ同時に開いたときの再現。先に開いた人が本文を持って保存したあとに
+    // 2人目が開くと、「本文を持っている人」だけを見ていては相手に気づけず、
+    // 自分で作ってしまう。作った本文と相手の本文が合流すると**中身が二重になり**、
+    // 片方を消してももう片方が残る（＝書いた文字が消えない）
+    const hub = createFakeHub()
+    const yamada = join(hub, 'tab-yamada', [
+      // 田中は開いているが、まだ本文を受け取っていない（collab: false）
+      { id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100, collab: false, present: true },
+      { id: 'tab-yamada', userId: 'u-yamada', joinedAt: 200, collab: false, present: true },
+    ])
+
+    // 自分で作らず、目録合わせを送って待つ
+    expect(yamada.session.isSynced).toBe(false)
+    expect(readBackMarkdown(yamada.session.doc)).toBe('')
+    expect(hub.sent.filter((s) => s.event === 'y-sync1')).toHaveLength(1)
+  })
+
+  it('誰も開いていなければ、これまでどおり自分で本文を作る', () => {
+    const hub = createFakeHub()
+    const tanaka = join(hub, 'tab-tanaka', [
+      { id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100, collab: false, present: true },
+    ])
+    expect(tanaka.session.isSynced).toBe(true)
+    expect(readBackMarkdown(tanaka.session.doc)).toBe(BASE)
   })
 
   it('本文を持っていない人は返事をしない（空の器を配らない）', () => {
