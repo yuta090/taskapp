@@ -167,11 +167,11 @@ export function FeaturePortal() {
               </ul>
             </div>
 
-            {/* Backlog comparison */}
+            {/* ほかのツールとの違い（社名は出さない） */}
             <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
-              <div className="text-xs font-bold text-amber-800 mb-2">Backlogとの違い</div>
+              <div className="text-xs font-bold text-amber-800 mb-2">ほかのツールとの違い</div>
               <p className="text-sm text-amber-700">
-                <strong>Backlog:</strong> クライアントも「ゲストユーザー」としてアカウント作成が必要<br />
+                <strong>ほかのツール:</strong> クライアントも「ゲストユーザー」としてアカウント作成が必要<br />
                 <strong>AgentPM:</strong> URLを開くだけ。パスワード管理もログインも不要
               </p>
             </div>

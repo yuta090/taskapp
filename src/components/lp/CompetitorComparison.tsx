@@ -25,7 +25,7 @@ export function CompetitorComparison() {
           <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Only in AgentPM</span>
           <h2 className="text-3xl font-bold text-slate-900 mb-4">他ツールにはない機能</h2>
           <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-            Backlog・Jira・Linear・Redmine——どれにもない機能が、AgentPMにはあります。
+            ほかのプロジェクト管理ツールには見当たらない機能が、AgentPMにはあります。
           </p>
         </motion.div>
 

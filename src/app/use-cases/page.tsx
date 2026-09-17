@@ -77,7 +77,7 @@ const scenes: SceneData[] = [
         subtitle: '受託開発チーム',
         context: 'PM1名 + エンジニア3-5名 + クライアント1名、3-6ヶ月のプロジェクト',
         before: [
-            'タスクはBacklog、進捗報告はExcel、承認はメール。3ツール横断',
+            'タスクは別のツール、進捗報告はExcel、承認はメール。3ツール横断',
             '発注者「今どこまで？」→ PMがスクショ撮って報告',
             '仕様変更の経緯が散逸。「言った言わない」で揉める',
         ],
@@ -104,7 +104,7 @@ const scenes: SceneData[] = [
         subtitle: 'Web制作会社',
         context: 'ディレクター1-2名 + デザイナー・エンジニア3-5名、3-5案件並行',
         before: [
-            '案件ごとにBacklog + Chatwork + Googleドライブ',
+            '案件ごとにタスク管理ツール＋チャット＋Googleドライブ',
             '毎朝の全案件ステータス確認だけで1時間',
             'クライアントごとに報告フォーマットが違う',
             'デザインカンプの修正依頼がチャットに埋もれる',
@@ -133,7 +133,7 @@ const scenes: SceneData[] = [
         subtitle: 'フリーランスエンジニア',
         context: '1名で2-3案件並行管理',
         before: [
-            '見積もりはスプレッドシート、タスクはNotionかGitHub Issues',
+            '見積もりはスプレッドシート、タスクはメモツールかGitHub Issues',
             '請求の工数転記が毎月発生。漏れも出る',
             'クライアントへの進捗報告はChatworkで手動',
         ],
@@ -217,7 +217,7 @@ const templates: TemplateData[] = [
 const modelCases: { title: string; context: string; events: TimelineEvent[] }[] = [
     {
         title: '受託開発チーム（PM1名+エンジニア4名）',
-        context: '3ヶ月の受託開発案件。クライアント1社。Backlogから移行',
+        context: '3ヶ月の受託開発案件。クライアント1社。別のツールから移行',
         events: [
             { time: 'Week 1', text: 'テンプレートでプロジェクト立ち上げ。ポータルURLをクライアントに共有' },
             { time: 'Week 2', text: '開発者がCLIでタスク更新開始。クライアントがポータルで進捗確認を開始' },
@@ -254,9 +254,9 @@ const teamSizes: {
         },
         {
             size: '10-30名',
-            recommendation: 'Pro（¥14,800/月・税別）。30名まで定額で、Backlog Standardより安く、ポータル・ボール・証跡管理がフル機能。',
+            recommendation: 'Pro（¥14,800/月・税別）。30名まで定額で、他社の標準プランより安く、ポータル・ボール・証跡管理がフル機能。',
             reasons: [
-                'Backlog Standardより安い（30名まで定額で¥2,800/月の差）',
+                '他社の標準プランより安い（30名まで定額で月¥1,200の差）',
                 'ポータルで報告作業が不要。PMの時間を案件管理に集中',
                 'Wiki・議事録・レビュー承認で仕様の証跡が一元管理',
             ],
@@ -268,7 +268,7 @@ const teamSizes: {
             reasons: [
                 'メンバー数・プロジェクト数の上限なしで全社展開できる',
                 '部門パイロット → 効果実証 → 全社展開のステップが踏める',
-                'Pro（¥14,800/月・30名まで）はBacklog Standardと同等以下の費用',
+                'Pro（¥14,800/月・30名まで）は他社の標準プランと同等以下の費用',
             ],
             cta: { label: '導入について相談する', href: '/contact' },
         },
