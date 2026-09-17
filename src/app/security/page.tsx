@@ -13,52 +13,48 @@ import Link from 'next/link'
 const implemented = [
   {
     icon: Lock,
-    title: '通信と保管の暗号化',
-    body: 'ブラウザとサーバーの間はTLSで暗号化しています。保存したデータもディスク上で暗号化されています。',
+    title: '通信も、保管しているデータも暗号化しています',
+    body: 'ブラウザとサーバーの間はTLSで守っています。保存したあとのデータも、ディスクの上で暗号化されたままです。',
   },
   {
     icon: ShieldCheck,
-    title: '持ち主だけが見える仕組み',
-    body: 'データベース側で「誰がどの行を読めるか」を制限しています（RLS）。画面の作り方を間違えても、他社のデータは出てきません。',
+    title: 'よその会社のデータは、データベースの側で切り離しています',
+    body: '「誰がどこまで見てよいか」をデータベースの側で決めています。画面を作る側が間違えても、よその会社のデータが混ざることはありません。'
   },
   {
     icon: ClockCounterClockwise,
-    title: '監査ログ',
-    body: '誰がいつ何を変えたかを記録しています。AIやCLI経由の操作も同じように残ります。',
+    title: '誰がいつ何を変えたか、あとから追えます',
+    body: '操作はすべて記録に残ります。AIやコマンドライン経由で動かした分も、人が画面で触ったときと同じように残ります。',
   },
   {
     icon: UserCircle,
-    title: '二要素認証',
-    body: 'パスワードに加えて、認証アプリの6桁コードでログインできます。設定画面からご自身で有効にできます。',
+    title: 'パスワードのほかに、もう1つの確認を足せます',
+    body: '認証アプリに出る6桁の数字を、パスワードと一緒に入れる方式です。使う方ごとに、設定画面から有効にできます。',
   },
   {
     icon: Key,
-    title: 'APIキーの範囲を絞れる',
-    body: 'AIやCLIから使う鍵は、1つのプロジェクトだけに絞るか、自分が入っているプロジェクト全体にするかを選べます。いつでも止められます。',
+    title: 'AIから触れる範囲は、絞って渡せます',
+    body: '1つのプロジェクトだけに絞るか、自分が入っている全部を対象にするかを選べます。渡したあとでも、いつでも止められます。',
   },
   {
     icon: Database,
-    title: 'データの持ち出し',
-    body: 'タスクはいつでもCSVで書き出せます。アップロードしたファイルもそのまま取り出せます。',
+    title: 'やめるときも、データは持って出られます',
+    body: 'タスクはいつでもCSVで書き出せます。アップロードしたファイルも、そのまま取り出せます。',
   },
 ]
 
 const portalPoints = [
   {
     q: '相手先はどうやって入りますか？',
-    a: '招待メールから、パスワードを一度だけ決めて入ります。誰でも開けるURLではありません。社内メンバーとは別の画面で、見える範囲も別です。人数は何人招いても無料です。',
+    a: '招待メールからパスワードを一度だけ決めていただき、以降はそれでログインします。誰でも開けるURLではありません。社内の画面とは別物で、見える範囲も別に管理しています。',
   },
   {
     q: '見せたくないものまで見えませんか？',
     a: 'タスク1件ごとに「相手先に見せる／見せない」を決めます。既定は見せません。原価や社内のやりとりは相手先の画面に出ません。',
   },
   {
-    q: '承認のたびにログインが要りますか？',
-    a: '要りません。承認だけはメールに届いたリンクから、その場で押せます。このリンクは一度使うと無効になり、期限も切れます。',
-  },
-  {
-    q: '相手先が社内のタスクを書き換えられますか？',
-    a: 'できません。相手先ができるのは、見ること・コメントすること・承認すること・依頼を起票することだけです。',
+    q: '承認のリンクをメールで送るのは危なくないですか？',
+    a: 'リンクは一度使うと無効になり、期限も切れます。押せるのは承認だけで、そこから他の画面には入れません。',
   },
 ]
 
@@ -94,8 +90,8 @@ export default function SecurityPage() {
           <p
             className="text-lg text-slate-600 leading-relaxed"
           >
-            情報システム部門やお客様から聞かれることを、先にまとめました。<br className="hidden md:block" />
-            実際に動いているものと、これから作るものを分けて書いています。
+            情報システム部門やお客様から聞かれることを、先にまとめておきました。<br className="hidden md:block" />
+            すでに動いているものと、これから作るものは分けてあります。
           </p>
         </div>
       </section>
@@ -110,7 +106,7 @@ export default function SecurityPage() {
             className="text-center mb-12"
           >
             <h2 className="text-3xl font-bold text-slate-900 mb-4">いま動いているもの</h2>
-            <p className="text-slate-500 text-sm">この6つは実装済みで、いますぐ使えます。</p>
+            <p className="text-slate-500 text-sm">申し込んだ日から使えます。</p>
           </motion.div>
 
           <div className="grid md:grid-cols-2 gap-5">
@@ -145,9 +141,9 @@ export default function SecurityPage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <h2 className="text-3xl font-bold text-slate-900 mb-4">相手先ポータルのしくみ</h2>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">相手先の画面は、どう守られているか</h2>
             <p className="text-slate-500 text-sm leading-relaxed">
-              お客様に使っていただく画面なので、ここはよく質問されます。
+              お客様が直接ログインする画面なので、見える範囲を社内の画面とは別に管理しています。
             </p>
           </motion.div>
 
@@ -179,8 +175,8 @@ export default function SecurityPage() {
           >
             <h2 className="text-2xl font-bold text-slate-900 mb-4">これから作るもの</h2>
             <p className="text-slate-600 text-sm leading-relaxed mb-6">
-              大きな組織で必要になるものを検討しています。時期はまだお約束できません。
-              導入の条件になる場合は、ご相談ください。
+              大きな組織で求められるものを順に検討しています。ただ、いつ出せるかはまだ約束できません。
+              導入の条件になるようでしたら、一度ご相談ください。
             </p>
             <ul className="grid sm:grid-cols-2 gap-3 mb-8">
               {planned.map((item) => (
@@ -197,8 +193,7 @@ export default function SecurityPage() {
                 <div>
                   <h3 className="font-bold text-slate-900 mb-1.5">情報システム部門向けの資料をお渡しします</h3>
                   <p className="text-sm text-slate-600 leading-relaxed mb-4">
-                    暗号化・認証・監査ログ・データの置き場所をまとめたチェックシートをご用意しています。
-                    稟議に使える形でお送りします。
+                    暗号化・認証・記録の残り方・データの置き場所を1枚にまとめてあります。そのまま稟議に添えられる形でお送りします。
                   </p>
                   <Link
                     href="/contact?topic=security"

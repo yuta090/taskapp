@@ -18,7 +18,7 @@ export function CTABand() {
             まずは無料で試してみませんか？
           </h2>
           <p className="text-slate-400 mb-8">
-            クレジットカード登録不要。5分でプロジェクトが立ち上がります。
+            クレジットカードの登録はいりません。5分でプロジェクトが立ち上がります。
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link

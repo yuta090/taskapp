@@ -26,7 +26,7 @@ const groups = [
   {
     icon: ChatCircle,
     title: 'チャット',
-    lead: 'AI秘書がこの部屋に入り、会話からタスクを拾います。相手先とのグループにも入れます。',
+    lead: '秘書をグループに招くと、会話からやることを拾います。社内だけでなく、相手先とのグループにも入れます。',
     items: [
       { name: 'LINE', status: 'ga' as Status, note: '共通LINE／自社LINEの両方' },
       { name: 'Slack', status: 'ga' as Status, note: '' },
@@ -40,7 +40,7 @@ const groups = [
   {
     icon: ListChecks,
     title: 'いま使っているタスク管理ツール',
-    lead: '乗り換えは要りません。いまのツールとタスクをやりとりできます。',
+    lead: 'いま使っているツールと、タスクをやりとりできます。',
     items: [
       { name: 'Backlog', status: 'ga' as Status, note: '' },
       { name: 'Jooto', status: 'ga' as Status, note: '' },
@@ -57,7 +57,7 @@ const groups = [
   {
     icon: Receipt,
     title: '見積書・請求書',
-    lead: '承認された見積もりから、そのまま書類を作れます。会計の帳簿には触りません。',
+    lead: '承認された見積もりから、そのまま書類を作れます。会計ソフトの帳簿には書き込みません。',
     items: [
       { name: 'freee請求書', status: 'ga' as Status, note: '' },
       { name: 'マネーフォワード クラウド請求書', status: 'ga' as Status, note: '' },
@@ -67,7 +67,7 @@ const groups = [
   {
     icon: GitBranch,
     title: '開発',
-    lead: 'プルリクエストや課題を、案件のタスクに結びつけます。',
+    lead: 'プルリクエストや課題を、案件のタスクに結びつけられます。',
     items: [
       { name: 'GitHub', status: 'ga' as Status, note: 'PRの取り込みで担当者へ通知' },
     ],
@@ -75,7 +75,7 @@ const groups = [
   {
     icon: CalendarBlank,
     title: '予定',
-    lead: '日程調整の結果を、そのままカレンダーに入れます。',
+    lead: '日程調整で決まった時間を、そのままカレンダーに入れます。',
     items: [
       { name: 'Google カレンダー', status: 'ga' as Status, note: '' },
     ],
@@ -83,7 +83,7 @@ const groups = [
   {
     icon: Robot,
     title: 'AIから直接つなぐ',
-    lead: 'お使いのAIから、AgentPMのタスクや議事録を直接さわれます。',
+    lead: 'お使いのAIから、タスクや議事録を直接さわれます。ターミナルのまま動かせます。',
     items: [
       { name: 'MCP（Claude Code など手元のAIツール）', status: 'ga' as Status, note: 'APIキーを発行してつなぐ' },
       { name: 'ブラウザのAIから直接つなぐ', status: 'planned' as Status, note: 'ChatGPT などの「コネクタ」対応' },
@@ -116,8 +116,8 @@ export default function IntegrationsPage() {
           <p
             className="text-lg text-slate-600 leading-relaxed"
           >
-            チャットもタスク管理ツールも、乗り換える必要はありません。<br className="hidden md:block" />
-            お客様に新しいツールを覚えていただく手間もかかりません。
+            チャットもタスク管理ツールも、いまのまま始められます。<br className="hidden md:block" />
+            お客様に新しいツールを覚えてもらう手間も、かかりません。
           </p>
         </div>
       </section>
@@ -174,25 +174,24 @@ export default function IntegrationsPage() {
             viewport={{ once: true }}
             className="bg-surface rounded-2xl border border-slate-200 p-8"
           >
-            <h2 className="text-xl font-bold text-slate-900 mb-4">言葉の意味</h2>
+            <h2 className="text-xl font-bold text-slate-900 mb-4">3つの言葉の意味</h2>
             <dl className="space-y-3 text-sm mb-8">
               <div className="flex gap-3">
                 <dt className="font-bold text-emerald-700 shrink-0 w-20">使えます</dt>
-                <dd className="text-slate-600">送受信とも動いています。本番の案件で使えます。</dd>
+                <dd className="text-slate-600">こちらから送るのも、相手の発言を受け取るのも動いています。</dd>
               </div>
               <div className="flex gap-3">
                 <dt className="font-bold text-amber-700 shrink-0 w-20">お試し中</dt>
-                <dd className="text-slate-600">送信は動いています。受け取り側や細かい機能はこれから広げます。</dd>
+                <dd className="text-slate-600">こちらから送る側は動いています。相手の発言を受け取る側は、これから広げます。</dd>
               </div>
               <div className="flex gap-3">
                 <dt className="font-bold text-slate-500 shrink-0 w-20">準備中</dt>
-                <dd className="text-slate-600">これから作ります。時期はまだお約束できません。</dd>
+                <dd className="text-slate-600">これから作ります。時期はまだ約束できません。</dd>
               </div>
             </dl>
 
             <p className="text-sm text-slate-600 leading-relaxed mb-5">
-              お使いのツールが見当たらない場合はご相談ください。よく求められるものから順に足しています。
-              連携の数で料金は変わりません。
+              お使いのツールが見当たらなければ、一度ご相談ください。よく求められるものから順に足しています。なお、連携の数で料金が変わることはありません。
             </p>
             <Link
               href="/contact?topic=integration"

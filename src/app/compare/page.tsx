@@ -160,11 +160,11 @@ const secretaryComparisonRows = [
 ]
 
 const agencyComparisonRows = [
-  { feature: '原価/売値の分離表示', agentpm: true, others: '手動管理' },
-  { feature: 'ベンダーポータル', agentpm: true, others: 'アカウント共有必要' },
-  { feature: '3段階承認フロー', agentpm: true, others: 'カスタム開発必要' },
-  { feature: 'マージン自動計算', agentpm: true, others: 'Excel別管理' },
-  { feature: 'クライアントへの原価非表示', agentpm: true, others: '運用ルール対応' },
+  { feature: '原価と売値を別々に持てる', agentpm: true, others: '手作業で管理する' },
+  { feature: '協力会社にも専用の画面を出せる', agentpm: true, others: 'アカウントを共有する' },
+  { feature: '3段階で承認を回せる', agentpm: true, others: '作り込みが要る' },
+  { feature: '利幅が自動で出る', agentpm: true, others: 'Excelで別に管理する' },
+  { feature: '相手先には原価を見せない', agentpm: true, others: '運用ルールで気をつける' },
 ]
 
 // Backlog は 2027-01-01 に4プラン\u21923プランへ改定。出典: https://nulab.com/ja/info/backlog-plan-renewal/
@@ -245,22 +245,22 @@ const fitForOthers = [
 const approvalPackItems = [
   {
     title: '比較表PDF',
-    description: '本ページの内容をA4にまとめた社内配布用資料',
+    description: 'このページの内容をA4にまとめてあります。社内で配れます',
     icon: FileArrowDown,
   },
   {
     title: 'ROI試算シート',
-    description: '工数削減効果を自社の人件費で試算できるExcel',
+    description: '削減できる時間を、自社の人件費で試算できます',
     icon: FileArrowDown,
   },
   {
     title: 'セキュリティチェックシート',
-    description: '情シス向け。暗号化・認証・監査ログ対応状況',
+    description: '暗号化・認証・記録の残り方をまとめています。情報システム部門向けです',
     icon: ShieldCheck,
   },
   {
     title: '移行計画テンプレート',
-    description: 'いまお使いのツールからの移行スケジュール雛形',
+    description: 'いま使っているツールから移すときの、日程の組み方を示しています',
     icon: FileArrowDown,
   },
 ]
@@ -268,17 +268,17 @@ const approvalPackItems = [
 // 実装済みとして掲げてよいのは、コード・インフラで裏が取れているものだけ
 const enterpriseReady = [
   { label: '通信の暗号化（TLS）・保管時の暗号化', done: true },
-  { label: 'Row Level Security (RLS)', done: true },
-  { label: '監査ログ', done: true },
-  { label: '二段階認証（ログイン時）', done: true },
+  { label: 'よその会社のデータが混ざらない仕組み', done: true },
+  { label: '誰がいつ何を変えたかの記録', done: true },
+  { label: '二要素認証（ログイン時）', done: true },
 ]
 
 // 時期を明示できるのは自社で実装するものだけ。第三者認証の取得時期は約束しない
 const enterprisePlanned = [
   { label: 'SSO/SAML', when: '検討中' },
   { label: 'SCIM プロビジョニング', when: '検討中' },
-  { label: '細粒度権限管理', when: '検討中' },
-  { label: 'SLA保証', when: '検討中' },
+  { label: '役割をさらに細かく分ける権限管理', when: '検討中' },
+  { label: '稼働率の保証（SLA）', when: '検討中' },
 ]
 
 /* ─── Page Component ─── */
@@ -307,13 +307,13 @@ export default function ComparePage() {
             className="text-lg text-slate-600 mb-8 leading-relaxed"
           >
             プロジェクト管理ツールと、チャットからタスクを拾うツール。<br className="hidden md:block" />
-            AgentPMが力を発揮する場面と、他のツールのほうが適している場面を、どちらも載せています。
+            AgentPMが力を発揮する場面も、他のツールのほうが向いている場面も、どちらも載せました。
           </p>
           <div
             className="space-y-1"
           >
             <p className="text-xs text-slate-400">
-              ※ 2026年9月時点、各社公式サイトの公開情報に基づく当社調べ。社名は伏せています
+              ※ 2026年9月時点、各社公式サイトの公開情報に基づく当社調べ。社名は伏せています（各社の許諾を取っていないため）
             </p>
             <p className="text-xs text-slate-400">
               ※ 各製品の最新情報は公式サイトをご確認ください
@@ -335,10 +335,9 @@ export default function ComparePage() {
               ツール選びで、月額だけを比べていませんか？
             </h2>
             <p className="text-slate-600 text-sm leading-relaxed mb-4">
-              本当に比較すべきは「ツール代」ではなく「報告・確認・承認にかけている時間」です。
-              5名チームの場合、報告・転記・催促だけで月
+              当社の試算では、5名のチームで月
               <span className="font-bold text-slate-900">¥24,000〜¥72,000</span>
-              の人件費がかかっています。
+              になります（時給¥3,000で計算）。
             </p>
             <Link
               href="/pricing#tco"
@@ -363,7 +362,7 @@ export default function ComparePage() {
           >
             <h2 className="text-3xl font-bold text-slate-900 mb-4">プロジェクト管理ツールと比べる</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              相手先がいる仕事（受託・制作・代理店）で必要になる機能で並べました。
+              受託、制作、代理店。相手先がいる仕事で必要になる機能を並べました。
             </p>
           </motion.div>
 
@@ -378,7 +377,7 @@ export default function ComparePage() {
           >
             <h2 className="text-3xl font-bold text-slate-900 mb-4">チャット連携のツールと比べる</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              LINEやSlackの会話からタスクを拾う機能で並べました。上の表とは別の顔ぶれなので、F社から振り直しています。
+              こちらはLINEやSlackの会話からタスクを拾う機能で並べています。上の表とは別の製品なので、記号もF社から改めています。
             </p>
           </motion.div>
 
@@ -390,12 +389,12 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-xs text-slate-400 text-center mt-6 max-w-2xl mx-auto leading-relaxed"
           >
-            G社・H社・I社は自社のワークスペースの中で働くため、相手先が同じツールを使っていない場合は届きません。
+            G社・H社・I社は、自社で使っているチャットの中だけで動きます。相手先が同じツールを使っていなければ、そもそも届きません。
           </motion.p>
         </div>
       </section>
 
-      {/* ──── 代理店モード詳細比較 ──── */}
+      {/* ──── 代理店モードを他社と比べる ──── */}
       <section className="py-20 bg-surface">
         <div className="container mx-auto px-6">
           <motion.div
@@ -406,7 +405,7 @@ export default function ComparePage() {
           >
             <h2 className="text-3xl font-bold text-slate-900 mb-4">代理店モード詳細比較</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              原価と売値を分ける機能は、国内の主要ツールの標準機能としては確認できませんでした。海外には近い機能を持つ製品もありますが、日本語のUIがありません。
+              原価と売値を分ける機能は、国内の主要ツールの標準機能としては見当たりませんでした。海外には近いものもありますが、日本語のUIがありません。
             </p>
           </motion.div>
 
@@ -473,7 +472,7 @@ export default function ComparePage() {
               A社は2027年1月に料金が変わります
             </h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              4つのプランが3つにまとまり、月¥2,700で始められる入口が無くなります。
+              4つのプランが3つにまとまり、月¥2,700で始められる入口がなくなります。
             </p>
           </motion.div>
 
@@ -532,7 +531,7 @@ export default function ComparePage() {
           >
             <h2 className="text-3xl font-bold text-slate-900 mb-4">料金を並べる</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              AgentPMは組織単位の定額です。A社はプラン改定をまたぐので、現行と新プランの両方を載せています。
+              AgentPMは組織ごとの定額です。A社はプラン改定をまたぐため、現行と新プランの両方を載せました。
             </p>
           </motion.div>
 
@@ -577,9 +576,7 @@ export default function ComparePage() {
 
             <div className="mt-6 bg-slate-50 rounded-xl border border-slate-200 p-4">
               <p className="text-sm text-slate-600 leading-relaxed">
-                <span className="font-bold text-slate-900">正直に書きます：</span>
-                50名を超えるチームなら、2026年12月までは A社の標準プラン（月¥16,000・人数無制限）のほうが安く済みます。
-                AgentPM が安くなるのは30名まで、または2027年1月以降です。
+                50名を超えるチームなら、2026年12月までは A社の標準プラン（月¥16,000・人数無制限）のほうが安く済みます。AgentPMが有利になるのは30名までか、2027年1月を過ぎてからです。
               </p>
             </div>
 
@@ -602,7 +599,7 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <h2 className="text-3xl font-bold text-slate-900 mb-4">向いているチーム</h2>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">どちらのツールが向いているか</h2>
           </motion.div>
 
           <div className="grid lg:grid-cols-2 gap-8">
@@ -619,7 +616,7 @@ export default function ComparePage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">AgentPMが向いているチーム</h3>
-                  <p className="text-xs text-slate-500">クライアントワーク中心の方に</p>
+                  <p className="text-xs text-slate-500">相手先がいる仕事が中心の方に</p>
                 </div>
               </div>
               <ul className="space-y-3">
@@ -679,7 +676,7 @@ export default function ComparePage() {
           >
             <h2 className="text-3xl font-bold mb-4">大規模チーム（50名以上）の方へ</h2>
             <p className="text-slate-400 max-w-2xl mx-auto text-sm leading-relaxed">
-              エンタープライズ向けのセキュリティ要件にも対応しています。
+              大きな組織で求められる項目を、いま動いているものと、これからのものに分けて載せました。
             </p>
           </motion.div>
 
@@ -715,7 +712,7 @@ export default function ComparePage() {
             >
               <div className="flex items-center gap-2 mb-5">
                 <ClockCounterClockwise weight="fill" className="text-amber-400" size={20} />
-                <h3 className="font-bold text-white">対応予定</h3>
+                <h3 className="font-bold text-white">これから作るもの</h3>
               </div>
               <ul className="space-y-3">
                 {enterprisePlanned.map((item) => (
@@ -739,17 +736,17 @@ export default function ComparePage() {
             <div className="flex flex-col md:flex-row items-start md:items-center gap-4 text-sm text-slate-300">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">1</span>
-                <span>部門導入</span>
+                <span>まず1部署で使う</span>
               </div>
               <ArrowRight weight="bold" className="text-slate-600 hidden md:block" size={14} />
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">2</span>
-                <span>権限・運用設計</span>
+                <span>見える範囲と承認の流れを決める</span>
               </div>
               <ArrowRight weight="bold" className="text-slate-600 hidden md:block" size={14} />
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">3</span>
-                <span>他部門展開</span>
+                <span>他の部署へ広げる</span>
               </div>
             </div>
           </motion.div>
@@ -810,7 +807,7 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-8"
           >
-            <h2 className="text-2xl font-bold text-slate-900 mb-4">移行について</h2>
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">いまのツールから移す</h2>
             <p className="text-slate-500 text-sm">
               既存ツールからの移行もサポートしています。
             </p>
