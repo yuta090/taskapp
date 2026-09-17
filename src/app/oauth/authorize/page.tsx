@@ -75,6 +75,8 @@ export default async function OAuthAuthorizePage({ searchParams }: Props) {
     return <ErrorScreen message="つなぎ先が古い方式で接続しようとしています（PKCE S256 が必要です）。" />
   }
 
+  // ⚠ ここまでの確認を通ってから組織を引く（並列にしない）。登録は誰でもできるので、
+  // 不正な指定で叩かれたときに DB の問い合わせを増やさないため
   const orgs = await listConnectableOrgs(supabase, user.id)
   if (orgs.length === 0) {
     return (

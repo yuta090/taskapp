@@ -40,7 +40,8 @@ export default function ConnectionsSettingsPage() {
       if (!res.ok) throw new Error('接続を読み込めませんでした')
       return res.json()
     },
-    staleTime: 30_000,
+    // staleTime は QueryProvider の既定(2分)のまま。解除したときは invalidate で
+    // すぐ入れ替わるので、この画面のために短くする必要はない
   })
 
   const connections = data?.connections ?? []
