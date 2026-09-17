@@ -1,8 +1,9 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { createReactBlockSpec } from '@blocknote/react'
 import { createExtension, defaultBlockSpecs } from '@blocknote/core'
-import { MEETING_NOTE_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
+import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStampLabel, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 
 /**
@@ -110,3 +111,132 @@ export const toggleListItemSpec = {
     }),
   ],
 }
+
+/**
+ * 区切り線。BlockNote の既定の区切り線をそのまま使い、**入力ルールだけ足す**。
+ * `---` ＋スペースで引けるようにする（Notion と同じ感覚で打てる）。
+ * Markdown でも `---` なので、往復しても形が変わらない。
+ */
+export const dividerSpec = {
+  ...defaultBlockSpecs.divider,
+  extensions: [
+    ...(defaultBlockSpecs.divider.extensions ?? []),
+    createExtension({
+      key: 'minutes-divider-from-dashes',
+      inputRules: [
+        {
+          find: /^-{3}\s$/,
+          replace: () => ({ type: DIVIDER_TYPE, props: {} }),
+        },
+      ],
+    }),
+  ],
+}
+
+/** 目次の1行。`id` は BlockNote のブロックID（画面では `data-id` に出る）。 */
+export type TocItem = { id: string; level: number; text: string }
+
+/**
+ * 目次が要るのはブロックの一覧と変更の通知だけ。エディタの型をまるごと持ち込むと
+ * テストから呼べなくなるので、使う分だけに絞る。
+ */
+export type BlockNoteEditorLike = {
+  document: Array<{ id: string; type: string; props?: Record<string, unknown>; content?: unknown }>
+  onChange?: (cb: () => void) => (() => void) | undefined
+}
+
+/** 見出しの中身から字だけを取り出す（リンクの中の字も拾う）。 */
+function inlineText(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((c) => {
+      if (!c || typeof c !== 'object') return ''
+      const node = c as { type?: string; text?: string; content?: unknown }
+      if (typeof node.text === 'string') return node.text
+      if (node.type === 'link') return inlineText(node.content)
+      return ''
+    })
+    .join('')
+}
+
+/** 本文から見出しだけを拾う。文字を持たない見出しは出さない（押しても意味が無い）。 */
+export function collectHeadings(editor: BlockNoteEditorLike): TocItem[] {
+  const out: TocItem[] = []
+  for (const b of editor.document ?? []) {
+    if (b.type !== 'heading') continue
+    const text = inlineText(b.content).trim()
+    if (!text) continue
+    const level = Math.min(Math.max(Number(b.props?.level) || 1, 1), 6)
+    out.push({ id: b.id, level, text })
+  }
+  return out
+}
+
+/**
+ * 目次。**中身を持たず、開くたびにその時点の見出しから引き直す**ので、見出しを直しても
+ * 目次が古くならない（更新ボタンは要らない）。Markdown では `<!--toc-->` の1行で表す
+ * （`markdown.ts` 側と対）。
+ *
+ * 押すとその見出しまで画面が動く。BlockNote は各ブロックの入れ物に `data-id` を出すので、
+ * それを目印に探す（見出しに id を振る必要が無い）。
+ */
+export function TableOfContentsBlock({ editor }: { editor: BlockNoteEditorLike }) {
+  // 最初の1回は描くときに拾う（効果の中で state を触らないため）
+  const [items, setItems] = useState<TocItem[]>(() => collectHeadings(editor))
+
+  // 以後は中身が変わるたびに引き直す
+  useEffect(() => {
+    return editor.onChange?.(() => setItems(collectHeadings(editor)))
+  }, [editor])
+
+  const jump = (id: string) => {
+    document
+      .querySelector(`[data-id="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return (
+    <div
+      contentEditable={false}
+      data-testid="doc-toc"
+      // 面をわずかに落として「本文ではない」ことを示す。色はトークンで置き、明暗どちらでも
+      // 読めるようにする（アンバー/オレンジは「相手先に見える」印の色なので使わない）
+      className="my-2 w-full select-none rounded border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/50"
+    >
+      <div className="mb-1 text-[10px] font-medium tracking-wide text-gray-500 dark:text-gray-400">
+        目次
+      </div>
+      {items.length === 0 ? (
+        <div className="text-xs text-gray-400 dark:text-gray-500">見出しがまだありません</div>
+      ) : (
+        <ul className="space-y-0.5">
+          {items.map((it) => (
+            <li key={it.id} style={{ paddingLeft: `${(it.level - 1) * 12}px` }}>
+              <button
+                type="button"
+                onClick={() => jump(it.id)}
+                data-testid="doc-toc-item"
+                // 本文より1段小さく。行の高さを詰めて、20行あっても画面を圧迫しない
+                className="w-full truncate text-left text-xs leading-5 text-gray-600 hover:text-blue-600 hover:underline dark:text-gray-300 dark:hover:text-blue-400"
+              >
+                {it.text}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** 目次。Markdown では `<!--toc-->` の1行で表す（`markdown.ts` 側と対）。 */
+export const tableOfContentsSpec = createReactBlockSpec(
+  {
+    type: TOC_TYPE,
+    propSchema: {},
+    content: 'none',
+  } as const,
+  {
+    render: (props) => <TableOfContentsBlock editor={props.editor as unknown as BlockNoteEditorLike} />,
+  }
+)()

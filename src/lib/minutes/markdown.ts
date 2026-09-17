@@ -299,8 +299,31 @@ function readNoteMeta(marker: string | undefined): { createdAt: string | null; a
   return { createdAt: m[1], author: normalizeNoteAuthor(m[2]) }
 }
 
+/**
+ * 目次の目印。行がこれだけの1行になる。素の Markdown では何も見えない行として読める
+ * （CLI や GitHub で開いても崩れない）。中身は持たず、**画面で開くたびにその時点の
+ * 見出しから引き直す**ので、見出しを直しても目次が古くならない。
+ */
+export const TOC_MARKER = '<!--toc-->'
+
+/** 目次の行。前後に空白が付いていても拾う（手で書いた議事録でも効かせる）。 */
+const TOC_LINE_RE = /^<!--toc-->\s*$/
+
 /** 折りたたみのブロック種別（BlockNote 既定の折りたたみと同じ名前）。 */
 export const TOGGLE_TYPE = 'toggleListItem'
+
+/** 目次のブロック種別（エディタ側の独自ブロックと同じ名前）。 */
+export const TOC_TYPE = 'tableOfContents'
+
+/** 区切り線のブロック種別（BlockNote 既定の `divider` と同じ名前）。 */
+export const DIVIDER_TYPE = 'divider'
+
+/**
+ * 区切り線。Markdown の水平線をそのまま使う（`---` `***` `___` の3つとも読む）。
+ * 書き出すときは `---` に揃える。表の区切り（`|---|`）と見分けるため、行頭が `|` の
+ * ものは対象外（`TABLE_SEP_RE` が先に当たる並びに置いている）。
+ */
+const DIVIDER_LINE_RE = /^(?:-{3,}|\*{3,}|_{3,})\s*$/
 
 /** 会議メモのブロック種別（エディタ側の独自ブロックと同じ名前）。 */
 export const MEETING_NOTE_TYPE = 'meetingNote'
@@ -797,6 +820,9 @@ function isBlockTriggerLine(line: string, lines: string[], idx: number, depth: n
   if (CHECK_RE.test(line) || BULLET_RE.test(line) || NUMBERED_RE.test(line)) return true
   // 会議メモは段落の途中からでも始められる（段落をここで切る）
   if (MEETING_NOTE_LINE_RE.test(line)) return true
+  // 目次も同じ。1行だけのブロックなので、前後の段落と混ぜない
+  if (TOC_LINE_RE.test(line)) return true
+  if (DIVIDER_LINE_RE.test(line)) return true
   if (
     /^\|/.test(line) &&
     idx + 1 < end &&
@@ -990,6 +1016,20 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
       }
       blocks.push(buildTableBlock(rowLines))
       i = j
+      continue
+    }
+
+    // 区切り線。表の区切りはこの前に表として拾われているので、ここに来るのは水平線だけ
+    if (DIVIDER_LINE_RE.test(line)) {
+      blocks.push({ type: DIVIDER_TYPE, props: {} })
+      i++
+      continue
+    }
+
+    // 目次。中身を持たない1行のブロックにする（画面側が見出しから引き直す）
+    if (TOC_LINE_RE.test(line)) {
+      blocks.push({ type: TOC_TYPE, props: {} })
+      i++
       continue
     }
 
@@ -1474,6 +1514,12 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
         typeof block.props.createdAt === 'string' ? readNoteStamp(block.props.createdAt) : null,
         typeof block.props.author === 'string' ? normalizeNoteAuthor(block.props.author) : ''
       )
+    case TOC_TYPE:
+      // 中身は持たない。目印の1行だけを書く
+      return [TOC_MARKER]
+    case DIVIDER_TYPE:
+      // 読む形は3つあるが、書くときは `---` に揃える
+      return ['---']
     case TOGGLE_TYPE:
       // 箇条書きと同じ形に目印を挟むだけ。1行目には逃がし(`\`)が付かないので、
       // 何度往復しても目印はそのまま残る

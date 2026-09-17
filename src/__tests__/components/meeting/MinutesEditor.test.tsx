@@ -328,6 +328,7 @@ describe('MinutesEditor の「/」メニュー', () => {
     expect(items.map((item) => item.key)).toEqual([
       'insert_meeting_note',
       'insert_task_line',
+      'insert_toc',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',
@@ -338,14 +339,19 @@ describe('MinutesEditor の「/」メニュー', () => {
       'table',
       'code_block',
       'toggle_list',
+      'divider',
     ])
   })
 
-  it('「会議メモ」と「折りたたみリスト」を出す', async () => {
+  it('「会議メモ」「折りたたみリスト」「区切り」を出す', async () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const keys = (await capturedSlashMenuProps!.getItems!('')).map((item) => item.key)
     expect(keys).toContain('insert_meeting_note')
     expect(keys).toContain('toggle_list')
+    // 区切り線は `---` ＋スペースでも作れるが、「/」からも引ける
+    expect(keys).toContain('divider')
+    // 会議メモは先頭のまま（会議中にいちばん使う）
+    expect(keys[0]).toBe('insert_meeting_note')
   })
 
   it('「メモ」で絞り込むと会議メモが出る', async () => {
