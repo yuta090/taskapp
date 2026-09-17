@@ -47,6 +47,10 @@ function ComparisonLegend() {
 }
 
 function ComparisonTable({ columns, rows }: { columns: string[]; rows: ComparisonRow[] }) {
+  // 列が6つになると横が足りないので、表は幅を広げ、モバイルは3列×2段に折り返す
+  const wide = columns.length >= 6
+  const shellWidth = wide ? 'max-w-6xl' : 'max-w-5xl'
+  const mobileGrid = wide ? 'grid-cols-3 gap-y-3' : 'grid-cols-5'
   return (
     <>
       {/* Desktop Table */}
@@ -54,7 +58,7 @@ function ComparisonTable({ columns, rows }: { columns: string[]; rows: Compariso
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
-        className="hidden lg:block max-w-5xl mx-auto"
+        className={`hidden lg:block ${shellWidth} mx-auto`}
       >
         <div className="bg-surface rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
@@ -102,7 +106,7 @@ function ComparisonTable({ columns, rows }: { columns: string[]; rows: Compariso
             className="bg-surface rounded-xl p-4 border border-slate-200"
           >
             <div className="text-sm text-slate-700 font-medium mb-2">{row.feature}</div>
-            <div className="grid grid-cols-5 gap-1.5 text-center">
+            <div className={`grid ${mobileGrid} gap-1.5 text-center`}>
               {row.values.map((value, j) => (
                 <div key={columns[j]} className="flex flex-col min-w-0">
                   {/* 列名が2行に折れても記号の高さがずれないよう、ラベル側を固定高さにする */}
@@ -124,20 +128,20 @@ function ComparisonTable({ columns, rows }: { columns: string[]; rows: Compariso
 
 // 表A: クライアントワーク（相手先がいる仕事）向けのプロジェクト管理
 // 2026-09-17 調査。根拠と出典は docs/marketing/COMPETITIVE_LANDSCAPE_2026-09.md
-const pmComparisonColumns = ['AgentPM', 'Backlog', 'Jira', 'Notion', 'Rocketlane']
+const pmComparisonColumns = ['AgentPM', 'Backlog', 'Jira', 'Linear', 'Notion', 'Rocketlane']
 
 const pmComparisonRows = [
-  { feature: '相手先がアカウント不要で使える', values: ['\u25CE', '\u00D7', '\u00D7', '\u25B3 公開ページのみ', '\u25CB 英語のみ'] },
-  { feature: 'ボール管理（次に動く人）', values: ['\u25CE', '\u00D7', '\u00D7', '\u00D7', '\u25B3'] },
-  { feature: '見積もり\u2192承認\u2192請求', values: ['\u25CE', '\u00D7', '\u00D7', '\u00D7', '\u25CB'] },
-  { feature: '代理店モード（原価と売値を分ける）', values: ['\u25CE', '\u00D7', '\u00D7', '\u00D7', '\u25B3'] },
-  { feature: '仕様書・議事録・証跡が同じ場所', values: ['\u25CE', '\u25B3 Wiki別', '\u25B3 Confluence別', '\u25CE', '\u25B3'] },
-  { feature: 'チャットの会話から自動でタスク化', values: ['\u25CE', '\u00D7', '\u00D7', '\u25CB Slack・メール', '\u00D7'] },
-  { feature: 'ガント・バーンダウン', values: ['\u25CE', '\u25CB 上位プラン', '\u25CB', '\u25B3', '\u25CB'] },
-  { feature: '日本語のUIと国内サポート', values: ['\u25CE', '\u25CE', '\u25B3 翻訳ベース', '\u25CB', '\u00D7 英語のみ'] },
-  { feature: 'AIから直接操作（MCP・CLI）', values: ['\u25CB', '\u25CB', '\u25CE', '\u25CE', '\u00D7'] },
-  { feature: '人数が増えても定額', values: ['\u25CB 30名まで', '\u25CE 人数無制限', '\u00D7 1人ごと', '\u00D7 1人ごと', '\u00D7 1人ごと'] },
-  { feature: 'SSO/SAML・細かい権限管理', values: ['\u00D7 検討中', '\u25CB 上位プラン', '\u25CE', '\u25CB', '\u25CB'] },
+  { feature: '相手先がアカウント不要で使える', values: ['◎', '×', '×', '△ 共有リンクのみ', '△ 公開ページのみ', '○ 英語のみ'] },
+  { feature: 'ボール管理（次に動く人）', values: ['◎', '×', '×', '×', '×', '△'] },
+  { feature: '見積もり→承認→請求', values: ['◎', '×', '×', '×', '×', '○'] },
+  { feature: '代理店モード（原価と売値を分ける）', values: ['◎', '×', '×', '×', '×', '△'] },
+  { feature: '仕様書・議事録・証跡が同じ場所', values: ['◎', '△ Wiki別', '△ Confluence別', '△ ドキュメントのみ', '◎', '△'] },
+  { feature: 'チャットの会話から自動でタスク化', values: ['◎', '×', '×', '△ Slackから手動', '○ Slack・メール', '×'] },
+  { feature: 'ガント・バーンダウン', values: ['◎', '○ 上位プラン', '○', '△ ロードマップ', '△', '○'] },
+  { feature: '日本語のUIと国内サポート', values: ['◎', '◎', '△ 翻訳ベース', '× 英語のみ', '○', '× 英語のみ'] },
+  { feature: 'AIから直接操作（MCP・CLI）', values: ['○', '○', '◎', '◎', '◎', '×'] },
+  { feature: '人数が増えても定額', values: ['○ 30名まで', '◎ 人数無制限', '× 1人ごと', '× 1人ごと', '× 1人ごと', '× 1人ごと'] },
+  { feature: 'SSO/SAML・細かい権限管理', values: ['× 検討中', '○ 上位プラン', '◎', '○', '○', '○'] },
 ]
 
 // 表B: チャットの会話からタスクを拾うAI秘書
@@ -216,6 +220,14 @@ const fitForOthers = [
       '500名以上の規模で、細かい権限管理とSSOが要る',
       'Confluence・Bitbucket など Atlassian の製品で揃えたい',
       'ワークフローを自社の形に作り込みたい',
+    ],
+  },
+  {
+    tool: 'Linear',
+    reasons: [
+      '社内のSaaS開発チームで、スプリントに集中したい',
+      '課題を開く速さとキーボード操作を最優先したい',
+      '英語のUIで構わない',
     ],
   },
   {
