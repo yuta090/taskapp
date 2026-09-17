@@ -543,6 +543,36 @@ describe('本文が二重になったとき', () => {
     expect(a.degraded).toContain('duplicate-seed')
   })
 
+  it('相手が直した結果だけが届いても、本文を空にしない', () => {
+    // いちばん危ない道すじ。相手の本文をまだ受け取っていない人に「消す」通だけが
+    // 届くと、手元のかたまりが消えて**中身がゼロ**になる。自分の種の一覧は1つの
+    // ままなので直しの処理も走らず、白紙のまま書けてしまう
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], EXTRA, OLDER)
+    expect(blockGroupCount(a.session.doc)).toBe(1)
+
+    // 相手の器では、両方の種が揃っていて、新しいほうが勝っている
+    const peer = new Y.Doc()
+    const mine = seedWith(EXTRA, OLDER)(peer)
+    const theirs = seedWith(BASE, NEWER)(peer)
+    peer.getMap('seeds').set(mine.seedHash, OLDER)
+    peer.getMap('seeds').set(theirs.seedHash, NEWER)
+    const beforeRepair = Y.encodeStateVector(peer)
+    // 相手が直して、負けた（＝こちらが持っている）かたまりを消す
+    const peerFragment = peer.getXmlFragment('minutes')
+    peer.transact(() => {
+      for (let i = peerFragment.length - 1; i >= 0; i--) {
+        const child = peerFragment.get(i) as { _item?: { id?: { client?: number } } }
+        if (child._item?.id?.client === seedClientId(mine.seedHash)) peerFragment.delete(i, 1)
+      }
+    })
+    // 配られるのは「消した」という差分だけ。相手の本文は届かない
+    hub.sendAs('b', 'y-update', Y.encodeStateAsUpdate(peer, beforeRepair))
+
+    // 空のまま書かせない。列から読み直す形へ落ちる
+    expect(a.degraded).toContain('duplicate-seed')
+  })
+
   it('どちらが新しいか分からないときは、勝手に選ばない', () => {
     // 基準が読めない種どうし。判断材料が無いのに片方を消すと、消えた側は戻せない
     const hub = createFakeHub()

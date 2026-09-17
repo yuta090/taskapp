@@ -367,11 +367,26 @@ export class MinutesCollabSession {
         this.applyingRemote = false
       }
       this.markSynced()
+      // **取り込んだあとに毎回確かめる。** 直しは自分の種が2つになったときしか
+      // 走らないので、相手の本文をまだ受け取っていない人に「消す」通だけが届くと、
+      // 手元のかたまりが消えて中身がゼロになる（そこは直しを通らない）
+      this.assertSingleBody()
     } catch {
       // 壊れた更新は捨てる（1通で画面全体を止めない）。ただし取り込みに失敗した
       // 状態で書き続けると本文がずれるので、種の重複と同じく縮退させる
       this.degrade('apply-failed')
     }
+  }
+
+  /**
+   * **本文が入っている器の直下は、本文のかたまりがちょうど1つ。**
+   * これがこの機能の要（かなめ）で、2つなら本文が二重、0 なら消しすぎ。
+   * どちらも書かせずに列から読み直す形へ落とす（議事録には版の控えが無い）。
+   */
+  private assertSingleBody(): void {
+    if (this.disposed || this.degraded || !this.synced) return
+    if (this.fragment.length === 1) return
+    this.degrade('duplicate-seed')
   }
 
   /**
@@ -455,9 +470,9 @@ export class MinutesCollabSession {
       return
     }
 
-    // 直したあとは本文のかたまりがちょうど1つ。**0 も 2 も縮退させる**のが要点で、
-    // 0（消しすぎ）を見逃すと、白紙のまま打った1行で列を上書きしてしまう
-    if (this.fragment.length !== 1) this.degrade('duplicate-seed')
+    // 直したあとは本文のかたまりがちょうど1つ。0（消しすぎ）も 2（直しきれなかった）も
+    // 縮退させる。0 を見逃すと、白紙のまま打った1行で列を上書きしてしまう
+    this.assertSingleBody()
   }
 
   /** その番号が作った本文のかたまりが、いま手元にあるか */
