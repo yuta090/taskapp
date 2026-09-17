@@ -33,6 +33,7 @@ import {
   MILESTONE_MARKER_TYPE,
   parseMinutesMarkdown,
   serializeMinutesBlocks,
+  DIVIDER_TYPE,
   TASK_MARKER_TYPE,
   TOC_TYPE,
   TOGGLE_TYPE,
@@ -55,7 +56,7 @@ const MinutesTaskLinePanel = dynamic(
     ),
   }
 )
-import { meetingNoteSpec, tableOfContentsSpec, toggleListItemSpec } from './minutesBlocks'
+import { dividerSpec, meetingNoteSpec, tableOfContentsSpec, toggleListItemSpec } from './minutesBlocks'
 import { MINUTES_DICTIONARY } from './minutesDictionary'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
@@ -404,6 +405,7 @@ function useMinutesSchema(
         [TOGGLE_TYPE]: toggleListItemSpec,
         [MEETING_NOTE_TYPE]: meetingNoteSpec,
         [TOC_TYPE]: tableOfContentsSpec,
+        [DIVIDER_TYPE]: dividerSpec,
       },
       styleSpecs: {
         bold: defaultStyleSpecs.bold,

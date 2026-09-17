@@ -10,7 +10,7 @@ import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blockno
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { ListBullets, Notebook, NotePencil } from '@phosphor-icons/react'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
-import { meetingNoteSpec, tableOfContentsSpec } from '@/components/meeting/minutesBlocks'
+import { dividerSpec, meetingNoteSpec, tableOfContentsSpec } from '@/components/meeting/minutesBlocks'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { EditorToolbarButton } from '@/components/editor/EditorToolbarButton'
@@ -18,7 +18,7 @@ import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/app
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import type { AppLinkKind } from '@/lib/navigation/appLinks'
-import { MEETING_NOTE_TYPE, TOC_TYPE } from '@/lib/minutes/markdown'
+import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
 
@@ -48,6 +48,8 @@ const schema = BlockNoteSchema.create({
     // このスキーマで読み取り専用に描くので、ここに入れておけばポータルでも同じ見た目で読める
     [MEETING_NOTE_TYPE]: meetingNoteSpec,
     [TOC_TYPE]: tableOfContentsSpec,
+    // 既定の区切り線に `---` ＋スペースの入力ルールだけ足したもの
+    [DIVIDER_TYPE]: dividerSpec,
   },
 })
 

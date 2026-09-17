@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createReactBlockSpec } from '@blocknote/react'
 import { createExtension, defaultBlockSpecs } from '@blocknote/core'
-import { MEETING_NOTE_TYPE, TOC_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
+import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStampLabel, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 
 /**
@@ -106,6 +106,27 @@ export const toggleListItemSpec = {
         {
           find: /^>\s$/,
           replace: () => ({ type: TOGGLE_TYPE, props: {} }),
+        },
+      ],
+    }),
+  ],
+}
+
+/**
+ * 区切り線。BlockNote の既定の区切り線をそのまま使い、**入力ルールだけ足す**。
+ * `---` ＋スペースで引けるようにする（Notion と同じ感覚で打てる）。
+ * Markdown でも `---` なので、往復しても形が変わらない。
+ */
+export const dividerSpec = {
+  ...defaultBlockSpecs.divider,
+  extensions: [
+    ...(defaultBlockSpecs.divider.extensions ?? []),
+    createExtension({
+      key: 'minutes-divider-from-dashes',
+      inputRules: [
+        {
+          find: /^-{3}\s$/,
+          replace: () => ({ type: DIVIDER_TYPE, props: {} }),
         },
       ],
     }),

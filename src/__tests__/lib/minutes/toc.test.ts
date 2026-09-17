@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { parseMinutesMarkdown, serializeMinutesBlocks, TOC_MARKER, TOC_TYPE } from '@/lib/minutes/markdown'
+import {
+  DIVIDER_TYPE,
+  parseMinutesMarkdown,
+  serializeMinutesBlocks,
+  TOC_MARKER,
+  TOC_TYPE,
+} from '@/lib/minutes/markdown'
 import { collectHeadings, type BlockNoteEditorLike } from '@/components/meeting/minutesBlocks'
 
 /**
@@ -68,5 +74,38 @@ describe('見出しの拾い出し', () => {
       editor([{ id: 'a', type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: '  ' }] }])
     )
     expect(items).toEqual([])
+  })
+})
+
+/**
+ * 区切り線。`---` を置くと画面で線になる。Markdown の水平線をそのまま使うので、
+ * CLI や GitHub で開いても線として読める。
+ */
+describe('区切り線の往復', () => {
+  it('`---` `***` `___` のどれも区切り線になる', () => {
+    for (const mark of ['---', '***', '___']) {
+      const blocks = parseMinutesMarkdown(`本文A\n\n${mark}\n\n本文B\n`)
+      expect(blocks.map((b) => b.type)).toEqual(['paragraph', DIVIDER_TYPE, 'paragraph'])
+    }
+  })
+
+  it('書き出すときは `---` に揃える', () => {
+    const round = serializeMinutesBlocks(parseMinutesMarkdown('本文A\n\n***\n\n本文B\n'))
+    expect(round).toContain('---')
+    expect(round).not.toContain('***')
+    // 何度往復しても増えない
+    expect(serializeMinutesBlocks(parseMinutesMarkdown(round))).toBe(round)
+  })
+
+  it('表の区切り行を区切り線と読み違えない', () => {
+    const blocks = parseMinutesMarkdown('| 列A | 列B |\n|---|---|\n| 1 | 2 |\n')
+    expect(blocks.map((b) => b.type)).toEqual(['table'])
+  })
+
+  it('題名の下の3行と本文を区切れる', () => {
+    const md = '# 題名\n\n- **何の文書か**: あれ\n\n---\n\n## 1. 前提\n'
+    const blocks = parseMinutesMarkdown(md)
+    expect(blocks.map((b) => b.type)).toEqual(['heading', 'bulletListItem', DIVIDER_TYPE, 'heading'])
+    expect(serializeMinutesBlocks(blocks)).toContain('---')
   })
 })
