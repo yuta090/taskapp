@@ -68,3 +68,6 @@ supabase/.temp/
 docs/marketing/COMPETIT*
 docs/**/competitor*
 docs/**/COMPETITOR*
+docs/sales/
+docs/lp/LP_DRAFT_*
+docs/lp/PAGES_DRAFT_*

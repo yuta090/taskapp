@@ -137,7 +137,7 @@ type = 'task' | 'spec'           # spec requires spec_path + decision_state
 - **UIの言葉（厳守）**: 「顧問先」ではなく **「相手先」**、「共有Bot/専用Bot」ではなく **「共通LINE/自社LINE」**。グループを社内/社外に分類させない（見せ分けはタスク単位の `client_scope`）。
 - **機能ゲート**: `src/lib/billing/entitlements.ts` の `PLAN_FEATURES`（own_line_account / line_direct_dm / instant_line_notify は Pro 専有）＋ `PLAN_LIMITS`（maxLineGroups / monthlySharedPushQuota）。gate は**確立/送信境界のみ・新規紐付けの拒否のみ（既存は切らない）**。
 - **⚠ 共通LINE送信クォータ**: LINE無料枠200通/月は**アカウント単位（共有bot全org相乗り）**。org別capだけでは持ち出しが非有界 → **グローバル予算＋org別capの二層制**が必要（`monthlySharedPushQuota` の仮値は安全側、実装は別PR）。
-- **価格は未確定**（LLM抽出原価の実測とLINE規約の複数アカウント可否が前提）。方向＝**定額＋グループ追加パック**、Pro は粗利70-80%・LINE側費用込みで月10万円未満。訴求は時短でなく**クオリティ（拾い漏れゼロ）**。
+- **価格は未確定**（LLM抽出原価の実測とLINE規約の複数アカウント可否が前提）。方向＝**定額＋グループ追加パック**。採算の目標値は社内資料で管理する（PUBLIC リポジトリなのでここには書かない）。訴求は時短でなく**クオリティ（拾い漏れゼロ）**。
 
 ## Key Files
 
