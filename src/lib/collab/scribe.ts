@@ -101,6 +101,29 @@ export function electAnswerer(peers: CollabPeer[], askerId: string): string | nu
 }
 
 /**
+ * 誰も本文を持っていない部屋で、列から本文を用意する1人を決める。
+ *
+ * 全員が「先に開いた人から本文をもらう」規則だけだと、2人がほぼ同時に開いたときに
+ * どちらも本文を持っておらず、互いに尋ねて誰も答えられない。猶予切れまで待つと
+ * **両方が作って本文が二重になる**。そこで、いま開いている人のうち1人を先に決める。
+ *
+ * 並べるのは**入った順 → 名札順**だけ。書記（`activeOrdered`）と違って「手前に
+ * 出ているか」を見ないのが要点で、見るとタブを切り替えるたびに先頭が入れ替わり、
+ * 2人が同時に「自分が係だ」と思い込む。
+ *
+ * これでも衝突は残る（在席が行き渡るより短い間に2人が開けば、互いが見えない）。
+ * 残りは `session.ts` の「種が2つ入ったら新しいほうに揃える」で収束させる。
+ */
+export function electSeeder(peers: CollabPeer[]): string | null {
+  return (
+    [...peers]
+      .filter((peer) => peer.collab || peer.present)
+      .sort((a, b) => (a.joinedAt !== b.joinedAt ? a.joinedAt - b.joinedAt : a.id.localeCompare(b.id)))[0]
+      ?.id ?? null
+  )
+}
+
+/**
  * その人が部屋で何番目に古いか（0 から数える）。人数の上限を当てるのに使う。
  * 並べ方は `electScribe` と同じなので、全員が同じ答えになる。
  */

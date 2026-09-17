@@ -676,6 +676,32 @@ describe('useMinutesPresence 同じ人の別のタブ', () => {
     expect(peers.find((p) => p.id === 'tab-self')?.outdated).toBe(false)
   })
 
+  it('「いま開いている」の名乗りを、そのまま顔ぶれに載せる', async () => {
+    // この印で「誰が本文を用意するか」が決まる。載せ忘れると、開いている相手が
+    // 見えないまま各自が本文を作り、中身が二重になる
+    const collab = collabWiring()
+    renderPresence({ collab })
+    const channel = await subscribed()
+
+    presenceState = {
+      'tab-open': [
+        { presence_ref: 'r1', user_id: 'u-a', client_id: 'tab-open', joined_at: 100, collab: false, present: true },
+      ],
+      'tab-phone': [
+        { presence_ref: 'r2', user_id: 'u-b', client_id: 'tab-phone', joined_at: 200, collab: false, present: false },
+      ],
+    }
+    await act(async () => {
+      channel.emit('presence:sync')
+      await Promise.resolve()
+    })
+
+    const peers = collab.onPeers.mock.calls.at(-1)?.[0] as { id: string; present?: boolean }[]
+    expect(peers.find((p) => p.id === 'tab-open')?.present).toBe(true)
+    // 名乗らない相手（スマホなど）は、待たずに済むよう false のまま
+    expect(peers.find((p) => p.id === 'tab-phone')?.present).toBe(false)
+  })
+
   it('自分は帯に出さない（別のタブで開いていても自分は自分）', async () => {
     const collab = collabWiring()
     const { result } = renderPresence({ collab })

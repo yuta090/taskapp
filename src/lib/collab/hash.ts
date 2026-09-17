@@ -28,3 +28,14 @@ export function minutesSeedHash(markdown: string): string {
   }
   return h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')
 }
+
+/**
+ * 種をまく器の持ち主の番号。0 は使わない（Yjs の既定と紛れないように）。
+ *
+ * 本文から決めるのが要点で、これで「同じ本文から作った種」は byte 単位で同じになり、
+ * Yjs 側が重複として捨てる。**本文のかたまりの持ち主を言い当てるのにも使う** —
+ * 違う本文から種が2つ入ったとき、消すほうのかたまりをこの番号で見分ける。
+ */
+export function seedClientId(seedHash: string): number {
+  return (parseInt(seedHash.slice(0, 8), 16) >>> 0) || 1
+}

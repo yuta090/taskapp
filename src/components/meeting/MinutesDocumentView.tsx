@@ -373,13 +373,23 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     /**
      * エディタが載ったら、種をまく係も一緒に登録する。器に本文を入れられるのは
      * ProseMirror のスキーマを持っているエディタだけなので、合流はここから始まる。
+     *
+     * 本文と一緒に、それを読んだときの列の更新時刻も渡す。ほぼ同時に開いた2人が
+     * 違う本文から作ってしまったとき、**どちらが新しいか**をこれで決める。
      */
     const registerEditorApi = useCallback(
       (api: MinutesEditorApi | null) => {
         editorApiRef.current = api
-        registerSeeder(api ? (doc) => api.seedCollabDoc(doc, initialMinutesMd) : null)
+        registerSeeder(
+          api
+            ? (doc) => ({
+                seedHash: api.seedCollabDoc(doc, initialMinutesMd),
+                basis: initialUpdatedAt,
+              })
+            : null
+        )
       },
-      [registerSeeder, initialMinutesMd]
+      [registerSeeder, initialMinutesMd, initialUpdatedAt]
     )
 
     /** エディタ領域の外へカーソルが出たときだけ「書いています」を下ろす */

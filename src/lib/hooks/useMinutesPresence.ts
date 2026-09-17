@@ -116,6 +116,11 @@ interface UseMinutesPresenceResult {
    */
   setCollabPresent: (present: boolean) => void
   /**
+   * 上の2つを**まとめて1回で**伝える。1人で書く形へ落ちるときのように、
+   * 両方いっぺんに変わる場面で使う（別々に呼ぶと在席を2回送ることになる）。
+   */
+  setCollabState: (next: { active?: boolean; present?: boolean }) => void
+  /**
    * カーソルの色の番号を在席で伝える。
    * 伝えないと、あとから入った人が同じ番号を取ってしまう。
    */
@@ -346,8 +351,10 @@ export function useMinutesPresence({
             userId: peerId,
             joinedAt,
             collab: meta.collab === true,
-            // 開いている印が無い相手は、1つ前の版の画面。輪に入るつもりが読めないので、
-            // 本文を持っているかどうかだけで判断する（そちらは `outdated` で弾く）
+            // 「いま開いていて加わるつもり」を自分から名乗った人だけ true。
+            // スマホ・器の読み込みに失敗した人は名乗らない（加われないのに相手を
+            // 待たせるだけになる）。1つ前の版の画面はそもそも名乗る仕組みを持たないが、
+            // そちらは下の `outdated` で見分けて、こちらが輪から降りる
             present: meta.present === true,
             // 印が読めない相手は手前に出ている扱い（今までと同じ順番になる）
             visible: meta.visible !== false,
@@ -636,14 +643,30 @@ export function useMinutesPresence({
     }
   }, [])
 
-  const setCollabActive = useCallback(
-    (active: boolean) => {
-      if (collabActiveRef.current === active) return
-      collabActiveRef.current = active
+  /**
+   * 輪に入っているか・開いているつもりかを、**まとめて1回で**伝える。
+   * 別々に伝えると、輪から降りるたびに在席を2回送ることになる。
+   */
+  const setCollabState = useCallback(
+    (next: { active?: boolean; present?: boolean }) => {
+      let changed = false
+      if (next.active !== undefined && collabActiveRef.current !== next.active) {
+        collabActiveRef.current = next.active
+        changed = true
+      }
+      if (next.present !== undefined && collabPresentRef.current !== next.present) {
+        collabPresentRef.current = next.present
+        changed = true
+      }
       // editing が変わっていなくても送り直す（輪から抜けたことを伝えるため）
-      pushTrack(true)
+      if (changed) pushTrack(true)
     },
     [pushTrack]
+  )
+
+  const setCollabActive = useCallback(
+    (active: boolean) => setCollabState({ active }),
+    [setCollabState]
   )
 
   const setColorIndex = useCallback(
@@ -657,13 +680,9 @@ export function useMinutesPresence({
   )
 
   const setCollabPresent = useCallback(
-    (present: boolean) => {
-      if (collabPresentRef.current === present) return
-      collabPresentRef.current = present
-      pushTrack(true)
-    },
-    [pushTrack]
+    (present: boolean) => setCollabState({ present }),
+    [setCollabState]
   )
 
-  return { others, setEditing, sendCollab, setCollabActive, setCollabPresent, setColorIndex }
+  return { others, setEditing, sendCollab, setCollabActive, setCollabPresent, setCollabState, setColorIndex }
 }
