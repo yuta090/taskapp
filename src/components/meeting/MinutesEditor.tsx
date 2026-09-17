@@ -25,6 +25,7 @@ import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
+import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
 import {
   ASSIGNEE_MARKER_TYPE,
@@ -483,22 +484,6 @@ function MinutesEditorImpl({
   const effectiveEditable = editable && !parseFailedRef.current
 
   /**
-   * BlockNote へ渡す「書いてよいか」は、**載せたときの値のまま動かさない**。
-   *
-   * BlockNote はこの値が変わると、エディタをいったん外して載せ直す。その拍子に
-   * 取り消し（Ctrl+Z / Cmd+Z）の控えを持っている係が片付けられ、載せ直しても
-   * 作り直されない（プラグインの持ち物がそのまま引き継がれるため）。結果、
-   * **以後ずっと取り消しが効かなくなる**（ユーザー報告・2026-09-17）。
-   * 議事録では「本文が届くまで読み取り専用」「タスク化の間だけ読み取り専用」と
-   * 何度も変わるので、そのたびに取り消しが死んでいた。
-   *
-   * 途中の変化は、下の effect が**載せ直さないやり方**で当てる。BlockNote の道具立て
-   * （「/」メニュー・行の取っ手・文字の飾り）はどれも `editor.isEditable` を見ているので、
-   * 読み取り専用の守りは弱くならない。
-   */
-  const mountEditableRef = useRef(effectiveEditable)
-
-  /**
    * 同時編集をするときは `initialContent` を渡さない。
    *
    * BlockNote 0.46 は collaboration が付いていると、載せた直後に器（Y.XmlFragment）の
@@ -523,16 +508,13 @@ function MinutesEditorImpl({
         }
       : { initialContent }),
     dictionary: MINUTES_DICTIONARY,
+    domAttributes: { editor: STABLE_EDITOR_DOM_ATTRIBUTES },
   })
 
-  // 「書いてよいか」の変化は、エディタを載せ直さないこちらの道で当てる（上の注を参照）。
-  // **依存の配列はあえて付けない**。万一 BlockNote が器ごと載せ直すと、値は上の
-  // 「載せたときの値」に巻き戻る。そのとき依存が同じだと当て直されず、読み取り専用が
-  // 黙って外れる。毎回の描画で当てても、BlockNote の入り口が「同じ値なら何もしない」と
-  // 守っているので、実質は比較1回で終わる。
-  useEffect(() => {
-    editor.isEditable = effectiveEditable
-  })
+  // 「書いてよいか」は載せたときの値のまま渡し、以後の変化は載せ直さない道で当てる。
+  // 変えて渡すと BlockNote がエディタを作り直し、**取り消し（Ctrl+Z / Cmd+Z）が
+  // 二度と効かなくなる**（理由は useStableEditable の注を参照）
+  const mountEditable = useStableEditable(editor, effectiveEditable)
 
   /**
    * 今の行を「会議メモ」に変える（空の行なら、その行がそのまま会議メモになる）。
@@ -808,8 +790,7 @@ function MinutesEditorImpl({
     <div className="minutes-editor" data-testid="minutes-editor" ref={editorContainerRef}>
       <BlockNoteView
         editor={editor}
-        // 途中で変えない（上の mountEditableRef の注を参照）。変えると取り消しが死ぬ
-        editable={mountEditableRef.current}
+        editable={mountEditable}
         onChange={() => {
           const markdown = serializeMinutesBlocks(editor.document)
           handleCheckboxCompletion(markdown)
