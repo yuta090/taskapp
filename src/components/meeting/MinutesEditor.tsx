@@ -16,7 +16,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { CheckCircle, Checks, Flag, NotePencil, User } from '@phosphor-icons/react'
+import { CheckCircle, Checks, Flag, ListBullets, NotePencil, User } from '@phosphor-icons/react'
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { seedMinutesDoc } from '@/lib/collab/seed'
@@ -34,6 +34,7 @@ import {
   parseMinutesMarkdown,
   serializeMinutesBlocks,
   TASK_MARKER_TYPE,
+  TOC_TYPE,
   TOGGLE_TYPE,
 } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
@@ -54,7 +55,7 @@ const MinutesTaskLinePanel = dynamic(
     ),
   }
 )
-import { meetingNoteSpec, toggleListItemSpec } from './minutesBlocks'
+import { meetingNoteSpec, tableOfContentsSpec, toggleListItemSpec } from './minutesBlocks'
 import { MINUTES_DICTIONARY } from './minutesDictionary'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
@@ -402,6 +403,7 @@ function useMinutesSchema(
         codeBlock: defaultBlockSpecs.codeBlock,
         [TOGGLE_TYPE]: toggleListItemSpec,
         [MEETING_NOTE_TYPE]: meetingNoteSpec,
+        [TOC_TYPE]: tableOfContentsSpec,
       },
       styleSpecs: {
         bold: defaultStyleSpecs.bold,
@@ -564,6 +566,12 @@ function MinutesEditorImpl({
     editor.focus()
   }, [editor])
 
+  /** 今の行に目次を置く。中身は持たず、開くたびに見出しから引き直される。 */
+  const insertToc = useCallback(() => {
+    insertOrUpdateBlockForSlashMenu(editor, { type: TOC_TYPE, props: {} })
+    editor.focus()
+  }, [editor])
+
   const getSlashMenuItems = useCallback(
     async (query: string) =>
       filterSuggestionItems(
@@ -588,6 +596,15 @@ function MinutesEditorImpl({
             icon: <Checks size={18} />,
             onItemClick: () => setTaskLineOpen(true),
           },
+          {
+            key: 'insert_toc',
+            title: '目次',
+            subtext: '見出しの一覧。開くたびに引き直すので古くならない',
+            aliases: ['toc', 'mokuji', 'もくじ', '目次', 'contents', 'index'],
+            group: jaLocale.slash_menu.paragraph.group,
+            icon: <ListBullets size={18} />,
+            onItemClick: insertToc,
+          },
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
           ...buildInsertLinkMenuItems(openLinkPicker),
           // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
@@ -597,7 +614,7 @@ function MinutesEditorImpl({
         ],
         query
       ),
-    [editor, openLinkPicker, insertMeetingNote]
+    [editor, openLinkPicker, insertMeetingNote, insertToc]
   )
 
   /**

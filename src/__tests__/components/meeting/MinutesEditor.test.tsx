@@ -328,6 +328,7 @@ describe('MinutesEditor の「/」メニュー', () => {
     expect(items.map((item) => item.key)).toEqual([
       'insert_meeting_note',
       'insert_task_line',
+      'insert_toc',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',
