@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
-import { config } from '../config.js';
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js';
-import { assertInSpace } from '../auth/scope.js';
+import { assertInSpace, requireActorUserId } from '../auth/scope.js';
 import { ToolUserError } from '../errors.js';
 /**
  * entityId の確認を通せる表（space_id 列を持ち、そのプロジェクトの行だけを指せる表）。
@@ -73,7 +72,7 @@ export async function activityLog(params) {
     const { data, error } = await supabase
         .from('activity_log')
         .insert({
-        actor_id: config.actorId,
+        actor_id: requireActorUserId(),
         // 道具からの記録は常に ai。引数の actorType は無視する（実際に操作したのは AI/CLI）
         actor_type: 'ai',
         actor_service: params.actorService || 'MCP',

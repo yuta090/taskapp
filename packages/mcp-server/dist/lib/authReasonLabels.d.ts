@@ -8,6 +8,7 @@ export declare const AUTH_REASON_LABELS: {
     readonly spaceNotAllowed: "このAPIキーで許可されたプロジェクトではありません";
     readonly keyNotBoundToSpace: "このAPIキーはどのプロジェクトにも紐づいていません";
     readonly keyOwnerNotSet: "このAPIキーに持ち主が設定されていません";
+    readonly noAuthContext: "認証されていない呼び出しです";
 };
 /** 例: 「Action "write" not allowed for this API key」に対応する断り文言 */
 export declare function actionNotAllowedReason(action: string): string;

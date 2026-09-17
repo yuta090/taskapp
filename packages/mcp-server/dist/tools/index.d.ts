@@ -1320,5 +1320,25 @@ export declare const allTools: ({
     }>;
     handler: typeof import("./files.js").fileUpdate;
 })[];
+/** MCP の tools/list が返す1件分の形 */
+export interface ToolListEntry {
+    name: string;
+    description: string;
+    inputSchema: {
+        type: 'object';
+        properties: Record<string, {
+            type: string;
+            description: string;
+        }>;
+        required: string[];
+    };
+}
+/**
+ * tools/list の中身を作る。zod スキーマを JSON Schema に直す唯一の場所。
+ *
+ * isAllowed を渡すと、そのツールだけを返す（リモートMCPは許可リストで絞る）。
+ * 呼び出し側でこの変換を書き直さないこと（形がずれると AI の引数が合わなくなる）。
+ */
+export declare function toolListPayload(isAllowed?: (name: string) => boolean): ToolListEntry[];
 export declare function registerTools(server: Server): void;
 //# sourceMappingURL=index.d.ts.map

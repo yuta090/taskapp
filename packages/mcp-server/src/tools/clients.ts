@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
-import { config } from '../config.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 import { assertUsersInSpaceOrg, requireActorUserId } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
