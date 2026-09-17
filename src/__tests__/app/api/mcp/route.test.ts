@@ -15,13 +15,15 @@ const dispatched: { tool: string; apiKey: string; params: Record<string, unknown
 let dispatchImpl: (tool: string, params: Record<string, unknown>) => Promise<unknown> = async () => ({ ok: true })
 let validKeys = new Set(['good-api-key-0123456789'])
 
+// route は鍵を1度だけ解決し、その ctx で実行する（鍵を二度引かない）
 vi.mock('agentpm-core/dist/dispatch.js', () => ({
-  dispatchTool: async (
-    apiKey: string,
+  dispatchToolWithContext: async (
+    ctx: { apiKey?: string },
     tool: string,
     params: Record<string, unknown>,
     onAuthenticated?: (i: unknown) => void,
   ) => {
+    const apiKey = ctx.apiKey ?? ''
     if (!validKeys.has(apiKey)) throw new Error('APIキーが無効か期限切れです')
     dispatched.push({ tool, apiKey, params })
     onAuthenticated?.({ keyId: 'kid', orgId: 'org-1', userId: 'user-1', spaceId: null })
@@ -36,7 +38,8 @@ vi.mock('agentpm-core/dist/dispatch.js', () => ({
 vi.mock('@/lib/mcp/resolveApiKey', () => ({
   resolveApiKey: async (apiKey: string) => {
     if (!validKeys.has(apiKey)) throw new Error('APIキーが無効か期限切れです')
-    return { keyId: 'kid', userId: 'user-1', orgId: 'org-1', scope: 'org', allowedSpaceIds: null, allowedActions: ['read', 'write'] }
+    // どの鍵で解決したかを ctx に残す。並行時に取り違えていないかを見るため
+    return { keyId: 'kid', userId: 'user-1', orgId: 'org-1', scope: 'org', allowedSpaceIds: null, allowedActions: ['read', 'write'], apiKey }
   },
 }))
 

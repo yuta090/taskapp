@@ -3,7 +3,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { isRemoteTool } from '@/lib/mcp/remoteTools'
-import { resolveApiKey } from '@/lib/mcp/resolveApiKey'
+import { resolveApiKey, type ResolvedKey } from '@/lib/mcp/resolveApiKey'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
@@ -74,8 +74,8 @@ function logUsage(
  */
 interface Core {
   toolListPayload: (isAllowed?: (name: string) => boolean) => unknown[]
-  dispatchTool: (
-    apiKey: string,
+  dispatchToolWithContext: (
+    ctx: ResolvedKey,
     tool: string,
     params: Record<string, unknown>,
     onAuthenticated?: (info: { keyId: string; orgId: string; userId: string | null; spaceId: string | null }) => void,
@@ -98,14 +98,14 @@ function loadCore(): Promise<Core> {
         import('agentpm-core/dist/tools/index.js'),
         import('agentpm-core/dist/dispatch.js'),
       ])
-      return { toolListPayload: tools.toolListPayload, dispatchTool: dispatch.dispatchTool } as Core
+      return { toolListPayload: tools.toolListPayload, dispatchToolWithContext: dispatch.dispatchToolWithContext } as Core
     })()
   }
   return corePromise
 }
 
-async function buildServer(apiKey: string): Promise<Server> {
-  const { toolListPayload, dispatchTool } = await loadCore()
+async function buildServer(ctx: ResolvedKey): Promise<Server> {
+  const { toolListPayload, dispatchToolWithContext } = await loadCore()
 
   const server = new Server(SERVER_INFO, { capabilities: { tools: {} } })
 
@@ -128,7 +128,7 @@ async function buildServer(apiKey: string): Promise<Server> {
 
     let authInfo: Parameters<typeof logUsage>[3] = null
     try {
-      const result = await dispatchTool(apiKey, name, (args || {}) as Record<string, unknown>, (info) => {
+      const result = await dispatchToolWithContext(ctx, name, (args || {}) as Record<string, unknown>, (info) => {
         authInfo = info
       })
       logUsage(name, 'success', Date.now() - startedAt, authInfo)
@@ -163,14 +163,15 @@ export async function POST(request: NextRequest) {
 
   // 鍵をここで一度確かめる。壊れた鍵のまま MCP の応答を返すと、つなぎ先が
   // 「つながった」と誤解して後続が全部失敗する
+  let ctx: ResolvedKey
   try {
-    await resolveApiKey(apiKey)
+    ctx = await resolveApiKey(apiKey)
   } catch (error) {
     const message = error instanceof Error ? error.message : '接続の鍵を確認できません'
     return unauthorized(request, message)
   }
 
-  const server = await buildServer(apiKey)
+  const server = await buildServer(ctx)
   const transport = new WebStandardStreamableHTTPServerTransport({
     // セッションを持たない。Vercel では呼び出しごとに別インスタンスになりうる
     sessionIdGenerator: undefined,

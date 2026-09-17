@@ -21,6 +21,13 @@ export declare function getAuthContext(): AuthContext;
  */
 export declare function resolveAuthContext(apiKey: string): Promise<AuthContext>;
 /**
+ * OAuth の合鍵（の控え）から認証コンテキストを作る。
+ *
+ * 生のAPIキーを見る rpc_validate_api_key と別の関数にしてあるので、OAuth の合鍵は
+ * /api/mcp でしか通らない（CLI 用の /api/tools は生のAPIキーしか受け付けない）。
+ */
+export declare function resolveAuthContextFromOAuthToken(tokenHash: string): Promise<AuthContext>;
+/**
  * stdio サーバーの起動時に1回だけ呼ぶ。プロセス全体のコンテキストを決める。
  * HTTP からは呼ばないこと（resolveAuthContext + runWithAuthContext を使う）。
  */

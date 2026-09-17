@@ -1,3 +1,4 @@
+import type { AuthContext } from './auth/authorize.js';
 /** dispatchTool が認証した鍵・組織・利用者と、実際に使われた spaceId（利用記録に使う） */
 export interface DispatchAuthInfo {
     keyId: string;
@@ -19,6 +20,11 @@ export interface DispatchAuthInfo {
  * 戻り値ではなくコールバックにするのは、ハンドラが失敗した場合でも呼び出し元に渡すため。
  */
 export declare function dispatchTool(apiKey: string, toolName: string, params: Record<string, unknown>, onAuthenticated?: (info: DispatchAuthInfo) => void): Promise<unknown>;
+/**
+ * 認証を済ませた状態で1本実行する。
+ * 鍵の確かめ方が違う入口（OAuth の合鍵など）から使う。
+ */
+export declare function dispatchToolWithContext(ctx: AuthContext, toolName: string, params: Record<string, unknown>, onAuthenticated?: (info: DispatchAuthInfo) => void): Promise<unknown>;
 export declare class ToolNotFoundError extends Error {
     constructor(message: string);
 }

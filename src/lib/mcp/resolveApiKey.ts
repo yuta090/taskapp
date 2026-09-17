@@ -1,11 +1,16 @@
+import { hashSecret } from '@/lib/mcp/oauth/secrets'
+
 /**
- * 接続の鍵を1本確かめる。
+ * /api/mcp に来た Bearer が誰のものかを1本に解決する。
  *
- * /api/mcp は MCP の応答を返す前にここで一度確かめる。壊れた鍵のまま
- * 「つながりました」と返すと、つなぎ先（ChatGPT など）は接続できたと解釈して、
- * その後の操作が全部失敗し、利用者には理由が見えない。
+ * 受け取る合鍵は2種類:
+ *   1. OAuth の合鍵 — ChatGPT などが同意フローで受け取ったもの。1時間で切れる
+ *   2. APIキー — 画面で発行したもの。Claude Code・Cursor など貼り付けられるツール向け
  *
- * agentpm-core への入口をこの1ファイルに閉じておく。route から直接 dist を掘ると、
+ * ⚠ OAuth の合鍵が通るのは、この受け口（/api/mcp）だけ。CLI 用の /api/tools は生のAPIキー
+ * しか見ないため、この口で出した合鍵で CLI の全67ツールを触ることはできない。
+ *
+ * ⚠ agentpm-core への入口をこの1ファイルに閉じておく。route から直接 dist を掘ると、
  * テストでそこをモックしたときにツール群まで巻き添えになる。
  */
 export interface ResolvedKey {
@@ -13,12 +18,21 @@ export interface ResolvedKey {
   userId: string | null
   orgId: string
   scope: 'space' | 'org' | 'user'
+  spaceId?: string | null
   allowedSpaceIds: string[] | null
   allowedActions: string[]
 }
 
-export async function resolveApiKey(apiKey: string): Promise<ResolvedKey> {
+export async function resolveApiKey(bearer: string): Promise<ResolvedKey> {
   // 動的 import。ビルド時に環境変数の確認が走るのを避ける（/api/tools と同じ理由）
-  const { resolveAuthContext } = await import('agentpm-core/dist/config.js')
-  return (await resolveAuthContext(apiKey)) as ResolvedKey
+  const { resolveAuthContext, resolveAuthContextFromOAuthToken } = await import('agentpm-core/dist/config.js')
+
+  // 先に OAuth の合鍵として引く。外部チャットからの接続はこちらが主
+  try {
+    return (await resolveAuthContextFromOAuthToken(hashSecret(bearer))) as ResolvedKey
+  } catch {
+    // 合鍵ではなかった。APIキーとして引き直す
+  }
+
+  return (await resolveAuthContext(bearer)) as ResolvedKey
 }

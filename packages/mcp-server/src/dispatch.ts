@@ -1,4 +1,5 @@
 import { resolveAuthContext, runWithAuthContext } from './config.js'
+import type { AuthContext } from './auth/authorize.js'
 import { allTools } from './tools/index.js'
 
 /** dispatchTool が認証した鍵・組織・利用者と、実際に使われた spaceId（利用記録に使う） */
@@ -28,12 +29,24 @@ export async function dispatchTool(
   params: Record<string, unknown>,
   onAuthenticated?: (info: DispatchAuthInfo) => void,
 ): Promise<unknown> {
+  const ctx = await resolveAuthContext(apiKey)
+  return dispatchToolWithContext(ctx, toolName, params, onAuthenticated)
+}
+
+/**
+ * 認証を済ませた状態で1本実行する。
+ * 鍵の確かめ方が違う入口（OAuth の合鍵など）から使う。
+ */
+export async function dispatchToolWithContext(
+  ctx: AuthContext,
+  toolName: string,
+  params: Record<string, unknown>,
+  onAuthenticated?: (info: DispatchAuthInfo) => void,
+): Promise<unknown> {
   const tool = allTools.find((t) => t.name === toolName)
   if (!tool) {
     throw new ToolNotFoundError(`Unknown tool: ${toolName}`)
   }
-
-  const ctx = await resolveAuthContext(apiKey)
 
   return runWithAuthContext(ctx, async () => {
     const validatedParams = tool.inputSchema.parse(params)

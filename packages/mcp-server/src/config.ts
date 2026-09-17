@@ -110,6 +110,33 @@ export async function resolveAuthContext(apiKey: string): Promise<AuthContext> {
 }
 
 /**
+ * OAuth の合鍵（の控え）から認証コンテキストを作る。
+ *
+ * 生のAPIキーを見る rpc_validate_api_key と別の関数にしてあるので、OAuth の合鍵は
+ * /api/mcp でしか通らない（CLI 用の /api/tools は生のAPIキーしか受け付けない）。
+ */
+export async function resolveAuthContextFromOAuthToken(tokenHash: string): Promise<AuthContext> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('rpc_validate_oauth_token', { p_token_hash: tokenHash })
+
+  if (error || !data || (data as Record<string, unknown>[]).length === 0) {
+    throw new Error(AUTH_REASON_LABELS.invalidOrExpiredApiKey)
+  }
+
+  const row = (data as Record<string, unknown>[])[0]
+
+  return createAuthContext({
+    key_id: row.key_id as string,
+    user_id: (row.user_id as string) || null,
+    org_id: row.org_id as string,
+    scope: row.scope as string,
+    allowed_space_ids: (row.allowed_space_ids as string[]) || null,
+    allowed_actions: (row.allowed_actions as string[]) || ['read'],
+    space_id: (row.space_id as string) || null,
+  })
+}
+
+/**
  * stdio サーバーの起動時に1回だけ呼ぶ。プロセス全体のコンテキストを決める。
  * HTTP からは呼ばないこと（resolveAuthContext + runWithAuthContext を使う）。
  */

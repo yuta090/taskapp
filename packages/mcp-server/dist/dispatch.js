@@ -14,11 +14,18 @@ import { allTools } from './tools/index.js';
  * 戻り値ではなくコールバックにするのは、ハンドラが失敗した場合でも呼び出し元に渡すため。
  */
 export async function dispatchTool(apiKey, toolName, params, onAuthenticated) {
+    const ctx = await resolveAuthContext(apiKey);
+    return dispatchToolWithContext(ctx, toolName, params, onAuthenticated);
+}
+/**
+ * 認証を済ませた状態で1本実行する。
+ * 鍵の確かめ方が違う入口（OAuth の合鍵など）から使う。
+ */
+export async function dispatchToolWithContext(ctx, toolName, params, onAuthenticated) {
     const tool = allTools.find((t) => t.name === toolName);
     if (!tool) {
         throw new ToolNotFoundError(`Unknown tool: ${toolName}`);
     }
-    const ctx = await resolveAuthContext(apiKey);
     return runWithAuthContext(ctx, async () => {
         const validatedParams = tool.inputSchema.parse(params);
         if (onAuthenticated) {

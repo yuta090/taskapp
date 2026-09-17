@@ -133,7 +133,125 @@ comment on column public.api_keys.oauth_client_id is
 create index if not exists idx_api_keys_oauth_client
   on public.api_keys(oauth_client_id) where oauth_client_id is not null;
 
+-- =============================================================================
+-- 5) 合鍵から「誰の・どの範囲か」を引く
+-- =============================================================================
+
+-- rpc_validate_api_key と同じ形を返す。違いは、引数が生の鍵ではなく合鍵の控えであること。
+-- これにより OAuth の合鍵は /api/mcp でしか通らない（/api/tools は生のAPIキーしか見ない）。
+create or replace function public.rpc_validate_oauth_token(p_token_hash text)
+returns table (
+  org_id uuid,
+  space_id uuid,
+  key_id uuid,
+  user_id uuid,
+  scope text,
+  allowed_space_ids uuid[],
+  allowed_actions text[]
+)
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+begin
+  return query
+  select
+    ak.org_id,
+    ak.space_id,
+    ak.id,
+    ak.user_id,
+    ak.scope,
+    ak.allowed_space_ids,
+    ak.allowed_actions
+  from public.oauth_tokens ot
+  join public.api_keys ak on ak.id = ot.api_key_id
+  where ot.token_hash = p_token_hash
+    and ot.kind = 'access'
+    and ot.revoked_at is null
+    and ot.expires_at > now()
+    and ak.is_active = true
+    and (ak.expires_at is null or ak.expires_at > now());
+
+  -- 最後に使われた時刻を残す（放置された接続を片づけるため）
+  update public.oauth_clients c
+     set last_used_at = now()
+    from public.oauth_tokens ot
+   where ot.token_hash = p_token_hash
+     and c.client_id = ot.client_id;
+end;
+$function$;
+
+revoke execute on function public.rpc_validate_oauth_token(text) from public, anon, authenticated;
+grant execute on function public.rpc_validate_oauth_token(text) to service_role;
+
+-- 引換券・合鍵の使い回しを見つけたら、その系列を丸ごと失効させる。
+-- 1本でも使い回されたら、盗まれたと見なして全部止めるのが安全側。
+create or replace function public.revoke_oauth_token_family(p_family_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_count integer;
+begin
+  update public.oauth_tokens
+     set revoked_at = now()
+   where family_id = p_family_id
+     and revoked_at is null;
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$function$;
+
+revoke execute on function public.revoke_oauth_token_family(uuid) from public, anon, authenticated;
+grant execute on function public.revoke_oauth_token_family(uuid) to service_role;
+
+-- =============================================================================
+-- 6) 放置された登録・期限切れの控えを片づける
+-- =============================================================================
+
+-- 登録は誰でもできるので、使われないまま溜まる。溜めても権限は増えないが、
+-- 名簿が膨らむと運用で見づらくなるため定期的に消す。
+-- HTTP を呼ばずSQLだけで済むので、pg_cron から直接回す。
+create or replace function public.cleanup_oauth_clients()
+returns integer
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_count integer;
+begin
+  -- 使われたことがないまま7日たった登録／最後に使われてから90日たった登録
+  delete from public.oauth_clients
+   where (last_used_at is null and created_at < now() - interval '7 days')
+      or (last_used_at is not null and last_used_at < now() - interval '90 days');
+  get diagnostics v_count = row_count;
+
+  -- 期限切れの引換券・合鍵（cascade で消えない分）
+  delete from public.oauth_authorization_codes where expires_at < now() - interval '1 day';
+  delete from public.oauth_tokens where expires_at < now() - interval '7 days';
+
+  return v_count;
+end;
+$function$;
+
+revoke all on function public.cleanup_oauth_clients() from public, anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    if not exists (select 1 from cron.job where jobname = 'cleanup-oauth-clients') then
+      -- 毎日 4:23（他の定期処理と時刻をずらす）
+      perform cron.schedule('cleanup-oauth-clients', '23 4 * * *', 'select public.cleanup_oauth_clients()');
+    end if;
+  end if;
+end $$;
+
 -- ロールバック:
+--   select cron.unschedule('cleanup-oauth-clients');
+--   drop function if exists public.cleanup_oauth_clients();
 --   alter table public.api_keys drop column if exists oauth_client_id;
 --   alter table public.api_keys drop constraint if exists api_keys_issued_via_check;
 --   alter table public.api_keys drop column if exists issued_via;
