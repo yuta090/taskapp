@@ -18,6 +18,7 @@ import { useCallback, useState } from 'react'
 export type DashboardWidgetId =
   | 'kpi'
   | 'overdue'
+  | 'decisions'
   | 'recent_comments'
   | 'client_follow_up'
   | 'milestones'
@@ -29,6 +30,7 @@ export type DashboardWidgetId =
 export const DASHBOARD_WIDGETS: ReadonlyArray<{ id: DashboardWidgetId; label: string }> = [
   { id: 'kpi', label: '件数のまとめ' },
   { id: 'overdue', label: '期限切れ' },
+  { id: 'decisions', label: '確定事項' },
   { id: 'recent_comments', label: '最近のコメント' },
   { id: 'client_follow_up', label: 'クライアント確認が必要' },
   { id: 'milestones', label: 'マイルストーン進捗' },

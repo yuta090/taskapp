@@ -1,5 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
@@ -37,9 +38,17 @@ function makeNotification(overrides: Partial<NotificationWithPayload> = {}): Not
 
 const noop = () => {}
 
+/**
+ * NotificationInspector は react-query の下で動く（決定を書いたあと、ダッシュボードの
+ * 「確定事項」に出す日付を取り直させる）。本番と同じく Provider の中で描く。
+ */
+function renderWithQuery(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
+}
+
 describe('NotificationInspector — file_uploaded', () => {
   it('shows the payload title/message and a "詳細を見る" link to payload.link', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           payload: {
@@ -65,7 +74,7 @@ describe('NotificationInspector — file_uploaded', () => {
   })
 
   it('is not treated as actionable (no "要対応" state)', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({ payload: { link: '/org-1/project/space-1/files' } })}
         onClose={noop}
