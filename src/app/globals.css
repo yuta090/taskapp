@@ -1141,10 +1141,11 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 }
 
 /* ==========================================================================
-   紙に出す（ページ情報パネルの「PDFで保存」）
+   紙に出す（右のパネルの「PDFで保存」）
    ==========================================================================
    PDF を組み立てる部品は入れず、ブラウザの印刷を借りて PDF にする。
-   紙に載せるのは data-print-root を付けたかたまり（Wikiページのページ名と本文）だけ。
+   紙に載せるのは data-print-root を付けたかたまりだけ。Wiki ページ（ページ名と本文）と
+   議事録（会議名・日時と本文）が同じ仕組みを使う。
 
    仕組み: data-print-root の「先祖」と「自分と中身」以外を消す。先祖は :has() で
    名指しできるので、間の入れ子がどれだけ深くても書き換えずに済む。
@@ -1219,6 +1220,14 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
   /* ページ名は画面では1行に収めて「…」で省くが、紙は overflow を visible に戻すので
      省略記号が出ず、折り返しもせずに右端で切れてしまう。紙では折り返す */
   [data-print-root] h1 {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+
+  /* 目次（Wiki・議事録どちらにも差せる）は紙にも載せる — 押して飛ぶためのものだが、
+     紙でも「何が書いてあるか」の見取り図として読める。ただし画面では1行に収めて「…」で
+     省いているので、ページ名(h1)と同じく紙では折り返させないと右端で切れる */
+  [data-print-root] [data-testid='doc-toc-item'] {
     white-space: normal !important;
     overflow-wrap: anywhere;
   }

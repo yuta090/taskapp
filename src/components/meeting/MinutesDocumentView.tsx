@@ -1000,7 +1000,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     return (
       <>
         {conflict && (
-          <div data-testid="minutes-conflict-banner" className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
+          <div data-testid="minutes-conflict-banner" data-print-hide className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
             <p className="text-sm text-orange-ink">{CONFLICT_MESSAGE}</p>
             <div className="mt-2 flex items-center gap-3">
               <button
@@ -1022,7 +1022,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         )}
 
         {isEmpty && !conflict && (
-          <div data-testid="minutes-empty-notice" className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0">
+          <div data-testid="minutes-empty-notice" data-print-hide className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0">
             <p className="text-xs text-gray-500">本文が空です。保存されていません</p>
           </div>
         )}
@@ -1031,6 +1031,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         {degradedReason && degradeMessage(degradedReason) && (
           <div
             data-testid="minutes-collab-degraded-notice"
+            data-print-hide
             className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0"
           >
             <p className="text-xs text-gray-500">{degradeMessage(degradedReason)}</p>
@@ -1041,6 +1042,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         {editingPeers.length > 0 && (
           <div
             data-testid="minutes-presence-banner"
+            data-print-hide
             className="px-6 py-2 bg-indigo-50 border-b border-gray-100 flex-shrink-0"
           >
             <p className="text-xs text-indigo-ink flex items-center gap-1.5">
@@ -1058,7 +1060,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
             onBlur={handleEditorBlur}
           >
             {!initialMinutesMd && (
-              <div className="mb-4 flex items-start gap-2 text-sm text-gray-400">
+              <div data-print-hide className="mb-4 flex items-start gap-2 text-sm text-gray-400">
                 <Notebook className="text-base mt-0.5 flex-shrink-0" />
                 <p>ここに議事録を書きます。会議の前に、決めることや進め方を書いておくこともできます。</p>
               </div>
@@ -1235,7 +1237,10 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
     const showFullscreenControls = typeof fullscreen === 'boolean' && !!onToggleFullscreen
 
     return (
-      <div data-testid="minutes-document-view" className="flex-1 flex flex-col min-h-0">
+      // data-print-root: 「PDFで保存」(会議情報パネル)で刷るとき、紙に載せるのはこのかたまり
+      // だけにする。中でも押すためのもの・知らせの帯には data-print-hide を付けて外す。
+      // 実際に隠す指定は globals.css の @media print 側（Wiki と同じ仕組みを使う）。
+      <div data-print-root data-testid="minutes-document-view" className="flex-1 flex flex-col min-h-0">
         {ConfirmDialog}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-surface flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -1243,6 +1248,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
             {!fullscreen && (
               <button
                 onClick={() => void handleBack()}
+                data-print-hide
                 className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
                 aria-label="会議一覧へ戻る"
               >
@@ -1254,7 +1260,8 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
               <p className="text-xs text-gray-400">{heldAtLabel}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          {/* 保存の状態・全画面・会議情報・お知らせベルは画面のためのもの。紙には載せない */}
+          <div data-print-hide className="flex items-center gap-2 flex-shrink-0">
             {saveState === 'saving' && (
               <span className="text-xs text-gray-400 flex items-center gap-1">
                 <span className={`w-1.5 h-1.5 ${SAVING.dot} rounded-full animate-pulse`} />

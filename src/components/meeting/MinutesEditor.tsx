@@ -827,8 +827,9 @@ function MinutesEditorImpl({
           <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
         )}
       </BlockNoteView>
+      {/* 本文の下の差し込みツールバー。PDFで保存するときは紙に載せない（押すためのもの） */}
       {effectiveEditable && (
-        <div className="flex items-center gap-2 mt-2 px-1">
+        <div data-print-hide className="flex items-center gap-2 mt-2 px-1">
           {/* 会議中に一番よく使うので、「/」を知らなくても押せる場所に出す */}
           <button
             type="button"
