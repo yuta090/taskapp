@@ -1171,16 +1171,25 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
     display: none !important;
   }
 
-  /* かたまりの中でも、押すためのもの・警告の帯は出さない */
+  /* かたまりの中でも、押すためのもの・警告の帯は出さない。
+     「押すものかどうか」は要素の種類（button）では決めない。本文のブロックを button で
+     描いた日に、中身が黙って PDF から消えるため。出さないものには印を貼る側で付ける */
   [data-print-hide],
-  [data-print-root] button,
   [data-print-root] .bn-side-menu,
   [data-print-root] .bn-drag-handle,
   [data-print-root] .bn-formatting-toolbar,
   [data-print-root] .bn-link-toolbar,
   [data-print-root] .bn-table-handle,
+  [data-print-root] .bn-toggle-button,
   [data-print-root] .bn-tooltip {
     display: none !important;
+  }
+
+  /* 折りたたんで閉じてある行も、紙には中身まで出す。押した人は「全部が出た」つもりで
+     PDF を渡すので、画面と同じにたたんだままにすると黙って欠ける
+     （閉じている間 BlockNote は中身の入れ物 .bn-block-group を display:none にしている） */
+  [data-print-root] .bn-block-group {
+    display: block !important;
   }
 
   /* 先祖とかたまりの「画面に収める」指定を外す。外さないと1画面分で切れる */
@@ -1202,6 +1211,34 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
     padding: 0 !important;
     border: 0 !important;
     box-shadow: none !important;
+    /* 暗い配色の人が「背景のグラフィック」を入れて刷ると、先祖の暗い面がそのまま
+       紙に乗って本文が読めなくなる。ここも白に倒しておく */
+    background: #fff !important;
+  }
+
+  /* ページ名は画面では1行に収めて「…」で省くが、紙は overflow を visible に戻すので
+     省略記号が出ず、折り返しもせずに右端で切れてしまう。紙では折り返す */
+  [data-print-root] h1 {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+
+  /* コードのブロックは BlockNote が「黒い地に白い文字」で描く。印刷は地の色を落として
+     文字色だけ残すので、明るい配色のまま刷ると白い紙に白い文字＝丸ごと消える。
+     長い行も紙からはみ出して切れるので、紙では折り返す */
+  [data-print-root] [data-content-type='codeBlock'],
+  [data-print-root] [data-content-type='codeBlock'] * {
+    color: #111827 !important;
+    background: transparent !important;
+  }
+
+  [data-print-root] [data-content-type='codeBlock'] {
+    border: 1px solid #d1d5db !important;
+  }
+
+  [data-print-root] pre {
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
   }
 
   /* 本文の左右の余白は、行の取っ手（ドラッグして並べ替える印）を置くためのもの。
