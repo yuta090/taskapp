@@ -24,24 +24,133 @@ function RatingBadge({ value }: { value: string }) {
     const rest = value.slice(1).trim()
     return <span className="text-amber-500 font-bold">{'\u25B3'}{rest ? <span className="text-xs ml-0.5">{rest}</span> : null}</span>
   }
-  if (value.startsWith('\u00D7')) return <span className="text-slate-300 font-medium">{'\u00D7'}</span>
+  if (value.startsWith('\u00D7')) {
+    const rest = value.slice(1).trim()
+    return <span className="text-slate-300 font-medium">{'\u00D7'}{rest ? <span className="text-xs ml-0.5 text-slate-400">{rest}</span> : null}</span>
+  }
   return <span className="text-slate-500 text-xs">{value}</span>
+}
+
+/* \u2500\u2500\u2500 Comparison table (desktop table + mobile cards) \u2500\u2500\u2500 */
+
+type ComparisonRow = { feature: string; values: string[] }
+
+function ComparisonLegend() {
+  return (
+    <div className="mt-4 flex flex-wrap gap-4 justify-center text-xs text-slate-400">
+      <span><span className="text-emerald-500 font-bold">{'\u25CE'}</span> = 特に優れている</span>
+      <span><span className="text-blue-500 font-bold">{'\u25CB'}</span> = 対応</span>
+      <span><span className="text-amber-500 font-bold">{'\u25B3'}</span> = 一部対応</span>
+      <span><span className="text-slate-300">{'\u00D7'}</span> = 非対応</span>
+    </div>
+  )
+}
+
+function ComparisonTable({ columns, rows }: { columns: string[]; rows: ComparisonRow[] }) {
+  return (
+    <>
+      {/* Desktop Table */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        className="hidden lg:block max-w-5xl mx-auto"
+      >
+        <div className="bg-surface rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="p-4 text-left text-sm font-bold text-slate-700 w-[240px] sticky left-0 bg-slate-50 z-10">機能</th>
+                  {columns.map((col, i) => (
+                    <th
+                      key={col}
+                      className={`p-4 text-center text-sm font-bold ${i === 0 ? 'text-amber-600 bg-amber-50/50' : 'text-slate-700'}`}
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.feature} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors">
+                    <td className="p-4 text-sm text-slate-700 font-medium sticky left-0 bg-surface z-10">{row.feature}</td>
+                    {row.values.map((value, i) => (
+                      <td key={columns[i]} className={`p-4 text-center ${i === 0 ? 'bg-amber-50/30' : ''}`}>
+                        <RatingBadge value={value} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <ComparisonLegend />
+      </motion.div>
+
+      {/* Mobile Cards */}
+      <div className="lg:hidden max-w-md mx-auto space-y-3">
+        {rows.map((row, i) => (
+          <motion.div
+            key={row.feature}
+            initial={{ opacity: 0, y: 10 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.03 }}
+            viewport={{ once: true }}
+            className="bg-surface rounded-xl p-4 border border-slate-200"
+          >
+            <div className="text-sm text-slate-700 font-medium mb-2">{row.feature}</div>
+            <div className="grid grid-cols-5 gap-1.5 text-center">
+              {row.values.map((value, j) => (
+                <div key={columns[j]} className="flex flex-col min-w-0">
+                  {/* 列名が2行に折れても記号の高さがずれないよう、ラベル側を固定高さにする */}
+                  <div className={`text-[10px] leading-tight mb-1 h-[1.1rem] flex items-end justify-center ${j === 0 ? 'text-amber-600 font-bold' : 'text-slate-400'}`}>{columns[j]}</div>
+                  {/* Confluence のような長い語が隣の列にはみ出さないようにする */}
+                  <div className="leading-tight break-words"><RatingBadge value={value} /></div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        ))}
+        <ComparisonLegend />
+      </div>
+    </>
+  )
 }
 
 /* ─── Data ─── */
 
-const mainComparisonRows = [
-  { feature: '日本語UI', agentpm: '\u25CB', backlog: '\u25CB', jira: '\u25B3 翻訳ベース', linear: '\u00D7 英語のみ', redmine: '\u25CB' },
-  { feature: 'AI/CLI操作', agentpm: '\u25CE スキル+CLI', backlog: '\u25CB AIアシスタント', jira: '\u25CB Rovo', linear: '\u25CB', redmine: '\u00D7' },
-  { feature: 'ポータル（アカウント不要）', agentpm: '\u25CE', backlog: '\u00D7 要アカウント', jira: '\u00D7 別製品', linear: '\u00D7', redmine: '\u00D7' },
-  { feature: 'ボール管理', agentpm: '\u25CE', backlog: '\u00D7', jira: '\u00D7', linear: '\u00D7', redmine: '\u00D7' },
-  { feature: '代理店モード', agentpm: '\u25CE', backlog: '\u00D7', jira: '\u00D7', linear: '\u00D7', redmine: '\u00D7' },
-  { feature: '見積もり・承認連動', agentpm: '\u25CE', backlog: '\u00D7', jira: '\u00D7', linear: '\u00D7', redmine: '\u00D7' },
-  { feature: '仕様書・証跡の一体管理', agentpm: '\u25CE', backlog: '\u25B3 Wiki別', jira: '\u25B3 Confluence別', linear: '\u00D7', redmine: '\u25B3' },
-  { feature: 'SSO/SAML', agentpm: '\u00D7 検討中', backlog: '\u25CB Premium以上', jira: '\u25CB', linear: '\u25CB', redmine: '\u25B3' },
-  { feature: 'GitHub連携', agentpm: '\u25CB', backlog: '\u25CB', jira: '\u25CE', linear: '\u25CE', redmine: '\u25B3' },
-  { feature: 'テンプレ\u2192当日稼働', agentpm: '\u25CE', backlog: '\u25CB', jira: '\u25B3', linear: '\u25CB', redmine: '\u25B3' },
-  { feature: 'エンタープライズ', agentpm: '\u25B3 監査ログ・RLS', backlog: '\u25CB', jira: '\u25CE', linear: '\u25CB', redmine: '\u25B3' },
+// 表A: クライアントワーク（相手先がいる仕事）向けのプロジェクト管理
+// 2026-09-17 調査。根拠と出典は docs/marketing/COMPETITIVE_LANDSCAPE_2026-09.md
+const pmComparisonColumns = ['AgentPM', 'Backlog', 'Jira', 'Notion', 'Rocketlane']
+
+const pmComparisonRows = [
+  { feature: '相手先がアカウント不要で使える', values: ['\u25CE', '\u00D7', '\u00D7', '\u25B3 公開ページのみ', '\u25CB 英語のみ'] },
+  { feature: 'ボール管理（次に動く人）', values: ['\u25CE', '\u00D7', '\u00D7', '\u00D7', '\u25B3'] },
+  { feature: '見積もり\u2192承認\u2192請求', values: ['\u25CE', '\u00D7', '\u00D7', '\u00D7', '\u25CB'] },
+  { feature: '代理店モード（原価と売値を分ける）', values: ['\u25CE', '\u00D7', '\u00D7', '\u00D7', '\u25B3'] },
+  { feature: '仕様書・議事録・証跡が同じ場所', values: ['\u25CE', '\u25B3 Wiki別', '\u25B3 Confluence別', '\u25CE', '\u25B3'] },
+  { feature: 'チャットの会話から自動でタスク化', values: ['\u25CE', '\u00D7', '\u00D7', '\u25CB Slack・メール', '\u00D7'] },
+  { feature: 'ガント・バーンダウン', values: ['\u25CE', '\u25CB 上位プラン', '\u25CB', '\u25B3', '\u25CB'] },
+  { feature: '日本語のUIと国内サポート', values: ['\u25CE', '\u25CE', '\u25B3 翻訳ベース', '\u25CB', '\u00D7 英語のみ'] },
+  { feature: 'AIから直接操作（MCP・CLI）', values: ['\u25CB', '\u25CB', '\u25CE', '\u25CE', '\u00D7'] },
+  { feature: '人数が増えても定額', values: ['\u25CB 30名まで', '\u25CE 人数無制限', '\u00D7 1人ごと', '\u00D7 1人ごと', '\u00D7 1人ごと'] },
+  { feature: 'SSO/SAML・細かい権限管理', values: ['\u00D7 検討中', '\u25CB 上位プラン', '\u25CE', '\u25CB', '\u25CB'] },
+]
+
+// 表B: チャットの会話からタスクを拾うAI秘書
+const secretaryComparisonColumns = ['AgentPM', 'TaskLine', 'Slack', 'Chatwork', 'Notion']
+
+const secretaryComparisonRows = [
+  { feature: '相手先とのグループに入れる', values: ['\u25CE', '\u25CB LINEのみ', '\u25B3 社内中心', '\u25B3 社内中心', '\u00D7'] },
+  { feature: 'LINEグループに対応', values: ['\u25CE', '\u25CE', '\u00D7', '\u00D7', '\u00D7'] },
+  { feature: 'Slack・Teams・Google Chat', values: ['\u25CB', '\u25B3 転送のみ', '\u25CE 自社内', '\u25CE 自社内', '\u25CB Slack'] },
+  { feature: '自社の名前で相手に届く', values: ['\u25CE 自社LINE', '\u00D7 共通Bot固定', '\u25CE', '\u25CE', '\u00D7'] },
+  { feature: '拾ったタスクが案件の進行に乗る', values: ['\u25CE', '\u25B3 カンバン止まり', '\u00D7', '\u25B3', '\u25CB'] },
+  { feature: '期限リマインドと完了の確認', values: ['\u25CE', '\u25B3', '\u00D7', '\u00D7', '\u25B3'] },
+  { feature: '承認と決定事項の証跡', values: ['\u25CE', '\u00D7', '\u00D7', '\u00D7', '\u00D7'] },
 ]
 
 const agencyComparisonRows = [
@@ -52,53 +161,77 @@ const agencyComparisonRows = [
   { feature: 'クライアントへの原価非表示', agentpm: true, others: '運用ルール対応' },
 ]
 
-const backlogGapRows = [
-  { feature: 'ガントチャート', starter: false, standard: true },
-  { feature: 'バーンダウンチャート', starter: false, standard: true },
-  { feature: 'テンプレート機能', starter: false, standard: true },
-  { feature: 'IP制限', starter: false, standard: true },
-  { feature: 'プロジェクト数', starter: '5', standard: '100' },
+// Backlog は 2027-01-01 に4プラン\u21923プランへ改定。出典: https://nulab.com/ja/info/backlog-plan-renewal/
+const backlogPlanChangeRows = [
+  {
+    label: 'いちばん安いプラン',
+    current: 'スターター ¥2,700\n30名・5プロジェクト',
+    next: 'エコノミー ¥21,000\n15名・30プロジェクト',
+  },
+  {
+    label: '受託・制作で実際に使える線',
+    current: 'スタンダード ¥16,000\n人数無制限・100プロジェクト',
+    next: 'ビジネス ¥36,300\n人数・プロジェクト無制限',
+  },
+  {
+    label: 'AIアシスタント',
+    current: 'プレミアム ¥27,000 以上',
+    next: 'ビジネス以上',
+  },
+  {
+    label: '切り替えの時期',
+    current: '2026年12月31日まで新規契約できる',
+    next: '2027年1月1日から。既存契約は次の更新日に移る',
+  },
 ]
 
 const priceComparisonRows = [
-  { size: '5名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
-  { size: '10名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
-  { size: '20名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
-  { size: '30名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '5名 / 3プロジェクト', agentpm: '¥0', agentpmPlan: 'Free', backlogNow: '¥2,700', backlogNowPlan: 'スターター', backlogNext: '¥21,000', backlogNextPlan: 'エコノミー' },
+  { size: '10名 / 20プロジェクト', agentpm: '¥14,800', agentpmPlan: 'Pro', backlogNow: '¥16,000', backlogNowPlan: 'スタンダード', backlogNext: '¥21,000', backlogNextPlan: 'エコノミー' },
+  { size: '30名 / 30プロジェクト', agentpm: '¥14,800', agentpmPlan: 'Pro', backlogNow: '¥16,000', backlogNowPlan: 'スタンダード', backlogNext: '¥36,300', backlogNextPlan: 'ビジネス' },
+  { size: '50名以上', agentpm: '個別見積り', agentpmPlan: 'Enterprise', backlogNow: '¥16,000', backlogNowPlan: 'スタンダード', backlogNext: '¥36,300', backlogNextPlan: 'ビジネス' },
 ]
 
 const fitForAgentPM = [
-  'クライアント向けポータルが欲しい',
-  'ボール管理で「誰待ち？」を明確にしたい',
-  'AI/CLIで日報・進捗管理を自動化したい',
-  '仕様書・議事録・証跡を一体管理したい',
-  '代理店モードで原価/売値を分離したい',
-  'テンプレートで当日稼働したい',
+  '相手先にアカウントを作らせずに進捗を見せたい',
+  'LINEやSlackの会話から、タスクを取りこぼさずに拾いたい',
+  '「いま誰待ちか」を一目で分かるようにしたい',
+  '見積もり・承認・請求までを1か所でつなげたい',
+  '仕様書・議事録・決まったことを案件と同じ場所に置きたい',
+  '代理店モードで原価と売値を分けたい',
 ]
 
 const fitForOthers = [
   {
     tool: 'Backlog',
     reasons: [
-      '社内開発チームのみで使い、外部共有が不要',
-      'Wiki・Git・課題管理の統合UIが好き',
-      '日本語サポートの手厚さを重視',
+      '社内の開発チームだけで使い、外部への共有が要らない',
+      '50名を超えるので、人数無制限の定額で使いたい（2026年12月まで）',
+      'Git・Wiki・課題管理が1つの画面にまとまっているほうがいい',
     ],
   },
   {
     tool: 'Jira',
     reasons: [
-      '500名以上のエンタープライズ規模',
-      'Atlassian製品群（Confluence・Bitbucket）と統合したい',
-      '高度なワークフローカスタマイズが必要',
+      '500名以上の規模で、細かい権限管理とSSOが要る',
+      'Confluence・Bitbucket など Atlassian の製品で揃えたい',
+      'ワークフローを自社の形に作り込みたい',
     ],
   },
   {
-    tool: 'Linear',
+    tool: 'Notion',
     reasons: [
-      '社内SaaS開発チームでスプリントに集中したい',
-      'GitHub Issuesからの移行を検討中',
-      '英語UIで構わない',
+      'ドキュメントが中心で、タスクはその付属で足りる',
+      '社内の情報置き場としての自由度を優先したい',
+      '相手先への共有は公開ページで足りる',
+    ],
+  },
+  {
+    tool: 'TaskLine',
+    reasons: [
+      'LINEグループの中だけで完結させたい',
+      '案件の進行や承認までは要らず、記録と要約で足りる',
+      'まず月3,000円以内で試したい',
     ],
   },
 ]
@@ -131,6 +264,7 @@ const enterpriseReady = [
   { label: '通信の暗号化（TLS）・保管時の暗号化', done: true },
   { label: 'Row Level Security (RLS)', done: true },
   { label: '監査ログ', done: true },
+  { label: '二段階認証（ログイン時）', done: true },
 ]
 
 // 時期を明示できるのは自社で実装するものだけ。第三者認証の取得時期は約束しない
@@ -174,8 +308,8 @@ export default function ComparePage() {
             transition={{ delay: 0.2 }}
             className="text-lg text-slate-600 mb-8 leading-relaxed"
           >
-            プロジェクト管理ツールは数多くあります。AgentPMが力を発揮する場面と、<br className="hidden md:block" />
-            他のツールのほうが適している場面を、どちらも載せています。
+            プロジェクト管理ツールと、チャットからタスクを拾うツール。<br className="hidden md:block" />
+            AgentPMが力を発揮する場面と、他のツールのほうが適している場面を、どちらも載せています。
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -184,7 +318,7 @@ export default function ComparePage() {
             className="space-y-1"
           >
             <p className="text-xs text-slate-400">
-              ※ 2026年3月時点、各社公式サイト公開情報に基づく当社調べ
+              ※ 2026年9月時点、各社公式サイトの公開情報に基づく当社調べ
             </p>
             <p className="text-xs text-slate-400">
               ※ 各製品の最新情報は公式サイトをご確認ください
@@ -222,107 +356,47 @@ export default function ComparePage() {
         </div>
       </section>
 
-      {/* ──── 機能比較表 ──── */}
+      {/* ──── 機能比較表（表A: PMツール / 表B: チャット連携） ──── */}
       <section className="py-20 bg-slate-50">
         <div className="container mx-auto px-6">
+          {/* 表A */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <h2 className="text-3xl font-bold text-slate-900 mb-4">機能比較表</h2>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">プロジェクト管理ツールと比べる</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              クライアントワークに必要な機能を中心に、主要なプロジェクト管理ツールと比べました。
+              相手先がいる仕事（受託・制作・代理店）で必要になる機能で並べました。
             </p>
           </motion.div>
 
-          {/* Desktop Table */}
+          <ComparisonTable columns={pmComparisonColumns} rows={pmComparisonRows} />
+
+          {/* 表B */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="hidden lg:block max-w-5xl mx-auto"
+            className="text-center mt-24 mb-12"
           >
-            <div className="bg-surface rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="p-4 text-left text-sm font-bold text-slate-700 w-[220px] sticky left-0 bg-slate-50 z-10">機能</th>
-                      <th className="p-4 text-center text-sm font-bold text-amber-600 bg-amber-50/50">AgentPM</th>
-                      <th className="p-4 text-center text-sm font-bold text-slate-700">Backlog</th>
-                      <th className="p-4 text-center text-sm font-bold text-slate-700">Jira</th>
-                      <th className="p-4 text-center text-sm font-bold text-slate-700">Linear</th>
-                      <th className="p-4 text-center text-sm font-bold text-slate-700">Redmine</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mainComparisonRows.map((row, i) => (
-                      <tr key={i} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors">
-                        <td className="p-4 text-sm text-slate-700 font-medium sticky left-0 bg-surface z-10">{row.feature}</td>
-                        <td className="p-4 text-center bg-amber-50/30"><RatingBadge value={row.agentpm} /></td>
-                        <td className="p-4 text-center"><RatingBadge value={row.backlog} /></td>
-                        <td className="p-4 text-center"><RatingBadge value={row.jira} /></td>
-                        <td className="p-4 text-center"><RatingBadge value={row.linear} /></td>
-                        <td className="p-4 text-center"><RatingBadge value={row.redmine} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-4 justify-center text-xs text-slate-400">
-              <span><span className="text-emerald-500 font-bold">{'\u25CE'}</span> = 特に優れている</span>
-              <span><span className="text-blue-500 font-bold">{'\u25CB'}</span> = 対応</span>
-              <span><span className="text-amber-500 font-bold">{'\u25B3'}</span> = 一部対応</span>
-              <span><span className="text-slate-300">{'\u00D7'}</span> = 非対応</span>
-            </div>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">チャット連携のツールと比べる</h2>
+            <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
+              LINEやSlackの会話からタスクを拾う機能で並べました。Slack・Chatwork・Notion はそれぞれのAI機能を指します。
+            </p>
           </motion.div>
 
-          {/* Mobile Cards */}
-          <div className="lg:hidden max-w-md mx-auto space-y-3">
-            {mainComparisonRows.map((row, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
-                viewport={{ once: true }}
-                className="bg-surface rounded-xl p-4 border border-slate-200"
-              >
-                <div className="text-sm text-slate-700 font-medium mb-2">{row.feature}</div>
-                <div className="grid grid-cols-5 gap-2 text-center">
-                  <div>
-                    <div className="text-[10px] text-amber-600 font-bold mb-1">AgentPM</div>
-                    <RatingBadge value={row.agentpm} />
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-400 mb-1">Backlog</div>
-                    <RatingBadge value={row.backlog} />
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-400 mb-1">Jira</div>
-                    <RatingBadge value={row.jira} />
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-400 mb-1">Linear</div>
-                    <RatingBadge value={row.linear} />
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-400 mb-1">Redmine</div>
-                    <RatingBadge value={row.redmine} />
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-            <div className="flex flex-wrap gap-3 justify-center text-xs text-slate-400 pt-2">
-              <span><span className="text-emerald-500 font-bold">{'\u25CE'}</span> 特に優れている</span>
-              <span><span className="text-blue-500 font-bold">{'\u25CB'}</span> 対応</span>
-              <span><span className="text-amber-500 font-bold">{'\u25B3'}</span> 一部対応</span>
-              <span><span className="text-slate-300">{'\u00D7'}</span> 非対応</span>
-            </div>
-          </div>
+          <ComparisonTable columns={secretaryComparisonColumns} rows={secretaryComparisonRows} />
+
+          <motion.p
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            className="text-xs text-slate-400 text-center mt-6 max-w-2xl mx-auto leading-relaxed"
+          >
+            Slack・Chatwork・Notion は自社のワークスペースの中で働くため、相手先が同じツールを使っていない場合は届きません。
+          </motion.p>
         </div>
       </section>
 
@@ -337,7 +411,7 @@ export default function ComparePage() {
           >
             <h2 className="text-3xl font-bold text-slate-900 mb-4">代理店モード詳細比較</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              代理店・制作会社の「原価管理」に特化した機能は、当社調査の範囲では、他社の標準機能としては確認できませんでした。
+              原価と売値を分ける機能は、国内の主要ツールの標準機能としては確認できませんでした。海外の Rocketlane・Productive は近い機能を持ちますが、日本語のUIがありません。
             </p>
           </motion.div>
 
@@ -391,7 +465,7 @@ export default function ComparePage() {
         </div>
       </section>
 
-      {/* ──── なぜBacklog Standardと比較するのか？ ──── */}
+      {/* ──── Backlog の2027年プラン改定 ──── */}
       <section className="py-20 bg-slate-50">
         <div className="container mx-auto px-6 max-w-4xl">
           <motion.div
@@ -401,10 +475,10 @@ export default function ComparePage() {
             className="text-center mb-12"
           >
             <h2 className="text-2xl lg:text-3xl font-bold text-slate-900 mb-4">
-              なぜBacklog Standardと比較するのか？
+              Backlogは2027年1月に料金が変わります
             </h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              Backlog Starterプラン（¥2,970/月）は一見安価ですが、受託・制作で必要な機能が含まれていません。
+              4つのプランが3つにまとまり、月¥2,700で始められる入口が無くなります。
             </p>
           </motion.div>
 
@@ -414,58 +488,41 @@ export default function ComparePage() {
             viewport={{ once: true }}
           >
             <div className="bg-surface rounded-2xl border border-slate-200 overflow-hidden shadow-sm mb-6">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="p-4 text-left text-sm font-bold text-slate-700">機能</th>
-                    <th className="p-4 text-center text-sm font-bold text-slate-400">
-                      <div>Starter</div>
-                      <div className="text-xs font-normal text-slate-400">¥2,970/月</div>
-                    </th>
-                    <th className="p-4 text-center text-sm font-bold text-slate-700">
-                      <div>Standard</div>
-                      <div className="text-xs font-normal text-slate-500">¥17,600/月</div>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {backlogGapRows.map((row, i) => (
-                    <tr key={i} className="border-b border-slate-100 last:border-b-0">
-                      <td className="p-4 text-sm text-slate-700 font-medium">{row.feature}</td>
-                      <td className="p-4 text-center">
-                        {typeof row.starter === 'boolean' ? (
-                          row.starter ? (
-                            <Check weight="bold" className="text-emerald-500 mx-auto" size={18} />
-                          ) : (
-                            <X weight="bold" className="text-slate-300 mx-auto" size={18} />
-                          )
-                        ) : (
-                          <span className="text-sm text-slate-500">{row.starter}</span>
-                        )}
-                      </td>
-                      <td className="p-4 text-center">
-                        {typeof row.standard === 'boolean' ? (
-                          row.standard ? (
-                            <Check weight="bold" className="text-emerald-500 mx-auto" size={18} />
-                          ) : (
-                            <X weight="bold" className="text-slate-300 mx-auto" size={18} />
-                          )
-                        ) : (
-                          <span className="text-sm text-slate-700 font-medium">{row.standard}</span>
-                        )}
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="p-4 text-left text-sm font-bold text-slate-700 w-[180px]"> </th>
+                      <th className="p-4 text-center text-sm font-bold text-slate-500">
+                        <div>現行</div>
+                        <div className="text-xs font-normal text-slate-400">〜2026年12月</div>
+                      </th>
+                      <th className="p-4 text-center text-sm font-bold text-slate-900">
+                        <div>新プラン</div>
+                        <div className="text-xs font-normal text-slate-500">2027年1月〜</div>
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {backlogPlanChangeRows.map((row) => (
+                      <tr key={row.label} className="border-b border-slate-100 last:border-b-0">
+                        <td className="p-4 text-sm text-slate-700 font-medium align-top">{row.label}</td>
+                        <td className="p-4 text-center text-sm text-slate-500 whitespace-pre-line align-top">{row.current}</td>
+                        <td className="p-4 text-center text-sm text-slate-900 font-medium whitespace-pre-line align-top">{row.next}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div className="flex items-center justify-between bg-amber-50 rounded-xl border border-amber-200 p-4">
               <p className="text-sm text-amber-800">
-                <span className="font-bold">結論：</span>受託・制作では Standard（¥17,600/月）が実質スタートライン
+                <span className="font-bold">ここが変わります：</span>
+                2027年1月以降、受託・制作で使える入口は月¥21,000（15名）になります
               </p>
               <a
-                href="https://backlog.com/ja/pricing/"
+                href="https://nulab.com/ja/info/backlog-plan-renewal/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 font-medium shrink-0 ml-4"
@@ -487,9 +544,9 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <h2 className="text-3xl font-bold text-slate-900 mb-4">料金比較</h2>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">料金を並べる</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              同等の機能構成で比較した場合の月額差は、当社調査（2026年3月時点）では最大 ¥12,620 でした。各社の価格・プラン条件は変更される場合があります。
+              AgentPMは組織単位の定額です。Backlogはプラン改定をまたぐので、現行と新プランの両方を載せています。
             </p>
           </motion.div>
 
@@ -505,24 +562,25 @@ export default function ComparePage() {
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="p-4 text-left text-sm font-bold text-slate-700">チーム規模</th>
                       <th className="p-4 text-center text-sm font-bold text-amber-600 bg-amber-50/50">AgentPM</th>
-                      <th className="p-4 text-center text-sm font-bold text-slate-700">Backlog（実質）</th>
-                      <th className="p-4 text-center text-sm font-bold text-emerald-600">差額</th>
+                      <th className="p-4 text-center text-sm font-bold text-slate-700">Backlog（現行）</th>
+                      <th className="p-4 text-center text-sm font-bold text-slate-700">Backlog（2027年1月〜）</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {priceComparisonRows.map((row, i) => (
-                      <tr key={i} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors">
+                    {priceComparisonRows.map((row) => (
+                      <tr key={row.size} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors">
                         <td className="p-4 text-sm text-slate-700 font-medium">{row.size}</td>
                         <td className="p-4 text-center bg-amber-50/30">
                           <div className="text-sm font-bold text-slate-900">{row.agentpm}</div>
                           <div className="text-xs text-slate-400">{row.agentpmPlan}</div>
                         </td>
                         <td className="p-4 text-center">
-                          <div className="text-sm font-medium text-slate-700">{row.backlog}</div>
-                          <div className="text-xs text-slate-400">{row.backlogPlan}</div>
+                          <div className="text-sm font-medium text-slate-700">{row.backlogNow}</div>
+                          <div className="text-xs text-slate-400">{row.backlogNowPlan}</div>
                         </td>
                         <td className="p-4 text-center">
-                          <span className="text-sm font-bold text-emerald-600">{row.diff}</span>
+                          <div className="text-sm font-medium text-slate-700">{row.backlogNext}</div>
+                          <div className="text-xs text-slate-400">{row.backlogNextPlan}</div>
                         </td>
                       </tr>
                     ))}
@@ -530,11 +588,20 @@ export default function ComparePage() {
                 </table>
               </div>
             </div>
+
+            <div className="mt-6 bg-slate-50 rounded-xl border border-slate-200 p-4">
+              <p className="text-sm text-slate-600 leading-relaxed">
+                <span className="font-bold text-slate-900">正直に書きます：</span>
+                50名を超えるチームなら、2026年12月までは Backlog スタンダード（月¥16,000・人数無制限）のほうが安く済みます。
+                AgentPM が安くなるのは30名まで、または2027年1月以降です。
+              </p>
+            </div>
+
             <p className="text-xs text-slate-400 mt-4 text-center">
-              ※ AgentPM Pro: ¥14,800/月・税別（30名まで）。Backlog Standard: ¥17,600/月（30名まで）。
+              ※ すべて税抜・月払い。AgentPM Pro は30名・30プロジェクトまで。相手先（クライアント）の人数は数えません。
             </p>
             <p className="text-xs text-slate-400 mt-1 text-center">
-              ※ 2026年3月時点の当社調査。各社の価格・条件は変更される場合があります。
+              ※ 2026年9月時点の当社調べ。各社の価格・条件は変更される場合があります。
             </p>
           </motion.div>
         </div>
