@@ -543,6 +543,38 @@ describe('本文が二重になったとき', () => {
     expect(a.degraded).toContain('duplicate-seed')
   })
 
+  it('先客の本文を受け取れないまま自分で作った人も、白紙にならない', () => {
+    // 幽霊在席で待たされた人が自分で本文を作る道すじ。先客は二重に気づいて直すが、
+    // こちらは先客の本文を持っていないので、届くのは「消す」通だけになる
+    const hub = createFakeHub()
+    const tanaka = join(hub, 'tab-tanaka', [{ id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100 }], BASE, NEWER)
+    // 田中の本文の通が流れ終わってから、山田が入る（山田には届かない）
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+
+    const yamada = join(
+      hub,
+      'tab-yamada',
+      [
+        // 幽霊がいちばん古いので、返事役に指されたまま誰も答えない
+        { id: 'ghost', userId: 'u-ghost', joinedAt: 50 },
+        { id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100 },
+        { id: 'tab-yamada', userId: 'u-yamada', joinedAt: 200 },
+      ],
+      EXTRA,
+      OLDER
+    )
+    vi.advanceTimersByTime(SYNC_WAIT_MS * 2)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+
+    // 田中側は新しいほうを残して1つに戻る
+    expect(blockGroupCount(tanaka.session.doc)).toBe(1)
+    expect(readBackMarkdown(tanaka.session.doc)).toBe(BASE)
+    // 山田側は消されて空になる。そのまま書かせず、列から読み直す形へ落とす
+    expect(blockGroupCount(yamada.session.doc)).toBe(0)
+    expect(yamada.degraded).toContain('duplicate-seed')
+  })
+
   it('相手が直した結果だけが届いても、本文を空にしない', () => {
     // いちばん危ない道すじ。相手の本文をまだ受け取っていない人に「消す」通だけが
     // 届くと、手元のかたまりが消えて**中身がゼロ**になる。自分の種の一覧は1つの
