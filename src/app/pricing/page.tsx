@@ -120,11 +120,13 @@ const plans: Plan[] = [
 /*  Backlog comparison rows                                            */
 /* ------------------------------------------------------------------ */
 
+// 2026-09-17 調べ。すべて税抜・月払い。Backlog は 2027-01-01 にプラン改定
+// 出典: https://backlog.com/ja/pricing/ / https://nulab.com/ja/info/backlog-plan-renewal/
 const backlogRows = [
-  { team: '5名', agentpm: '¥14,800 (Pro)', backlog: '¥2,970 (Starter)', diff: '+¥11,830', positive: false },
-  { team: '10名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
-  { team: '20名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
-  { team: '30名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
+  { team: '5名 / 3プロジェクト', agentpm: '¥0（Free）', backlog: '¥2,700（スターター）', diff: '-¥2,700', positive: true },
+  { team: '10名 / 20プロジェクト', agentpm: '¥14,800（Pro）', backlog: '¥16,000（スタンダード）', diff: '-¥1,200', positive: true },
+  { team: '30名 / 30プロジェクト', agentpm: '¥14,800（Pro）', backlog: '¥16,000（スタンダード）', diff: '-¥1,200', positive: true },
+  { team: '15名（2027年1月〜）', agentpm: '¥14,800（Pro）', backlog: '¥21,000（エコノミー）', diff: '-¥6,200', positive: true },
 ]
 
 /* ------------------------------------------------------------------ */
@@ -496,7 +498,7 @@ export default function PricingPage() {
               チーム規模別の月額比較
             </h2>
             <p className="text-center text-slate-500 text-sm mb-10">
-              ※ Backlog Starterは30名/5PJまで。ガントチャート等はStandard以上が必要です。
+              ※ すべて税抜・月払い。Backlog は2027年1月にプランが変わり、いちばん安いプランが月¥21,000（15名）になります。
             </p>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200">
