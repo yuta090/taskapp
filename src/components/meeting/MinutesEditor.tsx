@@ -354,6 +354,8 @@ const ALLOWED_SLASH_MENU_ITEMS = new Set([
   'emoji',
   // 折りたたみ（`>` ＋スペースでも作れる）
   'toggle_list',
+  // 区切り線（`---` ＋スペースでも作れる）
+  'divider',
 ])
 
 function useMinutesSchema(
