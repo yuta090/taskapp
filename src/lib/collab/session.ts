@@ -16,8 +16,8 @@
 import * as Y from 'yjs'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import { base64ToBytes, bytesToBase64, type CollabMessage, type CollabTransport } from './transport'
-import { MINUTES_FRAGMENT_NAME } from './hash'
-import { electAnswerer, type CollabPeer } from './scribe'
+import { MINUTES_FRAGMENT_NAME, seedClientId } from './hash'
+import { electAnswerer, electSeeder, readSavedState, writeSavedState, type CollabPeer } from './scribe'
 
 /** 打った文字をまとめて送る幅。通信量の見積もりはこの値が前提（COEDITING_SPEC 5.9） */
 export const UPDATE_FLUSH_MS = 300
@@ -66,11 +66,21 @@ export interface MinutesSessionOptions {
   onRoomReload?: () => void
 }
 
+/** 種をまいた結果 */
+export interface MinutesSeed {
+  /** まいた本文の合言葉 */
+  seedHash: string
+  /**
+   * その本文を読んだときの列の更新時刻。
+   * 種が2つ入ったとき、**どちらが新しい本文か**を決めるのに使う。
+   */
+  basis: string | null
+}
+
 /**
  * 器に種をまく係。pmSchema を閉じ込めるのは呼び出し側（エディタを持っている側）。
- * まいた本文の合言葉（seedHash）を返す。
  */
-export type MinutesSeeder = (doc: Y.Doc) => string
+export type MinutesSeeder = (doc: Y.Doc) => MinutesSeed
 
 export class MinutesCollabSession {
   readonly doc: Y.Doc
@@ -202,15 +212,61 @@ export class MinutesCollabSession {
    */
   private handleJoined(): void {
     if (this.disposed || this.degraded) return
-    const others = this.peers.filter((peer) => peer.id !== this.options.selfId && peer.collab)
-    // 自分ひとりなら誰の返事も待たずに列の本文で満たす。先客が居れば必ず握手する
-    // （既に本文を持っていても、切れている間に増えた分をもらうため）
+    // **本文を持っている人だけでなく、いま開いている人も数える。**
+    // ほぼ同時に2人が開いたとき、持っている人だけを見ていると相手に気づけず、
+    // どちらも自分で本文を作ってしまう。合流すると中身が二重になり、片方を消しても
+    // もう片方が残る（＝書いた文字が消えない）
+    const peers = this.peersKnowingSelf()
+    const others = peers.filter(
+      (peer) => peer.id !== this.options.selfId && (peer.collab || peer.present)
+    )
+    // 本当に自分ひとり。もらう相手も居ないので、本文が無ければ列から作る
     if (others.length === 0) {
       this.seedNow()
       return
     }
     this.syncAttempts = 0
+    // 本文を持っている人が居るなら、その人からもらう。
+    // **自分が既に持っている場合（入り直し）も必ず握手する** — 留守の間に部屋で
+    // 増えた分をもらい損ねないため
+    if (this.synced || others.some((peer) => peer.collab)) {
+      this.sendSync1()
+      return
+    }
+    // **誰も本文を持っていない部屋**。互いに尋ねても誰も答えられないので、猶予切れまで
+    // 待つと全員が作って本文が二重になる。顔ぶれから係を1人決め、その人だけが先に作る。
+    // ほかの人は待ち、300ms 後に配られる差分で同じ本文を受け取る
+    if (electSeeder(peers) === this.options.selfId && this.seedNow()) return
+    // 係なのに作れなかった（エディタがまだ載っていない）。黙って帰らず握手しておく
     this.sendSync1()
+  }
+
+  /**
+   * 顔ぶれに自分の**いまの**状態を重ねる。
+   *
+   * 在席は配り直されるまで遅れるので、一覧の上では本文を持った直後でも
+   * 「持っていない」ままになる。そのまま信じると、持っているのに返事役から外れて
+   * 尋ねた相手が待ちぼうけになる（そして猶予切れで本文を作り、二重になる）。
+   */
+  private peersKnowingSelf(): CollabPeer[] {
+    const selfId = this.options.selfId
+    let found = false
+    const next = this.peers.map((peer) => {
+      if (peer.id !== selfId) return peer
+      found = true
+      return { ...peer, collab: peer.collab || this.synced, present: true }
+    })
+    if (found) return next
+    // 自分がまだ一覧に載っていない。**いちばん新しい席**として足す
+    // （係を横取りせず、先に居た人に譲る）
+    next.push({
+      id: selfId,
+      userId: selfId,
+      joinedAt: Number.MAX_SAFE_INTEGER,
+      collab: this.synced,
+      present: true,
+    })
+    return next
   }
 
   private sendSync1(to?: string): void {
@@ -231,19 +287,27 @@ export class MinutesCollabSession {
     }, SYNC_WAIT_MS)
   }
 
-  /** 列の本文から種をまく。まいた合言葉を共有の覚え書きに残す */
-  private seedNow(): void {
-    if (this.disposed || this.degraded || this.synced) return
+  /**
+   * 列の本文から種をまく。まいた合言葉を共有の覚え書きに残す。
+   * **まいたかどうかを返す** — 既に本文がある・エディタがまだ載っていないときは
+   * 何もせず false を返すので、呼び出し側は黙って帰らずに握手へ回れる。
+   */
+  private seedNow(): boolean {
+    if (this.disposed || this.degraded || this.synced) return false
     try {
       const seeder = this.seeder
-      if (!seeder) return
-      const seedHash = seeder(this.doc)
+      if (!seeder) return false
+      const { seedHash, basis } = seeder(this.doc)
       this.doc.transact(() => {
-        this.seeds.set(seedHash, 1)
+        // 値は「その本文を読んだときの列の更新時刻」。種が2つ入ったとき、
+        // どちらが新しい本文かをこれで決める
+        this.seeds.set(seedHash, typeof basis === 'string' ? basis : '')
       })
       this.markSynced()
+      return true
     } catch {
       this.degrade('apply-failed')
+      return false
     }
   }
 
@@ -276,7 +340,7 @@ export class MinutesCollabSession {
         }
 
         // 返すのは「尋ねた人を除いたいちばん古い人」1人だけ
-        if (electAnswerer(this.peers, message.from) !== this.options.selfId) return
+        if (electAnswerer(this.peersKnowingSelf(), message.from) !== this.options.selfId) return
         this.send('y-sync2', Y.encodeStateAsUpdate(this.doc, askerVector), message.from)
         // 行き帰りの「行き」: 相手だけが持っている分をもらうため、自分の目録も送る。
         // これが無いと、切れている間に相手が打った分が部屋に届かず静かに消える
@@ -303,11 +367,26 @@ export class MinutesCollabSession {
         this.applyingRemote = false
       }
       this.markSynced()
+      // **取り込んだあとに毎回確かめる。** 直しは自分の種が2つになったときしか
+      // 走らないので、相手の本文をまだ受け取っていない人に「消す」通だけが届くと、
+      // 手元のかたまりが消えて中身がゼロになる（そこは直しを通らない）
+      this.assertSingleBody()
     } catch {
       // 壊れた更新は捨てる（1通で画面全体を止めない）。ただし取り込みに失敗した
       // 状態で書き続けると本文がずれるので、種の重複と同じく縮退させる
       this.degrade('apply-failed')
     }
+  }
+
+  /**
+   * **本文が入っている器の直下は、本文のかたまりがちょうど1つ。**
+   * これがこの機能の要（かなめ）で、2つなら本文が二重、0 なら消しすぎ。
+   * どちらも書かせずに列から読み直す形へ落とす（議事録には版の控えが無い）。
+   */
+  private assertSingleBody(): void {
+    if (this.disposed || this.degraded || !this.synced) return
+    if (this.fragment.length === 1) return
+    this.degrade('duplicate-seed')
   }
 
   /**
@@ -324,7 +403,85 @@ export class MinutesCollabSession {
   }
 
   private handleSeedsChange = (): void => {
-    if (this.seeds.size > 1) this.degrade('duplicate-seed')
+    if (this.disposed || this.degraded) return
+    if (this.seeds.size > 1) this.repairSeeds()
+  }
+
+  /**
+   * 種が2つ以上入った＝本文が二重になっている。**新しいほうを残して、それ以外を消す。**
+   *
+   * 選び方をどう工夫しても、在席が行き渡るより短い間に2人が開けば互いが見えず、
+   * 衝突は残る。そこで「起きないようにする」のをやめ、「起きても全員が同じ規則で
+   * 1つに戻す」ようにした。消すのはただの削除なので、全員が同じ規則で消せば同じ形に
+   * 落ち着き、同じものを2回消しても壊れない。
+   *
+   * 本文のかたまりの持ち主は、種の合言葉から決まる番号（`seedClientId`）で分かる。
+   */
+  private repairSeeds(): void {
+    const entries = [...this.seeds.entries()].map(([seedHash, basis]) => ({
+      seedHash,
+      // 1つ前の版は基準を持たない印（数値）を入れる。読めない印はいちばん古い扱いにする
+      basis: typeof basis === 'string' ? basis : '',
+    }))
+    if (entries.length < 2) return
+    // どちらが新しいか分からないときは、勝手に選ばない。判断材料が無いのに片方を
+    // 消すと、消えた側は戻せない
+    if (entries.every((entry) => entry.basis === '')) {
+      this.degrade('duplicate-seed')
+      return
+    }
+    // 列の更新時刻が新しいほうを残す。同じなら合言葉の大きいほう（全員で同じ答えになる）
+    const winner = entries.reduce((best, entry) =>
+      entry.basis > best.basis || (entry.basis === best.basis && entry.seedHash > best.seedHash) ? entry : best
+    )
+    const winnerOwner = seedClientId(winner.seedHash)
+    // **残すほうを自分が持っているか、先に確かめる。**
+    // 通は1通ずつ配られるので、「消す判断のもとになった印」だけ先に届いて本文が
+    // まだ来ていないことがある。そこで消すと**手元の本文がゼロになる**（議事録には
+    // 版の控えが無いので戻せず、そのまま1行打つと空の本文で列を上書きしてしまう）
+    if (!this.hasBlockGroupFrom(winnerOwner)) {
+      this.degrade('duplicate-seed')
+      return
+    }
+    const losers = new Set(
+      entries.filter((entry) => entry.seedHash !== winner.seedHash).map((entry) => seedClientId(entry.seedHash))
+    )
+    // 万一、違う合言葉から同じ番号が出たら**何も消さない**（消すと本文が丸ごと消える）。
+    // そのときは下の検査に引っかかり、列から読み直す形へ落ちる
+    losers.delete(winnerOwner)
+
+    try {
+      this.doc.transact(() => {
+        for (let i = this.fragment.length - 1; i >= 0; i--) {
+          const child = this.fragment.get(i) as { _item?: { id?: { client?: number } } } | undefined
+          const owner = child?._item?.id?.client
+          if (typeof owner === 'number' && losers.has(owner)) this.fragment.delete(i, 1)
+        }
+        // 保存の基準も残したほうに合わせる。合わせないと、消えた本文を読んでいた書記が
+        // 古い基準のまま保存しに行き、「ほかの人が先に書き換えました」の帯が出続ける。
+        // 進むときだけ書き換える（会期中に保存が通っていたら、そちらのほうが新しい）
+        const saved = readSavedState(this.meta)
+        if (winner.basis && (!saved.savedAt || saved.savedAt < winner.basis)) {
+          writeSavedState(this.meta, { savedAt: winner.basis, savedHash: winner.seedHash })
+        }
+      })
+    } catch {
+      this.degrade('apply-failed')
+      return
+    }
+
+    // 直したあとは本文のかたまりがちょうど1つ。0（消しすぎ）も 2（直しきれなかった）も
+    // 縮退させる。0 を見逃すと、白紙のまま打った1行で列を上書きしてしまう
+    this.assertSingleBody()
+  }
+
+  /** その番号が作った本文のかたまりが、いま手元にあるか */
+  private hasBlockGroupFrom(owner: number): boolean {
+    for (let i = 0; i < this.fragment.length; i++) {
+      const child = this.fragment.get(i) as { _item?: { id?: { client?: number } } } | undefined
+      if (child?._item?.id?.client === owner) return true
+    }
+    return false
   }
 
   // ── 送り出し ────────────────────────────────────────────

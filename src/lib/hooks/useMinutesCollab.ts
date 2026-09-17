@@ -29,6 +29,15 @@ export const MAX_COLLAB_LENGTH = 100_000
 /** デスクトップの下限。スマホは今までどおり1人用のエディタにする（UI_RULES と同じ `md`） */
 const DESKTOP_MIN_WIDTH = 768
 
+/**
+ * いま同時編集に加われる画面か。スマホは今までどおり1人用のエディタにする。
+ * **描画の途中では呼ばない**（幅を測るのは描画が終わったあと）。
+ */
+function isDesktopWidth(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.innerWidth >= DESKTOP_MIN_WIDTH
+}
+
 /** このタブの見分け札を作る。同じ端末で並べて開いても必ず別の値になる */
 function newTabId(): string {
   const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined
@@ -184,10 +193,18 @@ export function useMinutesCollab({
    * あとからできた器が縮退しておらず、「自分ひとりだ」と見えて種をまいてしまう。
    */
   const peerOutdatedRef = useRef(false)
+  /**
+   * 最後に届いた部屋の顔ぶれ。器は使うときだけ読み込むので、**できる前に在席が
+   * 届くことがある**。覚えておかないと、その顔ぶれが捨てられて器が「自分ひとりだ」と
+   * 見え、先客が居るのに本文を作ってしまう（＝二重になる）。
+   */
+  const lastPeersRef = useRef<CollabPeer[]>([])
   const seederRef = useRef<MinutesSeeder | null>(null)
   const sessionRef = useRef<MinutesCollabSession | null>(null)
   const onRoomReloadRef = useRef(onRoomReload)
   const setCollabActiveRef = useRef<(active: boolean) => void>(() => {})
+  const setCollabPresentRef = useRef<(present: boolean) => void>(() => {})
+  const setCollabStateRef = useRef<(next: { active?: boolean; present?: boolean }) => void>(() => {})
   const setColorIndexRef = useRef<(index: number) => void>(() => {})
 
   const [transport] = useState(() => createChannelTransport())
@@ -202,8 +219,8 @@ export function useMinutesCollab({
     // そのまま器につないでおくと、**空のエディタに打った1文字で議事録が丸ごと消える**
     if (!syncedRef.current) setSoloFallback(true)
     // 落ちたことを在席で伝える。伝えないと、落ちた自分が書記に選ばれ続け、
-    // 誰の書いた内容も列に残らなくなる
-    setCollabActiveRef.current(false)
+    // 誰の書いた内容も列に残らなくなる（1通にまとめて送る）
+    setCollabStateRef.current({ active: false, present: false })
   }, [])
 
   /**
@@ -214,7 +231,7 @@ export function useMinutesCollab({
   useEffect(() => {
     if (!wanted || !tabId) return
     // スマホは今までどおり1人用のエディタ（UI_RULES の `md` に合わせる）
-    if (typeof window !== 'undefined' && window.innerWidth < DESKTOP_MIN_WIDTH) {
+    if (!isDesktopWidth()) {
       setPreparing(false)
       return
     }
@@ -238,20 +255,24 @@ export function useMinutesCollab({
           },
           onRoomReload: () => onRoomReloadRef.current?.(),
         })
-        // 器ができる前に受け取っていた印を、ここで当てる。当てないと、
+        sessionRef.current = created
+        // 器ができる前に受け取っていたものを、ここで当てる。当てないと、
         // 縮退していない器が「自分ひとりだ」と見えて種をまく
+        created.setPeers(lastPeersRef.current)
         if (peerOutdatedRef.current) created.degrade('peer-outdated')
+        // 顔ぶれを渡したあとに始める。逆にすると、始まった時点の顔ぶれが空になる
         if (seederRef.current && !created.isDegraded) {
           created.setSeeder(seederRef.current)
           created.start()
         }
-        sessionRef.current = created
         setSession(created)
         setPreparing(false)
       })
       .catch(() => {
         if (cancelled) return
-        // 読み込めなければ同時編集は使わない（画面はこれまでどおり1人用で動く）
+        // 読み込めなければ同時編集は使わない（画面はこれまでどおり1人用で動く）。
+        // 名乗りは下ろす。名乗ったままだと、ほかの人がこちらの返事を待って止まる
+        setCollabPresentRef.current(false)
         setPreparing(false)
       })
 
@@ -270,7 +291,9 @@ export function useMinutesCollab({
             onMessage: (message: CollabMessage) => transport.deliver(message),
             onPeers: (peers: CollabPeer[]) => {
               // 顔ぶれは先に渡しておく。降りる判断で先に返すと、取りこぼしたときに
-              // 顔ぶれが空のまま＝「自分ひとりだ」と見えてしまう
+              // 顔ぶれが空のまま＝「自分ひとりだ」と見えてしまう。
+              // 器がまだできていないこともあるので、覚えておいて器ができたときに渡し直す
+              lastPeersRef.current = peers
               sessionRef.current?.setPeers(peers)
               // 1つ前の版の画面が混ざっている間は、こちらが輪から降りる。
               // 相手は人ごとに数えているので、こちらが指した返事役に応えられず、
@@ -278,6 +301,9 @@ export function useMinutesCollab({
               if (peers.some((peer) => peer.outdated && peer.id !== tabIdRef.current)) {
                 peerOutdatedRef.current = true
                 sessionRef.current?.degrade('peer-outdated')
+                // 器がまだ無いと上の縮退が走らないので、名乗りはここでも下ろす。
+                // 名乗ったまま輪に入らない人が残ると、ほかの人が猶予切れまで待たされる
+                setCollabPresentRef.current(false)
                 setDegradedReason((prev) => prev ?? 'peer-outdated')
                 return
               }
@@ -302,7 +328,15 @@ export function useMinutesCollab({
 
   // 顔ぶれは `onPeers` で直に受け取る（React の状態より早く、取りこぼしが無い）。
   // ここで受ける `others` は「〇〇さんが書いています」の表示にだけ使う
-  const { others, setEditing, sendCollab, setCollabActive, setColorIndex: publishColorIndex } = useMinutesPresence({
+  const {
+    others,
+    setEditing,
+    sendCollab,
+    setCollabActive,
+    setCollabPresent,
+    setCollabState,
+    setColorIndex: publishColorIndex,
+  } = useMinutesPresence({
     meetingId,
     enabled: presenceEnabled,
     self,
@@ -313,16 +347,43 @@ export function useMinutesCollab({
   useEffect(() => {
     selfUserIdRef.current = self.userId
     setCollabActiveRef.current = setCollabActive
+    setCollabPresentRef.current = setCollabPresent
+    setCollabStateRef.current = setCollabState
     setColorIndexRef.current = publishColorIndex
     transport.setSender(sendCollab)
     return () => transport.setSender(null)
-  }, [transport, sendCollab, setCollabActive, publishColorIndex, tabId, self.userId])
+  }, [
+    transport,
+    sendCollab,
+    setCollabActive,
+    setCollabPresent,
+    setCollabState,
+    publishColorIndex,
+    tabId,
+    self.userId,
+  ])
+
+  /**
+   * 「いまこの議事録を開いて同時編集に加わるつもりだ」を、**器の用意が終わる前から**
+   * 在席で伝える。伝えないと、ほぼ同時に開いた相手がこちらに気づかず、自分で本文を
+   * 作ってしまい、合流したときに中身が二重になる（片方を消してももう片方が残る）。
+   */
+  useEffect(() => {
+    if (!wanted || degradedReason) return
+    // スマホは輪に加われないので名乗らない。名乗ると、加わらないのに相手を
+    // 待たせるだけになる（相手はこちらの返事を待って猶予切れまで書けない）
+    if (!isDesktopWidth()) return
+    setCollabPresent(true)
+  }, [wanted, degradedReason, setCollabPresent])
 
   const registerSeeder = useCallback((seeder: MinutesSeeder | null) => {
     seederRef.current = seeder
     const current = sessionRef.current
     if (!current || current.isDegraded) return
     current.setSeeder(seeder)
+    // 始める前に、いまの顔ぶれを渡し直す。始まった時点の顔ぶれで
+    // 「本文を作るか・相手に聞くか」が決まるため
+    current.setPeers(lastPeersRef.current)
     if (seeder) current.start()
   }, [])
 
