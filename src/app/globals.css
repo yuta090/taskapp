@@ -407,6 +407,49 @@
   --burndown-tooltip-reopened: #F87171;
 }
 
+/* ============================================
+   文書エディタ（Wiki・議事録）の色
+   BlockNote は色をテーマの props で受け取り、自前の CSS 変数で塗る。
+   ダークのときはアプリの面（--color-surface）と文字の階調に合わせ直す。
+   本文中のリンクもここで持つ（暗い面の上で沈まない明度にする）。
+   ============================================ */
+:root {
+  --doc-link: #4F46E5;
+  --doc-link-underline: #A5B4FC;
+  --doc-link-hover: #4338CA;
+  --doc-link-hover-underline: #6366F1;
+  --doc-link-hover-bg: rgba(99, 102, 241, 0.06);
+}
+
+.dark {
+  --doc-link: #A5B4FC;
+  --doc-link-underline: #4F5BA6;
+  --doc-link-hover: #C7D2FE;
+  --doc-link-hover-underline: #818CF8;
+  --doc-link-hover-bg: rgba(129, 140, 248, 0.12);
+}
+
+/* BlockNote 既定のダーク（#1f1f1f 系）はアプリの紺寄りの面から浮くので、
+   中央トークンへ差し替える。詳細度は BlockNote 側より高くしてある。 */
+.dark .wiki-editor .bn-container,
+.dark .minutes-editor .bn-container {
+  --bn-colors-editor-text: var(--color-gray-800);
+  --bn-colors-editor-background: var(--color-surface);
+  --bn-colors-menu-text: var(--color-gray-800);
+  --bn-colors-menu-background: var(--color-surface);
+  --bn-colors-tooltip-text: var(--color-gray-800);
+  --bn-colors-tooltip-background: var(--color-gray-100);
+  --bn-colors-hovered-text: var(--color-gray-900);
+  --bn-colors-hovered-background: var(--color-gray-100);
+  --bn-colors-selected-text: var(--color-gray-900);
+  --bn-colors-selected-background: var(--color-gray-200);
+  --bn-colors-disabled-text: var(--color-gray-400);
+  --bn-colors-disabled-background: var(--color-gray-100);
+  --bn-colors-border: var(--color-gray-200);
+  --bn-colors-side-menu: var(--color-gray-400);
+  --bn-colors-shadow: var(--color-gray-25);
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -733,9 +776,9 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
   /* 編集中の本文なのでカーソルは既定が I 字。押すと画面が移るので指の形にする
      （押せることが見た目から分からない、という指摘。2026-09-13） */
   cursor: pointer;
-  color: #4f46e5 !important;
+  color: var(--doc-link) !important;
   text-decoration: underline !important;
-  text-decoration-color: #a5b4fc !important;
+  text-decoration-color: var(--doc-link-underline) !important;
   text-underline-offset: 3px !important;
   text-decoration-thickness: 1.5px !important;
   transition: color 0.15s, text-decoration-color 0.15s, background-color 0.15s;
@@ -751,9 +794,9 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 .minutes-editor .bn-block-content a[href]:hover,
 .minutes-editor [data-content-type] a[href]:hover,
 .minutes-editor a[href]:hover {
-  color: #4338ca !important;
-  text-decoration-color: #6366f1 !important;
-  background-color: rgba(99, 102, 241, 0.06);
+  color: var(--doc-link-hover) !important;
+  text-decoration-color: var(--doc-link-hover-underline) !important;
+  background-color: var(--doc-link-hover-bg);
 }
 
 /* このアプリの中の画面へ（押すと同じタブで移動し、戻るで戻れる） */
