@@ -189,6 +189,12 @@ export function WikiPageInspector({
   // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
   // ページ名と本文だけに絞る指定は globals.css の @media print 側にあり、画面に置いた
   // data-print-root / data-print-hide の印を見ている（WikiPageClient.tsx）。
+  //
+  // 出さないと決めた2か所（2026-09-18・ユーザー判断。増やすならここを更新する）:
+  //  - 全画面表示の間はこのパネルごと閉じるのでボタンも出ない。Ctrl+P / Cmd+P は効き、
+  //    紙に載る中身は同じなので、全画面のバーにはボタンを並べない
+  //  - 相手先ポータル（PortalWikiClient）にはこのパネルが無いので付けていない。
+  //    社内アプリに相手先として入っている人には出る
   const handlePrintPdf = () => {
     window.print()
   }
