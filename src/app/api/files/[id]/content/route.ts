@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
 import { isTabularFile, MAX_TABLE_FILE_BYTES } from '@/lib/table/tableModel'
+import { fetchStorageObject } from '@/lib/supabase/storageObject'
 
 // GET: 表ビュー用に、表として扱えるファイル(.csv/.tsv)の生バイトをそのまま返す。
 // 可視性はRLSに従う(見えなければ404)。download と違い署名URLへ飛ばさず自分で返すのは、
@@ -49,18 +50,19 @@ export async function GET(
       return NextResponse.json({ error: 'File too large for table view' }, { status: 413 })
     }
 
-    const admin = createAdminClient()
-    const { data: blob, error: downloadError } = await admin.storage
-      .from('space-files')
-      .download(file.storage_path)
+    // 版(updated_at)を付けて取りにいく。storage.download() は上書き直後に古い中身を
+    // 返し続けることがあり、「直して読み込み直すと元に戻る」ように見える
+    // (理由と実測は src/lib/supabase/storageObject.ts のコメント)
+    const objectRes = await fetchStorageObject('space-files', file.storage_path, file.updated_at)
 
-    if (downloadError || !blob) {
-      console.error('File content download error:', downloadError)
+    if (!objectRes.ok || !objectRes.body) {
+      console.error('File content download error:', objectRes.status)
       return NextResponse.json({ error: 'Failed to read file' }, { status: 500 })
     }
 
     // DB の size_bytes が NULL のファイルが素通りしないよう、実サイズでもう一度確認する
-    if (blob.size > MAX_TABLE_FILE_BYTES) {
+    const contentLength = Number(objectRes.headers.get('content-length'))
+    if (Number.isFinite(contentLength) && contentLength > MAX_TABLE_FILE_BYTES) {
       return NextResponse.json({ error: 'File too large for table view' }, { status: 413 })
     }
 
@@ -71,7 +73,7 @@ export async function GET(
     //   以前の「本人限定で1時間キャッシュ」は使えない(直した直後に再読み込みすると
     //   ブラウザが古い中身を出してしまう)。store はしてよいが必ず問い合わせ直す。
     //   同じ画面を開いている間の取得回数は useFileTable の staleTime が抑える。
-    return new NextResponse(blob.stream(), {
+    return new NextResponse(objectRes.body, {
       status: 200,
       headers: {
         'Content-Type': 'text/plain',
