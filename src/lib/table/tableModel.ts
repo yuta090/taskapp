@@ -91,3 +91,30 @@ export function filterRowsIndexed(rows: string[][], index: SearchIndex, query: s
     return terms.every((t) => joined.includes(t))
   })
 }
+
+/**
+ * 行の配列そのものを鍵にした、検索用文字列の覚え書き。
+ *
+ * 編集できる表では、1セル直すたびに行の配列が1本だけ新しくなる(editModel の構造共有)。
+ * buildSearchIndex のように毎回まるごと作り直すと、数万行では確定のたびに数十ミリ秒
+ * 止まる。こちらは**触っていない行は覚えたまま**で、作り直すのは直した行だけ。
+ * 使われなくなった行は WeakMap なので自然に消える。
+ */
+export type RowTextCache = WeakMap<string[], string>
+
+/**
+ * filterRowsCached: 覚え書きを使って絞り込む。
+ * 検索語が空のときは**何も覚えない**(検索を使わない人が費用を払わないようにする)。
+ */
+export function filterRowsCached(rows: string[][], cache: RowTextCache, query: string): string[][] {
+  const terms = splitTerms(query)
+  if (terms.length === 0) return rows
+  return rows.filter((row) => {
+    let joined = cache.get(row)
+    if (joined === undefined) {
+      joined = row.join(' ').toLowerCase()
+      cache.set(row, joined)
+    }
+    return terms.every((t) => joined!.includes(t))
+  })
+}

@@ -136,6 +136,17 @@ describe('GET /api/files/[id]/content', () => {
     expect(res.headers.get('cache-control')).toContain('private')
   })
 
+  it('直したものを保存するときの基準になるよう、いまの版(updated_at)をヘッダで返す', async () => {
+    fileSelectResponse = { data: readyCsvFile({ updated_at: '2026-09-17T00:00:00.000Z' }), error: null }
+    const res = await callGet(FILE_ID)
+    expect(res.headers.get('x-updated-at')).toBe('2026-09-17T00:00:00.000Z')
+  })
+
+  it('編集で中身が変わり得るので、ブラウザには必ず問い合わせ直させる', async () => {
+    const res = await callGet(FILE_ID)
+    expect(res.headers.get('cache-control')).toContain('no-cache')
+  })
+
   it('storage から取れなければ 500', async () => {
     downloadResponse = { data: null, error: { message: 'boom' } }
     const res = await callGet(FILE_ID)
