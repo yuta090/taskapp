@@ -43,6 +43,7 @@ import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import { buildChildTaskInput, type ChildTaskDraft } from '@/lib/tasks/childTask'
+import { suggestReviewRequestOnDone, useReviewRequestTarget } from '@/lib/tasks/reviewRequestNudge'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { BallSide, Task, TaskStatus, Milestone, DecisionState } from '@/types/database'
@@ -506,6 +507,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     return tasks.find((task) => task.id === selectedTaskId) ?? null
   }, [tasks, selectedTaskId])
 
+  // 一覧で完了にしたときの案内から詳細を開いたタスク
+  const { reviewRequestTaskId, markReviewRequest } = useReviewRequestTarget(selectedTaskId)
+
   const handlePassBall = useCallback(
     async (taskId: string, ball: BallSide, overrideClientOwnerIds?: string[], overrideInternalOwnerIds?: string[]) => {
       const taskOwners = owners[taskId] || []
@@ -619,6 +623,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         onPassBall={canEdit ? (ball, clientOwnerIds, internalOwnerIds) => handlePassBall(selectedTask.id, ball, clientOwnerIds, internalOwnerIds) : undefined}
         onUpdate={canEdit ? (updates) => handleUpdateTask(selectedTask.id, updates) : undefined}
         onCreateChild={canEdit ? (draft) => handleCreateChild(selectedTask, draft) : undefined}
+        openReviewRequest={reviewRequestTaskId === selectedTask.id}
         onDelete={canEdit ? () => handleDeleteTask(selectedTask.id) : undefined}
         onDuplicate={canEdit ? () => {
           setDuplicateSource(selectedTask)
@@ -637,7 +642,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         canEditPricing={canEditMoney}
       />
     )
-  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleCreateChild, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleCreateChild, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, reviewRequestTaskId, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
@@ -769,12 +774,16 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const syncUrlRef = useRef(syncUrlWithState)
   const isCreateOpenRef = useRef(isCreateOpen)
   const activeFilterRef = useRef(activeFilter)
+  // 一覧の変更のたびに handleStatusChange を作り直すと TaskRow の memo を素通りしてしまうため、
+  // 直前の状態はこの ref から読む（マイタスクの updateTaskStatus と同じ考え方）
+  const tasksRef = useRef(tasks)
   useEffect(() => {
     selectedTaskIdRef.current = selectedTaskId
     syncUrlRef.current = syncUrlWithState
     isCreateOpenRef.current = isCreateOpen
     activeFilterRef.current = activeFilter
-  }, [selectedTaskId, syncUrlWithState, isCreateOpen, activeFilter])
+    tasksRef.current = tasks
+  }, [selectedTaskId, syncUrlWithState, isCreateOpen, activeFilter, tasks])
 
   const handleTaskSelect = useCallback((taskId: string) => {
     // Toggle: clicking same task closes inspector
@@ -843,9 +852,22 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     })
   }, [])
 
+  // 一覧のチェックボックス・行の状態メニューから。完了にしたときは、タスク詳細と同じように
+  // 確認依頼を子タスクで出すことを案内する（詳細を開いていないので画面の通知で出す）。
+  // tasks を依存に入れると TaskRow の memo を素通りしてしまうため、直前の状態は ref で読む
   const handleStatusChange = useCallback((taskId: string, status: TaskStatus) => {
+    const previousStatus = tasksRef.current.find((t) => t.id === taskId)?.status
     updateTask(taskId, { status })
-  }, [updateTask])
+    suggestReviewRequestOnDone({
+      previousStatus,
+      nextStatus: status,
+      onAccept: () => {
+        markReviewRequest(taskId)
+        // 履歴に積む＝ブラウザの「戻る」で一覧に戻れる（案内から開いたので、閉じ方が要る）
+        syncUrlRef.current(false, taskId, activeFilterRef.current, { push: true })
+      },
+    })
+  }, [updateTask, markReviewRequest])
 
   // Context menu handlers
   const handleContextMenu = useCallback((taskId: string, x: number, y: number) => {

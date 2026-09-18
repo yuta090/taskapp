@@ -363,3 +363,68 @@ describe('TaskInspector — 完了にしたら確認依頼をすすめる', () =
     })
   })
 })
+
+describe('TaskInspector — 一覧で完了にしたときの案内から開く', () => {
+  it('openReviewRequest を渡すと、確認依頼の入力欄がひな形つきで開く', async () => {
+    render(
+      <TaskInspector
+        task={makeTask({ status: 'done' })}
+        spaceId="s1"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        onCreateChild={vi.fn()}
+        openReviewRequest
+      />
+    )
+
+    const title = (await screen.findByTestId('task-inspector-child-title')) as HTMLInputElement
+    const description = screen.getByTestId('task-inspector-child-description') as HTMLTextAreaElement
+
+    expect(title.value).toBe('確認依頼: ')
+    expect(description.value.split('\n')).toHaveLength(4)
+  })
+
+  it('案内から開くときも「詳細設定」は開かない（親タスクの選択肢を一度に作らない）', async () => {
+    render(
+      <TaskInspector
+        task={makeTask({ status: 'done' })}
+        spaceId="s1"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        onCreateChild={vi.fn()}
+        openReviewRequest
+        parentTasks={[{ id: 'p1', title: '別のタスク' }]}
+      />
+    )
+
+    expect(await screen.findByTestId('task-inspector-child-title')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-inspector-parent')).not.toBeInTheDocument()
+  })
+
+  it('編集できない人には開かない', () => {
+    render(
+      <TaskInspector task={makeTask({ status: 'done' })} spaceId="s1" onClose={vi.fn()} openReviewRequest />
+    )
+
+    expect(screen.queryByTestId('task-inspector-child-title')).not.toBeInTheDocument()
+  })
+
+  it('入力欄を閉じたら、開き直さない', async () => {
+    render(
+      <TaskInspector
+        task={makeTask({ status: 'done' })}
+        spaceId="s1"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        onCreateChild={vi.fn()}
+        openReviewRequest
+      />
+    )
+
+    fireEvent.click(await screen.findByText('やめる'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('task-inspector-child-title')).not.toBeInTheDocument()
+    })
+  })
+})
