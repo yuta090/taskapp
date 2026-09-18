@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectWikiBodyFormat, toWikiBlocksJson, TOGGLE_MARKER, type WikiBodyFormat } from './wikiBody.js'
+import { detectWikiBodyFormat, toWikiBlocksJson, TOGGLE_MARKER, TOC_MARKER, TOC_TYPE, type WikiBodyFormat } from './wikiBody.js'
 
 /**
  * Wiki 本文の変換。アプリの Wiki 画面は BlockNote のブロック JSON しか読めないため、
@@ -356,4 +356,46 @@ describe('折りたたみの変換は、細工した本文でも時間がかか�
     expect(json).toContain('最深部の中身')
     expect(ms).toBeLessThan(3_000)
   }, 60_000)
+})
+
+/**
+ * 目次と罫線。どちらも 2026-09-18 まで黙って捨てられていた。
+ * リポジトリのMarkdownをそのまま送る運用（taiyo-seminor の scripts/wiki_sync.py）で、
+ * `<!--toc-->` はHTMLコメントとして、`---` は hr として消えていた。
+ */
+describe('目次と罫線', () => {
+  const types = async (md: string) =>
+    (JSON.parse(await toWikiBlocksJson(md, 'markdown')) as { type: string }[]).map((b) => b.type)
+
+  it('1行の <!--toc-->  は目次ブロックになる', async () => {
+    expect(await types(`# 題名\n\n${TOC_MARKER}\n\n本文\n`)).toEqual([
+      'heading',
+      TOC_TYPE,
+      'paragraph',
+    ])
+  })
+
+  it('目次ブロックは props を持たない形でも画面が読める形で出る', async () => {
+    const blocks = JSON.parse(await toWikiBlocksJson(`${TOC_MARKER}\n`, 'markdown'))
+    expect(blocks).toEqual([{ type: TOC_TYPE }])
+  })
+
+  it('--- *** ___ <hr> はどれも罫線になる', async () => {
+    for (const rule of ['---', '***', '___', '<hr>', '<hr/>', '<hr />']) {
+      expect(await types(`上\n\n${rule}\n\n下\n`)).toEqual(['paragraph', 'divider', 'paragraph'])
+    }
+  })
+
+  it('表の区切り行を罫線と読み違えない', async () => {
+    expect(await types('| a | b |\n|---|---|\n| 1 | 2 |\n')).toEqual(['table'])
+  })
+
+  it('コード塊の中の --- は罫線にしない', async () => {
+    expect(await types('```\n---\n```\n')).toEqual(['codeBlock'])
+  })
+
+  it('目印そのものの字面は本文に出さない', async () => {
+    const json = await toWikiBlocksJson(`${TOC_MARKER}\n\n---\n`, 'markdown')
+    expect(json).not.toContain('toc--')
+  })
 })

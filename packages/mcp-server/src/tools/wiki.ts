@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { assertWriteApplied } from '../lib/staleWrite.js'
 import { getSupabaseClient, WikiPage, WikiPageVersion } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
-import { toWikiBlocksJson, type Block, type WikiBodyFormat } from '../lib/wikiBody.js'
+import { toWikiBlocksJson, TOC_TYPE, type Block, type WikiBodyFormat } from '../lib/wikiBody.js'
 import { assertInSpace, requireActorUserId } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
 import { buildWikiPageLink, withLink } from '../lib/appLinks.js'
@@ -12,12 +12,6 @@ const bodyFormatSchema = z
   .optional()
   .describe('本文の形式。省略時は自動判定（JSONブロック配列→blocks / HTML→html / それ以外→markdown）')
 
-/**
- * 目次ブロックの種別。Wiki 画面（src/components/wiki/WikiEditor.tsx）の「/」メニューが
- * 挿入するブロックと同じ名前（src/lib/minutes/markdown.ts の TOC_TYPE）。アプリ本体とは
- * 別パッケージで import できないため文字列を複製している。一致はテストで見張る。
- */
-const TOC_TYPE = 'tableOfContents'
 
 // ── Helpers ──────────────────────────────────────────────
 
