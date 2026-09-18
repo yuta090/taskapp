@@ -5,7 +5,12 @@ import Link from 'next/link'
 import { SealCheck } from '@phosphor-icons/react'
 import { buildTaskDeepLink } from '@/lib/taskLinks'
 import type { Task } from '@/types/database'
-import { formatDecidedDate, type DecidedItem, type DecisionSummary } from '@/lib/dashboard/decisions'
+import {
+  decisionProgressLabel,
+  formatDecidedDate,
+  type DecidedItem,
+  type DecisionSummary,
+} from '@/lib/dashboard/decisions'
 
 /**
  * ダッシュボードの「確定事項」。このプロジェクトで決まったことを新しい順に出し、まだ決まっていないもの
@@ -112,6 +117,9 @@ export function DecisionsSection({
   const [decidedExpanded, setDecidedExpanded] = useState(false)
   const [consideringExpanded, setConsideringExpanded] = useState(false)
 
+  // 「確定 1/2」。見た目と言い方は Wiki 一覧の印（WikiPageRow）と同じにそろえる
+  const progress = decisionProgressLabel(summary)
+
   const decidedVisible = decidedExpanded ? summary.decided : summary.decided.slice(0, COLLAPSED_ROWS)
   const consideringVisible = consideringExpanded
     ? summary.considering
@@ -122,8 +130,17 @@ export function DecisionsSection({
       <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-1.5">
         <SealCheck className="text-base text-gray-500" />
         確定事項
-        {summary.decided.length > 0 && (
-          <span className="ml-auto text-xs text-gray-400">{summary.decided.length}件</span>
+        {progress && (
+          <span
+            data-testid="dashboard-decision-progress"
+            title={progress.complete ? '決めることは全部決まっています' : '決めることが残っています'}
+            className={
+              'ml-auto px-1.5 py-0.5 text-[10px] font-medium rounded ' +
+              (progress.complete ? 'bg-indigo-600 text-white' : 'border border-indigo-200 text-indigo-ink')
+            }
+          >
+            {progress.text}
+          </span>
         )}
       </h3>
 
