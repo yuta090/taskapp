@@ -215,6 +215,32 @@ describe('DashboardClient — 確定事項', () => {
     expect(links[1]).toHaveTextContent('決定済み')
   })
 
+  it('見出しに「確定 1/2」でどこまで決まったかを出す', () => {
+    mocks.tasks = [
+      task({ id: 'd1', title: '見積の出し方', type: 'spec', decision_state: 'decided' }),
+      task({ id: 'c1', title: '保守の範囲', type: 'spec', decision_state: 'considering' }),
+    ]
+    renderPage()
+
+    const section = screen.getByRole('region', { name: '確定事項' })
+    expect(within(section).getByTestId('dashboard-decision-progress')).toHaveTextContent('確定 1/2')
+  })
+
+  it('全部決まったら「確定 2/2」になる', () => {
+    mocks.tasks = [
+      task({ id: 'd1', type: 'spec', decision_state: 'decided' }),
+      task({ id: 'd2', type: 'spec', decision_state: 'implemented' }),
+    ]
+    renderPage()
+    expect(screen.getByTestId('dashboard-decision-progress')).toHaveTextContent('確定 2/2')
+  })
+
+  it('決定事項のタスクが無ければ、進み具合は出さない', () => {
+    mocks.tasks = [task({ id: 'plain', title: 'ふつうのタスク' })]
+    renderPage()
+    expect(screen.queryByTestId('dashboard-decision-progress')).not.toBeInTheDocument()
+  })
+
   it('まだ決まっていないもの（検討中）は「検討中」として別に出す', () => {
     mocks.tasks = [
       task({ id: 'c1', title: '保守の範囲', type: 'spec', decision_state: 'considering' }),
