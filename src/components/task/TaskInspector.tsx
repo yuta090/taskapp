@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import NextLink from 'next/link'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye, BookOpen, PushPin } from '@phosphor-icons/react'
+import { X, Plus, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye, BookOpen, PushPin } from '@phosphor-icons/react'
 import { TaskReminderField } from './TaskReminderField'
 import { AmberBadge, Hint, LinkifiedText, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
@@ -30,6 +30,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatTaskNumber } from '@/lib/tasks/taskNumber'
 import { SPACE_ROLE_LABELS } from '@/lib/roles/spaceRoles'
 import { buildTaskHref } from '@/lib/navigation/appLinks'
+import {
+  REVIEW_REQUEST_DESCRIPTION_TEMPLATE,
+  REVIEW_REQUEST_TITLE_PREFIX,
+  type ChildTaskDraft,
+} from '@/lib/tasks/childTask'
 
 interface TaskInspectorProps {
   task: Task
@@ -67,6 +72,11 @@ interface TaskInspectorProps {
   parentTasks?: { id: string; title: string }[]
   /** Child tasks of this task */
   childTasks?: Task[]
+  /**
+   * 子タスクを作る。渡したときだけ「子タスクを追加」と、完了にしたときの確認依頼の
+   * 案内を出す。作る中身（担当の引き継ぎ・ボール）は buildChildTaskInput が決める
+   */
+  onCreateChild?: (draft: ChildTaskDraft) => Promise<void>
   /**
    * 子タスクを普通にクリックしたときに呼ぶ。今の画面のまま、そのタスクの詳細に切り替えるのに使う。
    * 渡さなければリンク（プロジェクトのタスク一覧でそのタスクを開く）としてそのまま移動する。
@@ -112,6 +122,7 @@ export function TaskInspector({
   onReviewChange,
   parentTasks = [],
   childTasks = [],
+  onCreateChild,
   onOpenTask,
   canEditPricing = false,
   unreadCommentCount = 0,
@@ -134,6 +145,15 @@ export function TaskInspector({
   }
   const [showHistory, setShowHistory] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
+  // 子タスクの入力欄。null なら閉じている。description が undefined のときは題名だけの入力
+  // （確認依頼として開いたときだけ、説明のひな形つきで開く）。place は開く場所:
+  // banner=完了の案内の直下 / details=詳細設定の中の子タスクの欄
+  const [childDraft, setChildDraft] = useState<(ChildTaskDraft & { place: 'banner' | 'details' }) | null>(null)
+  const [isCreatingChild, setIsCreatingChild] = useState(false)
+  // 完了にした直後だけ出す「確認依頼を子タスクで出す」の案内
+  const [suggestReviewRequest, setSuggestReviewRequest] = useState(false)
+  const childTitleRef = useRef<HTMLInputElement>(null)
+  const childComposerRef = useRef<HTMLDivElement>(null)
   const [estimateInput, setEstimateInput] = useState('')
   const [isSendingEstimate, setIsSendingEstimate] = useState(false)
   const [taskNumberCopied, setTaskNumberCopied] = useState(false)
@@ -159,6 +179,9 @@ export function TaskInspector({
     // タスクを切り替えてもアンマウントされないため、放置すると別タスクの番号欄に一瞬出る）
     if (taskNumberCopiedTimerRef.current) clearTimeout(taskNumberCopiedTimerRef.current)
     setTaskNumberCopied(false)
+    setChildDraft(null)
+    setIsCreatingChild(false)
+    setSuggestReviewRequest(false)
     // Progressive disclosure: 詳細設定に値があれば展開
     const hasDetails = !!(
       task.parent_task_id ||
@@ -168,6 +191,19 @@ export function TaskInspector({
     )
     setShowDetails(hasDetails)
   }, [task.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 入力欄はパネルの下の方（詳細設定の中）に開くので、開いた側で見える位置まで運んで
+  // カーソルを置く。開いたことに気づかず入力できない、を防ぐ
+  const childComposerOpen = childDraft !== null
+  useEffect(() => {
+    if (!childComposerOpen) return
+    childComposerRef.current?.scrollIntoView?.({ block: 'nearest' })
+    const input = childTitleRef.current
+    if (!input) return
+    input.focus()
+    const end = input.value.length
+    input.setSelectionRange?.(end, end)
+  }, [childComposerOpen])
 
   // Milestone data
   const [milestones, setMilestones] = useState<Milestone[]>([])
@@ -360,6 +396,34 @@ export function TaskInspector({
     if (status !== task.status) {
       await onUpdate?.({ status })
       flashSaved()
+      // 完了にした直後は「確認依頼を子タスクで出す」を案内する（運用ルール 2026-09-15）。
+      // 完了から戻したときは引っ込める
+      setSuggestReviewRequest(status === 'done' && !!onCreateChild)
+    }
+  }
+
+  // 子タスクの入力欄を開く。確認依頼（banner）は詳細設定を開かずその場に出す
+  // — 詳細設定を開くと親タスクの選択肢（プロジェクトの全タスク）が一度に作られて一拍止まるため
+  const openChildComposer = (draft: ChildTaskDraft & { place: 'banner' | 'details' }) => {
+    if (draft.place === 'details') setShowDetails(true)
+    setChildDraft(draft)
+  }
+
+  const handleCreateChild = async () => {
+    if (!onCreateChild || !childDraft || isCreatingChild) return
+    const title = childDraft.title.trim()
+    if (!title) return
+    setIsCreatingChild(true)
+    try {
+      await onCreateChild({ title, description: childDraft.description?.trim() || undefined })
+      setChildDraft(null)
+      setSuggestReviewRequest(false)
+      flashSaved()
+    } catch (e) {
+      // 入力欄は閉じない（書いた内容を消さない）
+      toast.error(e instanceof Error ? e.message : '子タスクを作成できませんでした')
+    } finally {
+      setIsCreatingChild(false)
     }
   }
 
@@ -593,6 +657,64 @@ export function TaskInspector({
       setIsDeleting(false)
     }
   }
+
+  // 子タスクの入力欄。完了の案内の下と、詳細設定の子タスクの欄の両方から同じものを出す
+  const childComposer = childDraft && onCreateChild && (
+    <div ref={childComposerRef} className="space-y-1.5">
+      <input
+        ref={childTitleRef}
+        type="text"
+        value={childDraft.title}
+        data-testid="task-inspector-child-title"
+        placeholder={
+          childDraft.description === undefined
+            ? '子タスクの名前'
+            : '確認依頼: 決めたい結論をそのまま書く'
+        }
+        onChange={(e) => setChildDraft({ ...childDraft, title: e.target.value })}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            void handleCreateChild()
+          }
+          if (e.key === 'Escape') setChildDraft(null)
+        }}
+        className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
+      />
+      {childDraft.description !== undefined && (
+        <textarea
+          value={childDraft.description}
+          rows={4}
+          data-testid="task-inspector-child-description"
+          onChange={(e) => setChildDraft({ ...childDraft, description: e.target.value })}
+          className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface font-mono leading-relaxed"
+        />
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          data-testid="task-inspector-child-submit"
+          onClick={() => void handleCreateChild()}
+          disabled={isCreatingChild || !childDraft.title.trim()}
+          className="px-2.5 py-1 text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isCreatingChild ? '作成中…' : '追加'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setChildDraft(null)}
+          className="text-xs text-gray-500 hover:text-gray-700"
+        >
+          やめる
+        </button>
+      </div>
+      {childDraft.description !== undefined && (
+        <p className="text-[10px] text-gray-400 leading-relaxed">
+          担当はこのタスクの担当者を引き継ぎます。作ったあと、その子タスクで「社内承認を依頼」を押すと承認者に届きます。
+        </p>
+      )}
+    </div>
+  )
 
   return (
     <div className="h-full flex flex-col bg-surface">
@@ -937,6 +1059,42 @@ export function TaskInspector({
             </div>
           </div>
         </div>
+
+        {/* 完了にした直後だけ: 確認依頼を子タスクで出す案内（運用ルール 2026-09-15） */}
+        {suggestReviewRequest && onCreateChild && (
+          <div className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-indigo-50 border border-indigo-100">
+            <TreeStructure className="text-sm text-indigo-ink mt-0.5 flex-shrink-0" />
+            <div className="flex-1 space-y-1.5">
+              <p className="text-xs text-gray-700">
+                誰かに結論を確認してもらうなら、確認依頼を子タスクで出せます。
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="task-inspector-review-request-suggest"
+                  onClick={() =>
+                    openChildComposer({
+                      title: REVIEW_REQUEST_TITLE_PREFIX,
+                      description: REVIEW_REQUEST_DESCRIPTION_TEMPLATE,
+                      place: 'banner',
+                    })
+                  }
+                  className="px-2 py-1 text-xs rounded border border-indigo-200 bg-surface text-indigo-ink hover:bg-indigo-100"
+                >
+                  確認依頼を子タスクで出す
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSuggestReviewRequest(false)}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  閉じる
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {childDraft?.place === 'banner' && childComposer}
 
         {/* Client Scope（クライアント公開） */}
         <div className="space-y-1.5">
@@ -1444,12 +1602,14 @@ export function TaskInspector({
             </div>
 
             {/* Child Tasks */}
-            {childTasks.length > 0 && (
+            {(childTasks.length > 0 || onCreateChild) && (
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
                   <TreeStructure className="text-sm" />
                   子タスク
-                  <span className="text-[10px] text-gray-400 ml-1">({childTasks.length}件)</span>
+                  {childTasks.length > 0 && (
+                    <span className="text-[10px] text-gray-400 ml-1">({childTasks.length}件)</span>
+                  )}
                 </label>
                 <div className="space-y-1">
                   {childTasks.map((child) => (
@@ -1468,11 +1628,9 @@ export function TaskInspector({
                       className="group flex items-center gap-2 px-2 py-1.5 bg-gray-50 hover:bg-gray-100 rounded text-sm"
                     >
                       <div
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{
-                          backgroundColor:
-                            child.ball === 'client' ? '#F59E0B' : '#3B82F6',
-                        }}
+                        className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          child.ball === 'client' ? CLIENT.dot : 'bg-blue-500'
+                        }`}
                       />
                       <TruncatedText className={`flex-1 group-hover:underline ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
                         {child.title}
@@ -1480,6 +1638,18 @@ export function TaskInspector({
                     </NextLink>
                   ))}
                 </div>
+                {childDraft?.place === 'details' && childComposer}
+                {onCreateChild && !childDraft && (
+                  <button
+                    type="button"
+                    data-testid="task-inspector-add-child"
+                    onClick={() => openChildComposer({ title: '', place: 'details' })}
+                    className="flex items-center gap-1 px-2 py-1.5 w-full text-left text-sm text-gray-500 rounded border border-dashed border-gray-200 hover:bg-gray-50 hover:text-gray-700"
+                  >
+                    <Plus className="text-xs" />
+                    子タスクを追加
+                  </button>
+                )}
               </div>
             )}
 

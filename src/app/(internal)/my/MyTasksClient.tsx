@@ -18,6 +18,7 @@ import { useMyUnreadTaskComments } from '@/lib/hooks/useUnreadTaskComments'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
+import { buildChildTaskInput } from '@/lib/tasks/childTask'
 import type { Task, Space, Milestone, TaskStatus, ReviewStatus } from '@/types/database'
 import { splitEmbeddedReviews, type EmbeddedReviews } from '@/lib/tasks/reviewStatus'
 import {
@@ -192,7 +193,7 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
     void import('@/components/task/TaskInspector')
   }, [])
 
-  const { tasks, owners, reviewStatuses, loading, error, dataUpdatedAt, isFetching, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
+  const { tasks, owners, reviewStatuses, loading, error, dataUpdatedAt, isFetching, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
     orgId: task.org_id,
     spaceId: task.space_id,
   })
@@ -334,6 +335,11 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
           await passBall(current.id, ball, clientOwnerIds, internalOwnerIds)
         } : undefined}
         onUpdate={canEdit ? (updates) => updateTask(current.id, updates) : undefined}
+        // 子タスクは、このタスクと同じプロジェクトに作る（中身の既定は buildChildTaskInput）
+        onCreateChild={canEdit ? async (draft) => {
+          await createTask(buildChildTaskInput(current, draft))
+          toast.success('子タスクを作成しました')
+        } : undefined}
         onDelete={canEdit ? async () => {
           // 楽観的更新で spaceTask が先に消えるため、削除リクエスト中は notFound 判定・
           // 背景更新の再取得（消えたタスクを復活させかねない）を止める
@@ -368,7 +374,7 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
         unreadCommentCount={unreadCommentCount}
       />
     )
-  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange, unreadCommentCount, inspectorQueryClient])
+  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange, unreadCommentCount, inspectorQueryClient])
 
   return null
 }
