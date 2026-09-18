@@ -9,13 +9,14 @@ import {
   useRef,
   useState,
   type FocusEvent as ReactFocusEvent,
+  type UIEvent as ReactUIEvent,
 } from 'react'
 import { ArrowLeft, ArrowsIn, ArrowsOut, Info, Notebook, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { EditorLoadingFallback } from '@/components/editor/EditorLoadingFallback'
 import { useMinutesTaskActions } from '@/lib/hooks/useMinutesTaskActions'
-import { saveMinutesScroll, takeMinutesScroll } from '@/lib/minutes/scrollMemory'
+import { saveMinutesScroll, scrollTopToRemember, takeMinutesScroll } from '@/lib/minutes/scrollMemory'
 import type { MinutesEditorApi } from './MinutesEditor'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
 import { appendOnlyAddition } from '@/lib/minutes/rebase'
@@ -249,6 +250,12 @@ interface MinutesDocumentBodyProps {
   noteAuthorName?: string
 }
 
+/** 利用者が自分で動かしたと分かる操作。これが来たら、戻した位置を押さえるのをやめる */
+const USER_SCROLL_EVENTS = ['wheel', 'touchstart', 'keydown', 'pointerdown', 'mousedown'] as const
+
+/** 本文が組み上がるまで、戻した位置を押さえておく時間の上限 */
+const SCROLL_HOLD_MS = 3000
+
 const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumentBodyProps>(
   function MinutesDocumentBody(
     {
@@ -288,6 +295,14 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const currentContentRef = useRef(initialBaseline.normalized)
     /** 本文をスクロールする枠。見ていた場所を覚えて戻すために持つ */
     const scrollBoxRef = useRef<HTMLDivElement | null>(null)
+    /**
+     * いま見ている場所の控え。枠から直接読まずにこちらを使う。
+     *
+     * 画面を離れるときの後始末は、React が枠を外したあとに動く。そのときには
+     * `scrollBoxRef` は null になっていて、位置を読み出せない。動かされるたびに
+     * ここへ写しておけば、外れた後でも覚えられる。
+     */
+    const lastScrollTopRef = useRef(0)
     // AI秘書の末尾追記との自動合流のための、生きているエディタへの差し込み口
     // （MinutesEditor が登録する）。本体（このコンポーネント）は作り直さない。
     const editorApiRef = useRef<MinutesEditorApi | null>(null)
@@ -809,6 +824,51 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
    * この画面はタスク化のあとや「最新を読み込む」でも組み直されるので、覚えたままだと
    * そのたびに今読んでいた場所から飛ばされる。
    */
+  /**
+   * 覚えた位置へ戻し、本文が組み上がるまでそこを押さえておく。
+   *
+   * BlockNote は本文を一気には描かない。戻した直後の枠の中身はまだ短く、そこから
+   * 伸びていく。伸びるとブラウザは「いま見えているもの」を保とうとして位置をずらすので、
+   * 一度入れただけでは覚えた場所から離れてしまう（実測: 300 と入れて 384 になった）。
+   * 中身の高さが変わるたびに入れ直し、利用者が自分で動かしたらやめる。
+   */
+  const holdRef = useRef<(() => void) | null>(null)
+  /**
+   * 戻そうとしている位置。押さえているあいだだけ 0 以外。
+   * 本文が組み上がる前に離れたとき、0 ではなくこちらを覚えるために持つ
+   * （0 を覚えると「先頭にいた」とみなされ、覚えた場所が消える）。
+   */
+  const wantedTopRef = useRef(0)
+  const holdScrollTop = useCallback((el: HTMLDivElement, top: number) => {
+    holdRef.current?.()
+    wantedTopRef.current = top
+    el.scrollTop = top
+    lastScrollTopRef.current = el.scrollTop
+
+    const content = el.firstElementChild
+    if (!content || typeof ResizeObserver === 'undefined') {
+      wantedTopRef.current = 0
+      return
+    }
+
+    const observer = new ResizeObserver(() => {
+      if (el.scrollTop !== top) el.scrollTop = top
+      lastScrollTopRef.current = el.scrollTop
+    })
+    observer.observe(content)
+
+    const stop = () => {
+      observer.disconnect()
+      clearTimeout(timer)
+      wantedTopRef.current = 0
+      for (const type of USER_SCROLL_EVENTS) el.removeEventListener(type, stop)
+      if (holdRef.current === stop) holdRef.current = null
+    }
+    const timer = setTimeout(stop, SCROLL_HOLD_MS)
+    for (const type of USER_SCROLL_EVENTS) el.addEventListener(type, stop, { passive: true })
+    holdRef.current = stop
+  }, [])
+
   const restoredForRef = useRef<string | null>(null)
   const restoreScroll = useCallback(
     (el: HTMLDivElement | null) => {
@@ -820,34 +880,27 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       // **届いてから**戻す
       if (!collabSyncedRef.current) return
       const top = takeMinutesScroll(meetingId, currentContentRef.current.length)
-      if (top === null) {
-        restoredForRef.current = meetingId
-        return
-      }
-      el.scrollTop = top
-      // 中身（エディタ）がまだ組み上がっていないと枠に高さが無く、代入は 0 に丸められる。
-      // 効いたときだけ「戻した」ことにして、空振りなら1コマ待ってもう一度だけ試す
-      if (el.scrollTop > 0) {
-        restoredForRef.current = meetingId
-        return
-      }
-      requestAnimationFrame(() => {
-        const box = scrollBoxRef.current
-        if (!box || restoredForRef.current === meetingId) return
-        box.scrollTop = top
-        restoredForRef.current = meetingId
-      })
+      // 覚えた位置は取り出した時点で消える。戻せても戻せなくても、この回で使い切る
+      restoredForRef.current = meetingId
+      if (top === null) return
+      holdScrollTop(el, top)
     },
-    [meetingId]
+    [meetingId, holdScrollTop]
   )
 
   const attachScrollBox = useCallback(
     (el: HTMLDivElement | null) => {
+      // 外れる直前に、いま見ている場所を控える（外れた後は枠から読めない）
+      if (!el && scrollBoxRef.current) lastScrollTopRef.current = scrollBoxRef.current.scrollTop
       scrollBoxRef.current = el
       restoreScroll(el)
     },
     [restoreScroll]
   )
+
+  const handleScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
+    lastScrollTopRef.current = event.currentTarget.scrollTop
+  }, [])
 
   // 本文が届いたら、見ていた場所へ戻す（届く前は枠に高さが無くて戻せない）
   useEffect(() => {
@@ -855,11 +908,43 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     restoreScroll(scrollBoxRef.current)
   }, [collabSynced, restoreScroll])
 
+  /**
+   * この画面を離れるときに、見ていた場所を覚える。
+   *
+   * 以前は本文中のリンクを押したときだけ覚えていた。そのため**左メニューから Wiki を見て
+   * ブラウザの「戻る」で帰ってくると先頭に戻ってしまい**、長い議事録では毎回読んでいた
+   * ところを探し直すことになっていた（ユーザー報告・2026-09-18）。離れ方はリンクだけでは
+   * ないので、画面が外れるとき（＝どんな移動でも必ず通る）に覚える。
+   *
+   * タブを閉じる・再読み込みでは後始末が動かないので、pagehide でも覚える。
+   */
+  const rememberScroll = useCallback(() => {
+    const box = scrollBoxRef.current
+    const top = scrollTopToRemember({
+      current: box ? box.scrollTop : lastScrollTopRef.current,
+      wanted: wantedTopRef.current,
+      restored: restoredForRef.current === meetingId,
+    })
+    if (top === null) return
+    saveMinutesScroll(meetingId, top, currentContentRef.current.length)
+  }, [meetingId])
+
+  useEffect(() => {
+    window.addEventListener('pagehide', rememberScroll)
+    return () => {
+      window.removeEventListener('pagehide', rememberScroll)
+      // 覚えるのが先。押さえを止めると「戻したかった位置」を手放すので、
+      // 本文が組み上がる前に離れた場合に覚えるものが無くなる
+      rememberScroll()
+      holdRef.current?.()
+    }
+  }, [rememberScroll])
+
   const handleBeforeNavigate = useCallback(async () => {
       // 見ていた場所を覚える。タスクや Wiki のリンクで移ると議事録は一から組み立て直され、
-      // スクロールが先頭に戻るため（長い議事録では毎回探し直しになる）
-      const box = scrollBoxRef.current
-      if (box) saveMinutesScroll(meetingId, box.scrollTop, currentContentRef.current.length)
+      // スクロールが先頭に戻るため（長い議事録では毎回探し直しになる）。
+      // 移動が止まった場合もこの控えは無害（戻ってきたときに同じ場所なので動かない）
+      rememberScroll()
 
       if (saveTimerRef.current === null) return
       if (!canEdit || parseBrokenRef.current || conflictRef.current) {
@@ -873,7 +958,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       const scheduleSaveNow = scheduleSaveRef.current
       if (!scheduleSaveNow) throw new Error('保存できていない変更があります')
       await scheduleSaveNow(currentContentRef.current)
-    }, [canEdit, meetingId])
+    }, [canEdit, rememberScroll])
 
     useImperativeHandle(
       ref,
@@ -1052,7 +1137,12 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           </div>
         )}
 
-        <div data-testid="minutes-scroll-box" className="flex-1 overflow-y-auto" ref={attachScrollBox}>
+        <div
+          data-testid="minutes-scroll-box"
+          className="flex-1 overflow-y-auto"
+          ref={attachScrollBox}
+          onScroll={handleScroll}
+        >
           <div
             data-testid="minutes-editor-region"
             className={fullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}

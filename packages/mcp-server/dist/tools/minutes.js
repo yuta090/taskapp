@@ -21,6 +21,26 @@ const minutesAppendSchema = z.object({
     meetingId: z.string().describe('会議ID'),
     content: z.string().describe('追記する内容（Markdown）'),
 });
+const minutesTocSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
+    meetingId: z.string().describe('会議ID'),
+    action: z
+        .enum(['add', 'remove'])
+        .default('add')
+        .describe('add: 見出し1の直後（無ければ先頭）に `<!--toc-->` の行を追加。既にあれば何もしない / remove: その行を外す'),
+    expectedUpdatedAt: z
+        .string()
+        .optional()
+        .describe('直前の minutes_get で受け取った updated_at をそのまま渡す。渡すと、その版のままのときだけ書き換える。渡さないと、他の人やAIが先に書いた内容を黙って上書きする（議事録には控えが無く元に戻せない）'),
+});
+/**
+ * 目次の目印。画面（src/lib/minutes/markdown.ts の TOC_MARKER）と同じ1行。アプリ本体とは
+ * 別パッケージで import できないため文字列を複製している。一致はテストで見張る。
+ */
+const TOC_MARKER = '<!--toc-->';
+const TOC_LINE_RE = /^<!--toc-->\s*$/;
+/** 見出し1（`#` 単独。`##` 以降は除く）の行。 */
+const H1_LINE_RE = /^#(?!#)[ \t]+.*$/;
 // ── Helpers ──────────────────────────────────────────────
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
@@ -41,6 +61,23 @@ async function getMeetingScoped(meetingId, spaceId, orgId) {
     if (error || !data)
         throw new Error('会議が見つかりません');
     return data;
+}
+/** 目次の行を見出し1の直後（無ければ先頭）に挿入する。既にあれば null（何もしない＝冪等）。 */
+function insertMinutesToc(md) {
+    const lines = md ? md.split('\n') : [];
+    if (lines.some((l) => TOC_LINE_RE.test(l)))
+        return null;
+    const at = lines.findIndex((l) => H1_LINE_RE.test(l)) + 1; // 見出し1が無ければ findIndex は -1 → 先頭(0)に入る
+    lines.splice(at, 0, TOC_MARKER);
+    return lines.join('\n');
+}
+/** 目次の行を外す。無ければ null（何もしない）。 */
+function removeMinutesToc(md) {
+    const lines = md ? md.split('\n') : [];
+    const next = lines.filter((l) => !TOC_LINE_RE.test(l));
+    if (next.length === lines.length)
+        return null;
+    return next.join('\n');
 }
 // ── Handlers ─────────────────────────────────────────────
 export async function minutesGet(params) {
@@ -122,6 +159,31 @@ export async function minutesAppend(params) {
         throw new Error('議事録の追記に失敗しました');
     return data;
 }
+export async function minutesToc(params) {
+    await checkAuth(params.spaceId, 'write', 'minutes_toc', 'meeting', params.meetingId);
+    const supabase = getSupabaseClient();
+    const orgId = await getOrgId(params.spaceId);
+    const meeting = await getMeetingScoped(params.meetingId, params.spaceId, orgId);
+    const next = params.action === 'remove' ? removeMinutesToc(meeting.minutes_md ?? '') : insertMinutesToc(meeting.minutes_md ?? '');
+    if (next === null)
+        return meeting; // 変わらないので書かない
+    // expectedUpdatedAt を渡されたときだけ、その版のままの行に限って書く（minutes_update と同じ楽観ロック）
+    let query = supabase
+        .from('meetings')
+        .update({ minutes_md: next })
+        .eq('id', params.meetingId)
+        .eq('org_id', orgId)
+        .eq('space_id', params.spaceId);
+    if (params.expectedUpdatedAt !== undefined) {
+        query = query.eq('updated_at', params.expectedUpdatedAt);
+    }
+    const { data, error } = await query.select('*');
+    if (error)
+        throw new Error('議事録の更新に失敗しました');
+    const rows = (data ?? []);
+    assertWriteApplied(rows.length, params.expectedUpdatedAt, '会議が見つかりません');
+    return rows[0];
+}
 // ── Tool definitions ─────────────────────────────────────
 export const minutesTools = [
     {
@@ -141,6 +203,12 @@ export const minutesTools = [
         description: '議事録末尾追記',
         inputSchema: minutesAppendSchema,
         handler: minutesAppend,
+    },
+    {
+        name: 'minutes_toc',
+        description: '目次(`<!--toc-->`)の追加/削除。追加は見出し1の直後（無ければ先頭）、既にあれば何もしない',
+        inputSchema: minutesTocSchema,
+        handler: minutesToc,
     },
 ];
 //# sourceMappingURL=minutes.js.map

@@ -3,6 +3,7 @@ import {
   clearMinutesScroll,
   readMinutesScroll,
   saveMinutesScroll,
+  scrollTopToRemember,
   takeMinutesScroll,
 } from '@/lib/minutes/scrollMemory'
 
@@ -130,5 +131,26 @@ describe('置き場所に触れないときも画面は動く', () => {
     expect(readMinutesScroll(M, 5000)).toBeNull()
     expect(takeMinutesScroll(M, 5000)).toBeNull()
     expect(() => clearMinutesScroll(M)).not.toThrow()
+  })
+})
+
+describe('画面を離れるときに、どの位置を覚えるか', () => {
+  it('いまの位置が分かるなら、それを覚える', () => {
+    expect(scrollTopToRemember({ current: 640, wanted: 0, restored: true })).toBe(640)
+  })
+
+  it('本文がまだ組み上がっていないなら、戻そうとしていた位置を覚える', () => {
+    // 枠に高さが無いあいだは scrollTop が 0 のまま。そのまま 0 を覚えると
+    // 「先頭にいた」とみなされ、覚えていた場所が消える
+    expect(scrollTopToRemember({ current: 0, wanted: 900, restored: true })).toBe(900)
+  })
+
+  it('まだ一度も戻していないなら、覚えているものに触らない', () => {
+    // 本文が届く前に離れた場合。ここで 0 を書くと、前に覚えた場所が消える
+    expect(scrollTopToRemember({ current: 0, wanted: 0, restored: false })).toBeNull()
+  })
+
+  it('戻したあとで先頭にいるなら、0 を覚える（＝忘れる）', () => {
+    expect(scrollTopToRemember({ current: 0, wanted: 0, restored: true })).toBe(0)
   })
 })
