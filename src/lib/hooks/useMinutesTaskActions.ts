@@ -17,6 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   classifyCompleteFailure,
   completeFailureMessage,
+  COMPLETE_FAILURE_NO_ROWS,
   type CompleteFailureKind,
   type MinutesTaskAction,
   type MinutesTaskState,

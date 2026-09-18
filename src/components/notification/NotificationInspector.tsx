@@ -347,7 +347,7 @@ export function NotificationInspector({
   const getRpcErrorMessage = (err: unknown, fallback: string): string => {
     if (err instanceof Error && err.message) {
       // Map known RPC error messages to Japanese
-      if (err.message.includes('No review found')) return 'レビューレコードが見つかりません。'
+      if (err.message.includes('No review found')) return 'この承認依頼は取り消されています。'
       if (err.message.includes('not a reviewer')) return 'このタスクのレビュー権限がありません。'
       if (err.message.includes('Task not found')) return 'タスクが見つかりません。'
       if (err.message.includes('Authentication required')) return '認証が必要です。ページをリロードしてください。'
@@ -363,9 +363,17 @@ export function NotificationInspector({
     setActionLoading(true)
     setActionError(null)
     try {
-      await rpc.reviewApprove(supabase, { taskId })
+      // 承認がそろうと DB 側（_review_approve_impl）がタスクを完了にする。
+      // その事実を受けて、ここの表示も完了に合わせる（合わせないと「承認したのに
+      // ステータスが社内承認中のまま」に見える）
+      const approved = await rpc.reviewApprove(supabase, { taskId })
       setHasReviewRecord(false)
-      setActionCompleted('approved')
+      if (approved?.taskCompleted === true) {
+        setTask(prev => (prev ? { ...prev, status: 'done' } : prev))
+        setActionCompleted('approved_completed')
+      } else {
+        setActionCompleted('approved')
+      }
       scheduleAdvance()
     } catch (err: unknown) {
       console.error('Review approve failed:', err)
@@ -485,15 +493,23 @@ export function NotificationInspector({
       return null
     }
 
-    // Review request: Approve / Block (only if pending review record exists for current user)
-    if (notification.type === 'review_request' && taskId && hasReviewRecord) {
+    // Review request: Approve / Block（自分の承認待ちが残っているとき、
+    // および返事をした直後（actionCompleted）。直後も出さないと、返事の結果を伝える前に
+    // 欄ごと消えて「レビューレコードが見つかりません」に化けてしまう）
+    if (notification.type === 'review_request' && taskId && (hasReviewRecord || actionCompleted)) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
           <p className="text-xs text-gray-500 mb-2 font-medium">承認アクション</p>
           {actionCompleted ? (
             <div className="flex items-center gap-2 text-sm text-green-600">
               <CheckCircle weight="fill" />
-              <span>{actionCompleted === 'approved' ? '承認しました' : '差し戻しました'}</span>
+              <span>
+                {actionCompleted === 'approved_completed'
+                  ? '承認しました。タスクを完了にしました'
+                  : actionCompleted === 'approved'
+                    ? '承認しました'
+                    : '差し戻しました'}
+              </span>
             </div>
           ) : !showBlockForm ? (
             <div className="space-y-2">
@@ -558,10 +574,12 @@ export function NotificationInspector({
     }
 
     // Review request: no review record found - show fallback
-    if (notification.type === 'review_request' && taskId && !hasReviewRecord && !taskLoading) {
+    if (notification.type === 'review_request' && taskId && !hasReviewRecord && !actionCompleted && !taskLoading) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
-          <p className="text-xs text-gray-500">レビューレコードが見つかりません。「詳細を見る」からタスクを確認してください。</p>
+          <p className="text-xs text-gray-500">
+            あなたの返事はもう済んでいるか、この依頼が取り消されています。「詳細を見る」でタスクの状態を確認できます。
+          </p>
         </div>
       )
     }

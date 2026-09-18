@@ -540,3 +540,45 @@ describe('TaskReviewSection — 操作の失敗をtoastで知らせる', () => {
     await waitFor(() => expect(mockToastError).toHaveBeenCalled())
   })
 })
+
+/**
+ * 承認がそろうと DB 側（_review_approve_impl）がタスクを完了にする。その事実を親（一覧）へ
+ * 渡さないと、一覧のタスクが「社内承認中」のまま残る。
+ */
+describe('TaskReviewSection — 承認で完了になったことを親に伝える', () => {
+  beforeEach(() => {
+    mockReviewApprove.mockReset()
+    mockMembers = [
+      { id: 'u1', displayName: '自分', role: 'editor' },
+      { id: 'i1', displayName: '田中（社内）', role: 'editor' },
+    ]
+  })
+
+  it('完了になったら taskCompleted=true で伝える', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'open', created_by: 'i1' },
+      [{ id: 'a1', reviewer_id: 'u1', state: 'pending' }]
+    )
+    mockReviewApprove.mockResolvedValue({ ok: true, allApproved: true, taskCompleted: true })
+    const onReviewChange = vi.fn()
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" onReviewChange={onReviewChange} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '承認' }))
+
+    await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith('t1', 'open', true))
+  })
+
+  it('ほかの承認者が残っているときは taskCompleted=false で伝える', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'open', created_by: 'i1' },
+      [{ id: 'a1', reviewer_id: 'u1', state: 'pending' }]
+    )
+    mockReviewApprove.mockResolvedValue({ ok: true, allApproved: false, taskCompleted: false })
+    const onReviewChange = vi.fn()
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" onReviewChange={onReviewChange} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '承認' }))
+
+    await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith('t1', 'open', false))
+  })
+})
