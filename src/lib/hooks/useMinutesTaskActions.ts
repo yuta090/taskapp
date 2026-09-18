@@ -17,6 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   classifyCompleteFailure,
   completeFailureMessage,
+  COMPLETE_FAILURE_NO_ROWS,
   type CompleteFailureKind,
   type MinutesTaskAction,
   type MinutesTaskState,
@@ -145,10 +146,7 @@ export function useMinutesTaskActions({
         // 日本語と「次にすること」に置き換える
         if (error) throw new MinutesCompleteError(classifyCompleteFailure(error.message))
         if ((data ?? []).length === 0) {
-          throw new MinutesCompleteError(
-            'unknown',
-            'このタスクを完了にできませんでした（権限が無いか、削除された可能性があります）'
-          )
+          throw new MinutesCompleteError('unknown', COMPLETE_FAILURE_NO_ROWS)
         }
       }
       // 一覧のキャッシュを捨てる。捨てないと「完了にしたのに一覧では終わっていない」が

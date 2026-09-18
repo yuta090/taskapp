@@ -67,7 +67,7 @@ interface TaskInspectorProps {
   onSetSpecState?: (decisionState: DecisionState) => Promise<void>
   /** AT-007: refetch after an out-of-meeting client decision is recorded */
   onConsideringDecided?: () => void
-  onReviewChange?: (taskId: string, status: string | null) => void
+  onReviewChange?: (taskId: string, status: string | null, taskCompleted?: boolean) => void
   /** Available parent tasks for parent selection */
   parentTasks?: { id: string; title: string }[]
   /** Child tasks of this task */
@@ -77,6 +77,11 @@ interface TaskInspectorProps {
    * 案内を出す。作る中身（担当の引き継ぎ・ボール）は buildChildTaskInput が決める
    */
   onCreateChild?: (draft: ChildTaskDraft) => Promise<void>
+  /**
+   * 一覧のチェックボックスで完了にしたときの案内（「確認依頼を出す」）から開いたときだけ true。
+   * 詳細を開くと同時に、確認依頼の子タスクの入力欄をひな形つきでその場に出す
+   */
+  openReviewRequest?: boolean
   /**
    * 子タスクを普通にクリックしたときに呼ぶ。今の画面のまま、そのタスクの詳細に切り替えるのに使う。
    * 渡さなければリンク（プロジェクトのタスク一覧でそのタスクを開く）としてそのまま移動する。
@@ -123,6 +128,7 @@ export function TaskInspector({
   parentTasks = [],
   childTasks = [],
   onCreateChild,
+  openReviewRequest = false,
   onOpenTask,
   canEditPricing = false,
   unreadCommentCount = 0,
@@ -191,6 +197,21 @@ export function TaskInspector({
     )
     setShowDetails(hasDetails)
   }, [task.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 一覧で完了にしたときの案内から開いたときは、確認依頼の入力欄まで開いて渡す
+  // （案内を押した人はもう「出す」と決めているので、詳細の中でもう一度押させない）。
+  // 上のリセットより後に書くこと — タスクを切り替えた直後は両方が動く。
+  // 編集できるかどうかが後から決まる場合に備えて可否も見張る。ただし onCreateChild
+  // そのものは依存に入れない（呼び出し側が毎回作り直すので、閉じても開き直してしまう）
+  const canCreateChild = !!onCreateChild
+  useEffect(() => {
+    if (!openReviewRequest || !canCreateChild) return
+    setChildDraft({
+      title: REVIEW_REQUEST_TITLE_PREFIX,
+      description: REVIEW_REQUEST_DESCRIPTION_TEMPLATE,
+      place: 'banner',
+    })
+  }, [openReviewRequest, canCreateChild, task.id])
 
   // 入力欄はパネルの下の方（詳細設定の中）に開くので、開いた側で見える位置まで運んで
   // カーソルを置く。開いたことに気づかず入力できない、を防ぐ

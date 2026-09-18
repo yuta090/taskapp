@@ -50,3 +50,26 @@ describe('useTasks.handleReviewChange', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['myPendingReviews'] })
   })
 })
+
+/**
+ * 承認で書き換えるのは該当タスクの行だけなので、このプロジェクトの「取得時刻」は動かさない。
+ * 動かすと、前日の永続キャッシュが「今取れたばかり」に見え、マイタスク側の新旧判定
+ * （recentEnough）と裏の取り直しが飛んで、古い一覧が出たままになる。
+ */
+describe('useTasks.handleReviewChange — 取得時刻は据え置く', () => {
+  it('行だけ書き換えても dataUpdatedAt は変わらない', async () => {
+    const { result } = renderHook(() => useTasks({ orgId: 'org-1', spaceId: 'space-1' }), { wrapper })
+    await waitFor(() => expect(result.current.reviewStatuses).toEqual({ t1: 'open' }))
+
+    const key = ['tasks', 'org-1', 'space-1']
+    const before = queryClient.getQueryState(key)?.dataUpdatedAt
+    expect(before).toBeTruthy()
+
+    // 1ミリ秒でも進めば「今」に更新されたと分かる
+    await new Promise((r) => setTimeout(r, 5))
+    act(() => result.current.handleReviewChange('t1', 'approved', true))
+
+    await waitFor(() => expect(result.current.reviewStatuses).toEqual({ t1: 'approved' }))
+    expect(queryClient.getQueryState(key)?.dataUpdatedAt).toBe(before)
+  })
+})
