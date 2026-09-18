@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Calendar, Clock, CaretRight, FileText, X } from '@phosphor-icons/react'
+import { Calendar, Clock, CaretRight, FileText, FilePdf, X } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 // 共有 barrel を経由しない（議事録の Markdown 変換器がポータル全ページの
 // 共有チャンクに載るのを避けるため。components/portal/index.ts のコメント参照）
@@ -58,21 +58,47 @@ function MeetingInspector({
   meeting: Meeting
   onClose: () => void
 }) {
+  const hasMinutes = !!meeting.minutesMd?.trim()
+
+  // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
+  // 会議名・日時・サマリー・本文だけに絞る指定は globals.css の @media print 側にあり、
+  // 下の data-print-root の印を見ている（社内の議事録・Wiki と同じ仕組み）。
+  const handlePrintPdf = () => {
+    window.print()
+  }
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* Header — 押すためのものだけを置く。紙に載せるかたまり(data-print-root)の外なので
+          印刷では出ない */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 shrink-0">
         <span className="text-sm font-medium text-gray-900">議事録詳細</span>
-        <button
-          onClick={onClose}
-          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* 控えを持ち帰れるようにする。刷るものが無い（議事録が空）ときは出さない */}
+          {hasMinutes && (
+            <button
+              type="button"
+              onClick={handlePrintPdf}
+              data-testid="portal-minutes-print-pdf"
+              title="印刷の画面が開きます。保存先で「PDF」を選んでください"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <FilePdf className="w-4 h-4" />
+              PDFで保存
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            aria-label="閉じる"
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Content — data-print-root: 「PDFで保存」で刷るとき、紙に載せるのはここだけにする */}
+      <div data-print-root className="flex-1 overflow-y-auto">
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
           <h3 className="font-medium text-gray-900">{meeting.title}</h3>
           <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
