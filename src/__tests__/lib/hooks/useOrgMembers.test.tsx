@@ -64,4 +64,21 @@ describe('useOrgMembers', () => {
     await waitFor(() => expect(result.current.isLoadingError).toBe(true))
     expect(result.current.roleByUserId.size).toBe(0)
   })
+
+  it('メールが返ったら user_id → メールの対応表を作る（null の人は入れない）', async () => {
+    rpcMock.mockResolvedValue({
+      data: [
+        { user_id: 'u1', display_name: 'オーナー', avatar_url: null, email: 'owner@example.com', role: 'owner', joined_at: '2026-01-01' },
+        { user_id: 'u2', display_name: 'メンバー', avatar_url: null, email: null, role: 'member', joined_at: '2026-01-02' },
+      ],
+      error: null,
+    })
+    const { Wrapper } = createWrapper()
+
+    const { result } = renderHook(() => useOrgMembers('org-1'), { wrapper: Wrapper })
+
+    await waitFor(() => expect(result.current.emailByUserId.get('u1')).toBe('owner@example.com'))
+    // メールを見る権限が無い人には DB が null を返す。その人は表に入れない
+    expect(result.current.emailByUserId.has('u2')).toBe(false)
+  })
 })

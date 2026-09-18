@@ -47,6 +47,7 @@ vi.mock('@/lib/hooks/useOrgMembers', () => ({
   useOrgMembers: () => ({
     members: [],
     roleByUserId: new Map([['user-1', 'owner']]),
+    emailByUserId: new Map<string, string>(),
     isPending: false,
     isLoadingError: false,
     error: null,
