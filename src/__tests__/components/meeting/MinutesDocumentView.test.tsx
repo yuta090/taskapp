@@ -885,3 +885,101 @@ describe('議事録からタスクやWikiへ移って戻ったとき、見てい
     expect(readMinutesScroll('m1', BODY.length)).toBe(520)
   })
 })
+
+describe('戻した場所を、本文が組み上がるまで押さえる', () => {
+  const BODY = '# 定例MTG\n\n本文'
+
+  /** jsdom には ResizeObserver が無いので、呼び出しを手で起こせる差し替えを使う */
+  class FakeResizeObserver {
+    static instances: FakeResizeObserver[] = []
+    observed: Element[] = []
+    disconnected = false
+    constructor(public callback: () => void) {
+      FakeResizeObserver.instances.push(this)
+    }
+    observe(el: Element) {
+      this.observed.push(el)
+    }
+    unobserve() {}
+    disconnect() {
+      this.disconnected = true
+    }
+  }
+
+  const observer = () => FakeResizeObserver.instances[0]
+  /** 本物と同じく、外したあとは呼ばれない */
+  const heightChanged = () => {
+    const o = observer()
+    if (!o.disconnected) o.callback()
+  }
+
+  beforeEach(() => {
+    window.sessionStorage.clear()
+    FakeResizeObserver.instances = []
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function openAt(top: number) {
+    saveMinutesScroll('m1', top, BODY.length)
+    const utils = setup()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    return utils
+  }
+
+  it('本文の高さを見張る', async () => {
+    await openAt(900)
+    expect(observer().observed[0]).toBe(screen.getByTestId('minutes-editor-region'))
+  })
+
+  it('本文が伸びて位置がずれたら、入れ直す', async () => {
+    await openAt(900)
+    const box = screen.getByTestId('minutes-scroll-box')
+    // ブラウザが「見えているもの」を保とうとして位置を動かした状態を作る
+    box.scrollTop = 984
+    act(heightChanged)
+    expect(box.scrollTop).toBe(900)
+  })
+
+  it('利用者が自分で動かしたら、押さえるのをやめる', async () => {
+    await openAt(900)
+    const box = screen.getByTestId('minutes-scroll-box')
+    fireEvent.wheel(box)
+    expect(observer().disconnected).toBe(true)
+
+    box.scrollTop = 1200
+    act(heightChanged)
+    expect(box.scrollTop).toBe(1200)
+  })
+
+  it('決めた時間が過ぎたら、押さえるのをやめる', async () => {
+    await openAt(900)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(observer().disconnected).toBe(true)
+  })
+
+  it('本文が組み上がる前に離れても、戻したかった場所を覚える', async () => {
+    // 枠にまだ高さが無いと位置は 0 に丸められる。そのまま 0 を覚えると
+    // 「先頭にいた」とみなされ、せっかく覚えた場所が消える
+    const { unmount } = await openAt(900)
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 0
+    fireEvent.scroll(box)
+
+    unmount()
+    expect(readMinutesScroll('m1', BODY.length)).toBe(900)
+  })
+
+  it('画面を離れたら、見張りを外す', async () => {
+    const { unmount } = await openAt(900)
+    unmount()
+    expect(observer().disconnected).toBe(true)
+  })
+})

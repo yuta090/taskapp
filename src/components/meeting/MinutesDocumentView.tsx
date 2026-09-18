@@ -16,7 +16,7 @@ import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { EditorLoadingFallback } from '@/components/editor/EditorLoadingFallback'
 import { useMinutesTaskActions } from '@/lib/hooks/useMinutesTaskActions'
-import { saveMinutesScroll, takeMinutesScroll } from '@/lib/minutes/scrollMemory'
+import { saveMinutesScroll, scrollTopToRemember, takeMinutesScroll } from '@/lib/minutes/scrollMemory'
 import type { MinutesEditorApi } from './MinutesEditor'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
 import { appendOnlyAddition } from '@/lib/minutes/rebase'
@@ -251,7 +251,7 @@ interface MinutesDocumentBodyProps {
 }
 
 /** 利用者が自分で動かしたと分かる操作。これが来たら、戻した位置を押さえるのをやめる */
-const USER_SCROLL_EVENTS = ['wheel', 'touchstart', 'keydown', 'mousedown'] as const
+const USER_SCROLL_EVENTS = ['wheel', 'touchstart', 'keydown', 'pointerdown', 'mousedown'] as const
 
 /** 本文が組み上がるまで、戻した位置を押さえておく時間の上限 */
 const SCROLL_HOLD_MS = 3000
@@ -833,13 +833,23 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
    * 中身の高さが変わるたびに入れ直し、利用者が自分で動かしたらやめる。
    */
   const holdRef = useRef<(() => void) | null>(null)
+  /**
+   * 戻そうとしている位置。押さえているあいだだけ 0 以外。
+   * 本文が組み上がる前に離れたとき、0 ではなくこちらを覚えるために持つ
+   * （0 を覚えると「先頭にいた」とみなされ、覚えた場所が消える）。
+   */
+  const wantedTopRef = useRef(0)
   const holdScrollTop = useCallback((el: HTMLDivElement, top: number) => {
     holdRef.current?.()
+    wantedTopRef.current = top
     el.scrollTop = top
     lastScrollTopRef.current = el.scrollTop
 
     const content = el.firstElementChild
-    if (!content || typeof ResizeObserver === 'undefined') return
+    if (!content || typeof ResizeObserver === 'undefined') {
+      wantedTopRef.current = 0
+      return
+    }
 
     const observer = new ResizeObserver(() => {
       if (el.scrollTop !== top) el.scrollTop = top
@@ -850,6 +860,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const stop = () => {
       observer.disconnect()
       clearTimeout(timer)
+      wantedTopRef.current = 0
       for (const type of USER_SCROLL_EVENTS) el.removeEventListener(type, stop)
       if (holdRef.current === stop) holdRef.current = null
     }
@@ -909,7 +920,12 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
    */
   const rememberScroll = useCallback(() => {
     const box = scrollBoxRef.current
-    const top = box ? box.scrollTop : lastScrollTopRef.current
+    const top = scrollTopToRemember({
+      current: box ? box.scrollTop : lastScrollTopRef.current,
+      wanted: wantedTopRef.current,
+      restored: restoredForRef.current === meetingId,
+    })
+    if (top === null) return
     saveMinutesScroll(meetingId, top, currentContentRef.current.length)
   }, [meetingId])
 
@@ -917,8 +933,10 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     window.addEventListener('pagehide', rememberScroll)
     return () => {
       window.removeEventListener('pagehide', rememberScroll)
-      holdRef.current?.()
+      // 覚えるのが先。押さえを止めると「戻したかった位置」を手放すので、
+      // 本文が組み上がる前に離れた場合に覚えるものが無くなる
       rememberScroll()
+      holdRef.current?.()
     }
   }, [rememberScroll])
 
