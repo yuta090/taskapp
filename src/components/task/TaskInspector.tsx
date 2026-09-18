@@ -67,7 +67,7 @@ interface TaskInspectorProps {
   onSetSpecState?: (decisionState: DecisionState) => Promise<void>
   /** AT-007: refetch after an out-of-meeting client decision is recorded */
   onConsideringDecided?: () => void
-  onReviewChange?: (taskId: string, status: string | null) => void
+  onReviewChange?: (taskId: string, status: string | null, taskCompleted?: boolean) => void
   /** Available parent tasks for parent selection */
   parentTasks?: { id: string; title: string }[]
   /** Child tasks of this task */

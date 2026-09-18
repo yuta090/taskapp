@@ -188,11 +188,19 @@ export interface ReviewApproveParams {
   meetingId?: string
 }
 
+export interface ReviewApproveResult extends RpcResult {
+  allApproved?: boolean
+  /** すでに承認済みの人がもう一度押した（何も変えていない） */
+  alreadyApproved?: boolean
+  /** 承認がそろって、DB 側がタスクを完了にしたか（20260918162535_review_auto_complete.sql） */
+  taskCompleted?: boolean
+}
+
 export async function reviewApprove(
   client: Client,
   params: ReviewApproveParams
-): Promise<RpcResult> {
-  return callRpc<RpcResult>(client, 'rpc_review_approve', {
+): Promise<ReviewApproveResult> {
+  return callRpc<ReviewApproveResult>(client, 'rpc_review_approve', {
     p_task_id: params.taskId,
     p_meeting_id: params.meetingId || null,
   })
