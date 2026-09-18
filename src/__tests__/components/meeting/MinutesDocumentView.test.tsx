@@ -834,13 +834,54 @@ describe('議事録からタスクやWikiへ移って戻ったとき、見てい
     expect(readMinutesScroll('m1', BODY.length)).toBeNull()
   })
 
-  it('戻すのは一度だけ。画面を組み直しても二度目は動かさない', async () => {
+  it('戻したら、覚えていた場所は消す（古い場所を使い回さない）', async () => {
     saveMinutesScroll('m1', 900, BODY.length)
-    const { unmount } = await open()
+    await open()
     expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(900)
+    expect(readMinutesScroll('m1', BODY.length)).toBeNull()
+  })
+
+  it('左メニューなど本文のリンク以外で画面を離れても、見ていた場所を覚える', async () => {
+    const { unmount } = await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 640
+    fireEvent.scroll(box)
 
     unmount()
+    expect(readMinutesScroll('m1', BODY.length)).toBe(640)
+  })
+
+  it('離れたときの場所を覚えるので、もう一度開くとそこへ戻る', async () => {
+    const { unmount } = await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 640
+    fireEvent.scroll(box)
+    unmount()
+
     await open()
-    expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(0)
+    expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(640)
+  })
+
+  it('先頭のまま離れたときは覚えない', async () => {
+    saveMinutesScroll('m1', 900, BODY.length)
+    const { unmount } = await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 0
+    fireEvent.scroll(box)
+
+    unmount()
+    expect(readMinutesScroll('m1', BODY.length)).toBeNull()
+  })
+
+  it('タブを閉じる・再読み込みの直前にも覚える', async () => {
+    await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 520
+    fireEvent.scroll(box)
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'))
+    })
+    expect(readMinutesScroll('m1', BODY.length)).toBe(520)
   })
 })
