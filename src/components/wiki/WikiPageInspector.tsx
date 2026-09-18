@@ -52,7 +52,7 @@ export function WikiPageInspector({
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(page.title)
   const [isDeleting, setIsDeleting] = useState(false)
-  const { confirm, ConfirmDialog } = useConfirmDialog()
+  const { confirm, ConfirmDialog, closeConfirm } = useConfirmDialog()
   const [versions, setVersions] = useState<WikiPageVersionSummary[]>([])
   /**
    * 確定した時点の控えと、そのあと本文が変わったか。版を読んだときにしか分からないので、
@@ -88,7 +88,10 @@ export function WikiPageInspector({
     setShowVersions(false)
     setVersions([])
     setOrganizeError(null)
-  }, [page.id, page.title])
+    // 見ている対象が変わったら、出しっぱなしの削除の確認も取り下げる。残すと、
+    // 前のページ名のまま出ている確認で「削除する」を押せてしまう。
+    closeConfirm()
+  }, [page.id, page.title, closeConfirm])
 
   const handleSaveTitle = async () => {
     if (!onUpdate || !editTitle.trim() || editTitle === page.title) {

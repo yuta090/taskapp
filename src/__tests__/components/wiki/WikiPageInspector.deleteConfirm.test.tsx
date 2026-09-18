@@ -90,6 +90,38 @@ describe('WikiPageInspector の削除', () => {
     await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1))
   })
 
+  it('確認を開いたまま別のページに切り替わったら、確認を閉じて削除しない', async () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined)
+    const { rerender } = render(
+      <WikiPageInspector
+        page={page()}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={onDelete}
+        allPages={[]}
+        milestones={[]}
+      />
+    )
+
+    fireEvent.click(trashButton())
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+
+    // ブラウザの「戻る」などで、パネルが別のページに差し替わる
+    rerender(
+      <WikiPageInspector
+        page={page({ id: 'page-2', title: '別のページ' })}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={onDelete}
+        allPages={[]}
+        milestones={[]}
+      />
+    )
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
   it('閲覧だけの人（onDelete が無い）にはゴミ箱を出さない', () => {
     render(
       <WikiPageInspector page={page()} onClose={vi.fn()} onUpdate={undefined} allPages={[]} milestones={[]} />
