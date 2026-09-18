@@ -176,7 +176,9 @@ function makeHangingChainable(table: string) {
  */
 function makeSelectHangsButUpdateChainable(
   table: string,
-  updateResult: { data: unknown; error: unknown } = { data: null, error: null }
+  // 保存が通ったときの代役。本番は .update(...).select('id') で**更新した行**を返す
+  // （0行 = RLS で弾かれた、なので data を空にすると失敗扱いになる）
+  updateResult: { data: unknown; error: unknown } = { data: [{ id: 'updated' }], error: null }
 ) {
   const record: { table: string; eqs: Array<[string, unknown]> } = { table, eqs: [] }
   mocks.fromCalls.push(record)
@@ -1209,7 +1211,7 @@ describe('MyTasksClient — 一覧の読み込みを react-query のキャッシ
     // t1 の保存を待っている間に、t2 も別途操作して成功させる
     fireEvent.click(buttons[1])
     await act(async () => {
-      perRow.settleUpdate('t2', { data: null, error: null })
+      perRow.settleUpdate('t2', { data: [{ id: 't2' }], error: null })
       await Promise.resolve()
     })
     await waitFor(() => {
@@ -1317,7 +1319,7 @@ describe('MyTasksClient — 一覧の読み込みを react-query のキャッシ
 
     // 後始末: 保留のままだと次のテストに影響しうるため、保存を成功させておく
     await act(async () => {
-      queued.settleUpdate({ data: null, error: null })
+      queued.settleUpdate({ data: [{ id: 't1' }], error: null })
       await Promise.resolve()
     })
   })

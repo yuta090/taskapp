@@ -6,6 +6,11 @@ import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus, ChatCircle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import {
+  COMPLETE_FAILURE_NO_ROWS,
+  STATUS_CHANGE_NO_ROWS,
+  statusChangeFailureMessage,
+} from '@/lib/tasks/completeFailure'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { TaskRow } from '@/components/task/TaskRow'
@@ -871,12 +876,15 @@ export default function MyTasksClient() {
       { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
     )
 
-    const { error } = await (supabase as SupabaseClient)
+    // .select('id') を付ける: RLS で弾かれた更新は**エラーではなく0行**で返るので、
+    // 付けないと「何も起きていないのに完了になったまま」になる（議事録の run と同じ守り）
+    const { data: updated, error } = await (supabase as SupabaseClient)
       .from('tasks')
       .update({ status })
       .eq('id', taskId)
+      .select('id')
 
-    if (error) {
+    if (error || (updated ?? []).length === 0) {
       // Revert on error
       queryClient.setQueryData<MyTasksData>(
         myTasksKey,
@@ -884,6 +892,16 @@ export default function MyTasksClient() {
         { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
       )
       console.error('Failed to update task status:', error)
+      // 断られた理由を出す。出さないと「押しても何も起きない」ようにしか見えない
+      // （2026-09-18 に本番で起きた: 社内承認が終わっていないタスクを完了にできず、
+      //  理由が console にしか出ていなかった）
+      toast.error(
+        error
+          ? statusChangeFailureMessage(error.message)
+          : status === 'done'
+            ? COMPLETE_FAILURE_NO_ROWS
+            : STATUS_CHANGE_NO_ROWS
+      )
       if (wasFetching) void queryClient.invalidateQueries({ queryKey: myTasksKey })
       return
     }

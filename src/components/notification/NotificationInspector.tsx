@@ -30,6 +30,11 @@ import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { getNotificationTypeLabel } from '@/lib/notifications/labels'
+import {
+  COMPLETE_FAILURE_NO_ROWS,
+  STATUS_CHANGE_NO_ROWS,
+  statusChangeFailureMessage,
+} from '@/lib/tasks/completeFailure'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import type { Task, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -144,6 +149,9 @@ export function NotificationInspector({
   const [taskLoading, setTaskLoading] = useState(false)
   const [statusUpdating, setStatusUpdating] = useState(false)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
+  // ステータスを変えられなかった理由（社内承認が未了・未決の決定事項・権限が無い）。
+  // 出さないと「押しても何も起きない」ようにしか見えない
+  const [statusError, setStatusError] = useState<string | null>(null)
   // Whether the current user has a pending review_approval record for this task
   const [hasReviewRecord, setHasReviewRecord] = useState(false)
 
@@ -174,6 +182,7 @@ export function NotificationInspector({
     setActionCompleted(null)
     setActionLoading(false)
     setActionError(null)
+    setStatusError(null)
     if (advanceTimerRef.current) {
       clearTimeout(advanceTimerRef.current)
       advanceTimerRef.current = null
@@ -275,6 +284,7 @@ export function NotificationInspector({
     const prevStatus = task.status
     setStatusUpdating(true)
     setShowStatusMenu(false)
+    setStatusError(null)
 
     // Optimistic update
     setTask(prev => prev ? { ...prev, status: newStatus } : null)
@@ -286,15 +296,21 @@ export function NotificationInspector({
         .eq('id', task.id)
         .select('id')
 
-      if (error) throw error
+      // 完了できない理由（社内承認が未了・決定事項が未決）は DB のトリガー
+      // enforce_review_gate が**英語で**返す。そのまま出しても読めないので日本語にする
+      if (error) throw new Error(statusChangeFailureMessage(error.message))
+      // RLS で弾かれた更新はエラーではなく 0 行で返る
       if (!updated || updated.length === 0) {
-        throw new Error('タスクが見つかりませんでした')
+        throw new Error(newStatus === 'done' ? COMPLETE_FAILURE_NO_ROWS : STATUS_CHANGE_NO_ROWS)
       }
       return true
     } catch (err) {
       console.error('Failed to update task status:', err)
       // Rollback optimistic update
       setTask(prev => prev ? { ...prev, status: prevStatus } : null)
+      setStatusError(
+        err instanceof Error && err.message ? err.message : 'ステータスを変更できませんでした'
+      )
       return false
     } finally {
       setStatusUpdating(false)
@@ -385,9 +401,8 @@ export function NotificationInspector({
     if (success) {
       setActionCompleted('started')
       scheduleAdvance()
-    } else {
-      setActionError('ステータス更新に失敗しました。')
     }
+    // 失敗の理由は handleStatusChange が statusError に入れ、関連タスクの枠に出す
   }, [task, handleStatusChange, scheduleAdvance])
 
   // Spec decision: Mark as decided
@@ -859,6 +874,18 @@ export function NotificationInspector({
                     )}
                   </div>
                 </div>
+
+                {/* ステータスを変えられなかった理由 */}
+                {statusError && (
+                  <button
+                    type="button"
+                    onClick={() => setStatusError(null)}
+                    className="w-full text-left px-2 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                  >
+                    {statusError}
+                    <span className="ml-1 text-red-500">（クリックで閉じる）</span>
+                  </button>
+                )}
 
                 {/* Due date display */}
                 {task.due_date && (
