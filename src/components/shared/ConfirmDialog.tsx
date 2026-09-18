@@ -12,28 +12,31 @@ interface ConfirmOptions {
   variant?: 'danger' | 'default'
 }
 
-interface ConfirmState extends ConfirmOptions {
-  resolve: (value: boolean) => void
-}
+type ConfirmState = ConfirmOptions
 
 export function useConfirmDialog() {
   const [state, setState] = useState<ConfirmState | null>(null)
+  const resolveRef = useRef<((value: boolean) => void) | null>(null)
+
+  // 返事を返して閉じる。参照が変わらないので、呼び出し側の useEffect の依存に
+  // そのまま書ける（依存が毎回変わると、開いた直後に閉じる effect が走ってしまう）。
+  const settle = useCallback((value: boolean) => {
+    resolveRef.current?.(value)
+    resolveRef.current = null
+    setState(null)
+  }, [])
 
   const confirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
     return new Promise((resolve) => {
-      setState({ ...options, resolve })
+      // 前の問いかけが残っていたら「いいえ」で閉じてから開く（返事待ちを宙に浮かせない）
+      resolveRef.current?.(false)
+      resolveRef.current = resolve
+      setState(options)
     })
   }, [])
 
-  const handleConfirm = useCallback(() => {
-    state?.resolve(true)
-    setState(null)
-  }, [state])
-
-  const handleCancel = useCallback(() => {
-    state?.resolve(false)
-    setState(null)
-  }, [state])
+  const handleConfirm = useCallback(() => settle(true), [settle])
+  const handleCancel = useCallback(() => settle(false), [settle])
 
   const ConfirmDialog = state ? (
     <ConfirmDialogUI
@@ -47,7 +50,10 @@ export function useConfirmDialog() {
     />
   ) : null
 
-  return { confirm, ConfirmDialog }
+  /** 人が答える前に、外の事情（見ている対象が変わった等）で問いかけを取り下げる。 */
+  const closeConfirm = handleCancel
+
+  return { confirm, ConfirmDialog, closeConfirm }
 }
 
 function ConfirmDialogUI({
