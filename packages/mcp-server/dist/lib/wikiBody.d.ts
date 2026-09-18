@@ -19,6 +19,16 @@ export type WikiBodyFormat = 'markdown' | 'html' | 'blocks';
  * import できないため、一致はテストで見張る。
  */
 export declare const TOGGLE_MARKER = "<!--toggle-->";
+/**
+ * ページ内の目次に置き換わる目印。1行で `<!--toc-->` と書く。
+ * Wiki 画面の「/」メニューが挿す目次ブロックと同じ名前（src/lib/minutes/markdown.ts の
+ * TOC_TYPE / TOC_MARKER）。別パッケージなので import できず、一致はテストで見張る。
+ *
+ * これが無かったあいだ、`wiki update --format markdown` で送った `<!--toc-->` は
+ * HTML コメントとして黙って捨てられていた（2026-09-18）。
+ */
+export declare const TOC_MARKER = "<!--toc-->";
+export declare const TOC_TYPE = "tableOfContents";
 /** 本文の形式を推定する。JSON のブロック配列 → blocks / HTML らしければ html / それ以外 markdown */
 export declare function detectWikiBodyFormat(body: string): WikiBodyFormat;
 export interface InlineStyles {

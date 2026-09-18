@@ -995,6 +995,26 @@ export declare const allTools: ({
     description: string;
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
+        pageId: import("zod").ZodString;
+        action: import("zod").ZodDefault<import("zod").ZodEnum<["add", "remove"]>>;
+        expectedUpdatedAt: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        action: "add" | "remove";
+        pageId: string;
+        expectedUpdatedAt?: string | undefined;
+    }, {
+        spaceId: string;
+        pageId: string;
+        action?: "add" | "remove" | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }>;
+    handler: typeof import("./wiki.js").wikiToc;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
         meetingId: import("zod").ZodString;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
@@ -1041,6 +1061,26 @@ export declare const allTools: ({
         content: string;
     }>;
     handler: typeof import("./minutes.js").minutesAppend;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        meetingId: import("zod").ZodString;
+        action: import("zod").ZodDefault<import("zod").ZodEnum<["add", "remove"]>>;
+        expectedUpdatedAt: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        action: "add" | "remove";
+        meetingId: string;
+        expectedUpdatedAt?: string | undefined;
+    }, {
+        spaceId: string;
+        meetingId: string;
+        action?: "add" | "remove" | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }>;
+    handler: typeof import("./minutes.js").minutesToc;
 } | {
     name: string;
     description: string;
