@@ -774,8 +774,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const syncUrlRef = useRef(syncUrlWithState)
   const isCreateOpenRef = useRef(isCreateOpen)
   const activeFilterRef = useRef(activeFilter)
-  // 一覧の変更のたびに handleStatusChange を作り直すと TaskRow の memo を素通りしてしまうため、
-  // 直前の状態はこの ref から読む（マイタスクの updateTaskStatus と同じ考え方）
+  // handleStatusChange が直前の状態を読むのに使う。一覧そのものを依存に足さないため
+  // （マイタスクの updateTaskStatus と同じ考え方）。ただしこの callback は今のところ
+  // updateTask 経由で一覧に繋がっており、行の memo を本当に効かせるには useTasks 側の
+  // updateTask から tasks 依存を外す必要がある（この PR の範囲外）
   const tasksRef = useRef(tasks)
   useEffect(() => {
     selectedTaskIdRef.current = selectedTaskId
@@ -854,10 +856,16 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   // 一覧のチェックボックス・行の状態メニューから。完了にしたときは、タスク詳細と同じように
   // 確認依頼を子タスクで出すことを案内する（詳細を開いていないので画面の通知で出す）。
-  // tasks を依存に入れると TaskRow の memo を素通りしてしまうため、直前の状態は ref で読む
-  const handleStatusChange = useCallback((taskId: string, status: TaskStatus) => {
+  // 保存の結果を待ってから案内する — 失敗すると行の表示は巻き戻るので、完了していないのに
+  // 「完了にしました」と出したり、出していない完了の確認依頼を書かせたりしないため
+  const handleStatusChange = useCallback(async (taskId: string, status: TaskStatus) => {
     const previousStatus = tasksRef.current.find((t) => t.id === taskId)?.status
-    updateTask(taskId, { status })
+    try {
+      await updateTask(taskId, { status })
+    } catch (err) {
+      console.error('Failed to update task status:', err)
+      return
+    }
     suggestReviewRequestOnDone({
       previousStatus,
       nextStatus: status,

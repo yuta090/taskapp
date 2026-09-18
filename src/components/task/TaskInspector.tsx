@@ -200,15 +200,18 @@ export function TaskInspector({
 
   // 一覧で完了にしたときの案内から開いたときは、確認依頼の入力欄まで開いて渡す
   // （案内を押した人はもう「出す」と決めているので、詳細の中でもう一度押させない）。
-  // 上のリセットより後に書くこと — タスクを切り替えた直後は両方が動く
+  // 上のリセットより後に書くこと — タスクを切り替えた直後は両方が動く。
+  // 編集できるかどうかが後から決まる場合に備えて可否も見張る。ただし onCreateChild
+  // そのものは依存に入れない（呼び出し側が毎回作り直すので、閉じても開き直してしまう）
+  const canCreateChild = !!onCreateChild
   useEffect(() => {
-    if (!openReviewRequest || !onCreateChild) return
+    if (!openReviewRequest || !canCreateChild) return
     setChildDraft({
       title: REVIEW_REQUEST_TITLE_PREFIX,
       description: REVIEW_REQUEST_DESCRIPTION_TEMPLATE,
       place: 'banner',
     })
-  }, [openReviewRequest, task.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [openReviewRequest, canCreateChild, task.id])
 
   // 入力欄はパネルの下の方（詳細設定の中）に開くので、開いた側で見える位置まで運んで
   // カーソルを置く。開いたことに気づかず入力できない、を防ぐ
