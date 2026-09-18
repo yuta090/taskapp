@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import type { Milestone, WikiPage } from '@/types/database'
 import type { WikiPageVersionSummary } from '@/lib/hooks/useWikiPages'
 import { descendantIds } from '@/lib/wiki/listView'
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
   hasChangedSinceDecision,
   latestDecisionVersion,
@@ -51,6 +52,7 @@ export function WikiPageInspector({
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(page.title)
   const [isDeleting, setIsDeleting] = useState(false)
+  const { confirm, ConfirmDialog, closeConfirm } = useConfirmDialog()
   const [versions, setVersions] = useState<WikiPageVersionSummary[]>([])
   /**
    * 確定した時点の控えと、そのあと本文が変わったか。版を読んだときにしか分からないので、
@@ -86,7 +88,10 @@ export function WikiPageInspector({
     setShowVersions(false)
     setVersions([])
     setOrganizeError(null)
-  }, [page.id, page.title])
+    // 見ている対象が変わったら、出しっぱなしの削除の確認も取り下げる。残すと、
+    // 前のページ名のまま出ている確認で「削除する」を押せてしまう。
+    closeConfirm()
+  }, [page.id, page.title, closeConfirm])
 
   const handleSaveTitle = async () => {
     if (!onUpdate || !editTitle.trim() || editTitle === page.title) {
@@ -104,11 +109,15 @@ export function WikiPageInspector({
   }
 
   const handleDelete = async () => {
-    if (!onDelete) return
-    if (!isDeleting) {
-      setIsDeleting(true)
-      return
-    }
+    if (!onDelete || isDeleting) return
+    const ok = await confirm({
+      title: 'ページを削除',
+      message: `「${page.title}」を削除しますか？この操作は取り消せません。`,
+      confirmLabel: '削除する',
+      variant: 'danger',
+    })
+    if (!ok) return
+    setIsDeleting(true)
     try {
       await onDelete()
     } catch {
@@ -234,21 +243,22 @@ export function WikiPageInspector({
 
   return (
     <div className="h-full flex flex-col bg-surface">
+      {ConfirmDialog}
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
         <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">ページ情報</span>
         <div className="flex items-center gap-1">
-          <button
-            onClick={handleDelete}
-            className={`p-1.5 rounded transition-colors ${
-              isDeleting
-                ? 'text-red-700 bg-red-50 hover:bg-red-100'
-                : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
-            }`}
-            title={isDeleting ? 'もう一度クリックで削除' : '削除'}
-          >
-            <Trash className="text-base" />
-          </button>
+          {onDelete && (
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="p-1.5 rounded transition-colors text-gray-400 hover:text-red-500 hover:bg-gray-100 disabled:opacity-50"
+              aria-label="ページを削除"
+              title="削除"
+            >
+              <Trash className="text-base" />
+            </button>
+          )}
           <button
             onClick={onClose}
             className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"

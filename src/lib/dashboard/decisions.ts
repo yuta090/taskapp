@@ -80,6 +80,23 @@ export function summarizeDecisions(
   return { decided, considering }
 }
 
+export interface DecisionProgress {
+  /** 「確定 1/2」 */
+  text: string
+  /** 全部決まったか（見た目を塗りつぶすかどうか） */
+  complete: boolean
+}
+
+/**
+ * どこまで決まったか。Wiki 一覧の「確定 2/5」（src/lib/wiki/decisionCounts.ts）と同じ言い方にそろえる。
+ * 分母は画面に出している決定事項のタスクの数（決めずに取り下げた＝完了した検討中は入らない）。
+ */
+export function decisionProgressLabel(summary: DecisionSummary): DecisionProgress | null {
+  const total = summary.decided.length + summary.considering.length
+  if (total === 0) return null
+  return { text: `確定 ${summary.decided.length}/${total}`, complete: summary.decided.length === total }
+}
+
 /** 決まった日。今年なら「9/12」、年をまたいだら「2025/12/20」。日本時間で切る。 */
 export function formatDecidedDate(isoDate: string, currentYear: number): string {
   const parts = new Intl.DateTimeFormat('en-CA', {

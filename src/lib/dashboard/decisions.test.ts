@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { Task } from '@/types/database'
 import {
   decidedAtByTask,
+  decisionProgressLabel,
   formatDecidedDate,
   summarizeDecisions,
   type DecisionEventRow,
@@ -101,5 +102,27 @@ describe('formatDecidedDate — 確定した日の出し方（日本時間）', 
 
   it('日本時間で日付が変わる（UTC では前日の夜でも、日本では次の日）', () => {
     expect(formatDecidedDate('2026-09-11T20:00:00Z', 2026)).toBe('9/12')
+  })
+})
+
+describe('decisionProgressLabel — どこまで決まったかを「確定 1/2」で出す', () => {
+  it('決まった数と、決定事項のタスクの数を並べる（Wiki 一覧の「確定 2/5」と同じ言い方）', () => {
+    const summary = summarizeDecisions(
+      [
+        task({ id: 'd1', decision_state: 'decided' }),
+        task({ id: 'c1', decision_state: 'considering' }),
+      ],
+      []
+    )
+    expect(decisionProgressLabel(summary)).toEqual({ text: '確定 1/2', complete: false })
+  })
+
+  it('全部決まっていたら complete', () => {
+    const summary = summarizeDecisions([task({ id: 'd1', decision_state: 'implemented' })], [])
+    expect(decisionProgressLabel(summary)).toEqual({ text: '確定 1/1', complete: true })
+  })
+
+  it('決定事項のタスクが1件も無ければ出さない', () => {
+    expect(decisionProgressLabel(summarizeDecisions([], []))).toBeNull()
   })
 })
