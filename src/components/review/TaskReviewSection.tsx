@@ -145,7 +145,7 @@ export function TaskReviewSection({
       setShowReviewerPicker(false)
       setSelectedReviewerIds(null)
       const result = await fetchReview()
-      if (result.ok) onReviewChange?.(taskId, result.status, approved?.taskCompleted === true)
+      if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to open review:', err)
       toast.error('社内承認の依頼に失敗しました')
@@ -183,7 +183,7 @@ export function TaskReviewSection({
       setBlockReason('')
       setShowBlockForm(false)
       const result = await fetchReview()
-      if (result.ok) onReviewChange?.(taskId, result.status, approved?.taskCompleted === true)
+      if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to block:', err)
       toast.error('差し戻しに失敗しました')
@@ -207,7 +207,7 @@ export function TaskReviewSection({
     try {
       await rpc.reviewCancel(supabase, { reviewId: reviewData.review.id })
       const result = await fetchReview()
-      if (result.ok) onReviewChange?.(taskId, result.status, approved?.taskCompleted === true)
+      if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
       console.error('Failed to cancel review:', err)
       toast.error('レビューの取り消しに失敗しました')

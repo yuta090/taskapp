@@ -582,3 +582,70 @@ describe('TaskReviewSection — 承認で完了になったことを親に伝え
     await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith('t1', 'open', false))
   })
 })
+
+/**
+ * 依頼・差し戻し・取り消しも、成功したら親に伝える（一覧の先出しがここで切れると、
+ * 依頼したのに一覧が「社内承認中」にならない）。承認の戻り値は承認の経路にしか無いので、
+ * ほかの経路に持ち込むと RPC が成功しているのに失敗扱いになる。
+ */
+describe('TaskReviewSection — 依頼・差し戻し・取り消しも親に伝える', () => {
+  beforeEach(() => {
+    mockReviewOpen.mockReset()
+    mockReviewBlock.mockReset()
+    mockReviewCancel.mockReset()
+    mockToastError.mockReset()
+    mockMembers = [
+      { id: 'u1', displayName: '自分', role: 'admin' },
+      { id: 'i1', displayName: '田中（社内）', role: 'editor' },
+    ]
+  })
+
+  it('依頼が通ったら親に伝え、失敗扱いにしない', async () => {
+    mockNoReview()
+    mockReviewOpen.mockResolvedValue({ ok: true })
+    const onReviewChange = vi.fn()
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" onReviewChange={onReviewChange} />)
+
+    fireEvent.click(await screen.findByText('社内承認を依頼'))
+    fireEvent.click(await screen.findByText('田中（社内）'))
+    fireEvent.click(screen.getByRole('button', { name: '依頼する' }))
+
+    await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith('t1', null))
+    expect(mockToastError).not.toHaveBeenCalled()
+  })
+
+  it('差し戻しが通ったら親に伝え、失敗扱いにしない', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'open', created_by: 'i1' },
+      [{ id: 'a1', reviewer_id: 'u1', state: 'pending' }]
+    )
+    mockReviewBlock.mockResolvedValue({ ok: true })
+    const onReviewChange = vi.fn()
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" onReviewChange={onReviewChange} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '差し戻し' }))
+    fireEvent.change(screen.getByPlaceholderText('差し戻し理由を入力...'), {
+      target: { value: '数字を直してください' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '差し戻す' }))
+
+    await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith('t1', 'open'))
+    expect(mockToastError).not.toHaveBeenCalled()
+  })
+
+  it('取り消しが通ったら親に伝え、失敗扱いにしない', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'open', created_by: 'u1' },
+      [{ id: 'a1', reviewer_id: 'i1', state: 'pending' }]
+    )
+    mockReviewCancel.mockResolvedValue({ ok: true })
+    const onReviewChange = vi.fn()
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" onReviewChange={onReviewChange} />)
+
+    fireEvent.click(await screen.findByText('レビューを取り消す'))
+    fireEvent.click(await screen.findByRole('button', { name: '取り消す' }))
+
+    await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith('t1', 'open'))
+    expect(mockToastError).not.toHaveBeenCalled()
+  })
+})

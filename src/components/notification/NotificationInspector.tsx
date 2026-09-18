@@ -35,6 +35,7 @@ import {
   STATUS_CHANGE_NO_ROWS,
   statusChangeFailureMessage,
 } from '@/lib/tasks/completeFailure'
+import { patchTaskRowInProjectCache } from '@/lib/tasks/taskRowCache'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import type { Task, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -303,6 +304,14 @@ export function NotificationInspector({
       if (!updated || updated.length === 0) {
         throw new Error(newStatus === 'done' ? COMPLETE_FAILURE_NO_ROWS : STATUS_CHANGE_NO_ROWS)
       }
+      // プロジェクトのタスク一覧のキャッシュも合わせる（合わせないと、一覧では
+      // 元の状態のまま最大2分残る）。ネットワークは出さない
+      patchTaskRowInProjectCache(queryClient, {
+        orgId: task.org_id,
+        spaceId: task.space_id,
+        taskId: task.id,
+        patch: { status: newStatus },
+      })
       return true
     } catch (err) {
       console.error('Failed to update task status:', err)
@@ -315,7 +324,7 @@ export function NotificationInspector({
     } finally {
       setStatusUpdating(false)
     }
-  }, [task, supabase])
+  }, [task, supabase, queryClient])
 
   // Quick complete task - only proceed if status update succeeds
   const handleQuickComplete = useCallback(async () => {
@@ -370,6 +379,12 @@ export function NotificationInspector({
       setHasReviewRecord(false)
       if (approved?.taskCompleted === true) {
         setTask(prev => (prev ? { ...prev, status: 'done' } : prev))
+        patchTaskRowInProjectCache(queryClient, {
+          orgId: task?.org_id,
+          spaceId: task?.space_id,
+          taskId: taskId,
+          patch: { status: 'done' },
+        })
         setActionCompleted('approved_completed')
       } else {
         setActionCompleted('approved')
@@ -381,7 +396,7 @@ export function NotificationInspector({
     } finally {
       setActionLoading(false)
     }
-  }, [taskId, supabase, scheduleAdvance])
+  }, [taskId, supabase, scheduleAdvance, queryClient, task?.org_id, task?.space_id])
 
   // Review: Block (with reason)
   const handleReviewBlock = useCallback(async () => {

@@ -882,14 +882,22 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   // Optimistic update for review status badge
   const handleReviewChange = useCallback((taskId: string, status: string | null, taskCompleted = false) => {
-    queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
-      if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
-      // 依頼が open になったらタスクも「社内承認中」にする。DB 側のトリガー
-      // （trg_sync_task_status_on_review_open）と同じ判断を、サーバーの返事を待たずに
-      // 一覧へ先出しする。揃えないと、依頼したのに一覧の状態が変わらない。
-      // 承認がそろって DB 側が完了にしたときも同じように先出しする（taskCompleted）。
-      return applyReviewChange(old, taskId, status, taskCompleted)
-    })
+    const tasksKey = ['tasks', orgId, spaceId] as const
+    queryClient.setQueryData<TasksQueryData>(
+      tasksKey,
+      (old) => {
+        if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
+        // 依頼が open になったらタスクも「社内承認中」にする。DB 側のトリガー
+        // （trg_sync_task_status_on_review_open）と同じ判断を、サーバーの返事を待たずに
+        // 一覧へ先出しする。揃えないと、依頼したのに一覧の状態が変わらない。
+        // 承認がそろって DB 側が完了にしたときも同じように先出しする（taskCompleted）。
+        return applyReviewChange(old, taskId, status, taskCompleted)
+      },
+      // 該当タスクの行だけを直したのであって、このプロジェクトを読み直したわけではないので、
+      // 取得時刻は据え置く。更新したことにすると、前日の永続キャッシュが「今取れたばかり」に
+      // 見えてしまい、マイタスク側の新旧判定（recentEnough）と裏取り直しが飛ぶ
+      { updatedAt: queryClient.getQueryState(tasksKey)?.dataUpdatedAt }
+    )
     // 一覧の「あなたの承認待ち」も取り直す。承認者が複数いると依頼は open のままなので、上の状態だけでは
     // 自分が返事をしても印が消えない
     void queryClient.invalidateQueries({ queryKey: myPendingReviewsRootKey })

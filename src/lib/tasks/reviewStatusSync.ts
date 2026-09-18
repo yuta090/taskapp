@@ -38,7 +38,7 @@ export function applyReviewChange(
     old.tasks.some((t) => t.id === taskId && t.status !== 'in_review' && t.status !== 'done')
 
   // 承認がそろって DB 側が完了にしたときは、一覧も完了にする。完了日時も入れる
-  // （入れないと、完了で並べ替えている一覧の順番が次の取得まで崩れる）
+  // （詳細パネルの完了日と、遅れの集計（calculateRisk）がこれを読む）
   const completedAt = new Date().toISOString()
 
   const nextTasks = taskCompleted

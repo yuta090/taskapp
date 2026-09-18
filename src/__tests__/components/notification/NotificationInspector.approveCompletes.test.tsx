@@ -1,7 +1,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
 
@@ -80,9 +80,9 @@ function makeNotification(): NotificationWithPayload {
 
 const noop = () => {}
 
-function renderInspector() {
+function renderInspector(queryClient: QueryClient = new QueryClient()) {
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <NotificationInspector
         notification={makeNotification()}
         onClose={noop}
@@ -108,6 +108,28 @@ describe('NotificationInspector — 承認したらタスクの状態も合わ�
 
     expect(await screen.findByText('承認しました。タスクを完了にしました')).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: /完了/ })).toBeInTheDocument()
+  })
+
+  it('プロジェクトのタスク一覧のキャッシュも完了にする（一覧に戻っても社内承認中のままにしない）', async () => {
+    mocks.reviewApprove.mockResolvedValue({ ok: true, allApproved: true, taskCompleted: true })
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(['tasks', 'org-1', 'space-1'], {
+      tasks: [{ ...task, completed_at: null }],
+      owners: {},
+      reviewStatuses: { 'task-1': 'open' },
+    })
+    const before = queryClient.getQueryState(['tasks', 'org-1', 'space-1'])?.dataUpdatedAt
+    await new Promise((r) => setTimeout(r, 5))
+    renderInspector(queryClient)
+
+    fireEvent.click(await screen.findByRole('button', { name: /承認する/ }))
+
+    await waitFor(() => {
+      const data = queryClient.getQueryData<{ tasks: Array<{ status: string }> }>(['tasks', 'org-1', 'space-1'])
+      expect(data?.tasks[0].status).toBe('done')
+    })
+    // 1行直しただけなので取得時刻は動かさない
+    expect(queryClient.getQueryState(['tasks', 'org-1', 'space-1'])?.dataUpdatedAt).toBe(before)
   })
 
   it('ほかの承認者が残っているときは「承認しました」だけ出し、ステータスは動かさない', async () => {
