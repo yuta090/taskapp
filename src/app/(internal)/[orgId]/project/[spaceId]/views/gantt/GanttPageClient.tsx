@@ -16,8 +16,9 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
+import { buildChildTaskInput, type ChildTaskDraft } from '@/lib/tasks/childTask'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
-import type { BallSide } from '@/types/database'
+import type { BallSide, Task } from '@/types/database'
 
 interface GanttPageClientProps {
   orgId: string
@@ -29,7 +30,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
   const selectedTaskId = searchParams.get('task') || undefined
   const { setInspector } = useInspector()
 
-  const { tasks, owners, loading: tasksLoading, error: tasksError, fetchTasks, updateTask, deleteTask, passBall } = useTasks({
+  const { tasks, owners, loading: tasksLoading, error: tasksError, fetchTasks, createTask, updateTask, deleteTask, passBall } = useTasks({
     orgId,
     spaceId,
   })
@@ -143,6 +144,15 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     [tasks, passBall]
   )
 
+  // 子タスクをタスク詳細から作る。中身の既定（担当の引き継ぎ・ボール）は buildChildTaskInput
+  const handleCreateChild = useCallback(
+    async (parent: Task, draft: ChildTaskDraft) => {
+      await createTask(buildChildTaskInput(parent, draft))
+      toast.success('子タスクを作成しました')
+    },
+    [createTask]
+  )
+
   // Delete task handler
   const handleDeleteTask = useCallback(
     async (taskId: string) => {
@@ -186,6 +196,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         // 閲覧者（viewer）・相手先には編集操作を渡さない（onUpdate 等が無ければ表示だけになる設計）
         onPassBall={canEdit ? (ball) => handlePassBall(selectedTask.id, ball) : undefined}
         onUpdate={canEdit ? (updates) => handleUpdateTask(selectedTask.id, updates) : undefined}
+        onCreateChild={canEdit ? (draft) => handleCreateChild(selectedTask, draft) : undefined}
         onDelete={canEdit ? () => handleDeleteTask(selectedTask.id) : undefined}
         onUpdateOwners={canEdit ? (clientOwnerIds, internalOwnerIds) =>
           handleUpdateOwners(selectedTask.id, clientOwnerIds, internalOwnerIds)
@@ -193,7 +204,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         canEditPricing={canEditMoney}
       />
     )
-  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId, parentTaskOptions, childTasksOfSelected])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleCreateChild, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId, parentTaskOptions, childTasksOfSelected])
 
   // Stable refs for handleTaskClick to avoid recreating on every selection change
   const selectedTaskIdRef = useRef(selectedTaskId)

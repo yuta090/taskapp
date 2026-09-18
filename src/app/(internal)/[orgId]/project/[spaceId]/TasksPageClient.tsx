@@ -42,6 +42,7 @@ import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
+import { buildChildTaskInput, type ChildTaskDraft } from '@/lib/tasks/childTask'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { BallSide, Task, TaskStatus, Milestone, DecisionState } from '@/types/database'
@@ -552,6 +553,21 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     [deleteTask, syncUrlWithState, isCreateOpen, activeFilter]
   )
 
+  // 子タスクをタスク詳細から作る。中身の既定（担当の引き継ぎ・ボール）は buildChildTaskInput。
+  // 親は id ではなく行そのものを受け取る（一覧を依存に入れず、識別子の取り違えも起きない）
+  const handleCreateChild = useCallback(
+    async (parent: Task, draft: ChildTaskDraft) => {
+      const created = await createTask(buildChildTaskInput(parent, draft))
+      toast.success('子タスクを作成しました', {
+        action: {
+          label: '開く',
+          onClick: () => syncUrlWithState(false, created.id, activeFilter, { push: true }),
+        },
+      })
+    },
+    [createTask, syncUrlWithState, activeFilter]
+  )
+
   // AT-009: Spec task state transition
   const handleSetSpecState = useCallback(
     async (taskId: string, decisionState: DecisionState) => {
@@ -602,6 +618,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         // 無ければ表示だけの読み取り専用になる設計（各項目が `onUpdate ? 編集UI : 表示`）
         onPassBall={canEdit ? (ball, clientOwnerIds, internalOwnerIds) => handlePassBall(selectedTask.id, ball, clientOwnerIds, internalOwnerIds) : undefined}
         onUpdate={canEdit ? (updates) => handleUpdateTask(selectedTask.id, updates) : undefined}
+        onCreateChild={canEdit ? (draft) => handleCreateChild(selectedTask, draft) : undefined}
         onDelete={canEdit ? () => handleDeleteTask(selectedTask.id) : undefined}
         onDuplicate={canEdit ? () => {
           setDuplicateSource(selectedTask)
@@ -620,7 +637,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         canEditPricing={canEditMoney}
       />
     )
-  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleCreateChild, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
