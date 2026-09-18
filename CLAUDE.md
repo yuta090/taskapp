@@ -77,6 +77,20 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   ```
   終わったら `~/agentpm-publish.sh` を消す。
 
+## 料金の数字は1か所だけ（厳守）
+
+料金・上限・他社の価格は **`src/lib/pricing/facts.json` が正本**。料金ページ・比較ページ・
+稟議パックの資料（`public/docs/`）が、すべてここを読む。
+
+- **数字を直すのは facts.json だけ。** 画面や資料に直接書かない
+- **直したら `npm run build:approval-pack` を実行**して資料（PDF 2点・Excel 2点）を作り直し、
+  生成物も一緒にコミットする
+- 作り直しを忘れると `src/__tests__/lib/pricing/pricing-facts.test.ts` が落ちる。
+  正本だけ直して資料が古いまま本番へ出るのを、ここで止めている
+- 資料の文章（セキュリティの項目など）は `scripts/approval-pack/security.json`。
+  **「対応」と書けるのはコード・インフラで裏が取れているものだけ**（リージョンのように
+  確認できないものは書かない）
+
 ## Specifications
 
 **See `docs/SPEC_INDEX.md` for the complete specification index.**
