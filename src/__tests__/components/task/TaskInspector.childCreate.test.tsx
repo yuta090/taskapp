@@ -363,3 +363,123 @@ describe('TaskInspector — 完了にしたら確認依頼をすすめる', () =
     })
   })
 })
+
+describe('TaskInspector — 一覧で完了にしたときの案内から開く', () => {
+  it('openReviewRequest を渡すと、確認依頼の入力欄がひな形つきで開く', async () => {
+    render(
+      <TaskInspector
+        task={makeTask({ status: 'done' })}
+        spaceId="s1"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        onCreateChild={vi.fn()}
+        openReviewRequest
+      />
+    )
+
+    const title = (await screen.findByTestId('task-inspector-child-title')) as HTMLInputElement
+    const description = screen.getByTestId('task-inspector-child-description') as HTMLTextAreaElement
+
+    expect(title.value).toBe('確認依頼: ')
+    expect(description.value.split('\n')).toHaveLength(4)
+  })
+
+  it('案内から開くときも「詳細設定」は開かない（親タスクの選択肢を一度に作らない）', async () => {
+    render(
+      <TaskInspector
+        task={makeTask({ status: 'done' })}
+        spaceId="s1"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        onCreateChild={vi.fn()}
+        openReviewRequest
+        parentTasks={[{ id: 'p1', title: '別のタスク' }]}
+      />
+    )
+
+    expect(await screen.findByTestId('task-inspector-child-title')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-inspector-parent')).not.toBeInTheDocument()
+  })
+
+  it('編集できない人には開かない', () => {
+    render(
+      <TaskInspector task={makeTask({ status: 'done' })} spaceId="s1" onClose={vi.fn()} openReviewRequest />
+    )
+
+    expect(screen.queryByTestId('task-inspector-child-title')).not.toBeInTheDocument()
+  })
+
+  it('入力欄を閉じたら、開き直さない', async () => {
+    render(
+      <TaskInspector
+        task={makeTask({ status: 'done' })}
+        spaceId="s1"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        onCreateChild={vi.fn()}
+        openReviewRequest
+      />
+    )
+
+    fireEvent.click(await screen.findByText('やめる'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('task-inspector-child-title')).not.toBeInTheDocument()
+    })
+  })
+})
+
+describe('TaskInspector — 案内から開くときの取りこぼし', () => {
+  function renderWithRerender(ui: React.ReactElement) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrap = (inner: React.ReactElement) => (
+      <QueryClientProvider client={queryClient}>{inner}</QueryClientProvider>
+    )
+    const result = rtlRender(wrap(ui))
+    return { ...result, rerender: (inner: React.ReactElement) => result.rerender(wrap(inner)) }
+  }
+
+  it('編集できるかどうかが後から決まっても、入力欄を開く', async () => {
+    const task = makeTask({ status: 'done' })
+    const { rerender } = renderWithRerender(
+      <TaskInspector task={task} spaceId="s1" onClose={vi.fn()} openReviewRequest />
+    )
+    expect(screen.queryByTestId('task-inspector-child-title')).not.toBeInTheDocument()
+
+    rerender(
+      <TaskInspector
+        task={task}
+        spaceId="s1"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        onCreateChild={vi.fn()}
+        openReviewRequest
+      />
+    )
+
+    expect(await screen.findByTestId('task-inspector-child-title')).toBeInTheDocument()
+  })
+
+  it('やめたあとに画面が描き直されても、入力欄が開き直さない', async () => {
+    const task = makeTask({ status: 'done' })
+    const props = (key: string) => (
+      <TaskInspector
+        task={task}
+        spaceId="s1"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        // 呼び出し側は描き直しのたびに新しい関数を渡す
+        onCreateChild={vi.fn(async () => { void key })}
+        openReviewRequest
+      />
+    )
+    const { rerender } = renderWithRerender(props('a'))
+
+    fireEvent.click(await screen.findByText('やめる'))
+    rerender(props('b'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('task-inspector-child-title')).not.toBeInTheDocument()
+    })
+  })
+})
