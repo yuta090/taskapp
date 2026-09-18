@@ -234,6 +234,7 @@ describe('WikiEditor slash menu and Japanese texts', () => {
     // 先頭はメモ、次に自前のリンク4種。そのあとが BlockNote の既定（video/audio を除く）
     expect(items.map(item => item.key)).toEqual([
       'insert_note',
+      'insert_toc',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',

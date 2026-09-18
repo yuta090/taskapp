@@ -824,6 +824,23 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--limit <n>', description: 'Max results', param: 'limit', type: 'int', default: '20' },
         ],
       },
+      {
+        name: 'toc',
+        description: '目次ブロックの追加/削除。追加は見出し1の直後（無ければ先頭）、既にあれば何もしない',
+        tool: 'wiki_toc',
+        examples: ['agentpm wiki toc --page-id <id>', 'agentpm wiki toc --page-id <id> --action remove'],
+        options: [
+          spaceOpt,
+          { flags: '--page-id <id>', description: 'Wiki page ID', param: 'pageId', required: true },
+          { flags: '--action <action>', description: 'add（既定）または remove', param: 'action', choices: ['add', 'remove'], default: 'add' },
+          {
+            flags: '--expected-updated-at <ts>',
+            description:
+              '直前の wiki get で返った updated_at。その版のままのときだけ書き換える（省略すると無条件に上書き）',
+            param: 'expectedUpdatedAt',
+          },
+        ],
+      },
     ],
   },
 
@@ -916,6 +933,23 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           spaceOpt,
           { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
           { flags: '--content <md>', description: 'Content to append (Markdown)', param: 'content', required: true },
+        ],
+      },
+      {
+        name: 'toc',
+        description: '目次(`<!--toc-->`)の追加/削除。追加は見出し1の直後（無ければ先頭）、既にあれば何もしない',
+        tool: 'minutes_toc',
+        examples: ['agentpm minutes toc --meeting-id <id>', 'agentpm minutes toc --meeting-id <id> --action remove'],
+        options: [
+          spaceOpt,
+          { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
+          { flags: '--action <action>', description: 'add（既定）または remove', param: 'action', choices: ['add', 'remove'], default: 'add' },
+          {
+            flags: '--expected-updated-at <ts>',
+            description:
+              '直前の minutes get で返った updated_at。その版のままのときだけ書き換える（省略すると無条件に上書き）',
+            param: 'expectedUpdatedAt',
+          },
         ],
       },
     ],

@@ -216,10 +216,27 @@ feature branch → (push/PR) → develop → (PR) → main
   - 連番方式（`YYYYMMDD_000_`, `_001_` …）は**使わない**。番号は別ストリームと必ず衝突する。
   - 秒まで含めれば適用順序も一意に定まる。作成時は現在時刻を実際に確認して埋める（`date +%Y%m%d%H%M%S`）。
   - 万一同秒で衝突したら末尾に `_a` `_b` を付す。
-- **ブランチ名は作成前に一意性を確認する**:
+- **始める前に、他のセッションが動いていないかを見る（厳守）**。
+  このリポジトリは**複数のAIセッションが同時に開いている**。メインの checkout に
+  自分の覚えのない変更があれば、**誰かが作業の途中**。そこでブランチを切ってはいけない。
+  ```bash
+  git worktree list                 # どの作業ツリーがどのブランチを持っているか
+  git -C <メインのパス> status --short   # 覚えのない変更があれば、誰かが作業中
+  ```
+  **1行でも出たらメインでは作業しない。** `git worktree add` で自分の場所を作る。
+  メインで `git checkout -b` しない。`git add -A` もしない（相手の途中の変更を巻き込む）。
+
+  実例（2026-09-18）: メインの checkout に他セッションの未コミット変更があるまま
+  `git checkout -b feat/wiki-toc` で作業を始めた。相手が同じツリーで作業を続けた結果、
+  **こちらの未コミットの変更3ファイルが消え**、LPの作業が `feat/wiki-toc` という
+  名前のブランチに乗った（中身と名前が食い違うブランチが残った）。
+
+- **ブランチ名は作成前に一意性を確認する**。リモートだけでなく**ローカルも見る**
+  （上の実例はローカルにもリモートにも無い名前で、リモートの確認だけでは防げなかった）:
   ```bash
   # 既存なら別名にする。空きならそのまま作成
-  git ls-remote --exit-code origin "refs/heads/<name>" >/dev/null 2>&1 \
+  git show-ref --verify --quiet "refs/heads/<name>" \
+    || git ls-remote --exit-code origin "refs/heads/<name>" >/dev/null 2>&1 \
     && echo "既存: 別名にする" || git worktree add -b <name> ../wt/taskapp-<topic> origin/develop
   ```
   - 命名は `feat/*` `security/*` `fix/*` `docs/*` を基本とし、汎用語（`feat/fix` 等）は避け**topic＋必要なら時刻**（`feat/<topic>-YYYYMMDDHHMM`）で一意化する。

@@ -8,9 +8,9 @@ import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { Notebook, NotePencil } from '@phosphor-icons/react'
+import { ListBullets, Notebook, NotePencil } from '@phosphor-icons/react'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
-import { meetingNoteSpec } from '@/components/meeting/minutesBlocks'
+import { dividerSpec, meetingNoteSpec, tableOfContentsSpec } from '@/components/meeting/minutesBlocks'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { EditorToolbarButton } from '@/components/editor/EditorToolbarButton'
@@ -18,7 +18,7 @@ import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/app
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import type { AppLinkKind } from '@/lib/navigation/appLinks'
-import { MEETING_NOTE_TYPE } from '@/lib/minutes/markdown'
+import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
 
@@ -47,6 +47,9 @@ const schema = BlockNoteSchema.create({
     // 議事録の「会議メモ」と同じブロック。Wiki では「メモ」と呼ぶ。相手先ポータルの Wiki も
     // このスキーマで読み取り専用に描くので、ここに入れておけばポータルでも同じ見た目で読める
     [MEETING_NOTE_TYPE]: meetingNoteSpec,
+    [TOC_TYPE]: tableOfContentsSpec,
+    // 既定の区切り線に `---` ＋スペースの入力ルールだけ足したもの
+    [DIVIDER_TYPE]: dividerSpec,
   },
 })
 
@@ -131,6 +134,12 @@ export function WikiEditor({
     editor.focus()
   }, [editor])
 
+  /** 今の行に目次を置く。中身は持たず、開くたびに見出しから引き直される。 */
+  const insertToc = useCallback(() => {
+    insertOrUpdateBlockForSlashMenu(editor, { type: TOC_TYPE, props: {} })
+    editor.focus()
+  }, [editor])
+
   const getSlashMenuItems = useCallback(
     async (query: string) =>
       filterSuggestionItems(
@@ -145,6 +154,15 @@ export function WikiEditor({
             icon: <NotePencil size={18} />,
             onItemClick: insertNote,
           },
+          {
+            key: 'insert_toc',
+            title: '目次',
+            subtext: '見出しの一覧。開くたびに引き直すので古くならない',
+            aliases: ['toc', 'mokuji', 'もくじ', '目次', 'contents', 'index'],
+            group: jaLocale.slash_menu.paragraph.group,
+            icon: <ListBullets size={18} />,
+            onItemClick: insertToc,
+          },
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
           ...(orgId && spaceId ? buildInsertLinkMenuItems(openLinkPicker) : []),
           // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
@@ -154,7 +172,7 @@ export function WikiEditor({
         ],
         query
       ),
-    [editor, orgId, spaceId, openLinkPicker, insertNote]
+    [editor, orgId, spaceId, openLinkPicker, insertNote, insertToc]
   )
 
   // Insert meetings block with orgId/spaceId (toolbar button below the editor)

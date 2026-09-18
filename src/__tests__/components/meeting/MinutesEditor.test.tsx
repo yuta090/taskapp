@@ -125,6 +125,13 @@ describe('会議メモに書いた人の名前を残す', () => {
     })
   })
 
+  // PDFで保存したときに、本文の下の差し込みツールバーが紙に載らないようにする印
+  // （Wiki の WikiEditor と同じ）。印を外すと、押しても何も起きないボタンの列が PDF の末尾に刷られる
+  it('本文の下の差し込みツールバーには「紙に載せない」印が付いている', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByTestId('minutes-insert-meeting-note').closest('[data-print-hide]')).not.toBeNull()
+  })
+
   it('名前が分からないときは名前を空のまま入れる（日時だけが出る）', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     fireEvent.click(screen.getByTestId('minutes-insert-meeting-note'))
@@ -328,6 +335,7 @@ describe('MinutesEditor の「/」メニュー', () => {
     expect(items.map((item) => item.key)).toEqual([
       'insert_meeting_note',
       'insert_task_line',
+      'insert_toc',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',
@@ -338,14 +346,19 @@ describe('MinutesEditor の「/」メニュー', () => {
       'table',
       'code_block',
       'toggle_list',
+      'divider',
     ])
   })
 
-  it('「会議メモ」と「折りたたみリスト」を出す', async () => {
+  it('「会議メモ」「折りたたみリスト」「区切り」を出す', async () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const keys = (await capturedSlashMenuProps!.getItems!('')).map((item) => item.key)
     expect(keys).toContain('insert_meeting_note')
     expect(keys).toContain('toggle_list')
+    // 区切り線は `---` ＋スペースでも作れるが、「/」からも引ける
+    expect(keys).toContain('divider')
+    // 会議メモは先頭のまま（会議中にいちばん使う）
+    expect(keys[0]).toBe('insert_meeting_note')
   })
 
   it('「メモ」で絞り込むと会議メモが出る', async () => {

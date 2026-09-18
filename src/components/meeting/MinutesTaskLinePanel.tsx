@@ -100,6 +100,8 @@ export function MinutesTaskLinePanel({ orgId, spaceId, onInsert, onClose }: Minu
     <div
       ref={panelRef}
       data-testid="minutes-task-line-panel"
+      // 開いたまま「PDFで保存」を押しても紙には出さない（押すためのパネル）
+      data-print-hide
       className="mt-2 rounded border border-gray-200 bg-surface p-3 space-y-3"
     >
       <p className="text-xs text-gray-500">
