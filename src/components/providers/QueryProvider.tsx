@@ -90,6 +90,13 @@ function shouldDehydrateQuery(query: Query): boolean {
   // 古い「未接続」を出し続けるより毎回取り直すほうが安全（stripeStatus と同じ判断）。
   if (query.queryKey[0] === 'github-connection-status') return false
   if (query.queryKey[0] === 'github-installation') return false
+  // 組織メンバー一覧(['orgMembers', orgId])はメールアドレスを持つ（メンバー一覧画面で
+  // 名前と並べて出す）。currentUser と同じ理由でディスクには残さない。
+  // 引き換えに、メンバー画面を開くたび1往復ぶん（役割の選択肢が出るまで）遅れる。
+  // 役割だけ別キーに写して永続する案も測ったが、そちらはメールだけ出ない時間が
+  // 最大2分できてしまう（役割が新しいうちは取り直さない）ため、同じ1回の取得で
+  // 名前・メール・役割をそろえるほうを採った。
+  if (query.queryKey[0] === 'orgMembers') return false
   return defaultShouldDehydrateQuery(query)
 }
 
