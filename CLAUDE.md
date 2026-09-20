@@ -47,8 +47,15 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   で落ちるため。worktree でも `node_modules` と `.env.local` をメイン checkout へのシンボリック
   リンクにすれば動く。
   - **E2E・通しの確認は本番ビルドで**: `npm run build:local`（約3分）→ `npm run start:local`（:4000）。
-    `npm run test:e2e` はサーバーが無ければこれを自動で行う。本番ビルドなら全41件が約20秒で回り、
-    結果は本番と同じ（34 passed / 7 skipped・2026-09-12）。
+    `npm run test:e2e` はサーバーが無ければこれを自動で行う。本番ビルドなら約20秒で回り、
+    **正常は 40 passed / 7 skipped（計47・2026-09-20）**。数が足りなければ失敗が無くても回し直す。
+  - **⚠ worktree から回すときは `npm run test:e2e` を使わない。** playwright の webServer は :4000 が
+    応答すればそれを再利用するので、**メイン checkout（他セッションの別ブランチ）のサーバーが
+    残っていると、そちらを検証して「通った」ことになる**（2026-09-18 に実際に踏み、自分の変更を
+    一度も検証しないまま 1 failed の原因をデータ側に探して遠回りした）。自分で
+    `npx next start -p <空きポート>` を立て、`BASE_URL=http://localhost:<port> npx playwright test` を渡す。
+    落ちたテストが自分の変更と無関係なときは、まず `lsof -nP -iTCP:<port> -sTCP:LISTEN -t` の PID の
+    cwd（`lsof -a -p <pid> -d cwd`）が自分の作業ツリーかを確かめる。
   - **ページの見た目をさっと見るだけなら** `npm run dev`（`next dev --webpack`）。ただしページごとの
     初回表示はコンパイルで 30 秒ほどかかり、**受信トレイ・マイタスクなど一部のページは初回
     コンパイルが止まって開けない**ことがある（2026-09-12 に実測）。そのときは本番ビルドで見る。
@@ -58,6 +65,10 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   `data-testid`・ボタンの表示名を変えたときも1回。
 - `E2E_EMAIL` / `E2E_PASSWORD` / `E2E_CLIENT_EMAIL` / `E2E_CLIENT_PASSWORD` は `.env.local` に置く。
   未設定だとテスト側の弱い既定値（`client1234` 等）が使われ、認証エラーで落ちる。
+- **社内承認の E2E（`review-approval.spec.ts`）は承認者役でも入り直す**。自分は自分の承認者に
+  なれないため、テスト組織の佐藤花子（`staff1@example.com`・パスワードは `DEMO_SEED_PASSWORD`）を使う。
+  依頼はサーバー側（`rpc_review_open_as`）で用意し、画面で確かめるのは「受信箱で承認を押す」ところだけ
+  （画面から2人分のログインと十数回の遷移を通すと6分の上限を超える）。作ったタスクは `afterAll` で消す。
 - ログイン処理は `tests/e2e/login.ts` に集約している。hydration 前に入力すると値が消えて
   **送信自体が起きず無言で落ちる**ため、必ずこのヘルパー経由で書く。
 

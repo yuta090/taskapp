@@ -516,7 +516,7 @@ export function NotificationInspector({
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
           <p className="text-xs text-gray-500 mb-2 font-medium">承認アクション</p>
           {actionCompleted ? (
-            <div className="flex items-center gap-2 text-sm text-green-600">
+            <div className="flex items-center gap-2 text-sm text-green-600" data-testid="inbox-review-result">
               <CheckCircle weight="fill" />
               <span>
                 {actionCompleted === 'approved_completed'
@@ -532,6 +532,7 @@ export function NotificationInspector({
                 type="button"
                 onClick={handleReviewApprove}
                 disabled={actionLoading}
+                data-testid="inbox-review-approve"
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
               >
                 {actionLoading ? (
@@ -545,6 +546,7 @@ export function NotificationInspector({
                 type="button"
                 onClick={() => setShowBlockForm(true)}
                 disabled={actionLoading}
+                data-testid="inbox-review-block"
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-gray-300 text-red-600 rounded-md hover:bg-red-50 disabled:opacity-50 transition-colors"
               >
                 <XCircle weight="bold" />
