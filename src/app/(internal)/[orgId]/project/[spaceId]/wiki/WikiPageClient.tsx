@@ -176,6 +176,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     fetchPages,
     createPage,
     updatePage,
+    reparentPages,
     deletePage,
     fetchPage,
     fetchVersions,
@@ -322,22 +323,40 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       if (!ok) return
       const targets = childrenReparentTargets(pages, folderPage.id)
       try {
-        await Promise.all(targets.map(t => updatePage(t.id, { parent_page_id: t.newParentId })))
+        // 直下の子は全員同じ新しい親（削除するフォルダの親）を持つため、1回の
+        // reparentPages にまとめる（子の数だけ updatePage を呼ぶと通信が線形に増える）。
+        if (targets.length > 0) {
+          await reparentPages(targets.map(t => t.id), targets[0].newParentId)
+        }
         await deletePage(folderPage.id)
       } catch {
         toast.error('フォルダを削除できませんでした')
       }
     },
-    [confirmFolderDelete, pages, updatePage, deletePage]
+    [confirmFolderDelete, pages, reparentPages, deletePage]
   )
 
   // ドラッグでの移動（フォルダ表示・デスクトップのみ）。draggingId は今つかんでいるページ、
   // dragOverId は今その上にあるフォルダ（'root' は「一番上の階層へ」の特別な落とし先）。
+  //
+  // handleDropOnPage/handleDropOnRoot は draggingId・pages を ref（draggingIdRef・pagesRef）
+  // 越しに読む。state を直接 useCallback の依存に入れると、ドラッグ開始・終了のたびに
+  // これらの関数の参照が変わり、全行に渡している onDropPage の参照も変わって
+  // WikiPageRow の memo が効かなくなる（表示速度レビュー指摘）。state はあくまで
+  // 見た目の再描画（枠のハイライト・ドロップ先の表示）だけに使う。
   const canDragDrop = canEdit && !isMobile && prefs.view === 'folder'
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | 'root' | null>(null)
+  const draggingIdRef = useRef<string | null>(null)
+  const pagesRef = useRef<WikiPage[]>(pages)
+  useEffect(() => {
+    pagesRef.current = pages
+  }, [pages])
 
-  const handleDragStartPage = useCallback((pageId: string) => setDraggingId(pageId), [])
+  const handleDragStartPage = useCallback((pageId: string) => {
+    draggingIdRef.current = pageId
+    setDraggingId(pageId)
+  }, [])
 
   const handleDragOverPage = useCallback((pageId: string) => {
     setDragOverId(prev => (prev === pageId ? prev : pageId))
@@ -348,29 +367,32 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   }, [])
 
   const handleDragEnd = useCallback(() => {
+    draggingIdRef.current = null
     setDraggingId(null)
     setDragOverId(null)
   }, [])
 
   const handleDropOnPage = useCallback(
     (targetId: string) => {
-      if (!draggingId) return
-      const movingId = draggingId
+      const movingId = draggingIdRef.current
+      if (!movingId) return
+      draggingIdRef.current = null
       setDraggingId(null)
       setDragOverId(null)
-      if (!isValidWikiDropTarget(pages, movingId, targetId)) return
+      if (!isValidWikiDropTarget(pagesRef.current, movingId, targetId)) return
       void updatePage(movingId, { parent_page_id: targetId }).catch(() => toast.error('移動できませんでした'))
     },
-    [draggingId, pages, updatePage]
+    [updatePage]
   )
 
   const handleDropOnRoot = useCallback(() => {
-    if (!draggingId) return
-    const movingId = draggingId
+    const movingId = draggingIdRef.current
+    if (!movingId) return
+    draggingIdRef.current = null
     setDraggingId(null)
     setDragOverId(null)
     void updatePage(movingId, { parent_page_id: null }).catch(() => toast.error('移動できませんでした'))
-  }, [draggingId, updatePage])
+  }, [updatePage])
 
   // 今ホバー中の落とし先が有効かどうか（行の見た目に反映する）。'root' は常に有効。
   const dragOverValidity = useMemo<'valid' | 'invalid' | null>(() => {
@@ -1263,27 +1285,34 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             {isCreatingFolder && (
               <WikiInlineCreateRow onSubmit={handleSubmitNewFolder} onCancel={handleCancelNewFolder} />
             )}
-            {/* ドラッグ中だけ出す「一番上の階層へ」の落とし先（PR5） */}
-            {draggingId && (
-              <div
-                data-testid="wiki-folder-drop-root"
-                onDragOver={e => {
-                  e.preventDefault()
-                  handleDragOverRoot()
-                }}
-                onDrop={e => {
-                  e.preventDefault()
-                  handleDropOnRoot()
-                }}
-                className={`mx-4 my-2 px-3 py-2 text-xs text-center rounded-lg border-2 border-dashed transition-colors ${
-                  dragOverId === 'root'
-                    ? 'border-indigo-400 bg-indigo-50 text-indigo-ink'
-                    : 'border-gray-300 text-gray-400'
-                }`}
-              >
-                ここに置くと一番上の階層へ
-              </div>
-            )}
+            {/* 「一番上の階層へ」の落とし先（PR5）。要素自体は常に置き、ドラッグ中だけ
+                高さを持たせる（条件付きレンダーだと、ドラッグ開始のたびに一覧全体が
+                その分だけカクッと上下にずれていた＝表示速度レビュー指摘）。 */}
+            <div
+              data-testid="wiki-folder-drop-root"
+              aria-hidden={!draggingId}
+              onDragOver={e => {
+                if (!draggingId) return
+                e.preventDefault()
+                handleDragOverRoot()
+              }}
+              onDrop={e => {
+                if (!draggingId) return
+                e.preventDefault()
+                handleDropOnRoot()
+              }}
+              className={`mx-4 overflow-hidden text-xs text-center rounded-lg border-2 border-dashed transition-all ${
+                draggingId
+                  ? `my-2 px-3 py-2 max-h-12 opacity-100 ${
+                      dragOverId === 'root'
+                        ? 'border-indigo-400 bg-indigo-50 text-indigo-ink'
+                        : 'border-gray-300 text-gray-400'
+                    }`
+                  : 'my-0 px-3 py-0 max-h-0 border-transparent opacity-0 pointer-events-none'
+              }`}
+            >
+              ここに置くと一番上の階層へ
+            </div>
             {flatFolderRows.map(({ page, depth, hasChildren, collapsed }) => (
               <WikiPageRow
                 key={page.id}

@@ -77,6 +77,12 @@ interface UseWikiPagesReturn {
    * 確かめて「削除された」扱いにする）。
    */
   updatePage: (pageId: string, input: UpdateWikiPageInput, baseUpdatedAt?: string) => Promise<{ updatedAt: string | null }>
+  /**
+   * 複数ページの parent_page_id をまとめて変える（PR5: フォルダ削除で子を1段上げる用途）。
+   * ids の数だけ updatePage を呼ぶと通信が線形に増えるため、`.update(...).in('id', ids)`
+   * の1回にまとめる。楽観更新・失敗時のロールバックも1回で行う。ids が空なら何もしない。
+   */
+  reparentPages: (ids: string[], newParentId: string | null) => Promise<void>
   deletePage: (pageId: string) => Promise<void>
   fetchPage: (pageId: string) => Promise<WikiPage | null>
   fetchVersions: (pageId: string) => Promise<WikiPageVersionSummary[]>
@@ -499,6 +505,47 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId already in deps
   }, [orgId, supabase, queryClient])
 
+  const reparentPages = useCallback(async (ids: string[], newParentId: string | null): Promise<void> => {
+    if (ids.length === 0) return
+
+    const previousData = queryClient.getQueryData<{
+      pages: WikiPage[]
+      autoCreatedPageId: string | null
+    }>(queryKey)
+
+    const idSet = new Set(ids)
+
+    // Optimistic update — 対象の id をまとめて1回で書き換える（1件ずつ updatePage を
+    // 呼ぶと再描画・通信の両方が線形に増えるため）
+    queryClient.setQueryData<{ pages: WikiPage[]; autoCreatedPageId: string | null }>(
+      queryKey,
+      (old) => ({
+        pages: (old?.pages ?? []).map(p => (idSet.has(p.id) ? { ...p, parent_page_id: newParentId } : p)),
+        autoCreatedPageId: old?.autoCreatedPageId ?? null,
+      })
+    )
+
+    try {
+      const userId = (await getCachedUserId(supabase)) || process.env.NEXT_PUBLIC_DEMO_USER_ID
+
+      const { error: updateError } = await (supabase as SupabaseClient)
+        .from('wiki_pages')
+        .update({ parent_page_id: newParentId, updated_by: userId })
+        .eq('org_id', orgId)
+        .eq('space_id', spaceId)
+        .in('id', ids)
+
+      if (updateError) throw updateError
+    } catch (err) {
+      // Revert optimistic update（1回でまとめて戻す）
+      if (previousData) {
+        queryClient.setQueryData(queryKey, previousData)
+      }
+      throw err instanceof Error ? err : new Error('Failed to reparent wiki pages')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId+spaceId already in deps
+  }, [orgId, spaceId, supabase, queryClient])
+
   const deletePage = useCallback(async (pageId: string): Promise<void> => {
     const previousData = queryClient.getQueryData<{
       pages: WikiPage[]
@@ -565,6 +612,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
     fetchPages,
     createPage,
     updatePage,
+    reparentPages,
     deletePage,
     fetchPage,
     fetchVersions,

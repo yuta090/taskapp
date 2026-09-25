@@ -51,6 +51,7 @@ const mockPages = vi.hoisted(() => ({
 }))
 const mockCreatePage = vi.fn().mockResolvedValue(page({ id: 'new-folder' }))
 const mockUpdatePage = vi.fn().mockResolvedValue({ updatedAt: '2026-09-02T00:00:00+09:00' })
+const mockReparentPages = vi.fn().mockResolvedValue(undefined)
 const mockDeletePage = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('@/lib/hooks/useAnnouncements', () => ({
@@ -85,6 +86,7 @@ vi.mock('@/lib/hooks/useWikiPages', () => ({
     fetchPages: vi.fn(),
     createPage: mockCreatePage,
     updatePage: mockUpdatePage,
+    reparentPages: mockReparentPages,
     deletePage: mockDeletePage,
     fetchPage: vi.fn().mockResolvedValue(null),
     fetchVersions: vi.fn(),
@@ -131,6 +133,7 @@ describe('WikiPageClient フォルダ操作（PR5）', () => {
     vi.clearAllMocks()
     mockCreatePage.mockResolvedValue(page({ id: 'new-folder' }))
     mockUpdatePage.mockResolvedValue({ updatedAt: '2026-09-02T00:00:00+09:00' })
+    mockReparentPages.mockResolvedValue(undefined)
     mockDeletePage.mockResolvedValue(undefined)
     mockPages.current = [
       page({ id: 'folder-a', title: 'フォルダA', is_folder: true }),
@@ -190,7 +193,8 @@ describe('WikiPageClient フォルダ操作（PR5）', () => {
     expect(screen.getByText(/中のページは1つ上の階層に移ります/)).toBeInTheDocument()
     fireEvent.click(screen.getByText('削除する'))
 
-    await waitFor(() => expect(mockUpdatePage).toHaveBeenCalledWith('child-in-a', { parent_page_id: null }))
+    // 子の数だけ updatePage を呼ぶのではなく、reparentPages 1回にまとめる
+    await waitFor(() => expect(mockReparentPages).toHaveBeenCalledWith(['child-in-a'], null))
     await waitFor(() => expect(mockDeletePage).toHaveBeenCalledWith('folder-a'))
   })
 
@@ -200,6 +204,7 @@ describe('WikiPageClient フォルダ操作（PR5）', () => {
     fireEvent.click(within(screen.getByTestId('wiki-page-row-folder-a')).getByLabelText('フォルダの操作'))
     fireEvent.click(screen.getByText('削除'))
     fireEvent.click(screen.getByText('キャンセル'))
+    expect(mockReparentPages).not.toHaveBeenCalled()
     expect(mockDeletePage).not.toHaveBeenCalled()
   })
 
@@ -240,5 +245,35 @@ describe('WikiPageClient フォルダ操作（PR5）', () => {
     setup()
     const row = screen.getByTestId('wiki-page-row-plain')
     expect(row).not.toHaveAttribute('draggable')
+  })
+
+  it('子が無いフォルダの削除は reparentPages を呼ばず、そのまま削除する', async () => {
+    mockPages.current = [page({ id: 'empty-folder', title: '空フォルダ', is_folder: true })]
+    setup()
+    fireEvent.click(screen.getByTestId('wiki-view-folder'))
+    fireEvent.click(within(screen.getByTestId('wiki-page-row-empty-folder')).getByLabelText('フォルダの操作'))
+    fireEvent.click(screen.getByText('削除'))
+    fireEvent.click(screen.getByText('削除する'))
+
+    await waitFor(() => expect(mockDeletePage).toHaveBeenCalledWith('empty-folder'))
+    expect(mockReparentPages).not.toHaveBeenCalled()
+  })
+
+  it('「一番上の階層へ」の落とし先は、ドラッグしていない間は隠れている（常に描画・高さ0）', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('wiki-view-folder'))
+    const rootZone = screen.getByTestId('wiki-folder-drop-root')
+    expect(rootZone).toBeInTheDocument()
+    expect(rootZone).toHaveAttribute('aria-hidden', 'true')
+    expect(rootZone.className).toContain('pointer-events-none')
+  })
+
+  it('ドラッグ中は「一番上の階層へ」の落とし先が見えるようになる（aria-hidden が外れる）', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('wiki-view-folder'))
+    fireEvent.dragStart(screen.getByTestId('wiki-page-row-plain'), { dataTransfer: dataTransfer() })
+    const rootZone = screen.getByTestId('wiki-folder-drop-root')
+    expect(rootZone).toHaveAttribute('aria-hidden', 'false')
+    expect(rootZone.className).not.toContain('pointer-events-none')
   })
 })
