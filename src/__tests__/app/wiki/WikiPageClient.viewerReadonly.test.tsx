@@ -19,6 +19,7 @@ function page(overrides: Partial<WikiPage> = {}): WikiPage {
     milestone_id: null,
     pinned_at: null,
     sort_order: null,
+    is_folder: false,
     created_by: 'user1',
     updated_by: 'user1',
     created_at: '2026-09-01T00:00:00+09:00',
