@@ -193,14 +193,25 @@ export interface WikiTreeNode {
   depth: number
 }
 
-/** 同一階層内の並び順: sort_order 昇順（NULL は末尾）→渡された順（安定ソート）。 */
-function sortSiblings(pages: WikiPage[]): WikiPage[] {
-  return [...pages].sort((a, b) => {
-    const aOrder = a.sort_order ?? Number.POSITIVE_INFINITY
-    const bOrder = b.sort_order ?? Number.POSITIVE_INFINITY
-    return aOrder - bOrder
-    // sort() は安定ソートなので、同値（未指定同士含む）は渡された順のまま残る
-  })
+/** フォルダ扱いか（is_folder 明示、または子ページを1つ以上持つ）。 */
+function isFolderLike(page: WikiPage, hasChildren: (id: string) => boolean): boolean {
+  return page.is_folder === true || hasChildren(page.id)
+}
+
+/**
+ * 同一階層内の並び順（PR5）: フォルダ（is_folder または子あり）を先、ページを後にし、
+ * それぞれの中を選ばれた並べ替え(sort)で並べる。sort_order 列はもう見ない
+ * （並べ替えは常に prefs.sort が効くため、旧来の手動並び順は使わない）。
+ */
+function sortSiblings(
+  pages: WikiPage[],
+  hasChildren: (id: string) => boolean,
+  sort: WikiListSort,
+  getAuthorName: (userId: string) => string
+): WikiPage[] {
+  const folders = pages.filter(p => isFolderLike(p, hasChildren))
+  const rest = pages.filter(p => !isFolderLike(p, hasChildren))
+  return [...sortWikiPages(folders, sort, getAuthorName), ...sortWikiPages(rest, sort, getAuthorName)]
 }
 
 /**
@@ -209,7 +220,11 @@ function sortSiblings(pages: WikiPage[]): WikiPage[] {
  * 壊れたデータ（本来トリガーが拒否する循環）が混入していても無限ループしないよう、
  * 経路上の祖先を辿って自分自身が現れたら子として展開しない（防御的措置）。
  */
-export function buildWikiTree(pages: WikiPage[]): WikiTreeNode[] {
+export function buildWikiTree(
+  pages: WikiPage[],
+  sort: WikiListSort = DEFAULT_WIKI_SORT,
+  getAuthorName: (userId: string) => string = () => ''
+): WikiTreeNode[] {
   const byId = new Map(pages.map(p => [p.id, p]))
   const childrenByParent = new Map<string, WikiPage[]>()
   const roots: WikiPage[] = []
@@ -225,22 +240,23 @@ export function buildWikiTree(pages: WikiPage[]): WikiTreeNode[] {
     }
   }
 
+  const hasChildren = (id: string) => (childrenByParent.get(id)?.length ?? 0) > 0
   const visited = new Set<string>()
 
   function build(page: WikiPage, depth: number, ancestry: Set<string>): WikiTreeNode {
     visited.add(page.id)
-    const children = sortSiblings(childrenByParent.get(page.id) ?? [])
+    const children = sortSiblings(childrenByParent.get(page.id) ?? [], hasChildren, sort, getAuthorName)
       .filter(child => !ancestry.has(child.id) && !visited.has(child.id)) // 循環防止（防御的）
       .map(child => build(child, depth + 1, new Set(ancestry).add(page.id)))
     return { page, children, depth }
   }
 
-  const result = sortSiblings(roots).map(root => build(root, 0, new Set([root.id])))
+  const result = sortSiblings(roots, hasChildren, sort, getAuthorName).map(root => build(root, 0, new Set([root.id])))
 
   // 循環（P→Q→P）に巻き込まれたページはどの根からも到達できず黙って消えるため、
   // 到達しなかったページを根に昇格させて必ず表示する。
   const stranded = pages.filter(p => !visited.has(p.id))
-  for (const p of sortSiblings(stranded)) {
+  for (const p of sortSiblings(stranded, hasChildren, sort, getAuthorName)) {
     if (!visited.has(p.id)) result.push(build(p, 0, new Set([p.id])))
   }
   return result
@@ -430,4 +446,43 @@ export function descendantIds(pages: WikiPage[], pageId: string): Set<string> {
   }
 
   return result
+}
+
+/**
+ * フォルダを削除するとき、直下の子ページを1つ上の階層（削除するフォルダの親。
+ * フォルダが根なら null）へ付け替えるための一覧を返す（PR5）。
+ * 孫以下には触れない — 直下の子だけが1段上がり、ツリーの深さ以外の形は保つ。
+ */
+export function childrenReparentTargets(
+  pages: WikiPage[],
+  folderId: string
+): { id: string; newParentId: string | null }[] {
+  const folder = pages.find(p => p.id === folderId)
+  const newParentId = folder?.parent_page_id ?? null
+  return pages.filter(p => p.parent_page_id === folderId).map(p => ({ id: p.id, newParentId }))
+}
+
+/**
+ * フォルダ表示のドラッグ移動（PR5）で、draggedId を targetId の中へ落とせるか。
+ * targetId が null なら「一番上の階層へ」の特別な落とし先で、常に許可する。
+ * 落とし先はフォルダ扱い（is_folder または子ページを持つ）の行のみ。自分自身・
+ * 自分の子孫（循環になる）へは落とせない。
+ */
+export function isValidWikiDropTarget(
+  pages: WikiPage[],
+  draggedId: string,
+  targetId: string | null
+): boolean {
+  if (targetId === null) return true
+  if (targetId === draggedId) return false
+
+  const target = pages.find(p => p.id === targetId)
+  if (!target) return false
+
+  const targetHasChildren = pages.some(p => p.parent_page_id === targetId)
+  if (!(target.is_folder === true || targetHasChildren)) return false
+
+  if (descendantIds(pages, draggedId).has(targetId)) return false
+
+  return true
 }
