@@ -19,6 +19,7 @@ function page(overrides: Partial<WikiPage> = {}): WikiPage {
     milestone_id: null,
     pinned_at: null,
     sort_order: null,
+    is_folder: false,
     created_by: 'u1',
     updated_by: 'u1',
     created_at: '2026-09-01T00:00:00+09:00',
@@ -207,6 +208,20 @@ describe('WikiListToolbar', () => {
     setup({ pages: [page({ tags: ['仕様書'] })], filters: { ...DEFAULT_WIKI_FILTERS, tags: ['仕様書'] } })
     expect(screen.getByLabelText('タイトル・タグで検索')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /仕様書/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  describe('新しいフォルダ（PR5）', () => {
+    it('canEdit が無ければボタンは出ない', () => {
+      setup()
+      expect(screen.queryByTestId('wiki-new-folder')).not.toBeInTheDocument()
+    })
+
+    it('canEdit があればボタンが出て、押すと onCreateFolder が呼ばれる', () => {
+      const onCreateFolder = vi.fn()
+      setup({ canEdit: true, onCreateFolder })
+      fireEvent.click(screen.getByTestId('wiki-new-folder'))
+      expect(onCreateFolder).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('表示切替', () => {
