@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react'
 import { WikiPageClient } from '@/app/(internal)/[orgId]/project/[spaceId]/wiki/WikiPageClient'
 import type { WikiPage, Milestone } from '@/types/database'
 
@@ -162,6 +162,26 @@ describe('WikiPageClient フォルダ操作（PR5）', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(mockCreatePage).toHaveBeenCalledWith({ title: '議事録', isFolder: true }))
     await waitFor(() => expect(screen.queryByTestId('wiki-inline-create-row')).not.toBeInTheDocument())
+  })
+
+  it('1つ目の保存を待っている間に「新しいフォルダ」を押しても、2つ目の入力行は消えない', async () => {
+    // 通信が遅いと、1つ目の保存が終わった時点で入力行を閉じる処理が2つ目の入力行まで閉じていた（E2E で実際に踏んだ）
+    let resolveFirst: (v: unknown) => void = () => {}
+    mockCreatePage.mockImplementationOnce(() => new Promise(r => { resolveFirst = r }))
+    setup()
+    fireEvent.click(screen.getByTestId('wiki-new-folder'))
+    const first = screen.getByRole('textbox', { name: 'フォルダ名' })
+    fireEvent.change(first, { target: { value: '1つ目' } })
+    fireEvent.keyDown(first, { key: 'Enter' })
+    await waitFor(() => expect(screen.queryByTestId('wiki-inline-create-row')).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('wiki-new-folder'))
+    expect(screen.getByTestId('wiki-inline-create-row')).toBeInTheDocument()
+
+    await act(async () => {
+      resolveFirst(page({ id: 'first-folder' }))
+    })
+    expect(screen.getByTestId('wiki-inline-create-row')).toBeInTheDocument()
   })
 
   it('Escape で入力行を閉じ、createPage は呼ばれない', () => {
