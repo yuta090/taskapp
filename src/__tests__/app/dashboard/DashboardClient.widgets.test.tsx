@@ -42,6 +42,9 @@ vi.mock('@/lib/hooks/useTasks', () => ({
   }),
 }))
 vi.mock('@/lib/hooks/useMilestones', () => ({ useMilestones: () => ({ milestones: [], loading: false }) }))
+vi.mock('@/lib/hooks/useWeekWikiActivity', () => ({
+  useWeekWikiActivity: () => ({ pages: [], loading: false, error: null }),
+}))
 vi.mock('@/lib/hooks/useMeetings', () => ({ useMeetings: () => ({ meetings: [] }) }))
 vi.mock('@/lib/hooks/useRiskForecast', () => ({ useRiskForecast: () => ({ forecasts: new Map() }) }))
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
@@ -375,5 +378,71 @@ describe('DashboardClient — 表示する項目を選ぶ', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     // 閉じたら押したボタンに戻す（キーボードで操作している人が位置を見失わないように）
     expect(screen.getByRole('button', { name: '表示する項目' })).toHaveFocus()
+  })
+})
+
+describe('DashboardClient — 上の数字からタスク一覧へ飛ぶ', () => {
+  const base = '/org-1/project/space-1'
+  const card = (label: string) => screen.getByText(label).closest('div')!
+
+  it('アクティブ・期限超過・レビュー待ちは、同じ絞り込みをかけたタスク一覧へ飛ぶ', () => {
+    mocks.tasks = [
+      task({ id: 'a', status: 'in_progress' }),
+      task({ id: 'b', status: 'backlog' }),
+      task({ id: 'late', due_date: '2026-09-15' }),
+      task({ id: 'rv', status: 'in_review' }),
+      task({ id: 'd', status: 'done' }),
+    ]
+    renderPage()
+
+    // 「アクティブ」はタスク一覧の既定と同じ数え方（未着手・完了を除く）
+    expect(screen.getByRole('link', { name: /アクティブ/ })).toHaveAttribute('href', base)
+    expect(card('アクティブ')).toHaveTextContent('3')
+    expect(screen.getByRole('link', { name: /期限超過/ })).toHaveAttribute('href', `${base}?filter=overdue`)
+    expect(screen.getByRole('link', { name: /レビュー待ち/ })).toHaveAttribute('href', `${base}?filter=in_review`)
+  })
+
+  it('ボールのクライアント側の数字は「クライアント確認待ち」へ飛ぶ', () => {
+    mocks.tasks = [task({ id: 'c', ball: 'client' }), task({ id: 'i' })]
+    renderPage()
+    expect(screen.getByRole('link', { name: 'クライアント 1件' })).toHaveAttribute('href', `${base}?filter=client_wait`)
+  })
+
+  it('レビュー待ちは、状態が確認待ちのものと返事待ちの承認依頼があるものを数える（完了は数えない）', () => {
+    mocks.tasks = [
+      task({ id: 'rv', status: 'in_review' }),
+      task({ id: 'open', status: 'in_progress' }),
+      task({ id: 'done', status: 'done' }),
+    ]
+    mocks.reviewStatuses = { open: 'open', done: 'open' }
+    renderPage()
+    expect(card('レビュー待ち')).toHaveTextContent('2')
+  })
+})
+
+describe('DashboardClient — ボールの数字だけを隠す', () => {
+  it('メニューで「ボール（件数のまとめ）」を外すと、上の数字からボールだけが消える', () => {
+    renderPage()
+    expect(screen.getByText('ボール (社内/クライアント)')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '表示する項目' }))
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'ボール（件数のまとめ）' }))
+
+    expect(screen.queryByText('ボール (社内/クライアント)')).not.toBeInTheDocument()
+    expect(screen.getByText('期限超過')).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem(DASHBOARD_WIDGET_PREFS_KEY) ?? '{}')).toEqual({ hidden: ['kpi_ball'] })
+  })
+})
+
+describe('DashboardClient — 期限切れに担当者を出す', () => {
+  it('担当者の名前を出し、担当者がいなければ「担当なし」と出す', () => {
+    mocks.tasks = [
+      task({ id: 'mine', title: '見積の作成', due_date: '2026-09-15', assignee_id: 'user-sato' }),
+      task({ id: 'nobody', title: '請求書の送付', due_date: '2026-09-14' }),
+    ]
+    renderPage()
+    const section = screen.getByRole('region', { name: '期限切れ' })
+    expect(within(section).getByRole('link', { name: /見積の作成/ })).toHaveTextContent('佐藤')
+    expect(within(section).getByRole('link', { name: /請求書の送付/ })).toHaveTextContent('担当なし')
   })
 })

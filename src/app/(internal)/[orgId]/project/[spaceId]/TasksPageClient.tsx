@@ -44,6 +44,9 @@ import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import { buildChildTaskInput, type ChildTaskDraft } from '@/lib/tasks/childTask'
 import { suggestReviewRequestOnDone, useReviewRequestTarget } from '@/lib/tasks/reviewRequestNudge'
+import { applyQuickFilter, DEFAULT_QUICK_FILTER, parseQuickFilter, type QuickFilterKey } from '@/lib/tasks/quickFilters'
+import { jstNow } from '@/lib/datetime/jstNow'
+import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { BallSide, Task, TaskStatus, Milestone, DecisionState } from '@/types/database'
@@ -53,10 +56,19 @@ interface TasksPageClientProps {
   spaceId: string
 }
 
-type FilterKey = 'all' | 'active' | 'backlog' | 'client_wait' | 'client_origin'
+// 判定は src/lib/tasks/quickFilters.ts（ダッシュボードの数字と同じ数え方）
+type FilterKey = QuickFilterKey
+
+/** パンくずの2つ目。載っていない絞り込みは「タスク」 */
+const FILTER_BREADCRUMB_LABEL: Partial<Record<FilterKey, string>> = {
+  overdue: '期限切れ',
+  in_review: 'レビュー待ち',
+  client_wait: 'クライアント確認待ち',
+  client_origin: 'クライアント起案',
+}
 
 /** 何も指定がないときの絞り込み。既定なので URL には付けない（付けるのは他を選んだときだけ） */
-const DEFAULT_FILTER: FilterKey = 'active'
+const DEFAULT_FILTER: FilterKey = DEFAULT_QUICK_FILTER
 type SortKey = 'milestone' | 'due_date' | 'created_at' | 'assignee' | 'status'
 
 interface TaskGroup {
@@ -290,12 +302,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const isCreateOpen = searchParams.get('create') !== null
   const selectedTaskId = searchParams.get('task')
   const activeFilter: FilterKey = useMemo(() => {
-    const filterParam = searchParams.get('filter')
-    if (filterParam === 'all' || filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait' || filterParam === 'client_origin') {
-      return filterParam
-    }
     // 既定は「アクティブ」。開いた直後に完了・未着手まで並ぶと、いま動いているタスクが埋もれる
-    return DEFAULT_FILTER
+    return parseQuickFilter(searchParams.get('filter'))
   }, [searchParams])
 
   // useQuery auto-fetches tasks, milestones, and the space row — no manual useEffect needed
@@ -350,28 +358,16 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     )
   }, [advancedFilters])
 
-  const filteredTasks = useMemo(() => {
-    let result: Task[]
+  // 日本時間の今日（期限切れの判定用）と、返事待ちの承認依頼があるタスク（レビュー待ちの判定用）
+  const today = formatDateToLocalString(jstNow())
+  const openReviewTaskIds = useMemo(
+    () => new Set(Object.keys(reviewStatuses).filter((taskId) => reviewStatuses[taskId] === 'open')),
+    [reviewStatuses]
+  )
 
+  const filteredTasks = useMemo(() => {
     // First apply quick filters (tabs)
-    switch (activeFilter) {
-      case 'active':
-        result = tasks.filter(
-          (task) => task.status !== 'backlog' && task.status !== 'done'
-        )
-        break
-      case 'backlog':
-        result = tasks.filter((task) => task.status === 'backlog')
-        break
-      case 'client_wait':
-        result = tasks.filter((task) => task.ball === 'client' && task.status !== 'done')
-        break
-      case 'client_origin':
-        result = tasks.filter((task) => task.origin === 'client')
-        break
-      default:
-        result = tasks
-    }
+    let result: Task[] = applyQuickFilter(tasks, activeFilter, { today, openReviewTaskIds })
 
     // Then apply advanced filters
     if (hasAdvancedFilters) {
@@ -389,7 +385,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     }
 
     return result
-  }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters, searchQuery])
+  }, [tasks, activeFilter, today, openReviewTaskIds, advancedFilters, hasAdvancedFilters, searchQuery])
 
   // タスク自体はあるのに、既定の「アクティブ」だけが理由で0件になっている状態。空のときの案内を出し分ける
   const onlyDefaultFilterHides =
@@ -1019,7 +1015,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Breadcrumb items
   const breadcrumbItems = [
     { label: spaceName || 'プロジェクト', href: projectBasePath },
-    { label: activeFilter === 'client_wait' ? 'クライアント確認待ち' : activeFilter === 'client_origin' ? 'クライアント起案' : 'タスク' },
+    { label: FILTER_BREADCRUMB_LABEL[activeFilter] ?? 'タスク' },
   ]
 
   return (
@@ -1118,6 +1114,30 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               }`}
             >
               未着手
+            </button>
+            <button
+              type="button"
+              data-testid="tasks-filter-overdue"
+              onClick={() => handleFilterChange('overdue')}
+              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                activeFilter === 'overdue'
+                  ? 'text-red-700 bg-red-50 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              期限切れ
+            </button>
+            <button
+              type="button"
+              data-testid="tasks-filter-in-review"
+              onClick={() => handleFilterChange('in_review')}
+              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                activeFilter === 'in_review'
+                  ? 'text-gray-900 bg-surface shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              レビュー待ち
             </button>
             <button
               type="button"
