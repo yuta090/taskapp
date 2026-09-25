@@ -20,6 +20,9 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { noteAuthorNameOf } from '@/lib/minutes/noteStamp'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import { useWikiDecisionCounts } from '@/lib/hooks/useWikiDecisionCounts'
+import { useWikiPageReferencingTasks } from '@/lib/hooks/useWikiPageReferencingTasks'
+import type { WikiReferencingTask } from '@/lib/wiki/referencingTasks'
+import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import {
   applyWikiListView,
@@ -290,6 +293,24 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   // （オーバーレイ禁止のためシート表示）。開いているかは state ではなく URL に載せる —
   // 端末の「戻る」で ?info= が外れ、ページは開いたままシートだけが閉じる
   const showInfo = searchParams.get(INFO_QUERY_PARAM) === '1'
+
+  // ページ情報パネルの「このページを参照しているタスク」。本文の取得（fetchPage）を待たず、
+  // URL のページ id で並列に取り始める（待つと1往復ぶん遅れて出る）
+  const {
+    tasks: referencingTaskRows,
+    loading: referencingTasksLoading,
+    error: referencingTasksError,
+  } = useWikiPageReferencingTasks(orgId, spaceId, selectedPageId)
+  // 担当者の名前は一覧と同じメンバー一覧から引く（取り直しは起きない）。
+  // 引けない人（抜けた人・権限で名前が読めない人）は空欄にせず「メンバー外」と出す
+  const referencingTasks = useMemo<WikiReferencingTask[]>(
+    () =>
+      referencingTaskRows.map(task => ({
+        ...task,
+        assigneeName: task.assignee_id ? (memberMap.get(task.assignee_id)?.name ?? UNKNOWN_PROFILE_LABEL) : null,
+      })),
+    [referencingTaskRows, memberMap]
+  )
 
   // 表示速度: サーバーとの往復を避けるため router.replace ではなく history.replaceState で
   // URL だけを変える（手本: MeetingsPageClient / TasksPageClient）。useSearchParams は追従する。
@@ -724,6 +745,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         allPages={pages}
         milestones={milestones}
         taskLinkedMilestones={taskLinkedMilestonesForActivePage}
+        referencingTasks={referencingTasks}
+        referencingTasksLoading={referencingTasksLoading}
+        referencingTasksError={referencingTasksError !== null}
       />,
       { size: 'narrow' }
     )
@@ -745,6 +769,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     pages,
     milestones,
     taskLinkedMilestonesForActivePage,
+    referencingTasks,
+    referencingTasksLoading,
+    referencingTasksError,
   ])
 
   // 全画面表示中はEscで抜ける（IME変換確定やエディタ内のメニュー操作は妨げない）
