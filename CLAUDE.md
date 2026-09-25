@@ -50,9 +50,9 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   ```bash
   SHA=$(git -C /Volumes/WIN-MAC2/scripts/taskapp rev-parse --short=8 origin/develop)
   git -C /Volumes/WIN-MAC2/scripts/taskapp push origin origin/develop:refs/heads/release/develop-$SHA
-  # プレビューの URL（ビルドが終わると environment_url が入る）
-  gh api "repos/yuta090/taskapp/deployments?ref=release/develop-$SHA" --jq '.[0].statuses_url' \
-    | xargs -I{} gh api {} --jq '[.[]|select(.state=="success")][0].environment_url'
+  # プレビューの URL（ビルドが終わると environment_url が入る）。デプロイ記録はブランチ名ではなくコミットの SHA で引く
+  gh api "repos/yuta090/taskapp/deployments?sha=$(git -C /Volumes/WIN-MAC2/scripts/taskapp rev-parse origin/develop)" \
+    --jq '.[0].statuses_url' | xargs -I{} gh api {} --jq '[.[]|select(.state=="success")][0].environment_url'
   ```
 
   報告には、プレビューの URL・中身のコミット（`origin/main..origin/develop` の一覧）・画面で見てほしい点を書く。
