@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Warning,
@@ -35,6 +36,11 @@ import { applyQuickFilter, quickFilterHref } from '@/lib/tasks/quickFilters'
 import { RecentCommentsSection, type RecentCommentItem } from '@/components/dashboard/RecentCommentsSection'
 import { DecisionsSection } from '@/components/dashboard/DecisionsSection'
 import { DashboardWidgetMenu } from '@/components/dashboard/DashboardWidgetMenu'
+import { MemberProgressSection } from '@/components/dashboard/MemberProgressSection'
+import { WeekHighlightsSection } from '@/components/dashboard/WeekHighlightsSection'
+import { summarizeByMember } from '@/lib/dashboard/memberProgress'
+import { previousWeekStartOf, summarizeWeek } from '@/lib/dashboard/weekHighlights'
+import { useWeekWikiActivity } from '@/lib/hooks/useWeekWikiActivity'
 
 // -- Constants --
 
@@ -547,14 +553,63 @@ function UpcomingMeetingsSection({
 
 // -- Main --
 
+/** 上のタブ。URL の ?view= に入れる（既定の「全体」は付けない） */
+type DashboardView = 'overview' | 'members' | 'week'
+const VIEW_TABS: ReadonlyArray<{ id: DashboardView; label: string }> = [
+  { id: 'overview', label: '全体' },
+  { id: 'members', label: 'メンバー別' },
+  { id: 'week', label: '今週' },
+]
+
+function parseView(param: string | null | undefined): DashboardView {
+  return param === 'members' || param === 'week' ? param : 'overview'
+}
+
+function ViewTabs({ view, onChange }: { view: DashboardView; onChange: (view: DashboardView) => void }) {
+  return (
+    <div role="tablist" aria-label="ダッシュボードの表示" className="inline-flex items-center gap-1 bg-gray-100/80 rounded-lg p-0.5">
+      {VIEW_TABS.map((tab) => {
+        const selected = tab.id === view
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onChange(tab.id)}
+            className={`px-3 py-1 text-xs rounded-md font-medium whitespace-nowrap transition-all ${
+              selected ? 'text-gray-900 bg-surface shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /** 2列の格子に並べる小さい項目 */
 const HALF_WIDTH_WIDGETS: readonly DashboardWidgetId[] = ['milestones', 'ball', 'upcoming_deadlines', 'meetings']
 
 export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
+  const searchParams = useSearchParams()
+  const [view, setView] = useState<DashboardView>(() => parseView(searchParams?.get('view')))
+  // 開き直しても同じ表示に戻れるよう URL に残す。履歴は積まない（タブを行き来するたびに「戻る」が増えないように）
+  const changeView = useCallback((next: DashboardView) => {
+    setView(next)
+    const url = new URL(window.location.href)
+    if (next === 'overview') url.searchParams.delete('view')
+    else url.searchParams.set('view', next)
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [])
+  const isOverview = view === 'overview'
+
   const widgets = useDashboardWidgetPrefs()
   const { isVisible } = widgets
-  const showRecentComments = isVisible('recent_comments')
-  const showDecisions = isVisible('decisions')
+  // 「全体」以外を開いているあいだは、全体の項目のためのデータを読みに行かない
+  const showRecentComments = isOverview && isVisible('recent_comments')
+  const showDecisions = isOverview && isVisible('decisions')
 
   const { tasks, reviewStatuses, loading: tasksLoading, error: tasksError, fetchTasks } = useTasks({ orgId, spaceId })
   const { milestones, loading: msLoading } = useMilestones({ spaceId })
@@ -567,16 +622,23 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
     error: commentsError,
   } = useRecentTaskComments(spaceId, { enabled: showRecentComments })
   // 名簿は「最近のコメント」の書いた人と「期限切れ」の担当者に使う。どちらも隠しているあいだは読みに行かない
-  const showOverdue = isVisible('overdue')
-  const { members, isPending: membersPending } = useSpaceMembers(showRecentComments || showOverdue ? spaceId : null)
+  const showOverdue = isOverview && isVisible('overdue')
+  const { members, isPending: membersPending } = useSpaceMembers(
+    showRecentComments || showOverdue || view === 'members' ? spaceId : null
+  )
   // 「確定事項」を隠しているあいだは、決めたときの記録も読みに行かない
-  const { events: decisionEvents } = useSpecDecisionEvents(spaceId, { enabled: showDecisions })
+  // 「今週」の「決まったこと」も同じ記録から数える
+  const { events: decisionEvents, loading: decisionEventsLoading } = useSpecDecisionEvents(spaceId, { enabled: showDecisions || view === 'week' })
 
   const loading = tasksLoading || msLoading
 
   // 日本時間の今日。期限の判定はすべてこれと期限の日付を比べる（new Date(due_date) と今の時刻を比べると、
   // 期限が今日のタスクが朝9時に「超過」になる）
   const today = formatDateToLocalString(jstNow())
+  // 「今週」を開いているときだけ、先週の月曜から後に動いた Wiki を読む
+  const { pages: weekWikiPages, loading: weekWikiLoading } = useWeekWikiActivity(spaceId, previousWeekStartOf(today), {
+    enabled: view === 'week',
+  })
 
   const followUps = useMemo(() => classifyFollowUps(tasks, today), [tasks, today])
 
@@ -635,6 +697,26 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
     [members, membersPending]
   )
 
+  const memberRows = useMemo(
+    () => (view === 'members' ? summarizeByMember(tasks, today, openReviewTaskIds) : []),
+    [view, tasks, today, openReviewTaskIds]
+  )
+  const memberNameOf = useCallback(
+    (assigneeId: string | null) => {
+      if (!assigneeId) return '担当なし'
+      if (membersPending) return '…'
+      return members.find((m) => m.id === assigneeId)?.displayName || UNKNOWN_PROFILE_LABEL
+    },
+    [members, membersPending]
+  )
+  const weekSummary = useMemo(
+    () =>
+      view === 'week'
+        ? summarizeWeek({ today, tasks, wikiPages: weekWikiPages, meetings, decisionEvents })
+        : null,
+    [view, today, tasks, weekWikiPages, meetings, decisionEvents]
+  )
+
   const basePath = `/${orgId}/project/${spaceId}`
   const showHalfGrid = HALF_WIDTH_WIDGETS.some(isVisible)
   // 「ボール（件数のまとめ）」は件数のまとめの中の1枚なので、それだけ残っていても画面には何も出ない
@@ -651,7 +733,7 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
           ]}
         />
         <div className="ml-auto flex items-center gap-2">
-          <DashboardWidgetMenu {...widgets} />
+          {isOverview && <DashboardWidgetMenu {...widgets} />}
           {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
               AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
               モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
@@ -661,11 +743,31 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
         </div>
       </div>
 
+      <div className="px-6 pb-4">
+        <ViewTabs view={view} onChange={changeView} />
+      </div>
+
       {/* ヘッダーは上で必ず描いてから、本文だけを差し替える */}
       {loading ? (
         <LoadingState />
       ) : tasksError ? (
         <ErrorRetry message="データの読み込みに失敗しました" onRetry={fetchTasks} />
+      ) : view === 'members' ? (
+        <div className="px-6 pb-8 max-w-5xl">
+          <MemberProgressSection rows={memberRows} nameOf={memberNameOf} today={today} orgId={orgId} spaceId={spaceId} />
+        </div>
+      ) : view === 'week' && weekSummary ? (
+        <div className="px-6 pb-8 max-w-5xl">
+          <WeekHighlightsSection
+            summary={weekSummary}
+            tasks={tasks}
+            today={today}
+            loading={weekWikiLoading}
+            decisionsLoading={decisionEventsLoading}
+            orgId={orgId}
+            spaceId={spaceId}
+          />
+        </div>
       ) : (
       <div className="px-6 pb-8 space-y-6 max-w-5xl">
         {nothingVisible && (
