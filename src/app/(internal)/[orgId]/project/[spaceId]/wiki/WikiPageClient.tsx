@@ -10,9 +10,11 @@ import { WikiPageRow, type WikiRowMember } from '@/components/wiki/WikiPageRow'
 import { WikiListToolbar } from '@/components/wiki/WikiListToolbar'
 import { WikiPageInspector } from '@/components/wiki/WikiPageInspector'
 import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
+import { WikiInlineCreateRow } from '@/components/wiki/WikiInlineCreateRow'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { EmptyState } from '@/components/shared'
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useWikiPages, WikiConflictError, type UpdateWikiPageInput, type WikiPageVersionSummary } from '@/lib/hooks/useWikiPages'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -33,6 +35,8 @@ import {
   pruneWikiTreeToMatches,
   type WikiListFilters,
   EMPTY_MILESTONE_LIST,
+  childrenReparentTargets,
+  isValidWikiDropTarget,
 } from '@/lib/wiki/listView'
 import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
 import type { Milestone, WikiPage } from '@/types/database'
@@ -233,7 +237,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const isFiltering = filters.query.trim() !== '' || filters.tags.length > 0 || filters.authorIds.length > 0
 
   // フォルダ表示: 絞り込み中は一致した行とその祖先だけを残してからツリーを組む。
-  // ピン留めは根の並びだけに影響させ、子の並びは崩さない（buildWikiTree の sort_order のまま）。
+  // ピン留めは根の並びだけに影響させ、子の並びは buildWikiTree（選んだ並べ替え＋フォルダ先出し）のまま。
   const folderTree = useMemo(() => {
     if (prefs.view !== 'folder') return EMPTY_TREE
     let sourcePages = pages
@@ -254,6 +258,125 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     () => flattenWikiTree(folderTree, isFiltering ? new Set<string>() : new Set(prefs.collapsedIds)),
     [folderTree, prefs.collapsedIds, isFiltering]
   )
+
+  // ---------------------------------------------------------------------------
+  // PR5: フォルダの作成・名前変更・削除・ドラッグ移動
+  // ---------------------------------------------------------------------------
+
+  // 行のフォルダアイコン（一覧・フォルダ・マイルストーン別のどの表示でも出す）。
+  // is_folder が明示されているページ、または子ページを1つ以上持つページを対象にする。
+  const hasChildrenIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const p of pages) if (p.parent_page_id != null) ids.add(p.parent_page_id)
+    return ids
+  }, [pages])
+  const getIsFolder = useCallback(
+    (p: WikiPage): boolean => p.is_folder === true || hasChildrenIds.has(p.id),
+    [hasChildrenIds]
+  )
+
+  // 「新しいフォルダ」ボタン。モーダルは禁止のため、一覧の先頭にインライン入力を出す。
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
+
+  const handleCreateFolderClick = useCallback(() => {
+    // 作った直後に見えるよう、先にフォルダ表示へ切り替える
+    setPrefs(prev => ({ ...prev, view: 'folder' }))
+    setIsCreatingFolder(true)
+  }, [setPrefs])
+
+  const handleCancelNewFolder = useCallback(() => setIsCreatingFolder(false), [])
+
+  const handleSubmitNewFolder = useCallback(
+    async (title: string) => {
+      try {
+        await createPage({ title, isFolder: true })
+      } catch {
+        toast.error('フォルダを作成できませんでした')
+      } finally {
+        setIsCreatingFolder(false)
+      }
+    },
+    [createPage]
+  )
+
+  // 名前変更（フォルダ・通常ページの行のダブルクリック / フォルダのメニューから）
+  const handleRenamePage = useCallback(
+    (pageId: string, title: string) => {
+      void updatePage(pageId, { title }).catch(() => toast.error('名前を変更できませんでした'))
+    },
+    [updatePage]
+  )
+
+  // フォルダの削除。確認をはさみ、直下の子ページを1つ上の階層（フォルダの親）へ
+  // 付け替えてから削除する（#992 と同じ確認の型）。
+  const { confirm: confirmFolderDelete, ConfirmDialog: FolderDeleteConfirmDialog } = useConfirmDialog()
+
+  const handleRequestDeleteFolder = useCallback(
+    async (folderPage: WikiPage) => {
+      const ok = await confirmFolderDelete({
+        title: 'フォルダを削除',
+        message: 'フォルダを削除します。中のページは1つ上の階層に移ります。この操作は取り消せません。',
+        confirmLabel: '削除する',
+        variant: 'danger',
+      })
+      if (!ok) return
+      const targets = childrenReparentTargets(pages, folderPage.id)
+      try {
+        await Promise.all(targets.map(t => updatePage(t.id, { parent_page_id: t.newParentId })))
+        await deletePage(folderPage.id)
+      } catch {
+        toast.error('フォルダを削除できませんでした')
+      }
+    },
+    [confirmFolderDelete, pages, updatePage, deletePage]
+  )
+
+  // ドラッグでの移動（フォルダ表示・デスクトップのみ）。draggingId は今つかんでいるページ、
+  // dragOverId は今その上にあるフォルダ（'root' は「一番上の階層へ」の特別な落とし先）。
+  const canDragDrop = canEdit && !isMobile && prefs.view === 'folder'
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | 'root' | null>(null)
+
+  const handleDragStartPage = useCallback((pageId: string) => setDraggingId(pageId), [])
+
+  const handleDragOverPage = useCallback((pageId: string) => {
+    setDragOverId(prev => (prev === pageId ? prev : pageId))
+  }, [])
+
+  const handleDragOverRoot = useCallback(() => {
+    setDragOverId(prev => (prev === 'root' ? prev : 'root'))
+  }, [])
+
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null)
+    setDragOverId(null)
+  }, [])
+
+  const handleDropOnPage = useCallback(
+    (targetId: string) => {
+      if (!draggingId) return
+      const movingId = draggingId
+      setDraggingId(null)
+      setDragOverId(null)
+      if (!isValidWikiDropTarget(pages, movingId, targetId)) return
+      void updatePage(movingId, { parent_page_id: targetId }).catch(() => toast.error('移動できませんでした'))
+    },
+    [draggingId, pages, updatePage]
+  )
+
+  const handleDropOnRoot = useCallback(() => {
+    if (!draggingId) return
+    const movingId = draggingId
+    setDraggingId(null)
+    setDragOverId(null)
+    void updatePage(movingId, { parent_page_id: null }).catch(() => toast.error('移動できませんでした'))
+  }, [draggingId, updatePage])
+
+  // 今ホバー中の落とし先が有効かどうか（行の見た目に反映する）。'root' は常に有効。
+  const dragOverValidity = useMemo<'valid' | 'invalid' | null>(() => {
+    if (!draggingId || dragOverId === null || dragOverId === 'root') return null
+    return isValidWikiDropTarget(pages, draggingId, dragOverId) ? 'valid' : 'invalid'
+  }, [draggingId, dragOverId, pages])
 
   // マイルストーン別表示: 絞り込み・並べ替え・ピン留め済みの表示配列をそのままグループ化する。
   // 1ページが複数グループに出てよい（PR4）ため milestonesByPageId を渡す。
@@ -1077,6 +1200,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           totalCount={pages.length}
           filteredCount={displayedPages.length}
           groupedRowCount={groupedRowCount}
+          canEdit={canEdit}
+          onCreateFolder={handleCreateFolderClick}
         />
       )}
 
@@ -1135,6 +1260,30 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           />
         ) : prefs.view === 'folder' ? (
           <div>
+            {isCreatingFolder && (
+              <WikiInlineCreateRow onSubmit={handleSubmitNewFolder} onCancel={handleCancelNewFolder} />
+            )}
+            {/* ドラッグ中だけ出す「一番上の階層へ」の落とし先（PR5） */}
+            {draggingId && (
+              <div
+                data-testid="wiki-folder-drop-root"
+                onDragOver={e => {
+                  e.preventDefault()
+                  handleDragOverRoot()
+                }}
+                onDrop={e => {
+                  e.preventDefault()
+                  handleDropOnRoot()
+                }}
+                className={`mx-4 my-2 px-3 py-2 text-xs text-center rounded-lg border-2 border-dashed transition-colors ${
+                  dragOverId === 'root'
+                    ? 'border-indigo-400 bg-indigo-50 text-indigo-ink'
+                    : 'border-gray-300 text-gray-400'
+                }`}
+              >
+                ここに置くと一番上の階層へ
+              </div>
+            )}
             {flatFolderRows.map(({ page, depth, hasChildren, collapsed }) => (
               <WikiPageRow
                 key={page.id}
@@ -1149,6 +1298,16 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 hasChildren={hasChildren}
                 collapsed={collapsed}
                 onToggleCollapse={handleToggleCollapse}
+                isFolder={getIsFolder(page)}
+                canEdit={canEdit}
+                onRename={handleRenamePage}
+                onRequestDeleteFolder={handleRequestDeleteFolder}
+                isDraggable={canDragDrop}
+                onDragStartPage={handleDragStartPage}
+                onDragOverPage={handleDragOverPage}
+                onDropPage={handleDropOnPage}
+                onDragEndPage={handleDragEnd}
+                dropHighlight={dragOverId === page.id ? dragOverValidity : undefined}
               />
             ))}
           </div>
@@ -1170,6 +1329,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                     milestones={getPageMilestones(page.id)}
                     decisionCount={getPageDecisions(page.id)}
                     duplicatedInOtherGroups={Math.max(0, getPageMilestones(page.id).length - 1)}
+                    isFolder={getIsFolder(page)}
                   />
                 ))}
               </div>
@@ -1187,6 +1347,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 getMember={getMember}
                 milestones={getPageMilestones(page.id)}
                 decisionCount={getPageDecisions(page.id)}
+                isFolder={getIsFolder(page)}
               />
             ))}
           </div>
@@ -1199,6 +1360,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         onClose={() => setIsCreateSheetOpen(false)}
         onSubmit={handleCreatePage}
       />
+
+      {/* フォルダ削除の確認（PR5） */}
+      {FolderDeleteConfirmDialog}
     </div>
   )
 }
