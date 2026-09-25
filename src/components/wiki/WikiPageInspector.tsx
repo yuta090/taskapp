@@ -5,6 +5,8 @@ import { X, Trash, Clock, Tag, PencilSimple, Check, FilePdf } from '@phosphor-ic
 import { toast } from 'sonner'
 import type { Milestone, WikiPage } from '@/types/database'
 import type { WikiPageVersionSummary } from '@/lib/hooks/useWikiPages'
+import type { WikiReferencingTask } from '@/lib/wiki/referencingTasks'
+import { WikiReferencingTasks } from './WikiReferencingTasks'
 import { descendantIds } from '@/lib/wiki/listView'
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
@@ -36,6 +38,10 @@ interface WikiPageInspectorProps {
   milestones?: Milestone[]
   /** タスクからの参照で付いているマイルストーン（読み取り専用表示・PR4）。空/省略なら出さない。 */
   taskLinkedMilestones?: Milestone[]
+  /** このページを参照しているタスク（仕様書連携・説明文のリンク）。省略時は欄ごと出さない。 */
+  referencingTasks?: WikiReferencingTask[]
+  referencingTasksLoading?: boolean
+  referencingTasksError?: boolean
 }
 
 export function WikiPageInspector({
@@ -48,6 +54,9 @@ export function WikiPageInspector({
   allPages = [],
   milestones = [],
   taskLinkedMilestones = [],
+  referencingTasks,
+  referencingTasksLoading = false,
+  referencingTasksError = false,
 }: WikiPageInspectorProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(page.title)
@@ -453,6 +462,14 @@ export function WikiPageInspector({
 
           {organizeError && <p className="text-xs text-red-600">{organizeError}</p>}
         </div>
+
+        {referencingTasks && (
+          <WikiReferencingTasks
+            tasks={referencingTasks}
+            loading={referencingTasksLoading}
+            error={referencingTasksError}
+          />
+        )}
 
         {/* Metadata */}
         <div className="space-y-2">
