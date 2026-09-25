@@ -25,6 +25,7 @@ import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
+import { useEditorClickBehaviors } from '@/components/editor/editorClickBehaviors'
 import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
 import {
@@ -521,6 +522,9 @@ function MinutesEditorImpl({
   // 変えて渡すと BlockNote がエディタを作り直し、**取り消し（Ctrl+Z / Cmd+Z）が
   // 二度と効かなくなる**（理由は useStableEditable の注を参照）
   const mountEditable = useStableEditable(editor, effectiveEditable)
+
+  // 折りたたみの題名クリックで開閉・表の列の境目のダブルクリックで幅合わせ
+  useEditorClickBehaviors(editorContainerRef, editor)
 
   /**
    * 今の行を「会議メモ」に変える（空の行なら、その行がそのまま会議メモになる）。

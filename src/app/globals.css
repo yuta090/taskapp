@@ -937,6 +937,17 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
   padding-block: 5px;
 }
 
+/* --- 表の文字は本文より一段小さく（本文と同じ16pxだと列が広がり、画面に収まらない） --- */
+
+.wiki-editor .bn-block-content[data-content-type="table"] th,
+.wiki-editor .bn-block-content[data-content-type="table"] td,
+.minutes-editor .bn-block-content[data-content-type="table"] th,
+.minutes-editor .bn-block-content[data-content-type="table"] td {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 4px 8px;
+}
+
 /* --- 見出しの余白（既定は上下 3px しかなく、本文と見分けがつかない） --- */
 
 .wiki-editor .bn-block-content[data-content-type="heading"],
