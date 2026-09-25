@@ -43,6 +43,20 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   作業ブランチ（PR）と develop のプレビューは無いので、**画面の確認と E2E はローカルで回す**
   （ユーザー方針「ローカルでできることはローカルで」）。ビルドが増える設定（プレビューを戻す・
   ビルドマシンを Turbo に戻す）は**ユーザーの了承なしに戻さない**。
+- **develop にマージしたら、本番に出さずに確認できる URL を必ず報告に載せる**（2026-09-26 ユーザー指定）。
+  develop にはプレビューが無いので、develop の先頭から `release/develop-<sha8>` を切って Vercel に作らせる。
+  ビルドは数分かかる。URL が出る前に「終わりました」と報告しない
+
+  ```bash
+  SHA=$(git -C /Volumes/WIN-MAC2/scripts/taskapp rev-parse --short=8 origin/develop)
+  git -C /Volumes/WIN-MAC2/scripts/taskapp push origin origin/develop:refs/heads/release/develop-$SHA
+  # プレビューの URL（ビルドが終わると environment_url が入る）
+  gh api "repos/yuta090/taskapp/deployments?ref=release/develop-$SHA" --jq '.[0].statuses_url' \
+    | xargs -I{} gh api {} --jq '[.[]|select(.state=="success")][0].environment_url'
+  ```
+
+  報告には、プレビューの URL・中身のコミット（`origin/main..origin/develop` の一覧）・画面で見てほしい点を書く。
+  develop には他のセッションのマージも入っているので、**昇格すると一緒に本番に出るものを並べる**
 - **ローカルの起動は webpack**。この Mac の exFAT ボリュームでは Turbopack が `Permission denied`
   で落ちるため。worktree でも `node_modules` と `.env.local` をメイン checkout へのシンボリック
   リンクにすれば動く。
