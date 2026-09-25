@@ -107,6 +107,11 @@ vi.mock('@/lib/hooks/useMilestones', () => ({
   useMilestones: () => ({ milestones: [], loading: false }),
 }))
 
+const NO_REFERENCING_TASKS = vi.hoisted(() => [] as never[])
+vi.mock('@/lib/hooks/useWikiPageReferencingTasks', () => ({
+  useWikiPageReferencingTasks: () => ({ tasks: NO_REFERENCING_TASKS, loading: false, error: null }),
+}))
+
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({
     members: [{ id: 'user1', displayName: '田中', avatarUrl: null, role: 'admin' }],
