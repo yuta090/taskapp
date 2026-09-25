@@ -17,6 +17,7 @@ import { useCallback, useState } from 'react'
 
 export type DashboardWidgetId =
   | 'kpi'
+  | 'kpi_ball'
   | 'overdue'
   | 'decisions'
   | 'recent_comments'
@@ -29,6 +30,8 @@ export type DashboardWidgetId =
 /** メニューに並べる順（画面の上からの順と同じ） */
 export const DASHBOARD_WIDGETS: ReadonlyArray<{ id: DashboardWidgetId; label: string }> = [
   { id: 'kpi', label: '件数のまとめ' },
+  // 件数のまとめの中の「ボール (社内/クライアント)」だけを隠す（ボールを使わない運用向け）
+  { id: 'kpi_ball', label: 'ボール（件数のまとめ）' },
   { id: 'overdue', label: '期限切れ' },
   { id: 'decisions', label: '確定事項' },
   { id: 'recent_comments', label: '最近のコメント' },
