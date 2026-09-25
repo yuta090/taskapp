@@ -200,14 +200,16 @@ export function TableOfContentsBlock({ editor }: { editor: BlockNoteEditorLike }
       contentEditable={false}
       data-testid="doc-toc"
       // 面をわずかに落として「本文ではない」ことを示す。色はトークンで置き、明暗どちらでも
-      // 読めるようにする（アンバー/オレンジは「相手先に見える」印の色なので使わない）
-      className="my-2 w-full select-none rounded border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/50"
+      // 読めるようにする（アンバー/オレンジは「相手先に見える」印の色なので使わない）。
+      // gray は .dark で段ごと反転するので dark: を重ねない（重ねると二重に反転し、
+      // ダークで明るい灰色の面に暗い文字になる）
+      className="my-2 w-full select-none rounded border border-gray-200 bg-gray-50 px-3 py-2"
     >
-      <div className="mb-1 text-[10px] font-medium tracking-wide text-gray-500 dark:text-gray-400">
+      <div className="mb-1 text-[10px] font-medium tracking-wide text-gray-500">
         目次
       </div>
       {items.length === 0 ? (
-        <div className="text-xs text-gray-400 dark:text-gray-500">見出しがまだありません</div>
+        <div className="text-xs text-gray-400">見出しがまだありません</div>
       ) : (
         <ul className="space-y-0.5">
           {items.map((it) => (
@@ -217,7 +219,7 @@ export function TableOfContentsBlock({ editor }: { editor: BlockNoteEditorLike }
                 onClick={() => jump(it.id)}
                 data-testid="doc-toc-item"
                 // 本文より1段小さく。行の高さを詰めて、20行あっても画面を圧迫しない
-                className="w-full truncate text-left text-xs leading-5 text-gray-600 hover:text-blue-600 hover:underline dark:text-gray-300 dark:hover:text-blue-400"
+                className="w-full truncate text-left text-xs leading-5 text-gray-600 hover:text-blue-600 hover:underline dark:hover:text-blue-400"
               >
                 {it.text}
               </button>
