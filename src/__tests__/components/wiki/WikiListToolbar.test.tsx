@@ -210,6 +210,20 @@ describe('WikiListToolbar', () => {
     expect(screen.getByRole('button', { name: /仕様書/ })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  describe('新しいフォルダ（PR5）', () => {
+    it('canEdit が無ければボタンは出ない', () => {
+      setup()
+      expect(screen.queryByTestId('wiki-new-folder')).not.toBeInTheDocument()
+    })
+
+    it('canEdit があればボタンが出て、押すと onCreateFolder が呼ばれる', () => {
+      const onCreateFolder = vi.fn()
+      setup({ canEdit: true, onCreateFolder })
+      fireEvent.click(screen.getByTestId('wiki-new-folder'))
+      expect(onCreateFolder).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('表示切替', () => {
     it('既定は一覧が選択されている', () => {
       setup()
