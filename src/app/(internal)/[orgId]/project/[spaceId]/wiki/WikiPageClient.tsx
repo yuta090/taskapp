@@ -244,13 +244,13 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       const matchedIds = new Set(filterWikiPages(pages, filters, getAuthorName).map(p => p.id))
       sourcePages = pruneWikiTreeToMatches(pages, matchedIds)
     }
-    const tree = buildWikiTree(sourcePages)
+    const tree = buildWikiTree(sourcePages, prefs.sort, getAuthorName)
     const pinnedRoots = [...tree.filter(n => n.page.pinned_at != null)].sort(
       (a, b) => new Date(a.page.pinned_at as string).getTime() - new Date(b.page.pinned_at as string).getTime()
     )
     const restRoots = tree.filter(n => n.page.pinned_at == null)
     return [...pinnedRoots, ...restRoots]
-  }, [pages, filters, getAuthorName, isFiltering, prefs.view])
+  }, [pages, filters, getAuthorName, isFiltering, prefs.view, prefs.sort])
 
   // 絞り込み中は折りたたみを無視する（祖先が閉じたままだと一致した行が画面から消える）
   const flatFolderRows = useMemo(
