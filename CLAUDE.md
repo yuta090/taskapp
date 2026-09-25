@@ -43,6 +43,24 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   作業ブランチ（PR）と develop のプレビューは無いので、**画面の確認と E2E はローカルで回す**
   （ユーザー方針「ローカルでできることはローカルで」）。ビルドが増える設定（プレビューを戻す・
   ビルドマシンを Turbo に戻す）は**ユーザーの了承なしに戻さない**。
+- **develop にマージしたら、本番に出さずに確認できる URL を必ず報告に載せる**（2026-09-26 ユーザー指定）。
+  develop にはプレビューが無いので、develop の先頭に**空のコミットを1つ足して** `release/develop-<sha8>` に push し、
+  Vercel に作らせる。develop と同じコミットのまま push しても、Vercel は develop で一度「ビルド対象外」にした
+  コミットを作り直さない（2026-09-26 に実測）。ビルドは数分かかる。URL が出る前に「終わりました」と報告しない
+
+  ```bash
+  R=/Volumes/WIN-MAC2/scripts/taskapp
+  git -C $R fetch origin develop
+  D=$(git -C $R rev-parse origin/develop); SHORT=${D[1,8]}
+  T=$(git -C $R commit-tree "${D}^{tree}" -p $D -m "chore: develop のプレビューを作る（release/develop-$SHORT）")
+  git -C $R push origin "${T}:refs/heads/release/develop-${SHORT}"   # zsh では ${T} と波括弧で囲む（$T:r が修飾子になる）
+  # プレビューの URL。デプロイ記録はブランチ名ではなくコミットの SHA で引く（ビルドが終わると environment_url が入る）
+  gh api "repos/yuta090/taskapp/deployments?sha=$T" --jq '.[0].statuses_url' \
+    | xargs -I{} gh api {} --jq '[.[]|select(.state=="success")][0].environment_url'
+  ```
+
+  報告には、プレビューの URL・中身のコミット（`origin/main..origin/develop` の一覧）・画面で見てほしい点を書く。
+  develop には他のセッションのマージも入っているので、**昇格すると一緒に本番に出るものを並べる**
 - **ローカルの起動は webpack**。この Mac の exFAT ボリュームでは Turbopack が `Permission denied`
   で落ちるため。worktree でも `node_modules` と `.env.local` をメイン checkout へのシンボリック
   リンクにすれば動く。
