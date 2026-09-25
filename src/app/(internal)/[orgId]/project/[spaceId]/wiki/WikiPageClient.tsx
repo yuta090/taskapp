@@ -292,12 +292,13 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   const handleSubmitNewFolder = useCallback(
     async (title: string) => {
+      // 保存の完了を待たずに閉じる。完了時に閉じると、その間に開いた次の入力行まで閉じてしまう
+      // （一覧には楽観更新ですぐ出るので、待つ必要もない）
+      setIsCreatingFolder(false)
       try {
         await createPage({ title, isFolder: true })
       } catch {
         toast.error('フォルダを作成できませんでした')
-      } finally {
-        setIsCreatingFolder(false)
       }
     },
     [createPage]
