@@ -41,6 +41,10 @@ interface UseWikiPagesOptions {
 export interface CreateWikiPageInput {
   title: string
   tags?: string[]
+  /** true でフォルダとして作る（本文も持てる。既定 false）。 */
+  isFolder?: boolean
+  /** 作成時点で親を指定する（フォルダの中に新しいフォルダ、等）。省略時は根。 */
+  parentPageId?: string | null
 }
 
 export interface UpdateWikiPageInput {
@@ -118,7 +122,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
     queryFn: async () => {
       const { data: fetchedData, error: fetchError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
-        .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at')
+        .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, is_folder, created_by, updated_by, created_at, updated_at')
         .eq('org_id', orgId)
         .eq('space_id', spaceId)
         .order('updated_at', { ascending: false })
@@ -190,14 +194,14 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
               created_by: userId,
               updated_by: userId,
             })
-            .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at')
+            .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, is_folder, created_by, updated_by, created_at, updated_at')
             .single()
 
           if (!homeErr && homeData) {
             defaultCreatedRef.current = true
             const { data: allPages } = await (supabase as SupabaseClient)
               .from('wiki_pages')
-              .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at')
+              .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, is_folder, created_by, updated_by, created_at, updated_at')
               .eq('org_id', orgId)
               .eq('space_id', spaceId)
               .order('updated_at', { ascending: false })
@@ -315,10 +319,11 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       tags: input.tags || [],
       // 構造用の列（親ページ・マイルストーン・ピン留め・並び順）は
       // 新規作成時は必ず未設定。楽観更新の行も DB の初期値（NULL）に合わせる。
-      parent_page_id: null,
+      parent_page_id: input.parentPageId ?? null,
       milestone_id: null,
       pinned_at: null,
       sort_order: null,
+      is_folder: input.isFolder ?? false,
       created_by: userId,
       updated_by: userId,
       created_at: now,
@@ -343,6 +348,8 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
           title: input.title,
           body: '',
           tags: input.tags || [],
+          parent_page_id: input.parentPageId ?? null,
+          is_folder: input.isFolder ?? false,
           created_by: userId,
           updated_by: userId,
         })
