@@ -44,15 +44,19 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   （ユーザー方針「ローカルでできることはローカルで」）。ビルドが増える設定（プレビューを戻す・
   ビルドマシンを Turbo に戻す）は**ユーザーの了承なしに戻さない**。
 - **develop にマージしたら、本番に出さずに確認できる URL を必ず報告に載せる**（2026-09-26 ユーザー指定）。
-  develop にはプレビューが無いので、develop の先頭から `release/develop-<sha8>` を切って Vercel に作らせる。
-  ビルドは数分かかる。URL が出る前に「終わりました」と報告しない
+  develop にはプレビューが無いので、develop の先頭に**空のコミットを1つ足して** `release/develop-<sha8>` に push し、
+  Vercel に作らせる。develop と同じコミットのまま push しても、Vercel は develop で一度「ビルド対象外」にした
+  コミットを作り直さない（2026-09-26 に実測）。ビルドは数分かかる。URL が出る前に「終わりました」と報告しない
 
   ```bash
-  SHA=$(git -C /Volumes/WIN-MAC2/scripts/taskapp rev-parse --short=8 origin/develop)
-  git -C /Volumes/WIN-MAC2/scripts/taskapp push origin origin/develop:refs/heads/release/develop-$SHA
-  # プレビューの URL（ビルドが終わると environment_url が入る）。デプロイ記録はブランチ名ではなくコミットの SHA で引く
-  gh api "repos/yuta090/taskapp/deployments?sha=$(git -C /Volumes/WIN-MAC2/scripts/taskapp rev-parse origin/develop)" \
-    --jq '.[0].statuses_url' | xargs -I{} gh api {} --jq '[.[]|select(.state=="success")][0].environment_url'
+  R=/Volumes/WIN-MAC2/scripts/taskapp
+  git -C $R fetch origin develop
+  D=$(git -C $R rev-parse origin/develop); SHORT=${D[1,8]}
+  T=$(git -C $R commit-tree "${D}^{tree}" -p $D -m "chore: develop のプレビューを作る（release/develop-$SHORT）")
+  git -C $R push origin "${T}:refs/heads/release/develop-${SHORT}"   # zsh では ${T} と波括弧で囲む（$T:r が修飾子になる）
+  # プレビューの URL。デプロイ記録はブランチ名ではなくコミットの SHA で引く（ビルドが終わると environment_url が入る）
+  gh api "repos/yuta090/taskapp/deployments?sha=$T" --jq '.[0].statuses_url' \
+    | xargs -I{} gh api {} --jq '[.[]|select(.state=="success")][0].environment_url'
   ```
 
   報告には、プレビューの URL・中身のコミット（`origin/main..origin/develop` の一覧）・画面で見てほしい点を書く。
