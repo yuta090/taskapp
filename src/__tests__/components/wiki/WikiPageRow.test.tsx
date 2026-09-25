@@ -490,6 +490,69 @@ describe('WikiPageRow フォルダ操作（PR5）', () => {
     expect(screen.getByText('元の名前')).toBeInTheDocument()
   })
 
+  it('編集中に外をクリック(blur)すると、その時点の名前で確定する（1回だけ）', () => {
+    const onRename = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ id: 'folder-1', title: '元の名前' })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        canEdit
+        onRename={onRename}
+      />
+    )
+    fireEvent.doubleClick(screen.getByText('元の名前'))
+    const input = screen.getByDisplayValue('元の名前')
+    fireEvent.change(input, { target: { value: '外で確定' } })
+    fireEvent.blur(input)
+    expect(onRename).toHaveBeenCalledTimes(1)
+    expect(onRename).toHaveBeenCalledWith('folder-1', '外で確定')
+  })
+
+  it('Enter で確定したあとに blur が来ても二重に確定しない', () => {
+    const onRename = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ id: 'folder-1', title: '元の名前' })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        canEdit
+        onRename={onRename}
+      />
+    )
+    fireEvent.doubleClick(screen.getByText('元の名前'))
+    const input = screen.getByDisplayValue('元の名前')
+    fireEvent.change(input, { target: { value: '新しい名前' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
+    expect(onRename).toHaveBeenCalledTimes(1)
+  })
+
+  it('空のまま外をクリックすると取り消す', () => {
+    const onRename = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ title: '元の名前' })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        canEdit
+        onRename={onRename}
+      />
+    )
+    fireEvent.doubleClick(screen.getByText('元の名前'))
+    const input = screen.getByDisplayValue('元の名前')
+    fireEvent.change(input, { target: { value: '  ' } })
+    fireEvent.blur(input)
+    expect(onRename).not.toHaveBeenCalled()
+    expect(screen.getByText('元の名前')).toBeInTheDocument()
+  })
+
   it('空の名前では確定しない', () => {
     const onRename = vi.fn()
     render(

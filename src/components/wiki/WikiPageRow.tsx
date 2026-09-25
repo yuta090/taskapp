@@ -156,12 +156,17 @@ function WikiPageRowInner({
       if (!canRename) return
       e?.stopPropagation()
       setEditTitle(page.title)
+      editDoneRef.current = false
       setIsEditingTitle(true)
     },
     [canRename, page.title]
   )
 
+  // Enter/Escape で終えたあとに blur が続けて来ても、二重に確定・取り消ししない目印
+  const editDoneRef = useRef(false)
+
   const cancelEditingTitle = useCallback(() => {
+    editDoneRef.current = true
     setIsEditingTitle(false)
     setEditTitle(page.title)
   }, [page.title])
@@ -169,9 +174,17 @@ function WikiPageRowInner({
   const commitEditingTitle = useCallback(() => {
     const trimmed = editTitle.trim()
     if (!trimmed) return // 空の名前では確定しない
+    editDoneRef.current = true
     setIsEditingTitle(false)
     if (trimmed !== page.title) onRename?.(page.id, trimmed)
   }, [editTitle, onRename, page.id, page.title])
+
+  // 外をクリックしたら、その時点の名前で確定する（Notion と同じ）。空なら取り消す。
+  const handleTitleBlur = useCallback(() => {
+    if (editDoneRef.current) return
+    if (editTitle.trim()) commitEditingTitle()
+    else cancelEditingTitle()
+  }, [editTitle, commitEditingTitle, cancelEditingTitle])
 
   const handleTitleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -418,7 +431,7 @@ function WikiPageRowInner({
               onChange={e => setEditTitle(e.target.value)}
               onKeyDown={handleTitleKeyDown}
               onClick={e => e.stopPropagation()}
-              onBlur={cancelEditingTitle}
+              onBlur={handleTitleBlur}
               autoFocus
               className="flex-1 min-w-0 px-1.5 py-0.5 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
