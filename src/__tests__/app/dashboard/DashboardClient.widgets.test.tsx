@@ -42,6 +42,9 @@ vi.mock('@/lib/hooks/useTasks', () => ({
   }),
 }))
 vi.mock('@/lib/hooks/useMilestones', () => ({ useMilestones: () => ({ milestones: [], loading: false }) }))
+vi.mock('@/lib/hooks/useWeekWikiActivity', () => ({
+  useWeekWikiActivity: () => ({ pages: [], loading: false, error: null }),
+}))
 vi.mock('@/lib/hooks/useMeetings', () => ({ useMeetings: () => ({ meetings: [] }) }))
 vi.mock('@/lib/hooks/useRiskForecast', () => ({ useRiskForecast: () => ({ forecasts: new Map() }) }))
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
