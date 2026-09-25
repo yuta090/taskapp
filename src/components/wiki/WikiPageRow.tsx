@@ -1,8 +1,8 @@
 'use client'
 
-import { memo, useCallback, type MouseEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import Image from 'next/image'
-import { CaretDown, CaretRight, Flag, PushPin, Tag } from '@phosphor-icons/react'
+import { CaretDown, CaretRight, DotsThree, Flag, Folder, FolderOpen, PushPin, Tag } from '@phosphor-icons/react'
 import { TruncatedText } from '@/components/shared'
 import type { Milestone, WikiPage } from '@/types/database'
 import { decisionChipLabel, type DecisionCount } from '@/lib/wiki/decisionCounts'
@@ -45,6 +45,31 @@ interface WikiPageRowProps {
   collapsed?: boolean
   /** トグルクリック時。行選択には伝播させない。 */
   onToggleCollapse?: (pageId: string) => void
+
+  /**
+   * フォルダ扱いか（is_folder または子ページを持つ）。true ならタイトル左に
+   * フォルダのアイコンを出す（PR5）。省略時は false（アイコンを出さない＝今までどおり）。
+   */
+  isFolder?: boolean
+  /** 編集できる人か。false（既定）だと名前変更・削除メニュー・ドラッグ移動は一切出さない。 */
+  canEdit?: boolean
+  /** タイトルのダブルクリックでインライン編集を開始し、Enter確定で呼ばれる（PR5）。 */
+  onRename?: (pageId: string, title: string) => void
+  /**
+   * フォルダ行の「…」メニューの「削除」で呼ばれる。isFolder かつ canEdit のときだけ
+   * メニュー自体を出す（通常ページの削除は今までどおりページ情報パネルから行う）。
+   */
+  onRequestDeleteFolder?: (page: WikiPage) => void
+
+  /** フォルダ表示・デスクトップのみ: ドラッグで移動できるか（PR5）。 */
+  isDraggable?: boolean
+  onDragStartPage?: (pageId: string) => void
+  /** ドラッグ中にこの行の上を通過したとき。落とせるかどうかの判定は呼び出し側の責務。 */
+  onDragOverPage?: (pageId: string) => void
+  onDropPage?: (pageId: string) => void
+  onDragEndPage?: () => void
+  /** 今ドラッグ中の対象がこの行の上にあるときだけ渡す。落とせる/落とせないの見た目を変える。 */
+  dropHighlight?: 'valid' | 'invalid' | null
 }
 
 /** 20px 丸アバター。TaskRow の担当者アバターと同じ見た目（画像があれば画像、無ければ頭文字）。 */
@@ -96,6 +121,16 @@ function WikiPageRowInner({
   hasChildren,
   collapsed,
   onToggleCollapse,
+  isFolder,
+  canEdit,
+  onRename,
+  onRequestDeleteFolder,
+  isDraggable,
+  onDragStartPage,
+  onDragOverPage,
+  onDropPage,
+  onDragEndPage,
+  dropHighlight,
 }: WikiPageRowProps) {
   const metaItems: ReactNode[] = []
   // duplicatedInOtherGroups が渡されている＝マイルストーン別表示。そのグループの見出しで
@@ -109,6 +144,105 @@ function WikiPageRowInner({
     },
     [onToggleCollapse, page.id]
   )
+
+  // インラインの名前変更（PR5）。ダブルクリック、またはフォルダの「…」メニューの
+  // 「名前を変更」で開始する。Enter で確定・Escape/外側クリックで取り消す。
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [editTitle, setEditTitle] = useState(page.title)
+  const canRename = !!(canEdit && onRename)
+
+  const startEditingTitle = useCallback(
+    (e?: MouseEvent) => {
+      if (!canRename) return
+      e?.stopPropagation()
+      setEditTitle(page.title)
+      setIsEditingTitle(true)
+    },
+    [canRename, page.title]
+  )
+
+  const cancelEditingTitle = useCallback(() => {
+    setIsEditingTitle(false)
+    setEditTitle(page.title)
+  }, [page.title])
+
+  const commitEditingTitle = useCallback(() => {
+    const trimmed = editTitle.trim()
+    if (!trimmed) return // 空の名前では確定しない
+    setIsEditingTitle(false)
+    if (trimmed !== page.title) onRename?.(page.id, trimmed)
+  }, [editTitle, onRename, page.id, page.title])
+
+  const handleTitleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      e.stopPropagation()
+      if (e.key === 'Enter') commitEditingTitle()
+      if (e.key === 'Escape') cancelEditingTitle()
+    },
+    [commitEditingTitle, cancelEditingTitle]
+  )
+
+  // フォルダの「…」メニュー（名前を変更・削除）。TaskFilterMenu と同じ mousedown の作法。
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!isMenuOpen) return
+    function handleClickOutside(event: globalThis.MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setIsMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isMenuOpen])
+
+  const toggleMenu = useCallback((e: MouseEvent) => {
+    e.stopPropagation()
+    setIsMenuOpen(o => !o)
+  }, [])
+
+  const handleMenuRename = useCallback(
+    (e: MouseEvent) => {
+      setIsMenuOpen(false)
+      startEditingTitle(e)
+    },
+    [startEditingTitle]
+  )
+
+  const handleMenuDelete = useCallback(
+    (e: MouseEvent) => {
+      e.stopPropagation()
+      setIsMenuOpen(false)
+      onRequestDeleteFolder?.(page)
+    },
+    [onRequestDeleteFolder, page]
+  )
+
+  const showFolderMenu = !!(isFolder && canEdit && onRequestDeleteFolder)
+
+  // ドラッグ移動（PR5・フォルダ表示のデスクトップのみ。呼び出し側が isDraggable で絞る）
+  const handleDragStart = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      e.dataTransfer.effectAllowed = 'move'
+      onDragStartPage?.(page.id)
+    },
+    [onDragStartPage, page.id]
+  )
+  const handleDragOver = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      if (!isDraggable) return
+      e.preventDefault()
+      onDragOverPage?.(page.id)
+    },
+    [isDraggable, onDragOverPage, page.id]
+  )
+  const handleDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      if (!isDraggable) return
+      e.preventDefault()
+      onDropPage?.(page.id)
+    },
+    [isDraggable, onDropPage, page.id]
+  )
+  const handleDragEnd = useCallback(() => onDragEndPage?.(), [onDragEndPage])
 
   // 「確定 2/5」。決定事項のタスクが1件も無いページには出さない（検討資料・議事メモに
   // 「検討中」を貼ると印の意味が薄れる）。列の表示設定には載せない — 確定の見分けは
@@ -209,16 +343,27 @@ function WikiPageRowInner({
     )
   }
 
+  const showOpenFolder = !!isFolder && hasChildren === true && collapsed === false
+
   return (
     <div
       onClick={handleClick}
       // 実ブラウザでの確認・E2E から行を押せるようにする目印（日程調整の行 proposal-row-* と同じ作法）
       data-testid={`wiki-page-row-${page.id}`}
       style={{ paddingLeft: 16 + (depth ?? 0) * 20 }}
-      className={`flex items-center gap-3 pr-4 py-3 cursor-pointer transition-all border-b border-gray-100 last:border-b-0 ${
-        isSelected
-          ? 'bg-indigo-50/60 border-l-2 border-l-indigo-500'
-          : 'hover:bg-gray-50/80 border-l-2 border-l-transparent'
+      draggable={isDraggable || undefined}
+      onDragStart={isDraggable ? handleDragStart : undefined}
+      onDragOver={isDraggable ? handleDragOver : undefined}
+      onDrop={isDraggable ? handleDrop : undefined}
+      onDragEnd={isDraggable ? handleDragEnd : undefined}
+      className={`flex items-center gap-3 pr-4 py-3 transition-all border-b border-gray-100 last:border-b-0 ${
+        dropHighlight === 'valid'
+          ? 'border-2 border-dashed border-indigo-400 bg-indigo-50/60'
+          : dropHighlight === 'invalid'
+            ? 'cursor-not-allowed opacity-60'
+            : isSelected
+              ? 'cursor-pointer bg-indigo-50/60 border-l-2 border-l-indigo-500'
+              : 'cursor-pointer hover:bg-gray-50/80 border-l-2 border-l-transparent'
       }`}
     >
       {/* フォルダ表示のみトグル領域を出す（hasChildren が指定されているときだけ）。
@@ -248,9 +393,78 @@ function WikiPageRowInner({
               aria-hidden="true"
             />
           )}
-          <TruncatedText as="h3" className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
-            {page.title}
-          </TruncatedText>
+          {isFolder &&
+            (showOpenFolder ? (
+              <FolderOpen
+                data-testid="wiki-folder-icon"
+                data-open="true"
+                weight="fill"
+                className="text-indigo-400 text-sm flex-shrink-0"
+                aria-hidden="true"
+              />
+            ) : (
+              <Folder
+                data-testid="wiki-folder-icon"
+                data-open="false"
+                weight="fill"
+                className="text-indigo-400 text-sm flex-shrink-0"
+                aria-hidden="true"
+              />
+            ))}
+          {isEditingTitle ? (
+            <input
+              type="text"
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              onKeyDown={handleTitleKeyDown}
+              onClick={e => e.stopPropagation()}
+              onBlur={cancelEditingTitle}
+              autoFocus
+              className="flex-1 min-w-0 px-1.5 py-0.5 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            />
+          ) : (
+            <span onDoubleClick={canRename ? startEditingTitle : undefined} className="flex-1 min-w-0">
+              <TruncatedText as="h3" className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
+                {page.title}
+              </TruncatedText>
+            </span>
+          )}
+          {showFolderMenu && !isEditingTitle && (
+            <div ref={menuRef} className="relative flex-shrink-0 ml-auto">
+              <button
+                type="button"
+                onClick={toggleMenu}
+                aria-label="フォルダの操作"
+                aria-haspopup="menu"
+                aria-expanded={isMenuOpen}
+                className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <DotsThree weight="bold" className="text-sm" />
+              </button>
+              {isMenuOpen && (
+                <div
+                  data-testid="wiki-folder-menu"
+                  onClick={e => e.stopPropagation()}
+                  className="absolute top-full right-0 mt-1 z-10 bg-surface rounded-lg shadow-lg border border-gray-200 min-w-[140px] py-1"
+                >
+                  <button
+                    type="button"
+                    onClick={handleMenuRename}
+                    className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    名前を変更
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleMenuDelete}
+                    className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-gray-50 transition-colors"
+                  >
+                    削除
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {metaItems.length > 0 && (
           <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500 min-w-0 overflow-hidden">

@@ -416,3 +416,192 @@ describe('WikiPageRow 確定の印', () => {
     expect(screen.getByTestId('wiki-decision-chip').textContent).toBe('確定 1/2')
   })
 })
+
+// PR5: フォルダのアイコン・名前変更・削除・ドラッグ移動
+describe('WikiPageRow フォルダ操作（PR5）', () => {
+  it('isFolder なら Folder アイコンが出る', () => {
+    const { container } = render(
+      <WikiPageRow page={page({ is_folder: true })} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} isFolder />
+    )
+    expect(container.querySelector('[data-testid="wiki-folder-icon"]')).toBeInTheDocument()
+  })
+
+  it('isFolder が false ならアイコンは出ない', () => {
+    const { container } = render(
+      <WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} isFolder={false} />
+    )
+    expect(container.querySelector('[data-testid="wiki-folder-icon"]')).not.toBeInTheDocument()
+  })
+
+  it('展開中(hasChildren かつ collapsed=false)は FolderOpen になる', () => {
+    render(
+      <WikiPageRow
+        page={page({ is_folder: true })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        isFolder
+        hasChildren
+        collapsed={false}
+      />
+    )
+    expect(screen.getByTestId('wiki-folder-icon').dataset.open).toBe('true')
+  })
+
+  it('canEdit かつ onRename があればタイトルのダブルクリックで編集状態になり、Enterで確定する', () => {
+    const onRename = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ id: 'folder-1', title: '元の名前' })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        canEdit
+        onRename={onRename}
+      />
+    )
+    fireEvent.doubleClick(screen.getByText('元の名前'))
+    const input = screen.getByDisplayValue('元の名前')
+    fireEvent.change(input, { target: { value: '新しい名前' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onRename).toHaveBeenCalledWith('folder-1', '新しい名前')
+  })
+
+  it('編集中に Escape で取り消す（onRename は呼ばれない）', () => {
+    const onRename = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ title: '元の名前' })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        canEdit
+        onRename={onRename}
+      />
+    )
+    fireEvent.doubleClick(screen.getByText('元の名前'))
+    const input = screen.getByDisplayValue('元の名前')
+    fireEvent.change(input, { target: { value: '変更中' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(onRename).not.toHaveBeenCalled()
+    expect(screen.getByText('元の名前')).toBeInTheDocument()
+  })
+
+  it('空の名前では確定しない', () => {
+    const onRename = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ title: '元の名前' })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        canEdit
+        onRename={onRename}
+      />
+    )
+    fireEvent.doubleClick(screen.getByText('元の名前'))
+    const input = screen.getByDisplayValue('元の名前')
+    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onRename).not.toHaveBeenCalled()
+  })
+
+  it('canEdit が無ければダブルクリックしても編集状態にならない', () => {
+    const onRename = vi.fn()
+    render(
+      <WikiPageRow page={page({ title: '元の名前' })} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} onRename={onRename} />
+    )
+    fireEvent.doubleClick(screen.getByText('元の名前'))
+    expect(screen.queryByDisplayValue('元の名前')).not.toBeInTheDocument()
+  })
+
+  it('isFolder かつ canEdit で「…」メニューが出て、削除で onRequestDeleteFolder が呼ばれる', () => {
+    const onRequestDeleteFolder = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ id: 'folder-1', is_folder: true })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        isFolder
+        canEdit
+        onRequestDeleteFolder={onRequestDeleteFolder}
+      />
+    )
+    fireEvent.click(screen.getByLabelText('フォルダの操作'))
+    fireEvent.click(screen.getByText('削除'))
+    expect(onRequestDeleteFolder).toHaveBeenCalledWith(expect.objectContaining({ id: 'folder-1' }))
+  })
+
+  it('メニューを開いても行クリック(onSelect)は発火しない', () => {
+    const onSelect = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ is_folder: true })}
+        isSelected={false}
+        onSelect={onSelect}
+        columns={[]}
+        getMember={getMember}
+        isFolder
+        canEdit
+        onRequestDeleteFolder={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByLabelText('フォルダの操作'))
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('isDraggable なら draggable 属性が付き、ドラッグ操作でコールバックが呼ばれる', () => {
+    const onDragStartPage = vi.fn()
+    const onDropPage = vi.fn()
+    const onDragOverPage = vi.fn()
+    const { container } = render(
+      <WikiPageRow
+        page={page({ id: 'row-1' })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        isDraggable
+        onDragStartPage={onDragStartPage}
+        onDragOverPage={onDragOverPage}
+        onDropPage={onDropPage}
+      />
+    )
+    const row = container.firstElementChild as HTMLElement
+    expect(row).toHaveAttribute('draggable', 'true')
+    fireEvent.dragStart(row, { dataTransfer: { effectAllowed: '' } })
+    expect(onDragStartPage).toHaveBeenCalledWith('row-1')
+    fireEvent.dragOver(row)
+    expect(onDragOverPage).toHaveBeenCalledWith('row-1')
+    fireEvent.drop(row)
+    expect(onDropPage).toHaveBeenCalledWith('row-1')
+  })
+
+  it('isDraggable が無ければ draggable 属性は付かない', () => {
+    const { container } = render(
+      <WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} />
+    )
+    const row = container.firstElementChild as HTMLElement
+    expect(row).not.toHaveAttribute('draggable')
+  })
+
+  it('dropHighlight="valid" だと落とせる見た目になる', () => {
+    const { container } = render(
+      <WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} isDraggable dropHighlight="valid" />
+    )
+    expect((container.firstElementChild as HTMLElement).className).toContain('border-indigo-400')
+  })
+
+  it('dropHighlight="invalid" だと落とせない見た目になる', () => {
+    const { container } = render(
+      <WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} isDraggable dropHighlight="invalid" />
+    )
+    expect((container.firstElementChild as HTMLElement).className).toContain('cursor-not-allowed')
+  })
+})
