@@ -5,6 +5,7 @@ import { checkAuth } from '../auth/helpers.js'
 import { toWikiBlocksJson, TOC_TYPE, type Block, type WikiBodyFormat } from '../lib/wikiBody.js'
 import { assertInSpace, requireActorUserId } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
+import { notFoundOr } from '../lib/dbErrors.js'
 import { buildWikiPageLink, withLink } from '../lib/appLinks.js'
 
 const bodyFormatSchema = z
@@ -133,7 +134,9 @@ export async function wikiGet(params: z.infer<typeof wikiGetSchema>): Promise<Wi
     .eq('space_id', params.spaceId)
     .single()
 
-  if (error) throw new Error('Wikiページが見つかりません')
+  // 0件（PGRST116）だけ「見つかりません」。それ以外(権限エラー等)は生の文言を出さない一般の
+  // エラーのままだが、どちらも元のDBエラーを cause に残す(運営画面の利用記録から追える)
+  if (error) throw notFoundOr(error, 'wiki_get', 'Wikiページが見つかりません', 'Wikiページの取得に失敗しました')
   return withLink(data as WikiPage, buildWikiPageLink(orgId, params.spaceId, params.pageId)) as WikiPage
 }
 
@@ -327,7 +330,8 @@ export async function wikiToc(params: z.infer<typeof wikiTocSchema>): Promise<Wi
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
     .single()
-  if (getError || !page) throw new Error('Wikiページが見つかりません')
+  if (getError) throw notFoundOr(getError, 'wiki_toc', 'Wikiページが見つかりません', 'Wikiページの取得に失敗しました')
+  if (!page) throw new ToolUserError('Wikiページが見つかりません', 404)
 
   const blocks = parseWikiBlocks((page as WikiPage).body)
   const next = params.action === 'remove' ? removeToc(blocks) : insertToc(blocks)
