@@ -18,6 +18,8 @@ import {
   pickMilestoneWikiPages,
   resolveWikiMilestones,
   isPageInMilestone,
+  childrenReparentTargets,
+  isValidWikiDropTarget,
 } from '@/lib/wiki/listView'
 import type { WikiPage, Milestone } from '@/types/database'
 
@@ -217,7 +219,7 @@ describe('buildWikiTree', () => {
     expect(tree[0].depth).toBe(0)
   })
 
-  it('同階層内は sort_order 昇順、同値/未指定は渡された順', () => {
+  it('sort_order はもう見ない（並べ替えが選ばれている限り使わない）。既定の並べ替えで同値なら渡された順', () => {
     const pages = [
       page({ id: 'a', sort_order: null }),
       page({ id: 'b', sort_order: 1 }),
@@ -225,7 +227,30 @@ describe('buildWikiTree', () => {
       page({ id: 'd', sort_order: 0 }),
     ]
     const tree = buildWikiTree(pages)
-    expect(tree.map(n => n.page.id)).toEqual(['d', 'b', 'a', 'c'])
+    expect(tree.map(n => n.page.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('選んだ並べ替え（タイトル昇順）で並ぶ', () => {
+    const pages = [
+      page({ id: 'a', title: 'う' }),
+      page({ id: 'b', title: 'あ' }),
+      page({ id: 'c', title: 'い' }),
+    ]
+    const tree = buildWikiTree(pages, { key: 'title', dir: 'asc' }, getAuthorName)
+    expect(tree.map(n => n.page.id)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('各階層でフォルダ(is_folder または子あり)を先、ページを後にする', () => {
+    const pages = [
+      page({ id: 'page-a', title: 'あ' }),
+      page({ id: 'folder-z', title: 'ん', is_folder: true }),
+      page({ id: 'page-b', title: 'い' }),
+      page({ id: 'has-child', title: 'う' }),
+      page({ id: 'child-of-has-child', parent_page_id: 'has-child' }),
+    ]
+    const tree = buildWikiTree(pages, { key: 'title', dir: 'asc' }, getAuthorName)
+    // フォルダ2つ（子を持つだけ「う」/ is_folder明示「ん」）がタイトル順で先、通常ページ（あ・い）はそのあと
+    expect(tree.map(n => n.page.id)).toEqual(['has-child', 'folder-z', 'page-a', 'page-b'])
   })
 
   it('循環データが混在していても無限ループしない（フォールバックで打ち切る）', () => {
@@ -470,6 +495,77 @@ describe('descendantIds', () => {
       page({ id: 'b', parent_page_id: 'a' }),
     ]
     expect(() => descendantIds(cyclic, 'a')).not.toThrow()
+  })
+})
+
+describe('childrenReparentTargets', () => {
+  it('削除するフォルダの子は、フォルダの親（フォルダが根なら null）に付け替える', () => {
+    const pages = [
+      page({ id: 'grandparent' }),
+      page({ id: 'folder', parent_page_id: 'grandparent', is_folder: true }),
+      page({ id: 'child1', parent_page_id: 'folder' }),
+      page({ id: 'child2', parent_page_id: 'folder' }),
+      page({ id: 'grandchild', parent_page_id: 'child1' }),
+    ]
+    const result = childrenReparentTargets(pages, 'folder')
+    expect(result.sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: 'child1', newParentId: 'grandparent' },
+      { id: 'child2', newParentId: 'grandparent' },
+    ])
+    // 孫には触れない（直下の子だけが1つ上がる）
+    expect(result.some(r => r.id === 'grandchild')).toBe(false)
+  })
+
+  it('フォルダが根なら子は根(null)に上がる', () => {
+    const pages = [
+      page({ id: 'folder', is_folder: true }),
+      page({ id: 'child', parent_page_id: 'folder' }),
+    ]
+    expect(childrenReparentTargets(pages, 'folder')).toEqual([{ id: 'child', newParentId: null }])
+  })
+
+  it('子が無ければ空配列', () => {
+    const pages = [page({ id: 'folder', is_folder: true })]
+    expect(childrenReparentTargets(pages, 'folder')).toEqual([])
+  })
+})
+
+describe('isValidWikiDropTarget', () => {
+  const pages = [
+    page({ id: 'folder-a', is_folder: true }),
+    page({ id: 'folder-b', is_folder: true, parent_page_id: 'folder-a' }),
+    page({ id: 'page-in-a', parent_page_id: 'folder-a' }),
+    page({ id: 'plain-page' }),
+    page({ id: 'parent-with-child' }),
+    page({ id: 'child-of-parent', parent_page_id: 'parent-with-child' }),
+  ]
+
+  it('null（一番上の階層）へは常に落とせる', () => {
+    expect(isValidWikiDropTarget(pages, 'page-in-a', null)).toBe(true)
+  })
+
+  it('フォルダ（is_folder）の中へは落とせる', () => {
+    expect(isValidWikiDropTarget(pages, 'plain-page', 'folder-a')).toBe(true)
+  })
+
+  it('子を持つだけの通常ページの中へも落とせる（フォルダ扱い）', () => {
+    expect(isValidWikiDropTarget(pages, 'plain-page', 'parent-with-child')).toBe(true)
+  })
+
+  it('フォルダでも子持ちでもない通常ページへは落とせない', () => {
+    expect(isValidWikiDropTarget(pages, 'folder-a', 'plain-page')).toBe(false)
+  })
+
+  it('自分自身の上へは落とせない', () => {
+    expect(isValidWikiDropTarget(pages, 'folder-a', 'folder-a')).toBe(false)
+  })
+
+  it('自分の子孫の中へは落とせない（循環防止）', () => {
+    expect(isValidWikiDropTarget(pages, 'folder-a', 'folder-b')).toBe(false)
+  })
+
+  it('存在しない落とし先は false', () => {
+    expect(isValidWikiDropTarget(pages, 'plain-page', 'missing')).toBe(false)
   })
 })
 
