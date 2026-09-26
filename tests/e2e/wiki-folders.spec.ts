@@ -67,5 +67,8 @@ test.describe('Wiki のフォルダ', () => {
     await page.getByTestId('wiki-folder-menu').getByRole('button', { name: '削除' }).click()
     await page.getByRole('button', { name: '削除する' }).click()
     await expect(rowByTitle(inner)).toHaveCount(0, { timeout: 15000 })
+    // 画面からは楽観更新ですぐ消えるので、削除の通信が終わるまで待ってから閉じる
+    // （待たないと通信が途中で切れ、デモ組織にフォルダが残る）
+    await page.waitForLoadState('networkidle')
   })
 })
