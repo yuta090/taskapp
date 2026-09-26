@@ -149,7 +149,8 @@ describe('WikiBodyEditor', () => {
         onRequestReload={vi.fn()}
       />
     )
-    expect(save.takeOverAsScribe).toHaveBeenCalledWith(PAGE)
+    // 一度は書記でなかった（本文を持って）ので、部屋の記録が無くても読み直してもらう
+    expect(save.takeOverAsScribe).toHaveBeenCalledWith(PAGE, { force: true })
   })
 
   it('本文が二重になったら、1回だけ読み直しを頼む', () => {

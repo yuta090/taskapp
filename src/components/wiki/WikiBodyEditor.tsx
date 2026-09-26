@@ -23,7 +23,7 @@ interface WikiBodySaveBridge {
   handleChange: (pageId: string, content: string) => void
   setCollab: (state: WikiCollabState | null) => void
   registerEditorApi: (api: WikiEditorApi | null) => void
-  takeOverAsScribe: (pageId: string) => Promise<void>
+  takeOverAsScribe: (pageId: string, options?: { force?: boolean }) => Promise<void>
 }
 
 interface WikiBodyEditorProps {
@@ -128,15 +128,21 @@ export function WikiBodyEditor({
   /** 書記を引き継いだら、列を読み直して基準を取り直す（中身は useWikiBodySave） */
   const takeOverAsScribe = bodySave.takeOverAsScribe
   const wasScribeRef = useRef(false)
+  /**
+   * 本文を持ったまま書記でなかったことがあるか。あるなら、書記になったときは必ず列を読み直す
+   * （前の書記が閉じる直前にした保存は部屋の記録に残らないので、記録の有無では決められない）
+   */
+  const everFollowerRef = useRef(false)
   useEffect(() => {
     if (!active || !isScribe) {
+      if (active && synced) everFollowerRef.current = true
       wasScribeRef.current = false
       return
     }
     if (wasScribeRef.current) return
     wasScribeRef.current = true
-    void takeOverAsScribe(pageId)
-  }, [active, isScribe, pageId, takeOverAsScribe])
+    void takeOverAsScribe(pageId, { force: everFollowerRef.current })
+  }, [active, isScribe, synced, pageId, takeOverAsScribe])
 
   /** 本文が二重になって直しきれなかった。保存せず、列から読み直す（1回だけ） */
   const reloadedForDuplicateRef = useRef(false)
@@ -169,6 +175,12 @@ export function WikiBodyEditor({
     },
     [setEditing]
   )
+
+  // 器の用意を待つあいだに、エディタのチャンクも取りに行っておく（載せるのは用意のあと）。
+  // 待ってから取りに行くと、初めて開いたときにチャンク1往復ぶん本文が遅れる
+  useEffect(() => {
+    if (pending) void import('./WikiEditor')
+  }, [pending])
 
   /** 同じ参照を保つ（毎回作り直すと、在席が動くたびにエディタごと描き直す） */
   const collaboration = useMemo(

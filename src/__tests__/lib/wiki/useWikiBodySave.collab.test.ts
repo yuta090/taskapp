@@ -105,7 +105,7 @@ describe('同時編集中の保存', () => {
     expect(updatePage).toHaveBeenCalledWith(P, { body: BODY1 }, 't1')
   })
 
-  it('まだ誰も保存していない部屋で書記になったときは、読み直さない（自分が最初の1人）', async () => {
+  it('まだ誰も保存していない部屋で最初から書記なら、読み直さない（自分が最初の1人）', async () => {
     const { result, fetchPage, meta } = setup()
     act(() => result.current.setCollab({ active: true, isScribe: true, meta }))
     await act(async () => {
@@ -159,3 +159,82 @@ describe('仕様の確定で末尾にブロックが足されたとき', () => {
     expect(result.current.conflict).toBe(true)
   })
 })
+
+describe('レビューで見つかった偽の競合の道', () => {
+  it('ページを離れたあとに前のページのエディタから届いた変更は、保存しない（次のページに偽の競合を出さない）', async () => {
+    const { result, updatePage } = setup()
+    act(() => result.current.setBaseline({ id: 'A', updated_at: 't0', body: BODY0 }, { content: true }))
+    act(() => result.current.leavePage())
+    // 相手の入力で、まだ画面に残っている前のページのエディタが onChange を出した
+    act(() => result.current.handleChange('A', BODY1))
+    await flushTimers()
+    expect(updatePage).not.toHaveBeenCalled()
+  })
+
+  it('書記でない人が閉じても、自分では保存しない（残った書記に偽の競合を出さない）', async () => {
+    const { result, updatePage, meta } = setup()
+    writeSavedState(meta, { savedAt: 't1', savedHash: wikiContentHash(BODY0) })
+    act(() => result.current.setCollab({ active: true, isScribe: false, meta }))
+    act(() => result.current.handleChange(P, BODY1))
+    act(() => result.current.leavePage())
+    await flushTimers()
+    expect(updatePage).not.toHaveBeenCalled()
+  })
+
+  it('弾かれて読み直した本文が、いま送ろうとした本文と同じなら競合にしない（誰かが同じ中身を先に保存しただけ）', async () => {
+    const { result, updatePage, fetchPage } = setup()
+    fetchPage.mockResolvedValue(page(BODY1, 't3'))
+    updatePage.mockRejectedValueOnce(new WikiConflictError())
+    act(() => result.current.handleChange(P, BODY1))
+    await flushTimers()
+    expect(result.current.conflict).toBe(false)
+    expect(result.current.getBaseUpdatedAt()).toBe('t3')
+    expect(updatePage).toHaveBeenCalledTimes(1)
+  })
+
+  it('一度は書記でなかった人が書記になったら、部屋に保存の記録が無くても列を読み直す', async () => {
+    const { result, fetchPage, meta } = setup()
+    fetchPage.mockResolvedValue(page(BODY0, 't4'))
+    act(() => result.current.setCollab({ active: true, isScribe: true, meta }))
+    await act(async () => {
+      await result.current.takeOverAsScribe(P, { force: true })
+    })
+    expect(fetchPage).toHaveBeenCalledWith(P)
+    expect(result.current.getBaseUpdatedAt()).toBe('t4')
+  })
+
+  it('「最新を読み込む」で読み直している最中に打った分は、読み直したあとに古い基準で送らない', async () => {
+    const { result, updatePage, fetchPage } = setup()
+    let resolveFetch: (p: WikiPage) => void = () => {}
+    fetchPage.mockImplementationOnce(() => new Promise((resolve) => { resolveFetch = resolve }))
+    let reload: Promise<unknown> = Promise.resolve()
+    act(() => {
+      reload = result.current.reloadLatest(P)
+    })
+    act(() => result.current.handleChange(P, BODY1))
+    await act(async () => {
+      resolveFetch(page(JSON.stringify([block('z', '最新')]), 't6'))
+      await reload
+    })
+    await flushTimers()
+    expect(updatePage).not.toHaveBeenCalled()
+  })
+})
+
+describe('追記を差し込めないとき', () => {
+  it('変換中などで差し込めなければ、帯を出さずに少し待ってやり直す', async () => {
+    const { result, updatePage, fetchPage } = setup()
+    const appendBlocks = vi.fn<() => 'applied' | 'busy' | 'failed'>().mockReturnValueOnce('busy').mockReturnValue('applied')
+    act(() => result.current.registerEditorApi({ replaceContent: vi.fn(() => true), appendBlocks }))
+    const tail = { type: 'paragraph', content: [] }
+    fetchPage.mockResolvedValue(page(JSON.stringify([...JSON.parse(BODY0), tail]), 't9'))
+    updatePage.mockRejectedValue(new WikiConflictError())
+    act(() => result.current.handleChange(P, BODY1))
+    await flushTimers()
+    expect(result.current.conflict).toBe(false)
+    await flushTimers()
+    expect(appendBlocks).toHaveBeenCalledTimes(2)
+    expect(result.current.conflict).toBe(false)
+  })
+})
+

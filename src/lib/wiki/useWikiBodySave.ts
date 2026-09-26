@@ -51,9 +51,17 @@ export interface WikiEditorApi {
 
 /** 保存の基準にする、サーバーにある状態 */
 export interface WikiBodyBaseline {
+  /** どのページの状態か。渡すと、ほかのページ宛ての変更を受け付けなくなる */
+  id?: string
   updated_at: string
   body: string | null
 }
+
+/**
+ * 仕様の確定の追記を差し込めなかったとき（変換中・読み取り専用）にやり直す間隔。
+ * 要素数がやり直す回数（議事録の APPEND_RETRY_DELAYS_MS と同じ）
+ */
+const APPEND_RETRY_DELAYS_MS = [1_500, 3_000]
 
 /**
  * Wiki 本文の自動保存（1.5秒待ち）と、同時に書いたときに「黙って消える」を防ぐ仕組みの一式。
@@ -122,8 +130,18 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
    */
   const collabRef = useRef<WikiCollabState>(NO_COLLAB)
   const editorApiRef = useRef<WikiEditorApi | null>(null)
-  /** いま開いているページ（書記でない人は保存を積まないので、離れるときのためにここで覚える） */
-  const currentPageIdRef = useRef<string | null>(null)
+  /**
+   * いま開いているページ。undefined は「まだ誰も決めていない」（受け付けを絞らない）、
+   * null は「離れた直後で、どのページ宛ても受け付けない」。
+   * 同時編集では相手の入力でも onChange が出るので、離れたあとも画面に残っている
+   * 前のページのエディタから変更が届く。受け付けると、前のページの本文を次のページの
+   * 基準で送り、開いた直後のページに偽の競合の帯が出る
+   */
+  const activePageIdRef = useRef<string | null | undefined>(undefined)
+  /** 「最新を読み込む」の最中か。そのあいだに打った分は、読み直したあとに古い基準で送らない */
+  const reloadingRef = useRef(false)
+  /** 追記を差し込めずにやり直した回数 */
+  const appendRetryCountRef = useRef(0)
 
   /** 同時編集中に、部屋の誰かが保存した分か（それなら競合ではない。中身は器で合流済み） */
   const savedInRoom = (fresh: WikiBodyBaseline): boolean => {
@@ -162,6 +180,7 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
    * `content: true` なら「書きかけをコピー」の中身もそれに揃える（エディタを作り直すとき）
    */
   const setBaseline = useCallback((page: WikiBodyBaseline | null, options?: { content?: boolean }) => {
+    if (page?.id) activePageIdRef.current = page.id
     baseUpdatedAtRef.current = page?.updated_at ?? null
     knownServerBodyRef.current = page?.body ?? null
     if (options?.content) currentContentRef.current = page?.body ?? ''
@@ -196,6 +215,8 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
     const pending = pendingBodyRef.current
     if (!pending) return
     pendingBodyRef.current = null
+    // もう開いていないページ宛ての書きかけは送らない（開いている別のページの基準で送ることになる）
+    if (activePageIdRef.current !== undefined && pending.pageId !== activePageIdRef.current) return
     const { pageId, body: content } = pending
     const epoch = pageEpochRef.current
     savingRef.current = true
@@ -246,6 +267,15 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
           setSaveStatus('idle')
           throw new WikiConflictError('このページは見つかりませんでした')
         }
+        if (canonicalizeWikiBody(fresh.body) === canonicalizeWikiBody(content)) {
+          // 誰かが（部屋の別の人・閉じる直前の書記など）同じ中身を先に保存していた。
+          // 送るまでもないので、基準をサーバーに合わせて終える
+          baseUpdatedAtRef.current = fresh.updated_at
+          knownServerBodyRef.current = fresh.body
+          noteSavedInRoom(fresh.updated_at, content)
+          setSaveStatus('idle')
+          return
+        }
         if (savedInRoom(fresh)) {
           // 同時編集中、部屋の中の人が保存した分だった。中身は器で全員に届いているので、
           // 基準を差し替えて書き直せばよい（下の「本文は同じ」と同じ道を通す）
@@ -255,13 +285,29 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
           // 差し込みはふつうの編集として届くので、直後の onChange から保存が続く
           // （同時編集中は書記だけがここへ来て、差し込んだ分は部屋の全員に届く）
           const appended = wikiAppendedBlocks(knownServerBodyRef.current, fresh.body)
-          if (appended && editorApiRef.current?.appendBlocks(appended) === 'applied') {
+          const applied = appended ? (editorApiRef.current?.appendBlocks(appended) ?? 'busy') : null
+          if (applied === 'applied') {
+            appendRetryCountRef.current = 0
             knownServerBodyRef.current = fresh.body
             baseUpdatedAtRef.current = fresh.updated_at
             setSaveStatus('idle')
             toast.success('ほかから追記された分を取り込みました')
             return
           }
+          // 変換中・読み取り専用など一時的な事情なら、帯を出さずに少し待ってやり直す
+          const attempt = appendRetryCountRef.current
+          if (applied === 'busy' && attempt < APPEND_RETRY_DELAYS_MS.length) {
+            appendRetryCountRef.current = attempt + 1
+            pendingBodyRef.current = { pageId, body: currentContentRef.current }
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+            saveTimerRef.current = setTimeout(() => {
+              saveTimerRef.current = null
+              void savePendingBodyRef.current().catch(() => {})
+            }, APPEND_RETRY_DELAYS_MS[attempt])
+            setSaveStatus('idle')
+            return
+          }
+          appendRetryCountRef.current = 0
           // 本文が本当に違う（本当の競合）
           conflictRef.current = true
           setConflict(true)
@@ -342,22 +388,12 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
   const leavePage = useCallback(() => {
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
     if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
-    // 同時編集中、書記でない人も**まだ部屋で保存されていない分があれば**自分で送る。
-    // 2人がほぼ同時に閉じたとき（書記が先に抜けた直後）に、最後の書きかけを取りこぼさないため
-    const room = collabRef.current
-    const pageId = currentPageIdRef.current
-    if (room.active && !room.isScribe && room.meta && pageId && !conflictRef.current) {
-      const saved = readSavedState(room.meta)
-      const current = currentContentRef.current
-      if (
-        saved.savedHash !== wikiContentHash(current) &&
-        canonicalizeWikiBody(current) !== canonicalizeWikiBody(knownServerBodyRef.current)
-      ) {
-        if (saved.savedAt) baseUpdatedAtRef.current = saved.savedAt
-        pendingBodyRef.current = { pageId, body: current }
-      }
-    }
+    // 同時編集中の書記でない人は、閉じるときも自分では保存しない。中身は器で書記に届いていて、
+    // 書記が保存する。ここで送ると、その保存の記録が部屋に届かないまま（閉じたあとなので）
+    // 残った書記の次の保存が弾かれ、偽の競合の帯が出て部屋全体の保存が止まる
     void savePendingBodyRef.current().catch(() => {})
+    // 以後、次のページの基準が決まるまでは、どのページ宛ての変更も受け付けない
+    activePageIdRef.current = null
     pageEpochRef.current += 1
     setSaveStatus('idle')
     conflictRef.current = false
@@ -368,8 +404,12 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
   /** エディタの onChange。pageId は、いま開いているページ */
   const handleChange = useCallback((pageId: string, content: string) => {
     // 「書きかけをコピー」が常に今の内容を返せるよう、保存の成否に関わらず先に控える
+    // もう開いていないページのエディタから届いた変更は受け付けない（控えも上書きしない）。
+    // 同時編集では、相手の入力でも onChange が出る
+    if (activePageIdRef.current !== undefined && pageId !== activePageIdRef.current) return
     currentContentRef.current = content
-    currentPageIdRef.current = pageId
+    // 「最新を読み込む」の最中に打った分は保存しない（読み直したあとの新しい基準で、古い中身を送らない）
+    if (reloadingRef.current) return
 
     // 競合中は新しい保存を投げない（編集自体は止めない・帯の「最新を読み込む」を待つ）。
     // state(conflict) ではなく ref を見る — setConflict は再描画を経て closure に反映される
@@ -454,7 +494,15 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
     // （すでに通信中の保存自体は取り消せない。楽観ロックが最後の砦になる）
     cancelPendingSave()
 
-    const fresh = await fetchPage(pageId)
+    reloadingRef.current = true
+    let fresh: WikiPage | null
+    try {
+      fresh = await fetchPage(pageId)
+    } finally {
+      reloadingRef.current = false
+    }
+    // 読み直しているあいだに張られた保存の予約も止める（読み直す前の中身で送らない）
+    cancelPendingSave()
     if (pageEpochRef.current !== epoch) return undefined
     if (fresh === null) {
       // 読み直した先でページ自体が無くなっていた（削除された）。帯は下ろさず
@@ -522,9 +570,12 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
    * 1回保存する（前の書記が抜けた瞬間の書きかけを取りこぼさないため）。
    * まだ誰も保存していない部屋なら、自分が最初の1人なので何もしない。
    */
-  const takeOverAsScribe = useCallback(async (pageId: string) => {
+  const takeOverAsScribe = useCallback(async (pageId: string, options?: { force?: boolean }) => {
     const meta = collabRef.current.meta
-    if (!meta || !readSavedState(meta).savedAt) return
+    if (!meta) return
+    // 部屋に保存の記録が無くても、一度は書記でなかった人（force）は読み直す。前の書記が
+    // 閉じる直前にした保存は、部屋の記録に残らない（閉じたあとなので届かない）
+    if (!options?.force && !readSavedState(meta).savedAt) return
     const epoch = pageEpochRef.current
     let fresh: WikiPage | null = null
     try {

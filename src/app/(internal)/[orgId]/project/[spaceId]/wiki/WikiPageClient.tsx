@@ -671,6 +671,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         .catch((err) => {
           if (getEpoch() !== epoch) return
           if (err instanceof WikiConflictError) markConflict()
+          else toast.error('版を戻せませんでした。通信の状態を確かめてください')
         })
     }
 
