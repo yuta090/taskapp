@@ -14,7 +14,7 @@ function computeStatus(
 }
 
 async function fetchInvitesData(): Promise<InviteRow[]> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
   const now = Date.now()
 
   const [invitesResult, orgsResult, spacesResult] = await Promise.all([

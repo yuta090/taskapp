@@ -35,7 +35,7 @@ export default async function BlogEditorPage({
   const currentUserId = await verifySuperadmin()
   if (!currentUserId) redirect('/admin/login')
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: currentUserId })
 
   const { data: ctas } = await (admin as SupabaseClient)
     .from('cta_blocks')
