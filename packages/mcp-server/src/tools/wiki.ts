@@ -107,7 +107,7 @@ export async function wikiList(params: z.infer<typeof wikiListSchema>): Promise<
   const { data, error } = await supabase
     .from('wiki_pages')
     .select(
-      'id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at'
+      'id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, is_folder, created_by, updated_by, created_at, updated_at'
     )
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)

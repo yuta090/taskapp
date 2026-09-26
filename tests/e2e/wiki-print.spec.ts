@@ -14,8 +14,12 @@ test.describe('Wiki を PDF で保存したときに紙へ載る範囲', () => {
   test('ページ名と本文だけが紙に載り、画面の枠は載らない', async ({ page }) => {
     await page.goto(`${SPACE_URL}/wiki`)
 
-    // 一覧の先頭のページを開く（ページの id は組織ごとに違うので固定しない）
-    const firstRow = page.locator('[data-testid^="wiki-page-row-"]').first()
+    // 一覧の先頭のページを開く（ページの id は組織ごとに違うので固定しない）。
+    // フォルダは本文が空のことがある（別の E2E が作って消している途中のものも含む）ので除く
+    const firstRow = page
+      .locator('[data-testid^="wiki-page-row-"]')
+      .filter({ hasNot: page.getByTestId('wiki-folder-icon') })
+      .first()
     await expect(firstRow).toBeVisible({ timeout: 20000 })
     const pageTitle = (await firstRow.innerText()).split('\n')[0].trim()
     await firstRow.click()

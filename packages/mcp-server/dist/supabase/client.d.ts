@@ -61,6 +61,7 @@ export interface WikiPage {
     milestone_id: string | null;
     pinned_at: string | null;
     sort_order: number | null;
+    is_folder: boolean;
     created_by: string;
     updated_by: string;
     created_at: string;

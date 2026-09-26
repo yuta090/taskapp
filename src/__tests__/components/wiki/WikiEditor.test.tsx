@@ -255,3 +255,78 @@ describe('WikiEditor slash menu and Japanese texts', () => {
     expect(capturedEditorOptions?.dictionary?.slash_menu.heading.title).toBe('見出し１')
   })
 })
+
+vi.mock('@/lib/hooks/useDocPolls', () => ({
+  useDocPolls: () => ({ polls: {}, isFetched: false, castVote: vi.fn(), createPoll: vi.fn() }),
+}))
+
+/**
+ * 投票ブロック（DOC_VOTE_SPEC）。「/v」「/投票」で理由任意、「/votemust」「/必須」で理由必須。
+ * 相手先ポータルのように投票を配らない画面では「/」に出さない。
+ */
+describe('WikiEditor の投票', () => {
+  const POLL = { wikiPageId: 'page-1', currentUserId: 'me', nameOf: () => '高橋' }
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedEditorOptions = undefined
+    capturedSlashMenuProps = undefined
+  })
+
+  it('投票のブロックをスキーマに持つ（ポータルの読み取り専用表示でも描ける）', () => {
+    render(<WikiEditor editable={false} />)
+    const schema = (capturedEditorOptions as unknown as { schema: { blockSpecs: Record<string, unknown> } }).schema
+    expect(schema.blockSpecs).toHaveProperty('docPoll')
+  })
+
+  it('「/v」で投票がいちばん上に出る', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    const items = await capturedSlashMenuProps!.getItems!('v')
+    expect(items.slice(0, 2).map((i) => i.key)).toEqual(['insert_vote', 'insert_vote_must'])
+  })
+
+  it('「/vote」では両方、「/votem」では理由必須だけが出る', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    const vote = (await capturedSlashMenuProps!.getItems!('vote')).map((i) => i.key)
+    expect(vote).toEqual(expect.arrayContaining(['insert_vote', 'insert_vote_must']))
+    const must = (await capturedSlashMenuProps!.getItems!('votem')).map((i) => i.key)
+    expect(must).toEqual(['insert_vote_must'])
+  })
+
+  it('日本語でも出る（投票・必須）', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    expect((await capturedSlashMenuProps!.getItems!('投票')).map((i) => i.key)).toEqual([
+      'insert_vote',
+      'insert_vote_must',
+    ])
+    expect((await capturedSlashMenuProps!.getItems!('必須')).map((i) => i.key)).toEqual(['insert_vote_must'])
+  })
+
+  it('押すと、新しい番号と理由必須の設定を持つ投票ブロックを置く', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    const [plain] = (await capturedSlashMenuProps!.getItems!('投票')) as unknown as Array<{ onItemClick: () => void }>
+    plain.onItemClick()
+    expect(mockInsertOrUpdateBlock).toHaveBeenLastCalledWith(expect.anything(), {
+      type: 'docPoll',
+      props: { pollId: expect.stringMatching(UUID), reasonRequired: 'none' },
+    })
+    const [must] = (await capturedSlashMenuProps!.getItems!('必須')) as unknown as Array<{ onItemClick: () => void }>
+    must.onItemClick()
+    expect(mockInsertOrUpdateBlock).toHaveBeenLastCalledWith(expect.anything(), {
+      type: 'docPoll',
+      props: { pollId: expect.stringMatching(UUID), reasonRequired: 'ng_hold' },
+    })
+  })
+
+  it('投票を配らない画面（ポータルなど）では「/」に出さない', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = (await capturedSlashMenuProps!.getItems!('投票')).map((i) => i.key)
+    expect(items).toEqual([])
+  })
+
+  it('議題が空の行には案内を出す', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    expect(capturedEditorOptions?.dictionary?.placeholders.docPoll).toBe('議題（書かなくてもよい）')
+  })
+})
