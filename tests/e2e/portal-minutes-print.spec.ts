@@ -20,7 +20,7 @@ test.describe('相手先ポータルの議事録を PDF で保存', () => {
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 })
 
     await page.goto('/portal/meetings')
-    await expect(page.getByRole('heading', { name: '議事録', exact: true })).toBeVisible({ timeout: 20000 })
+    await expect(page.getByRole('heading', { name: '会議・議事録', exact: true })).toBeVisible({ timeout: 20000 })
 
     // 一覧の先頭の会議を開く（議事録の無い会議には PDF のボタンが出ないので、出たものを使う）
     const cards = page.locator('#main-content button')

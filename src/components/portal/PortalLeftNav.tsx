@@ -249,7 +249,7 @@ export function PortalLeftNav({
       { key: 'requests', href: '/portal/requests', icon: <PaperPlaneTilt />, label: '送信リクエスト' },
       { key: 'all_tasks', href: '/portal/all-tasks', icon: <ListChecks />, label: 'タスク一覧' },
       { key: 'files', href: '/portal/files', icon: <Folder />, label: 'ファイル' },
-      { key: 'meetings', href: '/portal/meetings', icon: <NotePencil />, label: '議事録' },
+      { key: 'meetings', href: '/portal/meetings', icon: <NotePencil />, label: '会議・議事録' },
       { key: 'wiki', href: '/portal/wiki', icon: <BookOpen />, label: 'Wiki' },
       { key: 'history', href: '/portal/history', icon: <CheckSquare />, label: '承認履歴' },
     ]

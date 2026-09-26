@@ -60,7 +60,7 @@ export function PortalLayout({
     { href: '/portal/tasks', label: '要対応', icon: Lightning, badge: actionCount > 0 ? actionCount : undefined },
     { href: '/portal/all-tasks', label: 'タスク一覧', icon: ListChecks },
     { href: '/portal/files', label: 'ファイル', icon: Folder },
-    { href: '/portal/meetings', label: '議事録', icon: NotePencil },
+    { href: '/portal/meetings', label: '会議・議事録', icon: NotePencil },
     { href: '/portal/history', label: '承認履歴', icon: CheckSquare },
   ]
 

@@ -29,7 +29,7 @@ export function VendorLeftNav({ spaceId: _spaceId, onNavigate }: VendorLeftNavPr
     { href: '/vendor-portal', label: 'ダッシュボード', icon: House },
     { href: '/vendor-portal/tasks', label: 'タスク', icon: ListChecks },
     { href: '/vendor-portal/estimates', label: '見積もり', icon: CurrencyJpy },
-    { href: '/vendor-portal/meetings', label: '議事録', icon: CalendarDots },
+    { href: '/vendor-portal/meetings', label: '会議・議事録', icon: CalendarDots },
     { href: '/vendor-portal/wiki', label: 'Wiki', icon: BookOpen },
     { href: '/vendor-portal/settings', label: '設定', icon: Gear },
   ]
