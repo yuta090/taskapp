@@ -25,6 +25,7 @@ import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
+import { useInPlaceLinkOpener } from '@/components/editor/inPlaceLinkOpener'
 import { useEditorClickBehaviors } from '@/components/editor/editorClickBehaviors'
 import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
@@ -200,10 +201,13 @@ export function TaskMarkerChip({ taskId, orgId, spaceId, resolverRef }: TaskMark
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const goToTask = useCallback(
-    () => router.push(buildTaskHref(orgId, spaceId, encodeURIComponent(taskId))),
-    [router, orgId, spaceId, taskId]
-  )
+  // 議事録画面が「その場で開く」受け口を用意していれば、画面を移らず右パネルで開く
+  const inPlaceOpener = useInPlaceLinkOpener()
+  const goToTask = useCallback(() => {
+    const href = buildTaskHref(orgId, spaceId, encodeURIComponent(taskId))
+    if (inPlaceOpener?.(href)) return
+    router.push(href)
+  }, [router, inPlaceOpener, orgId, spaceId, taskId])
 
   const load = useCallback(async () => {
     const resolver = getResolver()

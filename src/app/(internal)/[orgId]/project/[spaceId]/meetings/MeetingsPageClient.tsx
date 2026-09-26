@@ -24,6 +24,9 @@ import { useSchedulingProposals, type ProposalDetail, type ProposalWithDetails }
 import type { Meeting } from '@/types/database'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { MEETING_QUERY_PARAM, PROPOSAL_QUERY_PARAM } from '@/lib/navigation/meetingLinks'
+import { parseInAppLinkTarget } from '@/lib/navigation/appLinks'
+import { InPlaceLinkOpenerProvider } from '@/components/editor/inPlaceLinkOpener'
+import { ProjectTaskInspector } from '@/components/task/ProjectTaskInspector'
 
 interface MeetingsPageClientProps {
   orgId: string
@@ -56,6 +59,8 @@ const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
  * state で持つと端末の「戻る」でシートではなく議事録ごと閉じてしまうため、URL に出す。
  */
 const INFO_QUERY_PARAM = 'info'
+// 議事録の中から開いたタスク（右パネル）。タスク一覧のリンク（buildTaskDeepLink）と同じ名前
+const TASK_QUERY_PARAM = 'task'
 
 export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) {
   const spaceName = useSpaceName(spaceId)
@@ -121,6 +126,9 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   // （オーバーレイ禁止のためシート表示）。開いているかは state ではなく URL に載せる —
   // 端末の「戻る」で ?info= が外れ、議事録は開いたままシートだけが閉じる
   const showInfo = searchParams.get(INFO_QUERY_PARAM) === '1'
+  // 議事録の中から開いたタスク。会議詳細の代わりに右パネルへ出す（議事録は出したまま）。
+  // 情報シートと同じく URL に載せ、「戻る」でパネルだけが閉じるようにする
+  const selectedTaskId = searchParams.get(TASK_QUERY_PARAM)
 
   // 会議メモに残す「書いた人」の名前。書ける人が議事録を開いているときだけ読む
   // （会議詳細の MeetingInspector が出ていれば同じ一覧を共有する。全画面などで出ていない
@@ -316,8 +324,11 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       // 履歴が2つ並び、1回目の「戻る」で同じ議事録に帰る（直したい症状と同じに見える）。
       const alreadyPushed = pushedMinutesIdRef.current !== null
       pushedMinutesIdRef.current = meetingId
-      // 前の会議で開いていたシート（?info=1）は持ち越さない
-      updateQuery({ meeting: meetingId, proposal: null, [INFO_QUERY_PARAM]: null }, { push: !alreadyPushed })
+      // 前の会議で開いていたシート（?info=1）・タスクのパネル（?task=）は持ち越さない
+      updateQuery(
+        { meeting: meetingId, proposal: null, [INFO_QUERY_PARAM]: null, [TASK_QUERY_PARAM]: null },
+        { push: !alreadyPushed }
+      )
     },
     [updateQuery]
   )
@@ -335,7 +346,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const closeMinutesDocument = useCallback(() => {
     setFullscreen(false)
     pushedMinutesIdRef.current = null
-    updateQuery({ meeting: null, [INFO_QUERY_PARAM]: null })
+    updateQuery({ meeting: null, [INFO_QUERY_PARAM]: null, [TASK_QUERY_PARAM]: null })
   }, [setFullscreen, updateQuery])
 
   // スマホの会議詳細（シート）。開くときに履歴を1つ積み、閉じるときは1つ戻す。
@@ -360,6 +371,59 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     }
     updateQuery({ [INFO_QUERY_PARAM]: null })
   }, [goBack, showInfo, updateQuery])
+
+  // 議事録の中から開いたタスク（右パネル）。会議中に資料を開くたびに画面が移らないようにする。
+  // 開くときに履歴を1つ積み、×では1つ戻す（情報シートと同じ作り。端末・ブラウザの「戻る」で
+  // パネルだけが閉じる）。開いたまま別のタスクへ移るときは積み増さず差し替える
+  const pushedTaskRef = useRef(false)
+
+  const openTaskPanel = useCallback(
+    (taskId: string) => {
+      const alreadyPushed = pushedTaskRef.current
+      pushedTaskRef.current = true
+      updateQuery({ [TASK_QUERY_PARAM]: taskId }, { push: !alreadyPushed })
+    },
+    [updateQuery]
+  )
+
+  const closeTaskPanel = useCallback(() => {
+    if (backInFlightRef.current) return
+    // 履歴を戻すのは「自分で積んだパネルを、いま開いている」ときだけ（closeInfoSheet と同じ）
+    if (pushedTaskRef.current && selectedTaskId) {
+      pushedTaskRef.current = false
+      goBack()
+      return
+    }
+    updateQuery({ [TASK_QUERY_PARAM]: null })
+  }, [goBack, selectedTaskId, updateQuery])
+
+  // パネルが閉じたら、履歴を積んだ印を落とす（「戻る」で閉じた場合を含む）
+  useEffect(() => {
+    if (!selectedTaskId) pushedTaskRef.current = false
+  }, [selectedTaskId])
+
+  /**
+   * 本文のリンク・「タスク作成済み」の印の受け口。このプロジェクトのタスクだけを引き受けて
+   * 右パネルで開く。それ以外（別のプロジェクト・会議・ファイル…）は false を返し、
+   * これまでどおり画面を移る。
+   *
+   * 一度だけ作って変えない（中身は押した時点の openTaskPanel を ref から読む）。openTaskPanel は
+   * URL が変わるたびに作り直されるので、そのまま依存にするとパネルの開け閉めのたびに
+   * 議事録のエディタ全体が描き直しになる
+   */
+  const openTaskPanelRef = useRef(openTaskPanel)
+  useEffect(() => {
+    openTaskPanelRef.current = openTaskPanel
+  }, [openTaskPanel])
+  const openInPlace = useCallback(
+    (href: string) => {
+      const target = parseInAppLinkTarget(href, orgId, spaceId)
+      if (target?.kind !== 'task') return false
+      openTaskPanelRef.current(target.id)
+      return true
+    },
+    [orgId, spaceId]
+  )
 
   // MEDIUM-B: Inspector の×（一覧へ戻る）から離れるときは、保存されていない書きかけが
   // あれば確認してから戻る（文書ビュー自身の「戻る」ボタンは内部で同じ確認をしてから
@@ -402,6 +466,22 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     // Mutual exclusivity: proposal takes priority if both params exist
     if (!selectedMeeting || selectedProposalId) {
       if (!selectedProposalId) setInspector(null)
+      return
+    }
+
+    // 議事録の中から開いたタスク。スマホ・全画面でも出す（押して開いたものなので）。
+    // スマホでは右パネルが全画面シートになり、閉じると議事録に戻る
+    if (selectedTaskId) {
+      setInspector(
+        <ProjectTaskInspector
+          key={selectedTaskId}
+          orgId={orgId}
+          spaceId={spaceId}
+          taskId={selectedTaskId}
+          onClose={closeTaskPanel}
+          onOpenTask={(taskId) => updateQuery({ [TASK_QUERY_PARAM]: taskId })}
+        />
+      )
       return
     }
 
@@ -546,6 +626,10 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     fetchMeetingDetail,
     canEdit,
     handleCloseFromInspector,
+    selectedTaskId,
+    closeTaskPanel,
+    orgId,
+    spaceId,
   ])
 
   // ---- Proposal inspector ----
@@ -619,22 +703,24 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   // 差し替える。日程調整（proposal）は文書ビューを持たないため対象外のまま今の表示に留まる）
   if (selectedMeeting && !selectedProposalId) {
     return (
-      <MinutesDocumentView
-        key={`${selectedMeeting.id}-${minutesReloadToken}`}
-        ref={minutesViewRef}
-        orgId={orgId}
-        spaceId={spaceId}
-        meeting={selectedMeeting}
-        canEdit={canEdit}
-        forceReadOnly={isTaskifying}
-        onBack={closeMinutesDocument}
-        onOpenInfo={openInfoSheet}
-        updateMinutes={updateMinutes}
-        fetchMeetingDetail={fetchMeetingDetail}
-        fullscreen={fullscreen}
-        onToggleFullscreen={handleToggleFullscreen}
-        noteAuthorName={noteAuthorName}
-      />
+      <InPlaceLinkOpenerProvider value={openInPlace}>
+        <MinutesDocumentView
+          key={`${selectedMeeting.id}-${minutesReloadToken}`}
+          ref={minutesViewRef}
+          orgId={orgId}
+          spaceId={spaceId}
+          meeting={selectedMeeting}
+          canEdit={canEdit}
+          forceReadOnly={isTaskifying}
+          onBack={closeMinutesDocument}
+          onOpenInfo={openInfoSheet}
+          updateMinutes={updateMinutes}
+          fetchMeetingDetail={fetchMeetingDetail}
+          fullscreen={fullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
+          noteAuthorName={noteAuthorName}
+        />
+      </InPlaceLinkOpenerProvider>
     )
   }
 
