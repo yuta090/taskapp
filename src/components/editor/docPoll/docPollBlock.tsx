@@ -85,5 +85,13 @@ export const docPollSpec = createReactBlockSpec(
         contentRef={props.contentRef}
       />
     ),
+    // コピーして Slack やメールに貼ったとき（外へ出す HTML）の形。印と議題だけを出す。
+    // 画面の形のまま出すと、押した人の名前やメモまで外へ付いていく（DOC_VOTE_SPEC §8）
+    toExternalHTML: (props) => (
+      <p>
+        <span>{props.block.props.reasonRequired === 'ng_hold' ? '投票（理由必須）: ' : '投票: '}</span>
+        <span ref={props.contentRef} />
+      </p>
+    ),
   }
 )() // createReactBlockSpec が返すのは「作る関数」。1回呼んで仕様そのものにする
