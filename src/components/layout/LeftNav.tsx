@@ -788,7 +788,7 @@ function SpaceNavItem({
           <SubNavItem
             href={`${basePath}/meetings`}
             icon={<Notebook />}
-            label="議事録"
+            label="会議・議事録"
             active={isActive(`${basePath}/meetings`, pathname.includes(`/project/${space.id}/meetings`))}
             collapsed={collapsed}
             onNavigate={onNavigate}

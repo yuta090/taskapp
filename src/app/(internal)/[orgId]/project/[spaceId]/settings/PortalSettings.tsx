@@ -52,7 +52,7 @@ const SECTION_CONFIG: { key: keyof PortalVisibleSections; label: string; descrip
   { key: 'requests', label: '送信リクエスト', description: 'クライアントが送信したバグ報告・要望' },
   { key: 'all_tasks', label: 'タスク一覧', description: '公開対象の全タスク一覧' },
   { key: 'files', label: 'ファイル', description: '共有ファイルの閲覧' },
-  { key: 'meetings', label: '議事録', description: '会議の議事録と決定事項' },
+  { key: 'meetings', label: '会議・議事録', description: '会議の議事録と決定事項' },
   { key: 'wiki', label: 'Wiki', description: 'プロジェクトのWikiドキュメント' },
   { key: 'history', label: '承認履歴', description: '過去の承認・レビュー履歴' },
 ]
