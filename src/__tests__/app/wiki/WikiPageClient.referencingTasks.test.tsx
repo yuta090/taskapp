@@ -69,6 +69,9 @@ vi.mock('@/lib/hooks/useWikiDecisionCounts', () => ({
   useWikiDecisionCounts: () => ({ countsByPageId: new Map(), loading: false }),
 }))
 const mockUseReferencingTasks = vi.hoisted(() => vi.fn())
+// 本文の投票ブロックの先読み（中身はエディタ側で確かめる。ここでは画面の配線だけを見る）
+vi.mock('@/lib/hooks/useDocPolls', () => ({ usePrefetchDocPolls: () => {} }))
+
 vi.mock('@/lib/hooks/useWikiPageReferencingTasks', () => ({
   useWikiPageReferencingTasks: mockUseReferencingTasks,
 }))
