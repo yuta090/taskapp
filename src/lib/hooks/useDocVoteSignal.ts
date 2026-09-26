@@ -19,6 +19,41 @@ import type { DocPollSource } from '@/lib/doc-polls/types'
 
 const SIGNAL_EVENT = 'vote-changed'
 
+/**
+ * 同じチャネルに相乗りするほかの知らせ。同じ名前のチャネルを2本開くと互いに閉じ合うので、
+ * 道は1本のまま知らせの種類で振り分ける。
+ * - minutes-saved: 議事録が保存された（書記が保存のあとに送る。相手先ポータルが本文を読み直す・PR4）
+ */
+export type DocSignalEvent = 'minutes-saved'
+const EXTRA_EVENTS: readonly DocSignalEvent[] = ['minutes-saved']
+
+// いまつながっているチャネル（名前ごと）と、知らせを待っている人。フックの外（保存の処理など）から
+// 送る・受けるために、画面全体で1つだけ持つ
+const liveChannels = new Map<string, RealtimeChannel>()
+const listeners = new Map<string, Set<() => void>>()
+const listenerKey = (topic: string, event: DocSignalEvent) => `${topic}|${event}`
+
+/** その文書の知らせを待つ。戻り値を呼ぶとやめる。チャネルは useDocVoteSignal が開いているものを使う */
+export function onDocSignal(topic: string, event: DocSignalEvent, cb: () => void): () => void {
+  const key = listenerKey(topic, event)
+  const set = listeners.get(key) ?? new Set()
+  set.add(cb)
+  listeners.set(key, set)
+  return () => {
+    set.delete(cb)
+    if (set.size === 0) listeners.delete(key)
+  }
+}
+
+/** その文書のチャネルで知らせを送る。つながっていなければ何もしない（画面は壊さない） */
+export function sendDocSignal(topic: string, event: DocSignalEvent): void {
+  const ch = liveChannels.get(topic)
+  if (!ch) return
+  void Promise.resolve(ch.send({ type: 'broadcast', event, payload: {} })).catch((err) => {
+    warnSignal('知らせを送れませんでした', err)
+  })
+}
+
 /** つながらなかったときにやり直すまでの待ち時間。要素の数だけやり直す */
 const RETRY_DELAYS_MS = [2_000, 6_000]
 
@@ -55,6 +90,7 @@ export function useDocVoteSignal(source: DocPollSource | null, onSignal: () => v
       const current = channel
       channel = null
       channelRef.current = null
+      if (topic && current && liveChannels.get(topic) === current) liveChannels.delete(topic)
       setConnected(false)
       if (!current) return
       try {
@@ -122,6 +158,11 @@ export function useDocVoteSignal(source: DocPollSource | null, onSignal: () => v
         created.on('broadcast', { event: SIGNAL_EVENT }, () => {
           onSignalRef.current()
         })
+        for (const event of EXTRA_EVENTS) {
+          created.on('broadcast', { event }, () => {
+            listeners.get(listenerKey(topic, event))?.forEach((cb) => cb())
+          })
+        }
         created.subscribe((status) => {
           if (disposed || channel !== created) return
           if (status === 'SUBSCRIBED') {
@@ -129,6 +170,7 @@ export function useDocVoteSignal(source: DocPollSource | null, onSignal: () => v
             // いまつながった回を1回目として数える
             attempt = 1
             channelRef.current = created
+            liveChannels.set(topic, created)
             setConnected(true)
             // つなぐ前と、切れていた間に押された票は合図が届いていないので、1回読み直す
             onSignalRef.current()
@@ -137,6 +179,7 @@ export function useDocVoteSignal(source: DocPollSource | null, onSignal: () => v
           // CLOSED はサーバーに閉じられたとき（鍵の期限切れなど）。自分で閉じたときは上で弾いている
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             channelRef.current = null
+            if (liveChannels.get(topic) === created) liveChannels.delete(topic)
             setConnected(false)
             scheduleRetry(status)
           }

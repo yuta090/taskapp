@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Calendar, Clock, CaretRight, FileText, FilePdf, X } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 // 共有 barrel を経由しない（議事録の Markdown 変換器がポータル全ページの
@@ -9,6 +9,11 @@ import { PortalMinutesDocument } from '@/components/portal/PortalMinutesDocument
 import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { hasDocPollInMinutes } from '@/lib/doc-polls/logic'
+import { onDocSignal } from '@/lib/hooks/useDocVoteSignal'
+import { createClient } from '@/lib/supabase/client'
+
+/** 「保存された」知らせが続けて届いたとき、まとめて1回だけ読み直すまでの待ち時間 */
+const MINUTES_REFETCH_DEBOUNCE_MS = 400
 
 // ポータルの議事録はエディタを使わず自前で描くので、投票の番号を振り直す相手（本文）は無い
 const NO_EDITOR = { document: [] }
@@ -58,6 +63,20 @@ function formatTime(date: string): string {
 }
 
 // Meeting Inspector component
+function MinutesSection({ md }: { md: string | null | undefined }) {
+  return md?.trim() ? (
+    <div>
+      <div className="text-xs font-medium text-gray-500 mb-2">議事録</div>
+      <PortalMinutesDocument md={md} />
+    </div>
+  ) : (
+    <div className="text-center py-8 text-gray-400">
+      <FileText className="w-8 h-8 mx-auto mb-2" />
+      <p className="text-sm">議事録はありません</p>
+    </div>
+  )
+}
+
 function MeetingInspector({
   meeting,
   onClose,
@@ -65,9 +84,38 @@ function MeetingInspector({
   meeting: Meeting
   onClose: () => void
 }) {
-  const hasMinutes = !!meeting.minutesMd?.trim()
   const { user } = useCurrentUser()
   const currentUserId = user?.id ?? null
+
+  // 会議中（進行中）は、社内が議事録を保存するたびに届く知らせで本文を読み直し、その場で出す
+  // （DOC_VOTE_SPEC §6・PR4）。知らせは本文を運ばないので、RLS 越しに本文の列だけ読み直す
+  const [liveMd, setLiveMd] = useState<{ id: string; md: string } | null>(null)
+  const minutesMd = liveMd?.id === meeting.id ? liveMd.md : meeting.minutesMd
+  const hasMinutes = !!minutesMd?.trim()
+  const isLive = meeting.status === 'in_progress'
+  useEffect(() => {
+    if (!isLive) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let disposed = false
+    const off = onDocSignal(`meeting-minutes-view:${meeting.id}`, 'minutes-saved', () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(async () => {
+        timer = null
+        const { data, error } = await createClient()
+          .from('meetings')
+          .select('minutes_md')
+          .eq('id', meeting.id)
+          .maybeSingle()
+        if (disposed || error || !data) return
+        setLiveMd({ id: meeting.id, md: (data as { minutes_md: string | null }).minutes_md ?? '' })
+      }, MINUTES_REFETCH_DEBOUNCE_MS)
+    })
+    return () => {
+      disposed = true
+      off()
+      if (timer) clearTimeout(timer)
+    }
+  }, [isLive, meeting.id])
 
   // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
   // 会議名・日時・サマリー・本文だけに絞る指定は globals.css の @media print 側にあり、
@@ -131,30 +179,21 @@ function MeetingInspector({
             </div>
           )}
 
-          {meeting.minutesMd?.trim() ? (
-            <div>
-              <div className="text-xs font-medium text-gray-500 mb-2">議事録</div>
-              {/* 中の投票を押せるようにする（相手先も押せる。読める会議＝進行中・終了の会議だけ）。
-                  投票の無い議事録では、投票の読み込みも合図のチャネルも張らない */}
-              {hasDocPollInMinutes(meeting.minutesMd) ? (
-                <DocPollHost
-                  editor={NO_EDITOR}
-                  source={{ meetingId: meeting.id }}
-                  currentUserId={currentUserId}
-                  editable={false}
-                  closedNote={PORTAL_POLL_CLOSED}
-                >
-                  <PortalMinutesDocument md={meeting.minutesMd} />
-                </DocPollHost>
-              ) : (
-                <PortalMinutesDocument md={meeting.minutesMd} />
-              )}
-            </div>
+          {/* 中の投票を押せるようにする（相手先も押せる。読める会議＝進行中・終了の会議だけ）。
+              投票の無い議事録では、投票の読み込みも合図のチャネルも張らない。
+              ただし会議中は、議事録の保存の知らせを受けるために投票が無くてもチャネルを張る */}
+          {hasDocPollInMinutes(minutesMd) || isLive ? (
+            <DocPollHost
+              editor={NO_EDITOR}
+              source={{ meetingId: meeting.id }}
+              currentUserId={currentUserId}
+              editable={false}
+              closedNote={PORTAL_POLL_CLOSED}
+            >
+              <MinutesSection md={minutesMd} />
+            </DocPollHost>
           ) : (
-            <div className="text-center py-8 text-gray-400">
-              <FileText className="w-8 h-8 mx-auto mb-2" />
-              <p className="text-sm">議事録はありません</p>
-            </div>
+            <MinutesSection md={minutesMd} />
           )}
         </div>
       </div>
