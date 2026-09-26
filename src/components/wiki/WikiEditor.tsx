@@ -26,6 +26,8 @@ import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
 import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
 import { docPollSpec } from '@/components/editor/docPoll/docPollBlock'
 import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
+import { DOC_INSERTION_TYPE } from '@/lib/doc-insertions/logic'
+import { docInsertionSpec } from '@/components/editor/docInsertion/docInsertionBlock'
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { seedWikiDoc } from '@/lib/collab/seed'
@@ -100,6 +102,8 @@ const schema = BlockNoteSchema.create({
     [DIVIDER_TYPE]: dividerSpec,
     // 投票。本文には番号と理由必須の設定だけを持ち、票は DB に置く（DOC_VOTE_SPEC）
     [DOC_POLL_TYPE]: docPollSpec,
+    // 相手先が足した行・メモ（DOC_VOTE_SPEC §5.1）。本文に入れるのは社内の編集画面だけ
+    [DOC_INSERTION_TYPE]: docInsertionSpec,
   },
 })
 

@@ -1163,6 +1163,8 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
                 onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
                 noteAuthorName={noteAuthorName}
                 meetingId={meetingId}
+                // 相手先の差し込みを取り込むのは1つのタブだけ（同時編集中は書記・1人なら編集できる画面）
+                applyInsertions={canEdit && !forceReadOnly && (!collabActive || isScribe)}
                 collaboration={collaboration}
                 isApplyingRemote={isApplyingRemote}
               />

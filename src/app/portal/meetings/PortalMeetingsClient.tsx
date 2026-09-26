@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Calendar, Clock, CaretRight, FileText, FilePdf, X } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 // 共有 barrel を経由しない（議事録の Markdown 変換器がポータル全ページの
@@ -10,6 +10,8 @@ import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { hasDocPollInMinutes } from '@/lib/doc-polls/logic'
 import { useLiveMinutes } from '@/lib/hooks/useLiveMinutes'
+import { useMyDocInsertions } from '@/lib/hooks/useMyDocInsertions'
+import { PortalInsertionContext } from '@/components/portal/PortalInsertionContext'
 
 // ポータルの議事録はエディタを使わず自前で描くので、投票の番号を振り直す相手（本文）は無い
 const NO_EDITOR = { document: [] }
@@ -59,11 +61,12 @@ function formatTime(date: string): string {
 }
 
 // Meeting Inspector component
-function MinutesSection({ md }: { md: string | null | undefined }) {
-  return md?.trim() ? (
+function MinutesSection({ md, canInsert = false }: { md: string | null | undefined; canInsert?: boolean }) {
+  // 書き足せるときは、議事録がまだ空でも本文の場所を出す（末尾に最初の1行を足せるように）
+  return md?.trim() || canInsert ? (
     <div>
       <div className="text-xs font-medium text-gray-500 mb-2">議事録</div>
-      <PortalMinutesDocument md={md} />
+      <PortalMinutesDocument md={md ?? ''} />
     </div>
   ) : (
     <div className="text-center py-8 text-gray-400">
@@ -89,6 +92,12 @@ function MeetingInspector({
   const minutesMd = useLiveMinutes(meeting.id, isLive, meeting.minutesMd)
   const hasMinutes = !!minutesMd?.trim()
   const hasPoll = hasDocPollInMinutes(minutesMd)
+  // 相手先は議事録に行・メモを書き足せる（DOC_VOTE_SPEC §5。社内の編集画面が取り込んでから本文に入る）
+  const { rows: myInsertions, create: createInsertion, withdraw: withdrawInsertion } = useMyDocInsertions(meeting.id)
+  const insertionCtx = useMemo(
+    () => ({ rows: myInsertions, create: createInsertion, withdraw: withdrawInsertion }),
+    [myInsertions, createInsertion, withdrawInsertion]
+  )
 
   // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
   // 会議名・日時・サマリー・本文だけに絞る指定は globals.css の @media print 側にあり、
@@ -165,10 +174,14 @@ function MeetingInspector({
               // 投票の無い進行中の会議は、保存の知らせを受けるためのチャネルだけ張る（投票は読まない）
               loadPolls={hasPoll}
             >
-              <MinutesSection md={minutesMd} />
+              <PortalInsertionContext.Provider value={insertionCtx}>
+                <MinutesSection md={minutesMd} canInsert />
+              </PortalInsertionContext.Provider>
             </DocPollHost>
           ) : (
-            <MinutesSection md={minutesMd} />
+            <PortalInsertionContext.Provider value={insertionCtx}>
+              <MinutesSection md={minutesMd} canInsert />
+            </PortalInsertionContext.Provider>
           )}
         </div>
       </div>
