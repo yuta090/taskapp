@@ -58,6 +58,7 @@ export function DocPollHost({
   nameOf,
   editable,
   closedNote,
+  loadPolls = true,
   children,
 }: {
   editor: DocPollEditorLike
@@ -68,9 +69,11 @@ export function DocPollHost({
   editable: boolean
   /** 見えない・押せない投票に出す言葉（相手先ポータルが渡す） */
   closedNote?: string
+  /** false なら投票を読まず合図のチャネルだけ張る（投票の無い進行中の会議のポータル）。既定は読む */
+  loadPolls?: boolean
   children: ReactNode
 }) {
-  const { polls, isFetched, castVote, createPoll } = useDocPolls(source)
+  const { polls, isFetched, castVote, createPoll } = useDocPolls(source, { loadPolls })
   const fetchedNameOf = useVoterNames(nameOf ? null : polls)
   const resolveName = nameOf ?? fetchedNameOf
 

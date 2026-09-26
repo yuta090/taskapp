@@ -1,5 +1,6 @@
 'use client'
 
+import { sendDocSignal } from '@/lib/hooks/useDocVoteSignal'
 import {
   forwardRef,
   useCallback,
@@ -458,6 +459,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
               })
             }
             setSaveState('saved')
+            // 相手先ポータルなど、同じ議事録を読むだけの画面に「保存された」と知らせる（本文は運ばない）。
+            // 投票の合図のチャネルに相乗りする（つながっていなければ何もしない・DOC_VOTE_SPEC §6）
+            sendDocSignal(`meeting-minutes-view:${meetingId}`, 'minutes-saved')
             if (savedBadgeTimerRef.current) clearTimeout(savedBadgeTimerRef.current)
             savedBadgeTimerRef.current = setTimeout(() => setSaveState('idle'), SAVED_BADGE_MS)
             break
