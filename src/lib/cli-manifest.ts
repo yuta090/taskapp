@@ -306,6 +306,45 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     ],
   },
 
+  // ── Vote（Wiki・議事録の投票ブロック） ──
+  {
+    name: 'vote',
+    description: 'Doc poll (vote block on a wiki page or meeting minutes) management',
+    subcommands: [
+      {
+        name: 'list',
+        description: 'List doc polls on a wiki page or meeting. Each item has topic, reason-required, and OK/NG/hold counts',
+        aliases: ['ls'],
+        tool: 'vote_list',
+        options: [
+          spaceOpt,
+          { flags: '--wiki-page-id <uuid>', description: 'Wiki page UUID (exactly one of --wiki-page-id / --meeting-id)', param: 'wikiPageId' },
+          { flags: '--meeting-id <uuid>', description: 'Meeting UUID (exactly one of --wiki-page-id / --meeting-id)', param: 'meetingId' },
+        ],
+      },
+      {
+        name: 'show',
+        description: 'Show a poll: who voted what with memo (name, choice, memo, time) and the history of changes',
+        tool: 'vote_show',
+        options: [
+          spaceOpt,
+          { flags: '--poll-id <uuid>', description: 'Poll UUID', param: 'pollId', required: true },
+        ],
+      },
+      {
+        name: 'cast',
+        description: 'Cast, change, or retract a vote. --choice none retracts. NG/hold on a reason-required poll needs --memo',
+        tool: 'vote_cast',
+        options: [
+          spaceOpt,
+          { flags: '--poll-id <uuid>', description: 'Poll UUID', param: 'pollId', required: true },
+          { flags: '--choice <choice>', description: 'ok|ng|hold|none', param: 'choice', choices: ['ok', 'ng', 'hold', 'none'], required: true },
+          { flags: '--memo <text>', description: 'Reason/memo. Required for ng/hold on a reason-required poll', param: 'memo' },
+        ],
+      },
+    ],
+  },
+
   // ── Spec decision（決定事項のタスクの確定） ──
   {
     name: 'spec',
@@ -1074,6 +1113,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     date: '2026-09-16',
     message: '社内承認の依頼を CLI から取り消せるようになりました: agentpm review cancel --task-id <ID>（画面の「レビューを取り消す」と同じ。承認待ち・差し戻しのものが対象で、取り消したあとは依頼し直せます）',
   },
+  {
+    id: '2026-09-26-vote-cli',
+    date: '2026-09-26',
+    message: 'Wiki・議事録の投票ブロックを CLI から見られるようになりました: agentpm vote list --wiki-page-id <ID>（または --meeting-id）/ agentpm vote show --poll-id <ID> / agentpm vote cast --poll-id <ID> --choice ok|ng|hold|none',
+  },
 ]
 
 function computeChecksum(commands: ManifestCommand[]): string {
@@ -1087,7 +1131,7 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.10.0',
+      version: '1.11.0',
       minCliVersion: '0.2.0',
       generatedAt: '2026-09-10T14:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
