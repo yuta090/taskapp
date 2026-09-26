@@ -121,6 +121,8 @@ select dst.check('ed_missing_meeting', dst.send('meeting-minutes-view:' || :'MX'
 select dst.check('ed_bad_topic', dst.send('meeting-minutes-view:not-a-uuid'), 'err:42501:%');
 select dst.check('ed_suffix_topic', dst.send('meeting-minutes-view:' || :'M1' || 'x'), 'err:42501:%');
 select dst.check('ed_kind_swapped', dst.send('wiki-page-view:' || :'M1'), 'err:42501:%');
+-- 既存の同時編集のチャネルには、編集者は今までどおり入れる（この migration で壊れていない）
+select dst.check('ed_collab_still_ok', dst.send('meeting-minutes:' || :'M1'), 'ok');
 
 -- ---- 読むだけの社内メンバー: 投票は押せるので合図にも入れる ----
 select dst.as_user(:'u_view');
@@ -156,6 +158,8 @@ reset role;
 -- ---- 判定関数の実行権: authenticated だけ ----
 select dst.check('fn_grant_authenticated',
   has_function_privilege('authenticated', 'public.app_can_join_doc_vote_signal(text)', 'execute')::text, 'true');
+select dst.check('fn_no_service_role',
+  has_function_privilege('service_role', 'public.app_can_join_doc_vote_signal(text)', 'execute')::text, 'false');
 select dst.check('fn_no_anon',
   has_function_privilege('anon', 'public.app_can_join_doc_vote_signal(text)', 'execute')::text, 'false');
 

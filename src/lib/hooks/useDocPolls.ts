@@ -82,8 +82,7 @@ export function useDocPolls(source: DocPollSource | null) {
     signalTimerRef.current = setTimeout(() => {
       signalTimerRef.current = null
       if (chainsRef.current.size > 0) return
-      // 読み込み中の取得があればそれを使う（打ち切って出し直さない）
-      void queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false })
+      void queryClient.invalidateQueries({ queryKey })
     }, SIGNAL_DEBOUNCE_MS)
   }, [queryClient, queryKey])
   useEffect(

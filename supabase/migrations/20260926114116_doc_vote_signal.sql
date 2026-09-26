@@ -47,7 +47,6 @@ as $$
                select 1
                  from public.wiki_pages w
                 where w.id = substr(p_topic, length('wiki-page-view:') + 1)::uuid
-                  and w.space_id is not null
                   and public.app_is_space_internal(w.space_id, w.org_id)
              )
              and public.mfa_satisfied()
@@ -58,7 +57,7 @@ $$;
 comment on function public.app_can_join_doc_vote_signal(text) is
   '投票の合図のチャネル（meeting-minutes-view:<会議ID> / wiki-page-view:<ページID>）に入れるか。投票を読める社内メンバー＋二要素認証の条件。DOC_VOTE_SPEC §6';
 
-revoke all on function public.app_can_join_doc_vote_signal(text) from public, anon, authenticated;
+revoke all on function public.app_can_join_doc_vote_signal(text) from public, anon, authenticated, service_role;
 grant execute on function public.app_can_join_doc_vote_signal(text) to authenticated;
 
 drop policy if exists doc_vote_signal_select on realtime.messages;
