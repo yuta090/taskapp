@@ -66,13 +66,17 @@ interface WikiEditorProps {
    */
   noteAuthorName?: string
   /**
-   * 投票ブロックに配るもの（社内の Wiki 画面だけが渡す）。無い画面（相手先ポータルなど）では
+   * 投票ブロックに配るもの（社内の Wiki 画面と、相手先ポータルの Wiki が渡す）。無い画面では
    * 「/」に投票を出さず、置いてある投票は「この画面では投票できません」と出す。
+   * 読み取り専用（ポータル）でも押せる。投票を作る・番号を振り直すのは編集できる画面だけ。
    */
   poll?: {
     wikiPageId: string
     currentUserId: string | null
-    nameOf: (userId: string) => string
+    /** 名前の引き方。渡さない画面（相手先ポータル）では、押した人の名前を投票側で引く */
+    nameOf?: (userId: string) => string
+    /** 見えない・押せない投票に出す言葉（相手先ポータルは「この投票は終了しました」） */
+    closedNote?: string
   }
   /** 同時編集をするときだけ渡す。渡すと本文の正本は器（Y.Doc）側になり、initialContent は使わない */
   collaboration?: WikiEditorCollaboration
@@ -403,6 +407,7 @@ export function WikiEditor({
           source={{ wikiPageId: poll.wikiPageId }}
           currentUserId={poll.currentUserId}
           nameOf={poll.nameOf}
+          closedNote={poll.closedNote}
           editable={editable}
         >
           {editorView}

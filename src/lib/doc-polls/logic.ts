@@ -160,3 +160,15 @@ export function planPollSync<B extends BlockLike>(
   }
   return { renumber, create }
 }
+
+/**
+ * 本文に投票がありそうか（軽い目安）。無い文書では、投票の読み込み・合図のチャネル・定期の読み直しを
+ * 張らない（ポータルの議事録・Wiki はほとんど投票が無く、開くたびに空振りの通信が走るため）。
+ */
+export function hasDocPollInMinutes(md: string | null | undefined): boolean {
+  return typeof md === 'string' && md.includes('<!--vote:')
+}
+
+export function hasDocPollInWikiBody(body: string | null | undefined): boolean {
+  return typeof body === 'string' && body.includes(`"${DOC_POLL_TYPE}"`)
+}

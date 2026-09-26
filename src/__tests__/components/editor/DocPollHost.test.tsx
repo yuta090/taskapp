@@ -177,3 +177,25 @@ describe('DocPollHost', () => {
     expect(createPoll).not.toHaveBeenCalled()
   })
 })
+
+const voterNames = vi.fn((_: unknown) => (id: string) => `名前:${id}`)
+vi.mock('@/lib/hooks/useVoterNames', () => ({ useVoterNames: (p: unknown) => voterNames(p) }))
+
+describe('DocPollHost の名前', () => {
+  it('名前の引き方を渡さない画面（ポータル）では、押した人の名前を自分で引く', () => {
+    polls = { p1: { poll: { id: 'p1' }, votes: [], events: [] } }
+    let got: { nameOf: (id: string) => string } | null = null
+    render(
+      <DocPollHost editor={{ document: [] }} source={{ meetingId: 'm1' }} currentUserId="me" editable={false}>
+        <Probe onValue={(v) => { got = v as typeof got }} />
+      </DocPollHost>
+    )
+    expect(got!.nameOf('u1')).toBe('名前:u1')
+    expect(voterNames).toHaveBeenLastCalledWith(polls)
+  })
+
+  it('渡された画面（社内）では、自分では引かない', () => {
+    mount(fakeEditor([]), false)
+    expect(voterNames).toHaveBeenLastCalledWith(null)
+  })
+})
