@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { DocPollState } from '@/lib/doc-polls/types'
 
@@ -27,7 +27,7 @@ export function useVoterNames(polls: Record<string, DocPollState> | null): (user
     return [...set].sort()
   }, [polls])
 
-  const { data } = useQuery({
+  const { data, isPlaceholderData } = useQuery({
     queryKey: ['voterNames', ids],
     queryFn: async () => {
       const { data, error } = await supabase.from('profiles').select('id, display_name').in('id', ids)
@@ -37,7 +37,13 @@ export function useVoterNames(polls: Record<string, DocPollState> | null): (user
     },
     enabled: ids.length > 0,
     staleTime: 5 * 60_000,
+    // 新しい人が押すと顔ぶれ（キー）が変わる。前の名前を残したまま読み直し、全員の名前がちらつかないようにする
+    placeholderData: keepPreviousData,
   })
 
-  return useMemo(() => (userId: string) => data?.[userId] || UNKNOWN, [data])
+  // 「メンバー外」と出すのは、読み終えても見つからなかった人だけ。まだ届いていない間は空で出す
+  return useMemo(
+    () => (userId: string) => (data && userId in data ? data[userId] || UNKNOWN : data && !isPlaceholderData ? UNKNOWN : ''),
+    [data, isPlaceholderData]
+  )
 }

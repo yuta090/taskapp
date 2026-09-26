@@ -57,3 +57,10 @@ describe('useVoterNames（ポータルで押した人の名前を引く）', () 
     expect(inIds).not.toHaveBeenCalled()
   })
 })
+
+describe('useVoterNames の読み込み中', () => {
+  it('まだ届いていない間は空で出す（「メンバー外」とちらつかせない）', () => {
+    const { result } = renderHook(() => useVoterNames(polls()), { wrapper: wrapper() })
+    expect(result.current('u1')).toBe('')
+  })
+})

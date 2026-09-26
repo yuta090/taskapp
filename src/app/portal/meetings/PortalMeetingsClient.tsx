@@ -8,6 +8,7 @@ import { PortalShell } from '@/components/portal'
 import { PortalMinutesDocument } from '@/components/portal/PortalMinutesDocument'
 import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { hasDocPollInMinutes } from '@/lib/doc-polls/logic'
 
 // ポータルの議事録はエディタを使わず自前で描くので、投票の番号を振り直す相手（本文）は無い
 const NO_EDITOR = { document: [] }
@@ -133,16 +134,21 @@ function MeetingInspector({
           {meeting.minutesMd?.trim() ? (
             <div>
               <div className="text-xs font-medium text-gray-500 mb-2">議事録</div>
-              {/* 中の投票を押せるようにする（相手先も押せる。読める会議＝進行中・終了の会議だけ） */}
-              <DocPollHost
-                editor={NO_EDITOR}
-                source={{ meetingId: meeting.id }}
-                currentUserId={currentUserId}
-                editable={false}
-                closedNote={PORTAL_POLL_CLOSED}
-              >
+              {/* 中の投票を押せるようにする（相手先も押せる。読める会議＝進行中・終了の会議だけ）。
+                  投票の無い議事録では、投票の読み込みも合図のチャネルも張らない */}
+              {hasDocPollInMinutes(meeting.minutesMd) ? (
+                <DocPollHost
+                  editor={NO_EDITOR}
+                  source={{ meetingId: meeting.id }}
+                  currentUserId={currentUserId}
+                  editable={false}
+                  closedNote={PORTAL_POLL_CLOSED}
+                >
+                  <PortalMinutesDocument md={meeting.minutesMd} />
+                </DocPollHost>
+              ) : (
                 <PortalMinutesDocument md={meeting.minutesMd} />
-              </DocPollHost>
+              )}
             </div>
           ) : (
             <div className="text-center py-8 text-gray-400">

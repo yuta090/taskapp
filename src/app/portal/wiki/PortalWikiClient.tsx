@@ -5,6 +5,8 @@ import { BookOpen, ArrowLeft } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { usePrefetchDocPolls } from '@/lib/hooks/useDocPolls'
+import { hasDocPollInWikiBody } from '@/lib/doc-polls/logic'
 
 interface Project {
   id: string
@@ -38,6 +40,9 @@ export function PortalWikiClient({
   const [selectedPage, setSelectedPage] = useState<PublishedWikiPage | null>(null)
   const { user } = useCurrentUser()
   const currentUserId = user?.id ?? null
+  // 投票のあるページだけ。エディタの読み込みを待たずに、選んだ時点で投票を読み始める
+  const pollPageId = selectedPage && hasDocPollInWikiBody(selectedPage.body) ? selectedPage.sourcePageId : null
+  usePrefetchDocPolls(pollPageId ? { wikiPageId: pollPageId } : null)
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('ja-JP', {
@@ -87,7 +92,11 @@ export function PortalWikiClient({
                 initialContent={selectedPage.body || undefined}
                 editable={false}
                 // 中の投票を押せるようにする（元のページの投票。名前は投票側で引く）
-                poll={{ wikiPageId: selectedPage.sourcePageId, currentUserId, closedNote: 'この投票は終了しました' }}
+                poll={
+                  pollPageId
+                    ? { wikiPageId: pollPageId, currentUserId, closedNote: 'この投票は終了しました' }
+                    : undefined
+                }
               />
             </div>
           ) : wikiPages.length === 0 ? (

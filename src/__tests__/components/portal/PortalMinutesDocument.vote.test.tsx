@@ -56,3 +56,18 @@ describe('ポータルの投票が見えないとき', () => {
     expect(screen.getByText('この投票は終了しました')).toBeInTheDocument()
   })
 })
+
+import { hasDocPollInMinutes, hasDocPollInWikiBody } from '@/lib/doc-polls/logic'
+
+describe('投票があるかの目安（無ければ読み込みも合図も張らない）', () => {
+  it('議事録は <!--vote: の行があるか', () => {
+    expect(hasDocPollInMinutes(`前\n<!--vote:${ID}-->議題`)).toBe(true)
+    expect(hasDocPollInMinutes('# 投票はしない\n- 本文')).toBe(false)
+    expect(hasDocPollInMinutes(null)).toBe(false)
+  })
+  it('Wiki は docPoll のブロックがあるか', () => {
+    expect(hasDocPollInWikiBody('[{"type":"docPoll","props":{}}]')).toBe(true)
+    expect(hasDocPollInWikiBody('[{"type":"paragraph"}]')).toBe(false)
+    expect(hasDocPollInWikiBody(undefined)).toBe(false)
+  })
+})
