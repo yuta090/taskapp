@@ -78,6 +78,12 @@ export interface DocPollViewProps {
    * 渡したときは contentRef は使わない
    */
   title?: ReactNode
+  /**
+   * 見えない・押せない投票に出す言葉（相手先ポータル）。相手先に見えるのは公開した控えなので、
+   * 社内が元のページから消した投票などは読めなくなる。そのとき「用意できていません」ではなく
+   * 「終了しました」と出す（押して権限が無いと返ってきたときも同じ）
+   */
+  closedNote?: string
 }
 
 export function DocPollView({
@@ -89,6 +95,7 @@ export function DocPollView({
   onCast,
   contentRef,
   title,
+  closedNote,
 }: DocPollViewProps) {
   const reasonRequired = state?.poll.reason_required ?? reasonFromBlock
   const votes = state?.votes ?? []
@@ -107,7 +114,8 @@ export function DocPollView({
       await onCast(choice, memo)
       setMemoTarget(null)
     } catch (e) {
-      setError(voteErrorMessage(e))
+      const err = (e ?? {}) as { code?: string }
+      setError(closedNote && err.code === '42501' ? closedNote : voteErrorMessage(e))
     }
   }
 
@@ -188,7 +196,11 @@ export function DocPollView({
               {mine.memo ? 'メモを直す' : 'メモを書く'}
             </button>
           )}
-          {STATUS_NOTE[status] && <span className="ml-1 text-xs text-gray-400">{STATUS_NOTE[status]}</span>}
+          {(status === 'missing' && closedNote ? closedNote : STATUS_NOTE[status]) && (
+            <span className="ml-1 text-xs text-gray-400">
+              {status === 'missing' && closedNote ? closedNote : STATUS_NOTE[status]}
+            </span>
+          )}
         </div>
 
         {error && (

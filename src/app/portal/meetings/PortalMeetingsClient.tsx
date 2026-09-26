@@ -11,6 +11,7 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 
 // ポータルの議事録はエディタを使わず自前で描くので、投票の番号を振り直す相手（本文）は無い
 const NO_EDITOR = { document: [] }
+const PORTAL_POLL_CLOSED = 'この投票は終了しました'
 
 interface Project {
   id: string
@@ -138,6 +139,7 @@ function MeetingInspector({
                 source={{ meetingId: meeting.id }}
                 currentUserId={currentUserId}
                 editable={false}
+                closedNote={PORTAL_POLL_CLOSED}
               >
                 <PortalMinutesDocument md={meeting.minutesMd} />
               </DocPollHost>

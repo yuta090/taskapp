@@ -52,6 +52,8 @@ interface WikiEditorProps {
     currentUserId: string | null
     /** 名前の引き方。渡さない画面（相手先ポータル）では、押した人の名前を投票側で引く */
     nameOf?: (userId: string) => string
+    /** 見えない・押せない投票に出す言葉（相手先ポータルは「この投票は終了しました」） */
+    closedNote?: string
   }
 }
 
@@ -292,6 +294,7 @@ export function WikiEditor({
           source={{ wikiPageId: poll.wikiPageId }}
           currentUserId={poll.currentUserId}
           nameOf={poll.nameOf}
+          closedNote={poll.closedNote}
           editable={editable}
         >
           {editorView}

@@ -45,3 +45,14 @@ describe('ポータルの議事録の投票', () => {
     expect(screen.getByText('この画面では投票できません')).toBeInTheDocument()
   })
 })
+
+describe('ポータルの投票が見えないとき', () => {
+  it('配られた closedNote で「終了しました」と出す', () => {
+    render(
+      <DocPollContext.Provider value={ctx({ polls: {}, closedNote: 'この投票は終了しました' })}>
+        <PortalMinutesDocument md={`<!--vote:${ID}-->会場はオンラインでよいか`} />
+      </DocPollContext.Provider>
+    )
+    expect(screen.getByText('この投票は終了しました')).toBeInTheDocument()
+  })
+})

@@ -87,7 +87,7 @@ export function PortalWikiClient({
                 initialContent={selectedPage.body || undefined}
                 editable={false}
                 // 中の投票を押せるようにする（元のページの投票。名前は投票側で引く）
-                poll={{ wikiPageId: selectedPage.sourcePageId, currentUserId }}
+                poll={{ wikiPageId: selectedPage.sourcePageId, currentUserId, closedNote: 'この投票は終了しました' }}
               />
             </div>
           ) : wikiPages.length === 0 ? (

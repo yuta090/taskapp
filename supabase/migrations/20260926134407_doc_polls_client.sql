@@ -12,6 +12,12 @@
 --             会議が 進行中・終了（予定の会議は相手先に見えない）
 --     Wiki  : 社内、または space に入れる人で、公開中のマイルストーンに公開したページ
 --             （ポータルに出るのは公開時点の控えだが、中の投票の番号は元のページのもの）
+--   ただし Wiki の投票は、相手先には投票1つずつで絞る（レビュー指摘・2026-09-26）。
+--     相手先に見えるのは公開した控え（published_body）だけなので、文書単位で許すと、公開のあとに
+--     社内が元ページへ足した投票（社内だけの相談）の名前・メモまで直接の問い合わせで読めてしまう。
+--     そこで「公開中の控えに載っていて、今の元ページにも残っている投票」だけにする
+--     （元ページから消した投票は社内に見えないので、相手先が押し続けても誰も気づけない）。
+--     判定は本文に投票の番号（uuid の文字列）が含まれるか。uuid は乱数なので部分一致で誤らない。
 --
 -- 触るもの: 判定関数 app_can_read_doc_source を新設し、app_can_read_doc_poll と
 --   app_can_join_doc_vote_signal の中身をこれに置き換えるだけ。表・ポリシー・rpc_doc_vote_cast は変えない
@@ -85,12 +91,37 @@ as $$
     select 1
       from doc_polls p
      where p.id = p_poll
-       and public.app_can_read_doc_source(p.wiki_page_id, p.meeting_id)
+       and (
+         -- 議事録: 会議を読める人（控えは無く、読める人は本文ごと読める）
+         (p.meeting_id is not null and public.app_can_read_doc_source(null, p.meeting_id))
+         -- Wiki（社内）: ページを読めれば全部
+         or exists (
+           select 1 from wiki_pages w
+            where w.id = p.wiki_page_id
+              and public.app_is_space_internal(w.space_id, w.org_id)
+         )
+         -- Wiki（相手先）: 公開中の控えに載っていて、今の元ページにも残っている投票だけ
+         or exists (
+           select 1 from wiki_pages w
+            where w.id = p.wiki_page_id
+              and public.app_can_access_space(w.space_id, w.org_id)
+              -- 本文を走査する条件は、安い条件（space・公開中か）で絞ったあとに置く
+              and exists (
+                select 1
+                  from wiki_page_publications pub
+                  join milestone_publications mp on mp.milestone_id = pub.milestone_id
+                 where pub.source_page_id = w.id
+                   and mp.is_published
+                   and position(p.id::text in pub.published_body) > 0
+              )
+              and position(p.id::text in w.body) > 0
+         )
+       )
   );
 $$;
 
 comment on function public.app_can_read_doc_poll(uuid) is
-  'RLS補助: その投票を読めるか（＝押せるか）。投票のある文書を読める人（app_can_read_doc_source）。相手先は公開済みの Wiki・進行中/終了の会議の投票だけ';
+  'RLS補助: その投票を読めるか（＝押せるか）。社内は文書を読めれば全部。相手先は進行中/終了の会議の投票と、Wiki は公開中の控えに載っていて今の元ページにも残っている投票だけ（DOC_VOTE_SPEC §4.2）';
 
 -- -----------------------------------------------------------------------------
 -- 3) 合図のチャネルに入れるか: 同じく文書を読めるか＋二要素認証

@@ -20,6 +20,8 @@ export interface DocPollContextValue {
   castVote: (args: { pollId: string; userId: string; choice: DocVoteChoice | null; memo: string }) => Promise<void>
   /** 見つからない投票を、この人が開いたときに作り直せるか（本文を編集できる人） */
   canCreate: boolean
+  /** 見えない・押せない投票に出す言葉（相手先ポータルは「この投票は終了しました」） */
+  closedNote?: string
   /** 作れなかった投票の番号（ブロックに案内を出す） */
   failedIds: ReadonlySet<string>
 }
@@ -69,6 +71,7 @@ export function DocPollBlock({
       onCast={onCast}
       contentRef={contentRef}
       title={title}
+      closedNote={ctx?.closedNote}
     />
   )
 }

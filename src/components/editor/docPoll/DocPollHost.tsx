@@ -57,6 +57,7 @@ export function DocPollHost({
   currentUserId,
   nameOf,
   editable,
+  closedNote,
   children,
 }: {
   editor: DocPollEditorLike
@@ -65,6 +66,8 @@ export function DocPollHost({
   /** 名前の引き方。渡さない画面（相手先ポータル）では、押した人の名前をここで引く */
   nameOf?: (userId: string) => string
   editable: boolean
+  /** 見えない・押せない投票に出す言葉（相手先ポータルが渡す） */
+  closedNote?: string
   children: ReactNode
 }) {
   const { polls, isFetched, castVote, createPoll } = useDocPolls(source)
@@ -153,8 +156,8 @@ export function DocPollHost({
   }, [editor, sync])
 
   const value = useMemo<DocPollContextValue>(
-    () => ({ polls, isFetched, currentUserId, nameOf: resolveName, castVote, canCreate: editable, failedIds }),
-    [polls, isFetched, currentUserId, resolveName, castVote, editable, failedIds]
+    () => ({ polls, isFetched, currentUserId, nameOf: resolveName, castVote, canCreate: editable, failedIds, closedNote }),
+    [polls, isFetched, currentUserId, resolveName, castVote, editable, failedIds, closedNote]
   )
 
   return <DocPollContext.Provider value={value}>{children}</DocPollContext.Provider>

@@ -25,6 +25,11 @@ set client_min_messages = notice;
 \set P_wu '00000000-0000-4000-8000-0000000e1002'
 \set P_me '00000000-0000-4000-8000-0000000e1003'
 \set P_mp '00000000-0000-4000-8000-0000000e1004'
+\set P_after '00000000-0000-4000-8000-0000000e1005'
+\set P_gone  '00000000-0000-4000-8000-0000000e1006'
+\set O2 '00000000-0000-4000-8000-0000000e0a02'
+\set S3 '00000000-0000-4000-8000-0000000e0b03'
+\set u_o2cli '00000000-0000-4000-8000-0000000e0c06'
 
 -- ---- 検証用の小道具（呼んだ人の権限で動く） ----
 create schema if not exists dvt;
@@ -73,8 +78,6 @@ insert into wiki_pages(id, org_id, space_id, title, body, created_by, updated_by
   (:'W_unpub', :'O1', :'S1', '未公開', '[]', :'u_ed', :'u_ed');
 insert into milestones(id, org_id, space_id, name) values (:'MS1', :'O1', :'S1', '第1弾');
 insert into milestone_publications(org_id, milestone_id, is_published, published_by) values (:'O1', :'MS1', true, :'u_ed');
-insert into wiki_page_publications(org_id, milestone_id, source_page_id, published_title, published_body, published_by)
-  values (:'O1', :'MS1', :'W_pub', '公開', '[]', :'u_ed');
 insert into meetings(id, org_id, space_id, title, held_at, status, created_by) values
   (:'M_ended', :'O1', :'S1', '終わった会議', now(), 'ended', :'u_ed'),
   (:'M_planned', :'O1', :'S1', '予定の会議', now(), 'planned', :'u_ed');
@@ -86,11 +89,34 @@ select dvt.check('create_wu', dvt.try(format('select rpc_doc_poll_create(%L, %L,
 select dvt.check('create_me', dvt.try(format('select rpc_doc_poll_create(%L, null, %L, %L)', :'P_me', :'M_ended',   'none')), 'ok');
 select dvt.check('create_mp', dvt.try(format('select rpc_doc_poll_create(%L, null, %L, %L)', :'P_mp', :'M_planned', 'none')), 'ok');
 select dvt.check('internal_votes', dvt.try(format('select rpc_doc_vote_cast(%L, %L, %L)', :'P_me', 'ok', '')), 'ok');
+select dvt.check('create_gone', dvt.try(format('select rpc_doc_poll_create(%L, %L, null, %L)', :'P_gone', :'W_pub', 'none')), 'ok');
+
+-- 公開: 控え（published_body）に載るのは P_w と P_gone。そのあと元ページから P_gone を消し、
+-- 社内だけの相談として P_after を足す（控えには載っていない）
+reset role;
+insert into wiki_page_publications(org_id, milestone_id, source_page_id, published_title, published_body, published_by)
+  values (:'O1', :'MS1', :'W_pub', '公開',
+          format('[{"type":"docPoll","props":{"pollId":"%s"}},{"type":"docPoll","props":{"pollId":"%s"}}]', :'P_w', :'P_gone'),
+          :'u_ed');
+set role authenticated;
+select dvt.as_user(:'u_ed');
+select dvt.check('create_after', dvt.try(format('select rpc_doc_poll_create(%L, %L, null, %L)', :'P_after', :'W_pub', 'none')), 'ok');
+select dvt.check('internal_votes_after', dvt.try(format('select rpc_doc_vote_cast(%L, %L, %L)', :'P_after', 'ng', '社内だけの話: 断る')), 'ok');
+reset role;
+update wiki_pages set body = format('[{"type":"docPoll","props":{"pollId":"%s"}},{"type":"docPoll","props":{"pollId":"%s"}}]', :'P_w', :'P_after')
+ where id = :'W_pub';
+set role authenticated;
 
 -- ---- 相手先（client）: 読める文書の投票だけ読めて押せる ----
 select dvt.as_user(:'u_cli');
 select dvt.check('client_reads',
   (select string_agg(id::text, ',' order by id) from doc_polls), :'P_w' || ',' || :'P_me');
+-- 公開のあとに足した投票（控えに無い）は、名前もメモも読めず押せない
+select dvt.check('client_no_after_votes', (select count(*)::text from doc_votes where poll_id = :'P_after'), '0');
+select dvt.check('client_no_after_events', (select count(*)::text from doc_vote_events where poll_id = :'P_after'), '0');
+select dvt.check('client_votes_after', dvt.try(format('select rpc_doc_vote_cast(%L, %L, %L)', :'P_after', 'ok', '')), 'err:42501:%');
+-- 公開のあとに元ページから消した投票（控えには残っている）は押せない（社内には見えなくなっているため）
+select dvt.check('client_votes_gone', dvt.try(format('select rpc_doc_vote_cast(%L, %L, %L)', :'P_gone', 'ok', '')), 'err:42501:%');
 select dvt.check('client_sees_internal_vote', (select count(*)::text from doc_votes where poll_id = :'P_me'), '1');
 select dvt.check('client_votes_meeting', dvt.try(format('select rpc_doc_vote_cast(%L, %L, %L)', :'P_me', 'hold', '')), 'ok');
 select dvt.check('client_votes_wiki_reason', dvt.try(format('select rpc_doc_vote_cast(%L, %L, %L)', :'P_w', 'ng', '')), 'err:22023:reason_required');
@@ -124,8 +150,28 @@ select dvt.check('mfa_client_aal2_vote', dvt.try(format('select rpc_doc_vote_cas
 
 -- ---- 社内は今までどおり（未公開・予定の会議も読める） ----
 select dvt.as_user(:'u_ed');
-select dvt.check('internal_reads_all', (select count(*)::text from doc_polls), '4');
+select dvt.check('internal_reads_all', (select count(*)::text from doc_polls), '6');
 select dvt.check('internal_signal_planned', (select app_can_join_doc_vote_signal('meeting-minutes-view:' || :'M_planned'))::text, 'true');
+
+-- ---- 別の組織の相手先は読めない・押せない・入れない ----
+reset role;
+insert into auth.users(id) values (:'u_o2cli');
+insert into organizations(id, name) values (:'O2', '別org');
+insert into spaces(id, org_id, type, name) values (:'S3', :'O2', 'project', 'S3');
+insert into org_memberships(org_id, user_id, role) values (:'O2', :'u_o2cli', 'client');
+insert into space_memberships(space_id, user_id, role) values (:'S3', :'u_o2cli', 'client');
+set role authenticated;
+select dvt.as_user(:'u_o2cli');
+select dvt.check('other_org_reads', (select count(*)::text from doc_polls), '0');
+select dvt.check('other_org_votes', dvt.try(format('select rpc_doc_vote_cast(%L, %L, %L)', :'P_w', 'ok', '')), 'err:42501:%');
+select dvt.check('other_org_signal', (select app_can_join_doc_vote_signal('wiki-page-view:' || :'W_pub'))::text, 'false');
+
+-- ---- 会議を「予定」に戻したら、相手先はもう押せない ----
+reset role;
+update meetings set status = 'planned' where id = :'M_ended';
+set role authenticated;
+select dvt.as_user(:'u_cli');
+select dvt.check('client_after_replanned', dvt.try(format('select rpc_doc_vote_cast(%L, %L, %L)', :'P_me', 'ok', '')), 'err:42501:%');
 
 -- ---- 公開を取り下げたら、相手先はもう押せない ----
 reset role;

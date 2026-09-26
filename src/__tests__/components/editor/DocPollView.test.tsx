@@ -158,3 +158,18 @@ describe('DocPollView の議題を外から渡す（ポータルの議事録の�
     expect(screen.getByText('会場はオンラインでよいか')).toBeInTheDocument()
   })
 })
+
+describe('DocPollView の「終了しました」（相手先ポータル）', () => {
+  it('closedNote を渡すと、見つからない投票にその言葉を出す', () => {
+    setup({ status: 'missing', state: undefined, closedNote: 'この投票は終了しました' })
+    expect(screen.getByText('この投票は終了しました')).toBeInTheDocument()
+    expect(screen.queryByText('この投票はまだ用意できていません')).toBeNull()
+  })
+
+  it('押して権限が無いと返ってきたときも、同じ言葉を出す', async () => {
+    const onCast = vi.fn().mockRejectedValue({ code: '42501', message: 'forbidden' })
+    setup({ onCast, closedNote: 'この投票は終了しました' })
+    fireEvent.click(screen.getByRole('button', { name: /OK/ }))
+    expect(await screen.findByText('この投票は終了しました')).toBeInTheDocument()
+  })
+})
