@@ -11,7 +11,7 @@ import { WikiListToolbar } from '@/components/wiki/WikiListToolbar'
 import { WikiPageInspector } from '@/components/wiki/WikiPageInspector'
 import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
 import { WikiInlineCreateRow } from '@/components/wiki/WikiInlineCreateRow'
-import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
+import { WikiBodyEditor } from '@/components/wiki/WikiBodyEditor'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { EmptyState } from '@/components/shared'
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -111,7 +111,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     getBaseUpdatedAt,
     cancelPendingSave,
     reloadEditor,
-    handleChange,
+    isCollabActive,
+    replaceEditorContent,
     reloadLatest,
   } = bodySave
   const { milestones } = useMilestones({ spaceId })
@@ -622,16 +623,33 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       const base = getBaseUpdatedAt() ?? undefined
       // 一覧は本文を持っていない（全件の全文を取ると重い）。戻す1件だけここで取る。
       fetchVersionBody(version.id)
-        .then((restored) => {
+        .then((restored): Promise<{ updatedAt: string | null } | 'collab'> | null => {
           if (getEpoch() !== epoch) return null
           if (restored === null) {
             toast.error('この版を読み込めませんでした')
             return null
           }
+          // 同時編集中は、本文を列へ直接書かずにエディタの中身を差し替える。差し替えは
+          // ふつうの編集として部屋の全員に届き、書記がいつもどおり保存する。列へ直接書くと、
+          // まだ古い本文を持っている相手の画面から、次の保存で復元が上書きされる
+          if (isCollabActive() && replaceEditorContent(restored.body)) {
+            return (restored.title !== activePage.title
+              ? updatePage(pageId, { title: restored.title })
+              : Promise.resolve(null)
+            ).then(() => 'collab' as const)
+          }
           return updatePage(pageId, { body: restored.body, title: restored.title }, base)
         })
         .then(async (result) => {
           if (result == null) return
+          if (result === 'collab') {
+            if (getEpoch() !== epoch) return
+            const fresh = await fetchPage(pageId)
+            if (getEpoch() !== epoch || fresh === null) return
+            // 題名と属性だけを画面に合わせる。本文の基準は差し替えない（本文は器の中身が正で、書記が保存する）
+            setActivePage(fresh)
+            return
+          }
           // updatePage が返ってくるまでの間にページが切り替わっていたら、この続きの
           // fetchPage も含めて何もしない（読み直した「前のページ」の内容が「今見ている
           // 別のページ」の画面に書き込まれるのを防ぐ）。
@@ -701,6 +719,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     getBaseUpdatedAt,
     cancelPendingSave,
     reloadEditor,
+    isCollabActive,
+    replaceEditorContent,
     setBaseline,
     markConflict,
     markDeleted,
@@ -734,11 +754,6 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     // 作ったページも一覧から開いたのと同じ扱いにする（「戻る」で一覧に帰れるように）
     openPage(created.id)
   }
-
-  const handleEditorChange = useCallback((content: string) => {
-    if (!activePage) return
-    handleChange(activePage.id, content)
-  }, [activePage, handleChange])
 
   const handleCopyDraft = bodySave.copyDraft
 
@@ -884,15 +899,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         {/* Editor */}
         <div className="flex-1 overflow-y-auto">
           <div className={isFullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}>
-            <WikiEditorDynamic
+            {/* 同時編集（使う組織だけ）と「〇〇さんが書いています」も、この中で受け持つ */}
+            <WikiBodyEditor
               key={`${activePage.id}-${editorReloadToken}`}
-              initialContent={activePage.body || undefined}
-              onChange={handleEditorChange}
-              onBeforeNavigate={flushPendingSave}
-              editable={canEdit}
               orgId={orgId}
               spaceId={spaceId}
-              currentPageId={activePage.id}
+              pageId={activePage.id}
+              initialBody={activePage.body}
+              basisUpdatedAt={activePage.updated_at}
+              canEdit={canEdit}
+              bodySave={bodySave}
+              onRequestReload={handleReloadLatest}
+              onBeforeNavigate={flushPendingSave}
               noteAuthorName={noteAuthorName}
               poll={pollProps}
             />

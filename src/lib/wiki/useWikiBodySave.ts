@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { WikiConflictError, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages'
 import type { WikiPage } from '@/types/database'
+import type * as Y from 'yjs'
+import { readSavedState, writeSavedState } from '@/lib/collab/scribe'
+import { canonicalizeWikiBody, wikiAppendedBlocks, wikiContentHash } from './bodyMerge'
 
 // 議事録の競合帯(MinutesDocumentView.tsx)と同じ文面の作り。Wiki には掲示板のような
 // 自動合流・保存の直列化までは作らない（必要最小限）。
@@ -17,45 +20,34 @@ export const WIKI_CONFLICT_MESSAGE =
 export const WIKI_PAGE_DELETED_MESSAGE =
   'このページは見つかりませんでした（削除された可能性があります）。自動保存は止まっています。'
 
-/**
- * Wiki 本文(BlockNote の JSON文字列)を「開いただけでは保存しない」比較のために正規化する。
- * DB 側で組み立てられた本文（rpc_set_spec_state の追記は jsonb を ::text にするため
- * キー順・空白が変わる／generateDefaultWikiBody・SPEC_TEMPLATES・プリセット適用で
- * 手組みされた本文）は、クライアントの JSON.stringify(editor.document) とキー順や
- * 空白が一致しないことがある。単純な JSON.parse→JSON.stringify の往復では
- * オブジェクトのキー順は元のまま保たれてしまう（並べ替わらない）ため、それだけでは
- * 足りない。オブジェクトのキーをアルファベット順に並べ替えてから比較用の文字列に
- * する（配列の並びは意味を持つため崩さない）。JSON として壊れている値は、正規化を
- * あきらめて元の文字列のまま返す（＝そのケースは「別物」として保存される安全側に倒れる。
- * 議事録の computeBaseline(MinutesDocumentView.tsx) と同じ「開いたときと同じなら
- * 保存しない」という考え方を、Wiki の JSON 本文向けに実装したもの）。
- */
-export function canonicalizeWikiBody(value: string | null): string | null {
-  if (value === null) return null
-  try {
-    const sortKeysDeep = (input: unknown): unknown => {
-      if (Array.isArray(input)) return input.map(sortKeysDeep)
-      if (input !== null && typeof input === 'object') {
-        const sorted: Record<string, unknown> = {}
-        for (const key of Object.keys(input as Record<string, unknown>).sort()) {
-          sorted[key] = sortKeysDeep((input as Record<string, unknown>)[key])
-        }
-        return sorted
-      }
-      return input
-    }
-    return JSON.stringify(sortKeysDeep(JSON.parse(value)))
-  } catch {
-    return value
-  }
-}
-
 type UpdatePage = (
   pageId: string,
   input: UpdateWikiPageInput,
   baseUpdatedAt?: string
 ) => Promise<{ updatedAt: string | null }>
 type FetchPage = (pageId: string) => Promise<WikiPage | null>
+
+/**
+ * 同時編集の状態。ページの本文を描く部品（`WikiBodyEditor`）が、器の用意ができるたびに知らせる。
+ * 同時編集を使わないときは `active: false` のまま（今までどおり全員が保存する）。
+ */
+export interface WikiCollabState {
+  active: boolean
+  /** 列へ保存する係か。同時編集中は1人だけ */
+  isScribe: boolean
+  /** 部屋で共有する覚え書き（最後に保存した更新時刻と本文の合言葉） */
+  meta: Y.Map<unknown> | null
+}
+
+const NO_COLLAB: WikiCollabState = { active: false, isScribe: true, meta: null }
+
+/** エディタから借りる差し込み口。本文を丸ごと差し替える・末尾へ足す */
+export interface WikiEditorApi {
+  /** 本文を丸ごと差し替える（ふつうの編集として。同時編集なら部屋の全員に届く）。できなければ false */
+  replaceContent: (body: string | null) => boolean
+  /** 末尾にブロックを足す。一時的にできない（読み取り専用・変換中）なら 'busy' */
+  appendBlocks: (blocks: unknown[]) => 'applied' | 'busy' | 'failed'
+}
 
 /** 保存の基準にする、サーバーにある状態 */
 export interface WikiBodyBaseline {
@@ -124,6 +116,28 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
   // (新ページB.id-0) に変わって A の本文で B のエディタが作り直され、B を開いた直後に
   // A の本文で保存が走ってしまう（開いた直後の別ページに偽の競合帯が出る事故の元）。
   const [editorReloadToken, setEditorReloadToken] = useState(0)
+  /**
+   * 同時編集の状態。保存の判断は打つたび・タイマーの中で行うので、描き直しを待たずに
+   * 読める ref に置く
+   */
+  const collabRef = useRef<WikiCollabState>(NO_COLLAB)
+  const editorApiRef = useRef<WikiEditorApi | null>(null)
+  /** いま開いているページ（書記でない人は保存を積まないので、離れるときのためにここで覚える） */
+  const currentPageIdRef = useRef<string | null>(null)
+
+  /** 同時編集中に、部屋の誰かが保存した分か（それなら競合ではない。中身は器で合流済み） */
+  const savedInRoom = (fresh: WikiBodyBaseline): boolean => {
+    const room = collabRef.current
+    if (!room.active || !room.meta) return false
+    const saved = readSavedState(room.meta)
+    return saved.savedAt === fresh.updated_at && saved.savedHash === wikiContentHash(fresh.body)
+  }
+
+  /** 保存が通ったことを部屋に残す。次の書記はここから基準を引き継ぐ */
+  const noteSavedInRoom = (updatedAt: string, body: string) => {
+    const meta = collabRef.current.meta
+    if (meta) writeSavedState(meta, { savedAt: updatedAt, savedHash: wikiContentHash(body) })
+  }
 
   /** 待っている自動保存を止め、まだ送っていない書きかけを捨てる */
   const cancelPendingSave = useCallback(() => {
@@ -205,6 +219,7 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
           }
           baseUpdatedAtRef.current = result.updatedAt
           knownServerBodyRef.current = content
+          noteSavedInRoom(result.updatedAt, content)
           setSaveStatus('saved')
           if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
           savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
@@ -231,7 +246,22 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
           setSaveStatus('idle')
           throw new WikiConflictError('このページは見つかりませんでした')
         }
-        if (fresh.body !== knownServerBodyRef.current) {
+        if (savedInRoom(fresh)) {
+          // 同時編集中、部屋の中の人が保存した分だった。中身は器で全員に届いているので、
+          // 基準を差し替えて書き直せばよい（下の「本文は同じ」と同じ道を通す）
+          knownServerBodyRef.current = fresh.body
+        } else if (fresh.body !== knownServerBodyRef.current) {
+          // 仕様の確定で末尾にブロックが足されただけなら、書いている画面の末尾へ差し込む。
+          // 差し込みはふつうの編集として届くので、直後の onChange から保存が続く
+          // （同時編集中は書記だけがここへ来て、差し込んだ分は部屋の全員に届く）
+          const appended = wikiAppendedBlocks(knownServerBodyRef.current, fresh.body)
+          if (appended && editorApiRef.current?.appendBlocks(appended) === 'applied') {
+            knownServerBodyRef.current = fresh.body
+            baseUpdatedAtRef.current = fresh.updated_at
+            setSaveStatus('idle')
+            toast.success('ほかから追記された分を取り込みました')
+            return
+          }
           // 本文が本当に違う（本当の競合）
           conflictRef.current = true
           setConflict(true)
@@ -256,6 +286,7 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
           }
           baseUpdatedAtRef.current = retryResult.updatedAt
           knownServerBodyRef.current = content
+          noteSavedInRoom(retryResult.updatedAt, content)
           setSaveStatus('saved')
           if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
           savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
@@ -311,6 +342,21 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
   const leavePage = useCallback(() => {
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
     if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
+    // 同時編集中、書記でない人も**まだ部屋で保存されていない分があれば**自分で送る。
+    // 2人がほぼ同時に閉じたとき（書記が先に抜けた直後）に、最後の書きかけを取りこぼさないため
+    const room = collabRef.current
+    const pageId = currentPageIdRef.current
+    if (room.active && !room.isScribe && room.meta && pageId && !conflictRef.current) {
+      const saved = readSavedState(room.meta)
+      const current = currentContentRef.current
+      if (
+        saved.savedHash !== wikiContentHash(current) &&
+        canonicalizeWikiBody(current) !== canonicalizeWikiBody(knownServerBodyRef.current)
+      ) {
+        if (saved.savedAt) baseUpdatedAtRef.current = saved.savedAt
+        pendingBodyRef.current = { pageId, body: current }
+      }
+    }
     void savePendingBodyRef.current().catch(() => {})
     pageEpochRef.current += 1
     setSaveStatus('idle')
@@ -323,11 +369,19 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
   const handleChange = useCallback((pageId: string, content: string) => {
     // 「書きかけをコピー」が常に今の内容を返せるよう、保存の成否に関わらず先に控える
     currentContentRef.current = content
+    currentPageIdRef.current = pageId
 
     // 競合中は新しい保存を投げない（編集自体は止めない・帯の「最新を読み込む」を待つ）。
     // state(conflict) ではなく ref を見る — setConflict は再描画を経て closure に反映される
     // ため、その間の古い closure から呼ばれた場合に「まだ競合していない」と誤判定する。
     if (conflictRef.current) return
+
+    // 同時編集中に列へ保存するのは書記1人だけ。全員が保存すると、更新時刻の突き合わせで
+    // 互いを弾き合う。書いた内容は器を通じて全員に届いているので、取りこぼしは起きない
+    if (collabRef.current.active && !collabRef.current.isScribe) {
+      pendingBodyRef.current = null
+      return
+    }
 
     // Clear existing timers
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
@@ -354,6 +408,11 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
 
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null
+      // 待っているあいだに書記を降りていることがある（タブを切り替えると交代する）
+      if (collabRef.current.active && !collabRef.current.isScribe) {
+        pendingBodyRef.current = null
+        return
+      }
       // 自動保存の失敗は savePendingBody がトーストで知らせる
       void savePendingBodyRef.current().catch(() => {})
     }, 1500)
@@ -411,6 +470,10 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
     setConflict(false)
     setPageDeleted(false)
     setSaveStatus('idle')
+    // 同時編集中は、エディタを作り直さずに中身を差し替える。作り直すと部屋に入り直し、
+    // まだ古い中身を持っている相手から古い本文を受け取ってしまう。差し替えはふつうの
+    // 編集として部屋の全員に届く
+    if (collabRef.current.active && editorApiRef.current?.replaceContent(fresh.body)) return fresh
     // key に含めてエディタを作り直し、読み直した内容を initialContent として反映する
     setEditorReloadToken(t => t + 1)
     return fresh
@@ -431,6 +494,54 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
     while (inFlightRef.current) await inFlightRef.current
     await savePendingBody()
   }, [savePendingBody])
+
+  /** 同時編集の状態を受け取る（本文を描く部品が、変わるたびに呼ぶ） */
+  const setCollab = useCallback((next: WikiCollabState | null) => {
+    collabRef.current = next ?? NO_COLLAB
+  }, [])
+
+  const registerEditorApi = useCallback((api: WikiEditorApi | null) => {
+    editorApiRef.current = api
+  }, [])
+
+  const isCollabActive = useCallback(() => collabRef.current.active, [])
+
+  /**
+   * 生きているエディタの中身を差し替える（版の復元など）。同時編集中は部屋の全員に届く。
+   * 差し替えられなければ false（呼び出し側はエディタを作り直す）
+   */
+  const replaceEditorContent = useCallback((body: string | null) => {
+    return editorApiRef.current?.replaceContent(body) ?? false
+  }, [])
+
+  /**
+   * 書記を引き継いだとき（前の書記が画面を閉じた・裏のタブに回った）。
+   *
+   * 自分が開いたときの古い基準のまま列へ書きに行くと必ず弾かれるので、**引き継いだ
+   * 時点の列を読み直して**基準を取り直す。そのうえで、いま器にある内容が列と違えば
+   * 1回保存する（前の書記が抜けた瞬間の書きかけを取りこぼさないため）。
+   * まだ誰も保存していない部屋なら、自分が最初の1人なので何もしない。
+   */
+  const takeOverAsScribe = useCallback(async (pageId: string) => {
+    const meta = collabRef.current.meta
+    if (!meta || !readSavedState(meta).savedAt) return
+    const epoch = pageEpochRef.current
+    let fresh: WikiPage | null = null
+    try {
+      fresh = await fetchPage(pageId)
+    } catch {
+      // 引き継ぎに失敗しても書けなくはしない。次の保存で競合の帯に倒れる
+      return
+    }
+    if (!fresh || pageEpochRef.current !== epoch || conflictRef.current) return
+    baseUpdatedAtRef.current = fresh.updated_at
+    knownServerBodyRef.current = fresh.body
+    const current = currentContentRef.current
+    if (current.trim() === '') return
+    if (canonicalizeWikiBody(current) === canonicalizeWikiBody(fresh.body)) return
+    pendingBodyRef.current = { pageId, body: current }
+    await savePendingBodyRef.current().catch(() => {})
+  }, [fetchPage])
 
   // Cleanup timers
   useEffect(() => {
@@ -457,6 +568,11 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
       /** 楽観ロックの基準（版の復元で渡す） */
       getBaseUpdatedAt,
       reloadEditor,
+      setCollab,
+      registerEditorApi,
+      isCollabActive,
+      replaceEditorContent,
+      takeOverAsScribe,
       setBaseline,
       cancelPendingSave,
       markConflict,
@@ -475,6 +591,11 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
       getEpoch,
       getBaseUpdatedAt,
       reloadEditor,
+      setCollab,
+      registerEditorApi,
+      isCollabActive,
+      replaceEditorContent,
+      takeOverAsScribe,
       setBaseline,
       cancelPendingSave,
       markConflict,

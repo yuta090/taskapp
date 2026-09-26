@@ -172,6 +172,12 @@ describe('useMinutesPresence 購読するかどうか', () => {
       },
     })
   })
+
+  it('Wiki のページでは wiki-page:<ページID> のチャネルに入る（部屋の名前を切り替えられる）', async () => {
+    renderPresence({ meetingId: 'p1', topicPrefix: 'wiki-page:' })
+    await subscribed()
+    expect(mockChannel).toHaveBeenCalledWith('wiki-page:p1', expect.anything())
+  })
 })
 
 describe('useMinutesPresence 本人の鍵を渡す', () => {

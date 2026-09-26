@@ -36,7 +36,10 @@ const IDLE_MS = 60_000
  */
 const RETRY_DELAYS_MS = [2_000, 6_000]
 
-const TOPIC_PREFIX = 'meeting-minutes:'
+/** 議事録の部屋の名前の頭。DB の判定関数 `app_can_track_meeting_minutes` と揃える */
+export const MINUTES_TOPIC_PREFIX = 'meeting-minutes:'
+/** Wiki のページの部屋の名前の頭。DB の判定関数 `app_can_track_wiki_page` と揃える */
+export const WIKI_TOPIC_PREFIX = 'wiki-page:'
 
 /** 名前が取れなかった人の呼び方 */
 const FALLBACK_NAME = 'メンバー'
@@ -84,7 +87,13 @@ export interface MinutesCollabWiring {
 }
 
 interface UseMinutesPresenceOptions {
+  /** 部屋の ID。議事録なら会議の ID、Wiki ならページの ID */
   meetingId: string
+  /**
+   * 部屋の名前の頭（既定は議事録の `meeting-minutes:`）。Wiki は `wiki-page:`。
+   * 入れる人の判定は DB 側で名前の頭ごとに分かれている
+   */
+  topicPrefix?: string
   /** 書ける人が、詳細を読み込み終えて開いている間だけ true。閲覧だけの人は購読しない */
   enabled: boolean
   self: MinutesPresenceSelf
@@ -188,6 +197,7 @@ function warnPresence(message: string, err?: unknown): void {
 
 export function useMinutesPresence({
   meetingId,
+  topicPrefix = MINUTES_TOPIC_PREFIX,
   enabled,
   self,
   tabId,
@@ -540,7 +550,7 @@ export function useMinutesPresence({
       if (disposed) return
 
       try {
-        const created = supabase.channel(`${TOPIC_PREFIX}${meetingId}`, {
+        const created = supabase.channel(`${topicPrefix}${meetingId}`, {
           config: {
             private: true,
             // 鍵はタブごと。人ごとにすると、同じ人の2つ目のタブが1つ目を
@@ -615,7 +625,7 @@ export function useMinutesPresence({
       teardown()
       setOthers((prev) => (prev.length === 0 ? prev : EMPTY_PEERS))
     }
-  }, [enabled, meetingId, userId, tabId, supabase, pushTrack, setEditing, clearIdleTimer])
+  }, [enabled, meetingId, topicPrefix, userId, tabId, supabase, pushTrack, setEditing, clearIdleTimer])
 
   /**
    * 同時編集の更新を配る。つながっていなければ黙って捨てる（打つ手は止めない。

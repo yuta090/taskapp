@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowSquareOut, X } from '@phosphor-icons/react'
-import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
+import { WikiBodyEditor } from '@/components/wiki/WikiBodyEditor'
 import { useWikiPageDetail } from '@/lib/hooks/useWikiPageDetail'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -43,8 +43,7 @@ export function WikiPageOverlay({ orgId, spaceId, pageId, canEdit = false, onClo
   // 保存に使う。canEdit は渡さない — 渡すと、ページが無い space では最初のページを作る処理が走る
   const { updatePage, fetchPage } = useWikiPages({ orgId, spaceId, canEdit: false })
   const bodySave = useWikiBodySave({ updatePage, fetchPage })
-  const { saveStatus, conflict, pageDeleted, editorReloadToken, setBaseline, handleChange, flushPendingSave, leavePage } =
-    bodySave
+  const { saveStatus, conflict, pageDeleted, editorReloadToken, setBaseline, flushPendingSave, leavePage } = bodySave
   const href = buildWikiPageHref(orgId, spaceId, pageId)
 
   // メモの「書いた人」と、投票ブロックの名前（Wiki 画面と同じ引き方）
@@ -67,14 +66,16 @@ export function WikiPageOverlay({ orgId, spaceId, pageId, canEdit = false, onClo
   // 保存＝楽観ロック無しの上書きにならないように）
   // 一度基準を置いたら、以後の読み直し（fetching）ではエディタを消さない（書いている途中に
   // 消えて出直すと、打った位置が飛ぶ）。基準も差し替えない
-  const [baselinePage, setBaselinePage] = useState<{ id: string; body: string | null } | null>(null)
+  const [baselinePage, setBaselinePage] = useState<{ id: string; body: string | null; updated_at: string } | null>(
+    null
+  )
   // 別のプロジェクトのページは開かない（この議事録の書ける・書けないが当てはまらない）
   const pageInSpace = page && page.space_id === spaceId ? page : null
   const freshPage = pageInSpace && !fetching ? pageInSpace : null
   useEffect(() => {
     if (!freshPage || baselinePage?.id === freshPage.id) return
     setBaseline(freshPage, { content: true })
-    setBaselinePage({ id: freshPage.id, body: freshPage.body })
+    setBaselinePage({ id: freshPage.id, body: freshPage.body, updated_at: freshPage.updated_at })
   }, [freshPage, baselinePage, setBaseline])
   const ready = baselinePage?.id === pageId
 
@@ -83,12 +84,11 @@ export function WikiPageOverlay({ orgId, spaceId, pageId, canEdit = false, onClo
 
   // 帯の「最新を読み込む」で読み直した本文。エディタを作り直すときはこちらを出す
   // （useWikiPageDetail の手元の本文は、開いたときのまま）
-  const [reloadedBody, setReloadedBody] = useState<string | null | undefined>(undefined)
+  const [reloaded, setReloaded] = useState<{ body: string | null; updated_at: string } | null>(null)
+  const reloadLatest = bodySave.reloadLatest
   const handleReloadLatest = useCallback(async () => {
-    await bodySave.reloadLatest(pageId, (fresh) => setReloadedBody(fresh.body))
-  }, [bodySave, pageId])
-
-  const handleEditorChange = useCallback((content: string) => handleChange(pageId, content), [handleChange, pageId])
+    await reloadLatest(pageId, (fresh) => setReloaded({ body: fresh.body, updated_at: fresh.updated_at }))
+  }, [reloadLatest, pageId])
 
   /**
    * 閉じる前に書きかけを保存しきる。ほかの人が先に書き換えていたら閉じずに帯を見せる
@@ -209,15 +209,19 @@ export function WikiPageOverlay({ orgId, spaceId, pageId, canEdit = false, onClo
         )}
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 md:px-12">
           {ready ? (
-            <WikiEditorDynamic
+            // 同時編集（使う組織だけ）も Wiki 画面と同じ部品で受け持つ。ここだけ1人用にすると、
+            // 議事録から書いた人だけ Wiki 画面の人と弾き合って競合の帯が出続ける
+            <WikiBodyEditor
               key={`${baselinePage.id}-${editorReloadToken}`}
-              initialContent={(reloadedBody !== undefined ? reloadedBody : baselinePage.body) || undefined}
-              onChange={canEdit ? handleEditorChange : undefined}
-              onBeforeNavigate={flushPendingSave}
-              editable={canEdit}
               orgId={orgId}
               spaceId={spaceId}
-              currentPageId={baselinePage.id}
+              pageId={baselinePage.id}
+              initialBody={(reloaded ?? baselinePage).body}
+              basisUpdatedAt={(reloaded ?? baselinePage).updated_at}
+              canEdit={canEdit}
+              bodySave={bodySave}
+              onRequestReload={handleReloadLatest}
+              onBeforeNavigate={flushPendingSave}
               noteAuthorName={noteAuthorName}
               poll={pollProps}
             />
