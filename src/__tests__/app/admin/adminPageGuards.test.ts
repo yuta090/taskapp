@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  * 運営の画面(admin/(panel)/*)は、(panel) layout の門番に加えて、各ページ自身でも
  * verifySuperadmin を確認し、満たさなければ /admin/login へ redirect してから
  * データを読む（認可はデータ源の近くで・analytics・organizations/[id]・users と
- * 同じ形）。この形を15枚まとめて確かめる。
+ * 同じ形）。この形を16枚まとめて確かめる。
  */
 
 class RedirectSignal extends Error {
@@ -48,6 +48,7 @@ const { default: BillingPage } = await import('@/app/admin/(panel)/billing/page'
 const { default: BlogEditorPage } = await import('@/app/admin/(panel)/blog/[id]/page')
 const { default: BlogCtaPage } = await import('@/app/admin/(panel)/blog/cta/page')
 const { default: BlogListPage } = await import('@/app/admin/(panel)/blog/page')
+const { default: ChangeLogPage } = await import('@/app/admin/(panel)/change-log/page')
 const { default: CliUsagePage } = await import('@/app/admin/(panel)/cli-usage/page')
 const { default: DashboardPage } = await import('@/app/admin/(panel)/dashboard/page')
 const { default: InvitesPage } = await import('@/app/admin/(panel)/invites/page')
@@ -65,6 +66,7 @@ const PAGES: Array<{ name: string; call: () => Promise<unknown> }> = [
   { name: 'blog/[id]', call: () => BlogEditorPage({ params: Promise.resolve({ id: 'new' }) }) },
   { name: 'blog/cta', call: () => BlogCtaPage() },
   { name: 'blog', call: () => BlogListPage() },
+  { name: 'change-log', call: () => ChangeLogPage({ searchParams: Promise.resolve({}) }) },
   { name: 'cli-usage', call: () => CliUsagePage({ searchParams: Promise.resolve({}) }) },
   { name: 'dashboard', call: () => DashboardPage() },
   { name: 'invites', call: () => InvitesPage() },
