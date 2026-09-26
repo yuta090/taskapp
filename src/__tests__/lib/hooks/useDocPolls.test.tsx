@@ -216,6 +216,18 @@ describe('useDocPolls の合図（ほかの人の画面にすぐ出す）', () =
     await waitFor(() => expect(fetchDocPolls).toHaveBeenCalledTimes(2))
   })
 
+  it('合図が続けて来ても、まとめて1回だけ読み直す（大勢が同時に押したときに読み直しが連発しない）', async () => {
+    fetchDocPolls.mockResolvedValue(state())
+    const { result } = renderHook(() => useDocPolls({ meetingId: 'm1' }), { wrapper: wrapper() })
+    await waitFor(() => expect(result.current.isFetched).toBe(true))
+    act(() => {
+      for (let i = 0; i < 10; i += 1) signal.onSignal()
+    })
+    await waitFor(() => expect(fetchDocPolls).toHaveBeenCalledTimes(2))
+    await new Promise((r) => setTimeout(r, 600))
+    expect(fetchDocPolls).toHaveBeenCalledTimes(2)
+  })
+
   it('自分の送信の途中に合図が来ても、その場では読み直さない（押した票が一瞬消えないように）', async () => {
     fetchDocPolls.mockResolvedValue(state())
     let resolveCast: () => void = () => {}
