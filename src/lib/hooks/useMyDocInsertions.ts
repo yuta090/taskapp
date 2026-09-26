@@ -55,5 +55,8 @@ export function useMyDocInsertions(meetingId: string | null) {
     [topic, supabase, queryClient, queryKey]
   )
 
-  return { rows: data ?? EMPTY, create, withdraw }
+  /** 読み直す（知らせが届かなかったときの保険。本文が変わったのを見て呼ぶ） */
+  const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey }), [queryClient, queryKey])
+
+  return { rows: data ?? EMPTY, create, withdraw, refresh }
 }

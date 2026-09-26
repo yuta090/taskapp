@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Calendar, Clock, CaretRight, FileText, FilePdf, X } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 // 共有 barrel を経由しない（議事録の Markdown 変換器がポータル全ページの
@@ -92,14 +92,27 @@ function MeetingInspector({
   // 相手先は議事録に行・メモを書き足せる（DOC_VOTE_SPEC §5。社内の編集画面が取り込んでから本文に入る）。
   // 書き足せるのは相手先が読める会議（進行中・終了）だけ
   const canInsert = meeting.status === 'in_progress' || meeting.status === 'ended'
-  const { rows: myInsertions, create: createInsertion, withdraw: withdrawInsertion } = useMyDocInsertions(
-    canInsert ? meeting.id : null
-  )
+  const {
+    rows: myInsertions,
+    create: createInsertion,
+    withdraw: withdrawInsertion,
+    refresh: refreshInsertions,
+  } = useMyDocInsertions(canInsert ? meeting.id : null)
   // 自分の書き足しが反映待ち・削除待ちの間は、終わった会議でも本文を読み直して入ったのが見えるようにする
   const waitingMine = myInsertions.some((r) => r.status === 'pending' || r.status === 'remove_requested')
   const minutesMd = useLiveMinutes(meeting.id, isLive || waitingMine, meeting.minutesMd)
   const hasMinutes = !!minutesMd?.trim()
   const hasPoll = hasDocPollInMinutes(minutesMd)
+  // 保険: 自分の書き足しを待っている間に本文が変わったら、書き足しの状態も読み直す
+  // （社内の画面からの「反映した」知らせが届かなかったときに、反映待ちの表示が残り続けないように）
+  // 本文が変わったときだけ読み直す（待っているかどうかの変化では読み直さない）ので、待っているかは ref で読む
+  const waitingMineRef = useRef(waitingMine)
+  useEffect(() => {
+    waitingMineRef.current = waitingMine
+  }, [waitingMine])
+  useEffect(() => {
+    if (waitingMineRef.current) void refreshInsertions()
+  }, [minutesMd, refreshInsertions])
   const insertionCtx = useMemo(
     () => ({ rows: myInsertions, create: createInsertion, withdraw: withdrawInsertion }),
     [myInsertions, createInsertion, withdrawInsertion]

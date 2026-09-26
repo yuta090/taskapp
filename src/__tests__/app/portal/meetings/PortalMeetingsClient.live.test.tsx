@@ -15,7 +15,7 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
 }))
 // 差し込み（PR5）は別のテストで見る。ここでは議事録の読み直しだけを見る
 vi.mock('@/lib/hooks/useMyDocInsertions', () => ({
-  useMyDocInsertions: () => ({ rows: [], create: vi.fn(), withdraw: vi.fn() }),
+  useMyDocInsertions: () => ({ rows: [], create: vi.fn(), withdraw: vi.fn(), refresh: vi.fn() }),
 }))
 vi.mock('@/components/editor/docPoll/DocPollHost', () => ({
   DocPollHost: ({ children }: { children: React.ReactNode }) => <>{children}</>,
