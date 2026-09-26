@@ -83,11 +83,11 @@ test.describe('議事録の中のタスク・Wiki をその場で開く', () => 
       const a = document.createElement('a')
       a.href = href
       a.textContent = 'E2E Wiki へのリンク'
-      a.setAttribute('data-testid', 'e2e-wiki-link')
+      a.setAttribute('data-e2e', 'wiki-link')
       el.appendChild(a)
     }, `${SPACE_URL}/wiki?page=${pageId}`)
 
-    await page.getByTestId('e2e-wiki-link').click()
+    await page.locator('[data-e2e="wiki-link"]').click()
 
     // 議事録の上に重なり、本文が読める。画面は議事録のまま
     const overlay = page.getByTestId('wiki-overlay')
@@ -104,7 +104,7 @@ test.describe('議事録の中のタスク・Wiki をその場で開く', () => 
     await expect(page.getByTestId('minutes-document-view')).toBeVisible()
 
     // ブラウザの「戻る」でも Wiki だけが閉じる
-    await page.getByTestId('e2e-wiki-link').click()
+    await page.locator('[data-e2e="wiki-link"]').click()
     await expect(overlay).toBeVisible()
     await page.goBack()
     await expect(overlay).toBeHidden()
