@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Calendar, Clock, CaretRight, FileText, FilePdf, X } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 // 共有 barrel を経由しない（議事録の Markdown 変換器がポータル全ページの
@@ -9,11 +9,7 @@ import { PortalMinutesDocument } from '@/components/portal/PortalMinutesDocument
 import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { hasDocPollInMinutes } from '@/lib/doc-polls/logic'
-import { onDocSignal } from '@/lib/hooks/useDocVoteSignal'
-import { createClient } from '@/lib/supabase/client'
-
-/** 「保存された」知らせが続けて届いたとき、まとめて1回だけ読み直すまでの待ち時間 */
-const MINUTES_REFETCH_DEBOUNCE_MS = 400
+import { useLiveMinutes } from '@/lib/hooks/useLiveMinutes'
 
 // ポータルの議事録はエディタを使わず自前で描くので、投票の番号を振り直す相手（本文）は無い
 const NO_EDITOR = { document: [] }
@@ -88,34 +84,11 @@ function MeetingInspector({
   const currentUserId = user?.id ?? null
 
   // 会議中（進行中）は、社内が議事録を保存するたびに届く知らせで本文を読み直し、その場で出す
-  // （DOC_VOTE_SPEC §6・PR4）。知らせは本文を運ばないので、RLS 越しに本文の列だけ読み直す
-  const [liveMd, setLiveMd] = useState<{ id: string; md: string } | null>(null)
-  const minutesMd = liveMd?.id === meeting.id ? liveMd.md : meeting.minutesMd
-  const hasMinutes = !!minutesMd?.trim()
+  // （DOC_VOTE_SPEC §6.1。間隔の制限・重なり防止・裏に回っている間は止める は useLiveMinutes の中）
   const isLive = meeting.status === 'in_progress'
-  useEffect(() => {
-    if (!isLive) return
-    let timer: ReturnType<typeof setTimeout> | null = null
-    let disposed = false
-    const off = onDocSignal(`meeting-minutes-view:${meeting.id}`, 'minutes-saved', () => {
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(async () => {
-        timer = null
-        const { data, error } = await createClient()
-          .from('meetings')
-          .select('minutes_md')
-          .eq('id', meeting.id)
-          .maybeSingle()
-        if (disposed || error || !data) return
-        setLiveMd({ id: meeting.id, md: (data as { minutes_md: string | null }).minutes_md ?? '' })
-      }, MINUTES_REFETCH_DEBOUNCE_MS)
-    })
-    return () => {
-      disposed = true
-      off()
-      if (timer) clearTimeout(timer)
-    }
-  }, [isLive, meeting.id])
+  const minutesMd = useLiveMinutes(meeting.id, isLive, meeting.minutesMd)
+  const hasMinutes = !!minutesMd?.trim()
+  const hasPoll = hasDocPollInMinutes(minutesMd)
 
   // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
   // 会議名・日時・サマリー・本文だけに絞る指定は globals.css の @media print 側にあり、
@@ -182,13 +155,15 @@ function MeetingInspector({
           {/* 中の投票を押せるようにする（相手先も押せる。読める会議＝進行中・終了の会議だけ）。
               投票の無い議事録では、投票の読み込みも合図のチャネルも張らない。
               ただし会議中は、議事録の保存の知らせを受けるために投票が無くてもチャネルを張る */}
-          {hasDocPollInMinutes(minutesMd) || isLive ? (
+          {hasPoll || isLive ? (
             <DocPollHost
               editor={NO_EDITOR}
               source={{ meetingId: meeting.id }}
               currentUserId={currentUserId}
               editable={false}
               closedNote={PORTAL_POLL_CLOSED}
+              // 投票の無い進行中の会議は、保存の知らせを受けるためのチャネルだけ張る（投票は読まない）
+              loadPolls={hasPoll}
             >
               <MinutesSection md={minutesMd} />
             </DocPollHost>

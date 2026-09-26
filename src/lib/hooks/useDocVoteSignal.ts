@@ -23,9 +23,14 @@ const SIGNAL_EVENT = 'vote-changed'
  * 同じチャネルに相乗りするほかの知らせ。同じ名前のチャネルを2本開くと互いに閉じ合うので、
  * 道は1本のまま知らせの種類で振り分ける。
  * - minutes-saved: 議事録が保存された（書記が保存のあとに送る。相手先ポータルが本文を読み直す・PR4）
+ * - subscribed   : （送らない・この画面の中だけ）チャネルにつながった。つながる前の分を読み直す合図
  */
-export type DocSignalEvent = 'minutes-saved'
+export type DocSignalEvent = 'minutes-saved' | 'subscribed'
 const EXTRA_EVENTS: readonly DocSignalEvent[] = ['minutes-saved']
+
+function dispatchLocal(topic: string, event: DocSignalEvent) {
+  listeners.get(listenerKey(topic, event))?.forEach((cb) => cb())
+}
 
 // いまつながっているチャネル（名前ごと）と、知らせを待っている人。フックの外（保存の処理など）から
 // 送る・受けるために、画面全体で1つだけ持つ
@@ -172,6 +177,7 @@ export function useDocVoteSignal(source: DocPollSource | null, onSignal: () => v
             channelRef.current = created
             liveChannels.set(topic, created)
             setConnected(true)
+            dispatchLocal(topic, 'subscribed')
             // つなぐ前と、切れていた間に押された票は合図が届いていないので、1回読み直す
             onSignalRef.current()
             return

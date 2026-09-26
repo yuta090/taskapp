@@ -56,7 +56,12 @@ const EMPTY: Record<string, DocPollState> = {}
  * 合図のチャネルにつながらないときは、開いたとき・画面に戻ったとき・自分が押したあと
  * （議事録はさらに5秒ごと）に読み直す。
  */
-export function useDocPolls(source: DocPollSource | null) {
+/**
+ * @param options.loadPolls false なら投票は読まず、合図のチャネルだけを張る（投票の無い進行中の会議で、
+ *   議事録の保存の知らせだけを受けたい相手先ポータル用）。既定は読む
+ */
+export function useDocPolls(source: DocPollSource | null, options: { loadPolls?: boolean } = {}) {
+  const loadPolls = options.loadPolls !== false
   const queryClient = useQueryClient()
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
@@ -96,12 +101,12 @@ export function useDocPolls(source: DocPollSource | null) {
   const { data, isFetched } = useQuery({
     queryKey,
     queryFn: () => fetchDocPolls(supabase, stableSource as DocPollSource),
-    enabled: docId != null,
+    enabled: docId != null && loadPolls,
     staleTime: STALE_TIME,
     refetchOnWindowFocus: true,
     // 議事録は会議中に皆で押すので定期にも読み直す。合図が届いている間は取りこぼし用に60秒ごと、
     // つながらないときは5秒ごと（画面が裏にある間は止まる）。Wiki は合図と開き直しだけで足りる
-    refetchInterval: kind !== 'meeting' ? false : connected ? CONNECTED_REFETCH_MS : MEETING_REFETCH_MS,
+    refetchInterval: !loadPolls || kind !== 'meeting' ? false : connected ? CONNECTED_REFETCH_MS : MEETING_REFETCH_MS,
   })
 
   /**
