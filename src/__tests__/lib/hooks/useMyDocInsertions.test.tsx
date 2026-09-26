@@ -81,3 +81,14 @@ describe('useMyDocInsertions（ポータルの自分の差し込み）', () => {
     expect(fetchDocInsertions).not.toHaveBeenCalled()
   })
 })
+
+describe('useMyDocInsertions の保険', () => {
+  it('refresh で読み直せる（知らせが届かなかったときに、本文が変わったのを見て呼ぶ）', async () => {
+    const { result } = renderHook(() => useMyDocInsertions('m1'), { wrapper: wrapper() })
+    await waitFor(() => expect(fetchDocInsertions).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      await result.current.refresh()
+    })
+    expect(fetchDocInsertions).toHaveBeenCalledTimes(2)
+  })
+})
