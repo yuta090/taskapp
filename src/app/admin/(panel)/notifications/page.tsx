@@ -15,7 +15,7 @@ export default async function AdminNotificationsPage() {
   const currentUserId = await verifySuperadmin()
   if (!currentUserId) redirect('/admin/login')
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: currentUserId })
 
   const [
     { count: totalCount },

@@ -11,17 +11,20 @@ import { hashSecret, newOAuthToken } from '@/lib/mcp/oauth/secrets'
 
 const oauthTokens = new Map<string, { orgId: string }>()
 const apiKeys = new Map<string, { orgId: string }>()
+const channelsSeen: { oauth?: string; apiKey?: string } = {}
 
 vi.mock('agentpm-core/dist/config.js', () => ({
-  resolveAuthContextFromOAuthToken: async (tokenHash: string) => {
+  resolveAuthContextFromOAuthToken: async (tokenHash: string, channel?: string) => {
+    channelsSeen.oauth = channel
     const row = oauthTokens.get(tokenHash)
     if (!row) throw new Error('APIキーが無効か期限切れです')
-    return { keyId: 'k-oauth', userId: 'u', orgId: row.orgId, scope: 'user', allowedSpaceIds: null, allowedActions: ['read'] }
+    return { keyId: 'k-oauth', userId: 'u', orgId: row.orgId, scope: 'user', allowedSpaceIds: null, allowedActions: ['read'], channel }
   },
-  resolveAuthContext: async (raw: string) => {
+  resolveAuthContext: async (raw: string, channel?: string) => {
+    channelsSeen.apiKey = channel
     const row = apiKeys.get(raw)
     if (!row) throw new Error('APIキーが無効か期限切れです')
-    return { keyId: 'k-api', userId: 'u', orgId: row.orgId, scope: 'org', allowedSpaceIds: null, allowedActions: ['read', 'write'] }
+    return { keyId: 'k-api', userId: 'u', orgId: row.orgId, scope: 'org', allowedSpaceIds: null, allowedActions: ['read', 'write'], channel }
   },
 }))
 
@@ -30,6 +33,8 @@ const { resolveApiKey } = await import('@/lib/mcp/resolveApiKey')
 beforeEach(() => {
   oauthTokens.clear()
   apiKeys.clear()
+  channelsSeen.oauth = undefined
+  channelsSeen.apiKey = undefined
 })
 
 describe('resolveApiKey', () => {
@@ -62,5 +67,27 @@ describe('resolveApiKey', () => {
     const fake = newOAuthToken()
     apiKeys.set(fake, { orgId: 'org-api' })
     await expect(resolveApiKey(fake)).rejects.toThrow()
+  })
+
+  /**
+   * change_log トリガー（誰が・どの経路で書いたか）向け。/api/mcp を通った認証は
+   * OAuth の合鍵・APIキーのどちらでも channel='mcp' を明示して解決する
+   * （CLI 用の /api/tools と混同しない）。
+   */
+  it('OAuth の合鍵は channel=mcp を明示して解決する', async () => {
+    const token = newOAuthToken()
+    oauthTokens.set(hashSecret(token), { orgId: 'org-oauth' })
+
+    const ctx = await resolveApiKey(token)
+    expect(channelsSeen.oauth).toBe('mcp')
+    expect(ctx.channel).toBe('mcp')
+  })
+
+  it('APIキーも channel=mcp を明示して解決する', async () => {
+    apiKeys.set('tsk_live_abcdef', { orgId: 'org-api' })
+
+    const ctx = await resolveApiKey('tsk_live_abcdef')
+    expect(channelsSeen.apiKey).toBe('mcp')
+    expect(ctx.channel).toBe('mcp')
   })
 })

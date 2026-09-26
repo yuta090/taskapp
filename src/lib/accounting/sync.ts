@@ -39,7 +39,7 @@ interface PendingRow {
 }
 
 export async function syncBillingDocumentsBatch(now: Date = new Date()): Promise<SyncSummary> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'connector' })
   const summary: SyncSummary = { checked: 0, updated: 0, failed: 0 }
 
   const cutoff = new Date(now.getTime() - MIN_RECHECK_INTERVAL_MS).toISOString()

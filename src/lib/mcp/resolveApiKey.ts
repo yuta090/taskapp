@@ -1,4 +1,7 @@
 import { hashSecret, looksLikeOAuthToken } from '@/lib/mcp/oauth/secrets'
+// 型のみの import（実行時のコードは生成されない）。agentpm-core の実装本体は
+// resolveApiKey() 内の動的 import で読む（ビルド時の環境変数チェックを避けるため）
+import type { Channel } from 'agentpm-core/dist/auth/authorize.js'
 
 /**
  * /api/mcp に来た Bearer が誰のものかを1本に解決する。
@@ -21,6 +24,8 @@ export interface ResolvedKey {
   spaceId?: string | null
   allowedSpaceIds: string[] | null
   allowedActions: string[]
+  /** change_log トリガー向け送信元区分。この受け口を通った認証は常に 'mcp' */
+  channel: Channel
 }
 
 export async function resolveApiKey(bearer: string): Promise<ResolvedKey> {
@@ -29,9 +34,10 @@ export async function resolveApiKey(bearer: string): Promise<ResolvedKey> {
 
   // 目印で先に振り分ける。DBを2回引かずに済む
   // （目印は権限ではない。本体は下の控えの照合・鍵の照合）
+  // channel は常に 'mcp'（この受け口＝/api/mcp を通った認証であることを change_log に残す）
   if (looksLikeOAuthToken(bearer)) {
-    return (await resolveAuthContextFromOAuthToken(hashSecret(bearer))) as ResolvedKey
+    return (await resolveAuthContextFromOAuthToken(hashSecret(bearer), 'mcp')) as ResolvedKey
   }
 
-  return (await resolveAuthContext(bearer)) as ResolvedKey
+  return (await resolveAuthContext(bearer, 'mcp')) as ResolvedKey
 }

@@ -7,7 +7,7 @@ interface OrgRow { id: string; name: string }
 interface PlanRow { id: string; name: string; projects_limit: number | null; members_limit: number | null; is_active: boolean }
 
 async function fetchBillingData(): Promise<BillingRow[]> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
 
   const [billingsResult, plansResult, orgsResult] = await Promise.all([
     admin.from('org_billing').select('org_id, plan_id, status, stripe_customer_id, stripe_subscription_id, current_period_end, cancel_at_period_end, created_at'),

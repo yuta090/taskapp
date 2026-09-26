@@ -130,7 +130,7 @@ function formatDate(d: Date): string {
 }
 
 async function fetchCliUsageData(statusFilter: 'all' | 'error') {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
   const nowMs = Date.now()
   const thirtyDaysAgo = new Date(nowMs - 30 * 86400000)
 
