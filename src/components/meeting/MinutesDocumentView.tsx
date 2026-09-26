@@ -24,11 +24,10 @@ import { appendOnlyAddition } from '@/lib/minutes/rebase'
 // 画面のテストは useMeetings をまるごとモックすることがあり、そこから取ると
 // 型が undefined になって instanceof が壊れる（理由は errors.ts のコメント）。
 import { MinutesConflictError } from '@/lib/minutes/errors'
-import type { DegradeReason } from '@/lib/collab/session'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import type { MinutesPresencePeer } from '@/lib/hooks/useMinutesPresence'
 import { useMinutesCollab } from '@/lib/hooks/useMinutesCollab'
 import { isCollabEnabledForOrg } from '@/lib/collab/flag'
+import { degradeMessage, displayNameOf, formatEditingMessage } from '@/lib/collab/messages'
 import { minutesContentHash, readSavedState, writeSavedState } from '@/lib/collab/scribe'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { ErrorRetry, useConfirmDialog } from '@/components/shared'
@@ -156,45 +155,6 @@ interface Baseline {
   normalized: string
   /** parseMinutesMarkdown/serializeMinutesBlocks が例外を出したか。出たら読み取り専用に倒す */
   broken: boolean
-}
-
-/** 「〇〇さんが書いています」「〇〇さん、△△さんが書いています」 */
-function formatEditingMessage(peers: MinutesPresencePeer[]): string {
-  return `${peers.map((peer) => `${peer.name}さん`).join('、')}が書いています`
-}
-
-/**
- * 同時編集をやめて1人で書く形に戻ったときの知らせ。
- * 書いた内容が消えるわけではないので、そこを最初に伝える。
- * 本文が二重になった場合（duplicate-seed）はこの帯を出さず、列から読み直す。
- */
-function degradeMessage(reason: DegradeReason): string | null {
-  const tail = '書いた内容はこれまでどおり保存されます'
-  if (reason === 'duplicate-seed') return null
-  if (reason === 'too-many-peers') {
-    return `開いている画面が多いので、いまは一人ずつ書く形に戻しました。${tail}`
-  }
-  if (reason === 'too-large') {
-    return `議事録が長くなったので、いまは一人ずつ書く形に戻しました。${tail}`
-  }
-  if (reason === 'peer-outdated') {
-    return (
-      '同じ議事録を、更新前の画面で開いている人がいます。いまは一人ずつ書く形にします。' +
-      `あとでこの画面を開き直すと、また一緒に書けます。${tail}`
-    )
-  }
-  if (reason === 'apply-failed') {
-    return `ほかの人の書いた内容を取り込めなかったので、いまは一人ずつ書く形に戻しました。${tail}`
-  }
-  return `つながりが切れたので、いまは一人ずつ書く形に戻しました。${tail}`
-}
-
-/** 表示に使う自分の名前。取れなければ「メンバー」（在席の既定と揃える） */
-function displayNameOf(user: { email?: string | null; user_metadata?: Record<string, unknown> } | null): string {
-  const metaName = user?.user_metadata?.name
-  if (typeof metaName === 'string' && metaName.trim()) return metaName.trim()
-  const localPart = user?.email?.split('@')[0]
-  return localPart || 'メンバー'
 }
 
 /** 例外が出ないはずのところへの念のための守り。変換が失敗しても画面を壊さず読み取り専用にする */

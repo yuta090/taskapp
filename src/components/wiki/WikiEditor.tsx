@@ -26,6 +26,29 @@ import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
 import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
 import { docPollSpec } from '@/components/editor/docPoll/docPollBlock'
 import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
+import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
+import { seedWikiDoc } from '@/lib/collab/seed'
+import { cursorColorAt, cursorFallbackAt } from '@/lib/collab/cursorColors'
+import type { WikiEditorApi } from '@/lib/wiki/useWikiBodySave'
+
+/**
+ * 呼び出し側へ貸す差し込み口。本文の差し替え・末尾への追記（`useWikiBodySave` が使う）と、
+ * 同時編集の種まき（ProseMirror のスキーマを持つのはこのエディタだけなので、ここから貸す）
+ */
+export interface WikiEditorHandle extends WikiEditorApi {
+  seedCollabDoc: (doc: YDoc, body: string | null) => string
+}
+
+/** 同時編集をするときだけ渡す。渡さなければ、これまでどおり1人用のエディタになる */
+export interface WikiEditorCollaboration {
+  fragment: YXmlFragment
+  awareness: Awareness
+  /** カーソルの脇に出す自分の名前 */
+  userName: string
+  /** 何番の色でカーソルを描くか。部屋の中で重ならないように呼び出し側が決める */
+  colorIndex: number
+}
 
 interface WikiEditorProps {
   initialContent?: string
@@ -51,6 +74,13 @@ interface WikiEditorProps {
     currentUserId: string | null
     nameOf: (userId: string) => string
   }
+  /** 同時編集をするときだけ渡す。渡すと本文の正本は器（Y.Doc）側になり、initialContent は使わない */
+  collaboration?: WikiEditorCollaboration
+  /**
+   * 差し込み口を親へ渡す。ref は next/dynamic（WikiEditorDynamic）越しに通らないため関数にする。
+   * 外れるときは null を渡す
+   */
+  registerApi?: (api: WikiEditorHandle | null) => void
 }
 
 // Custom schema with meetings block
@@ -93,6 +123,8 @@ export function WikiEditor({
   onBeforeNavigate,
   noteAuthorName,
   poll,
+  collaboration,
+  registerApi,
 }: WikiEditorProps) {
   const isInternalApp = Boolean(orgId && spaceId)
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate, isInternalApp)
@@ -129,12 +161,93 @@ export function WikiEditor({
     }
   })
 
+  /**
+   * 同時編集をするときは `initialContent` を渡さない。BlockNote は collaboration が付いていると、
+   * 載せた直後に器の中身で本文を置き換える（渡しても捨てられる）。本文は種まきで器へ入れる
+   * （`seedCollabDoc` → 合流の本体。議事録と同じ）。
+   */
   const editor = useCreateBlockNote({
     schema,
-    initialContent: parsedContent,
+    ...(collaboration
+      ? {
+          collaboration: {
+            fragment: collaboration.fragment,
+            // 載せるときは控えの値で作る（画面を測るのは描画が終わったあと）。実際の値は下の effect が入れ直す
+            user: { name: collaboration.userName, color: cursorFallbackAt(collaboration.colorIndex) },
+            provider: { awareness: collaboration.awareness },
+          },
+        }
+      : { initialContent: parsedContent }),
     dictionary: WIKI_DICTIONARY,
     domAttributes: { editor: STABLE_EDITOR_DOM_ATTRIBUTES },
   })
+
+  /** 本文を丸ごと差し替える（ふつうの編集として。同時編集なら部屋の全員に届く） */
+  const replaceContent = useCallback(
+    (body: string | null): boolean => {
+      let blocks: unknown
+      try {
+        blocks = body && body.trim() !== '' ? JSON.parse(body) : []
+      } catch {
+        return false
+      }
+      if (!Array.isArray(blocks)) return false
+      try {
+        editor.replaceBlocks(
+          editor.document,
+          (blocks.length > 0 ? blocks : [{ type: 'paragraph' }]) as Parameters<typeof editor.replaceBlocks>[1]
+        )
+        return true
+      } catch {
+        return false
+      }
+    },
+    [editor]
+  )
+
+  /** 末尾にブロックを足す（仕様の確定で DB が足した分を、書いている画面に取り込む） */
+  const appendBlocks = useCallback(
+    (blocks: unknown[]): 'applied' | 'busy' | 'failed' => {
+      if (!editor.isEditable) return 'busy'
+      if (editor.prosemirrorView?.composing) return 'busy'
+      try {
+        const doc = editor.document
+        const lastBlock = doc[doc.length - 1]
+        if (!lastBlock) return 'failed'
+        editor.insertBlocks(blocks as Parameters<typeof editor.insertBlocks>[0], lastBlock, 'after')
+        return 'applied'
+      } catch {
+        return 'failed'
+      }
+    },
+    [editor]
+  )
+
+  const seedCollabDoc = useCallback(
+    (doc: YDoc, body: string | null) => seedWikiDoc(doc, body, editor.pmSchema, schema.styleSchema),
+    [editor]
+  )
+
+  useEffect(() => {
+    registerApi?.({ replaceContent, appendBlocks, seedCollabDoc })
+    return () => registerApi?.(null)
+  }, [registerApi, replaceContent, appendBlocks, seedCollabDoc])
+
+  /**
+   * 自分の名前と色を部屋のみんなへ伝える。載せるときは控えの値で作ってあるので、ここで
+   * 画面のトークンから読み替えた値に入れ替える（色の番号自体は会期中変わらない。`cursorColors.ts`）
+   */
+  const lastUserRef = useRef<string>(
+    collaboration ? `${collaboration.userName}\u0000${cursorFallbackAt(collaboration.colorIndex)}` : ''
+  )
+  useEffect(() => {
+    if (!collaboration) return
+    const next = { name: collaboration.userName, color: cursorColorAt(collaboration.colorIndex) }
+    const key = `${next.name}\u0000${next.color}`
+    if (lastUserRef.current === key) return
+    lastUserRef.current = key
+    collaboration.awareness.setLocalStateField('user', next)
+  }, [collaboration])
 
   // 「書いてよいか」は載せたときの値のまま渡し、以後の変化は載せ直さない道で当てる
   // （変えるとエディタが丸ごと作り直される。理由は useStableEditable の注を参照）
