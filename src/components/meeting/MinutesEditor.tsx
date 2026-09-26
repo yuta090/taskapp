@@ -70,6 +70,8 @@ import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
 import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
 import { docPollSpec } from '@/components/editor/docPoll/docPollBlock'
 import { MeetingDocPollHost } from '@/components/editor/docPoll/MeetingDocPollHost'
+import { DOC_INSERTION_TYPE } from '@/lib/doc-insertions/logic'
+import { docInsertionSpec } from '@/components/editor/docInsertion/docInsertionBlock'
 
 /**
  * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
@@ -147,6 +149,11 @@ interface MinutesEditorProps {
    * 渡さない画面では「/」に投票を出さず、置いてある投票は「この画面では投票できません」と出す。
    */
   meetingId?: string
+  /**
+   * 相手先の差し込み（反映待ち）をこの画面で本文に取り込むか。取り込むのは1つのタブだけ
+   * （同時編集中は書記。1人なら編集できる画面）。呼ぶ側（MinutesDocumentView）が決める
+   */
+  applyInsertions?: boolean
 }
 
 /**
@@ -424,6 +431,8 @@ function useMinutesSchema(
         [DIVIDER_TYPE]: dividerSpec,
         // 投票。Markdown では `<!--vote:番号-->議題`（DOC_VOTE_SPEC §3.2）
         [DOC_POLL_TYPE]: docPollSpec,
+        // 相手先が足した行・メモ。Markdown では `<!--ins:番号 種類 日時 名前-->本文`（DOC_VOTE_SPEC §5.1）
+        [DOC_INSERTION_TYPE]: docInsertionSpec,
       },
       styleSpecs: {
         bold: defaultStyleSpecs.bold,
@@ -460,6 +469,7 @@ function MinutesEditorImpl({
   onResolveTask,
   noteAuthorName,
   meetingId,
+  applyInsertions = false,
   collaboration,
   isApplyingRemote,
 }: MinutesEditorProps) {
@@ -886,7 +896,13 @@ function MinutesEditorImpl({
   return (
     <div className="minutes-editor" data-testid="minutes-editor" ref={editorContainerRef}>
       {meetingId ? (
-        <MeetingDocPollHost editor={editor as never} meetingId={meetingId} spaceId={spaceId} editable={effectiveEditable}>
+        <MeetingDocPollHost
+          editor={editor as never}
+          meetingId={meetingId}
+          spaceId={spaceId}
+          editable={effectiveEditable}
+          applyInsertions={applyInsertions && effectiveEditable}
+        >
           {editorView}
         </MeetingDocPollHost>
       ) : (
