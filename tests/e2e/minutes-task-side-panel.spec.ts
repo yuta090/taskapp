@@ -35,11 +35,12 @@ test.describe('議事録の中のタスク・Wiki をその場で開く', () => 
       const a = document.createElement('a')
       a.href = href
       a.textContent = 'E2E タスクへのリンク'
-      a.setAttribute('data-testid', 'e2e-task-link')
+      // data-testid にしない（e2eContract は「E2E が指す testid が実装にあるか」を見る。これは差し込む物）
+      a.setAttribute('data-e2e', 'task-link')
       el.appendChild(a)
     }, `${SPACE_URL}?task=${taskId}`)
 
-    await page.getByTestId('e2e-task-link').click()
+    await page.locator('[data-e2e="task-link"]').click()
 
     // 画面は議事録のまま、右パネルがタスク詳細に替わる
     await expect(page.getByTestId('task-inspector-close')).toBeVisible({ timeout: 20000 })
@@ -53,7 +54,7 @@ test.describe('議事録の中のタスク・Wiki をその場で開く', () => 
     await expect(page).toHaveURL(minutesUrl)
 
     // ブラウザの「戻る」でもパネルだけが閉じる
-    await page.getByTestId('e2e-task-link').click()
+    await page.locator('[data-e2e="task-link"]').click()
     await expect(page.getByTestId('task-inspector-close')).toBeVisible({ timeout: 20000 })
     await page.goBack()
     await expect(page.getByTestId('meeting-inspector')).toBeVisible()
