@@ -26,6 +26,7 @@ import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
 import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
 import { docPollSpec } from '@/components/editor/docPoll/docPollBlock'
 import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
+import { HeadingLinks, type HeadingLinksEditor } from '@/components/editor/HeadingLinks'
 
 interface WikiEditorProps {
   initialContent?: string
@@ -51,6 +52,11 @@ interface WikiEditorProps {
     currentUserId: string | null
     nameOf: (userId: string) => string
   }
+  /**
+   * 見出しのリンクに添えるページ名。渡したときだけ、見出しの「リンクをコピー」ボタンと
+   * URL の `#` での移動を載せる（社内の Wiki 画面だけが渡す。相手先ポータルは対象外）
+   */
+  headingLinkTitle?: string
 }
 
 // Custom schema with meetings block
@@ -93,6 +99,7 @@ export function WikiEditor({
   onBeforeNavigate,
   noteAuthorName,
   poll,
+  headingLinkTitle,
 }: WikiEditorProps) {
   const isInternalApp = Boolean(orgId && spaceId)
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate, isInternalApp)
@@ -283,7 +290,8 @@ export function WikiEditor({
   )
 
   return (
-    <div className="wiki-editor" ref={editorContainerRef}>
+    // relative: 見出しのリンクボタンを本文の上に重ねて置く基準
+    <div className="wiki-editor relative" ref={editorContainerRef}>
       {poll ? (
         <DocPollHost
           editor={editor as never}
@@ -296,6 +304,13 @@ export function WikiEditor({
         </DocPollHost>
       ) : (
         editorView
+      )}
+      {headingLinkTitle !== undefined && (
+        <HeadingLinks
+          editor={editor as unknown as HeadingLinksEditor}
+          containerRef={editorContainerRef}
+          pageTitle={headingLinkTitle}
+        />
       )}
       {/* 本文の下の差し込みツールバー。PDFで保存するときは紙に載せない（押すためのもの） */}
       {editable && (

@@ -13,6 +13,7 @@ import {
   SuggestionMenuController,
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
+import { HeadingLinks, type HeadingLinksEditor } from '@/components/editor/HeadingLinks'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
@@ -137,6 +138,11 @@ interface MinutesEditorProps {
    * する等）を走らせない。全員の画面で一斉に走ってしまうため。
    */
   isApplyingRemote?: () => boolean
+  /**
+   * 見出しのリンクに添える会議名。渡したときだけ、見出しの「リンクをコピー」ボタンと
+   * URL の `#` での移動を載せる
+   */
+  headingLinkTitle?: string
 }
 
 /**
@@ -446,6 +452,7 @@ function MinutesEditorImpl({
   noteAuthorName,
   collaboration,
   isApplyingRemote,
+  headingLinkTitle,
 }: MinutesEditorProps) {
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
   // 名前はメンバー一覧を読み終えてから届く。値のまま「/」メニューの項目に閉じ込めると、
@@ -812,7 +819,8 @@ function MinutesEditorImpl({
   )
 
   return (
-    <div className="minutes-editor" data-testid="minutes-editor" ref={editorContainerRef}>
+    // relative: 見出しのリンクボタンを本文の上に重ねて置く基準
+    <div className="minutes-editor relative" data-testid="minutes-editor" ref={editorContainerRef}>
       <BlockNoteView
         editor={editor}
         editable={mountEditable}
@@ -831,6 +839,13 @@ function MinutesEditorImpl({
           <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
         )}
       </BlockNoteView>
+      {headingLinkTitle !== undefined && (
+        <HeadingLinks
+          editor={editor as unknown as HeadingLinksEditor}
+          containerRef={editorContainerRef}
+          pageTitle={headingLinkTitle}
+        />
+      )}
       {/* 本文の下の差し込みツールバー。PDFで保存するときは紙に載せない（押すためのもの） */}
       {effectiveEditable && (
         <div data-print-hide className="flex items-center gap-2 mt-2 px-1">

@@ -330,3 +330,29 @@ describe('WikiEditor の投票', () => {
     expect(capturedEditorOptions?.dictionary?.placeholders.docPoll).toBe('議題（書かなくてもよい）')
   })
 })
+
+// 見出しのリンク。中身は HeadingLinks.test.tsx で確かめるので、ここは「渡したか」だけを見る
+vi.mock('@/components/editor/HeadingLinks', () => ({
+  HeadingLinks: ({ pageTitle, editor }: { pageTitle: string; editor: unknown }) => (
+    <div data-testid="heading-links" data-title={pageTitle} data-same-editor={String(editor === mockEditor)} />
+  ),
+}))
+
+describe('WikiEditor の見出しリンク', () => {
+  it('ページ名を渡すと、見出しのリンク（コピーと # での移動）を載せる。閲覧中でも載せる', () => {
+    render(<WikiEditor editable={false} orgId={ORG_ID} spaceId={SPACE_ID} headingLinkTitle="運用メモ" />)
+    const el = screen.getByTestId('heading-links')
+    expect(el).toHaveAttribute('data-title', '運用メモ')
+    expect(el).toHaveAttribute('data-same-editor', 'true')
+  })
+
+  it('ページ名を渡さない画面（相手先ポータル）には載せない', () => {
+    render(<WikiEditor editable={false} />)
+    expect(screen.queryByTestId('heading-links')).toBeNull()
+  })
+
+  it('ボタンの位置の基準にするため、本文の枠を relative にする', () => {
+    const { container } = render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} headingLinkTitle="運用メモ" />)
+    expect(container.querySelector('.wiki-editor')).toHaveClass('relative')
+  })
+})
