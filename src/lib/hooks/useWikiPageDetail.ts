@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 /** 重ねて読むのに要るぶんだけ */
 export interface WikiPageDetail {
   id: string
+  space_id: string
   title: string
   body: string | null
   updated_at: string
@@ -16,6 +17,8 @@ export interface WikiPageDetail {
 interface UseWikiPageDetailResult {
   page: WikiPageDetail | null
   loading: boolean
+  /** 読み直している最中か（手元の古い本文を出していても true） */
+  fetching: boolean
   error: Error | null
 }
 
@@ -32,12 +35,12 @@ export function useWikiPageDetail(orgId: string, pageId: string | null): UseWiki
 
   const enabled = !!orgId && !!pageId
 
-  const { data, isPending, error } = useQuery<WikiPageDetail | null>({
+  const { data, isPending, isFetching, error } = useQuery<WikiPageDetail | null>({
     queryKey: ['wikiPageDetail', orgId, pageId] as const,
     queryFn: async () => {
       const { data: row, error: fetchError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
-        .select('id, title, body, updated_at')
+        .select('id, space_id, title, body, updated_at')
         .eq('id', pageId as string)
         .eq('org_id', orgId)
         .maybeSingle()
@@ -50,11 +53,13 @@ export function useWikiPageDetail(orgId: string, pageId: string | null): UseWiki
     staleTime: 0,
     // 読んでいる途中にタブへ戻っただけで本文が差し替わると、表示が作り直されて位置が飛ぶ
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   return {
     page: data ?? null,
     loading: enabled && isPending && !error,
+    fetching: enabled && isFetching,
     error: (error as Error | null) ?? null,
   }
 }

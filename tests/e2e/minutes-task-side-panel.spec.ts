@@ -88,13 +88,26 @@ test.describe('議事録の中のタスク・Wiki をその場で開く', () => 
 
     await page.getByTestId('e2e-wiki-link').click()
 
-    // 議事録の上に重なり、本文が読める。画面は議事録のまま
+    // 議事録の上に重なり、本文が読める。E2E の利用者は編集者なので、その場で直せる状態で開く
+    // （本文には打たない。本番の Wiki を書き換えないため）
     const overlay = page.getByTestId('wiki-overlay')
     await expect(overlay).toBeVisible()
     await expect(overlay.locator('.bn-editor')).toBeVisible({ timeout: 20000 })
-    await expect(overlay.locator('.bn-editor [contenteditable="true"]')).toHaveCount(0)
+    await expect(overlay.locator('.bn-editor[contenteditable="true"]')).toHaveCount(1)
     await expect(page).toHaveURL(new RegExp(`/meetings\\?.*wiki=${pageId}`))
     expect(page.context().pages()).toHaveLength(1)
+
+    // エディタのメニュー（「/」など）が出ているときの Esc は、メニューのためのもの。重ねた Wiki は閉じない
+    // （本文に打つと本番の Wiki が変わるので、メニューと同じ目印の要素を置いて確かめる）
+    await page.evaluate(() => {
+      const menu = document.createElement('div')
+      menu.className = 'bn-suggestion-menu'
+      menu.id = 'e2e-fake-menu'
+      document.body.appendChild(menu)
+    })
+    await page.keyboard.press('Escape')
+    await expect(overlay).toBeVisible()
+    await page.evaluate(() => document.getElementById('e2e-fake-menu')?.remove())
 
     // Esc で閉じる
     await page.keyboard.press('Escape')
