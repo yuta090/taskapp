@@ -15,6 +15,7 @@
  */
 
 import { normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
+import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
 
 // ---- 型 ----
 
@@ -308,6 +309,12 @@ export const TOC_MARKER = '<!--toc-->'
 
 /** 目次の行。前後に空白が付いていても拾う（手で書いた議事録でも効かせる）。 */
 const TOC_LINE_RE = /^<!--toc-->\s*$/
+
+/**
+ * 投票ブロック（DOC_VOTE_SPEC §3.2）。`<!--vote:<番号>-->議題`、理由必須は `<!--vote:<番号> must-->議題`。
+ * 票は本文でなく DB（doc_votes）にあるので、本文に残すのは番号と設定と議題だけ。形は以後変えない。
+ */
+const VOTE_LINE_RE = /^<!--vote:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})( must)?-->/
 
 /** 折りたたみのブロック種別（BlockNote 既定の折りたたみと同じ名前）。 */
 export const TOGGLE_TYPE = 'toggleListItem'
@@ -822,6 +829,7 @@ function isBlockTriggerLine(line: string, lines: string[], idx: number, depth: n
   if (MEETING_NOTE_LINE_RE.test(line)) return true
   // 目次も同じ。1行だけのブロックなので、前後の段落と混ぜない
   if (TOC_LINE_RE.test(line)) return true
+  if (VOTE_LINE_RE.test(line)) return true
   if (DIVIDER_LINE_RE.test(line)) return true
   if (
     /^\|/.test(line) &&
@@ -1029,6 +1037,18 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
     // 目次。中身を持たない1行のブロックにする（画面側が見出しから引き直す）
     if (TOC_LINE_RE.test(line)) {
       blocks.push({ type: TOC_TYPE, props: {} })
+      i++
+      continue
+    }
+
+    // 投票。1行だけのブロック（議題は1行）
+    const voteMatch = VOTE_LINE_RE.exec(line)
+    if (voteMatch) {
+      blocks.push({
+        type: DOC_POLL_TYPE,
+        props: { pollId: voteMatch[1], reasonRequired: voteMatch[2] ? 'ng_hold' : 'none' },
+        content: tokenizeLinesWithMarker([line.slice(voteMatch[0].length)]),
+      })
       i++
       continue
     }
@@ -1517,6 +1537,14 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
     case TOC_TYPE:
       // 中身は持たない。目印の1行だけを書く
       return [TOC_MARKER]
+    case DOC_POLL_TYPE: {
+      // 番号の無い投票（置いた直後に番号を振る前）は書かない。書くと読み戻せない形になる
+      const pollId = typeof block.props.pollId === 'string' ? block.props.pollId : ''
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(pollId)) return []
+      const must = block.props.reasonRequired === 'ng_hold' ? ' must' : ''
+      // 議題は1行の形。改行は空白にする
+      return [`<!--vote:${pollId}${must}-->` + contentArrayToText(block.content).replace(/\n/g, ' ')]
+    }
     case DIVIDER_TYPE:
       // 読む形は3つあるが、書くときは `---` に揃える
       return ['---']
