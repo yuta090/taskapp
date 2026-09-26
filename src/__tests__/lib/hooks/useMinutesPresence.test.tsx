@@ -653,6 +653,42 @@ describe('useMinutesPresence 同じ人の別のタブ', () => {
     expect(peers.map((p) => p.id).sort()).toEqual(['tab-a', 'tab-b', 'tab-self'])
   })
 
+  it('「入った」は一覧の更新（sync）で知らせる。先に届く join の時点ではまだ一覧に先客が載っていない', async () => {
+    // Supabase は、入ったときの一覧（presence_state）を受け取ると、先客ごとに join を
+    // **一覧を更新する前に**出し、そのあとで sync を出す。join の時点で「入った」と
+    // 知らせると、先客が見えないまま「自分ひとりだ」と判断して本文を作ってしまう
+    // （2026-09-26 に実ブラウザで確認。Wiki では本文が食い違い、打った文字が相手に届かなかった）
+    const collab = collabWiring()
+    renderPresence({ collab })
+    const channel = await subscribed()
+
+    // join の時点: 一覧はまだ空
+    presenceState = {}
+    await act(async () => {
+      channel.emit('presence:join')
+      await Promise.resolve()
+    })
+    expect(collab.onStatus).not.toHaveBeenCalledWith('joined')
+
+    // sync の時点: 先客が載っている
+    presenceState = {
+      'tab-a': [
+        { presence_ref: 'r1', user_id: 'u-a', client_id: 'tab-a', name: '佐藤', editing: false, joined_at: 100, collab: true },
+      ],
+    }
+    await act(async () => {
+      channel.emit('presence:sync')
+      await Promise.resolve()
+    })
+    expect(collab.onStatus).toHaveBeenCalledWith('joined')
+    // 「入った」を知らせる前に渡した顔ぶれには、先客が入っている
+    const statusOrder = collab.onStatus.mock.invocationCallOrder[0]
+    const peersBefore = collab.onPeers.mock.calls.filter(
+      (_, i) => collab.onPeers.mock.invocationCallOrder[i] < statusOrder
+    )
+    expect((peersBefore.at(-1)?.[0] as { id: string }[]).map((p) => p.id)).toContain('tab-a')
+  })
+
   it('見分け札を持たない相手（1つ前の版の画面）には、印を付けて渡す', async () => {
     // **輪から外さない**のが要点。外すと「自分ひとりだ」と見えて目録合わせをせずに
     // 種をまき、相手の器と食い違って本文が二重になる。印を見た側が自分で降りる

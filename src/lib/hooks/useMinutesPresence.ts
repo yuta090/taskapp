@@ -407,7 +407,7 @@ export function useMinutesPresence({
      * 参加の返事（SUBSCRIBED）の時点では一覧がまだ届いておらず、必ず「自分ひとり」に
      * 見えるので、そこで始めると入った人が毎回自分の本文で器を作り直してしまう。
      */
-    const handlePresence = () => {
+    const handlePresence = (fromSync: boolean) => {
       const read = syncOthers()
       if (read === null) return
       const wiring = collabRef.current
@@ -428,6 +428,11 @@ export function useMinutesPresence({
         : [self, ...read.room]
       wiring.onPeers(room)
       if (presenceArrived) return
+      // 「入った」は一覧の更新（sync）でだけ知らせる。Supabase は入ったときの一覧を受け取ると、
+      // 先客ごとの join を**一覧を更新する前に**出す（そのあとで sync）。join の時点で知らせると、
+      // 先客が見えないまま「自分ひとりだ」と判断して本文を作り、先客と一度も合わせ込まない
+      // （2026-09-26 に実ブラウザで確認。議事録は本文が同じなので表に出ていなかった）
+      if (!fromSync) return
       presenceArrived = true
       clearPresenceWaitTimer()
       wiring.onStatus('joined')
@@ -563,9 +568,9 @@ export function useMinutesPresence({
         })
         channel = created
         created
-          .on('presence', { event: 'sync' }, handlePresence)
-          .on('presence', { event: 'join' }, handlePresence)
-          .on('presence', { event: 'leave' }, handlePresence)
+          .on('presence', { event: 'sync' }, () => handlePresence(true))
+          .on('presence', { event: 'join' }, () => handlePresence(false))
+          .on('presence', { event: 'leave' }, () => handlePresence(false))
         // 同時編集の更新。購読の前に登録する（あとから足すと最初の数通を取りこぼす）
         for (const event of COLLAB_EVENTS) {
           created.on('broadcast', { event }, (raw: { payload?: unknown }) => {

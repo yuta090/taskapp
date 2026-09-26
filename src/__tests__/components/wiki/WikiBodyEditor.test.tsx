@@ -50,8 +50,10 @@ vi.mock('@/lib/hooks/useMinutesCollab', () => ({
   },
 }))
 
+const SELF_USER = { id: 'u-self', email: 'self@example.com', user_metadata: { name: '自分' } }
+let currentUser: { user: typeof SELF_USER | null; loading: boolean } = { user: SELF_USER, loading: false }
 vi.mock('@/lib/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: { id: 'u-self', email: 'self@example.com', user_metadata: { name: '自分' } } }),
+  useCurrentUser: () => currentUser,
 }))
 
 vi.mock('@/lib/collab/flag', () => ({ isCollabEnabledForOrg: () => true }))
@@ -95,9 +97,32 @@ beforeEach(() => {
   editorProps = undefined
   isApplyingRemote = false
   collabResult = baseCollab()
+  currentUser = { user: SELF_USER, loading: false }
 })
 
 describe('WikiBodyEditor', () => {
+  it('ログインしている人が分かるまでは、同時編集を組み立てない（分からないまま始めると1人用に固まる）', () => {
+    currentUser = { user: null, loading: true }
+    const { rerender, save } = renderEditor()
+    expect(collabOptions).toBeUndefined()
+    expect(editorProps).toBeUndefined()
+
+    currentUser = { user: SELF_USER, loading: false }
+    rerender(
+      <WikiBodyEditor
+        orgId="org-1"
+        spaceId="space-1"
+        pageId={PAGE}
+        initialBody={BODY}
+        basisUpdatedAt="t0"
+        canEdit
+        bodySave={save}
+        onRequestReload={vi.fn()}
+      />
+    )
+    expect(collabOptions).toMatchObject({ self: { userId: 'u-self' } })
+  })
+
   it('Wiki のページの部屋（wiki-page:<ページID>）に入る', () => {
     renderEditor()
     expect(collabOptions).toMatchObject({ meetingId: PAGE, topicPrefix: 'wiki-page:', collabAllowed: true })

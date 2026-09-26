@@ -59,7 +59,17 @@ interface WikiBodyEditorProps {
  * **ページが替わったら作り直すこと**（呼び出し側が key にページの ID を入れる）。
  * 部屋はページごとで、同時編集を使うかどうかも開いたときに決める。
  */
-export function WikiBodyEditor({
+export function WikiBodyEditor(props: WikiBodyEditorProps) {
+  // 同時編集を使うかどうかは組み立てたときに1回だけ決まり、自分が誰か分からないと
+  // 「使わない」に固まる。ページを開いた瞬間はログインしている人がまだ読み込み中の
+  // ことがある（2026-09-26 に実ブラウザで3回に1回起きた）ので、分かるまで待ってから組み立てる
+  const { user, loading } = useCurrentUser()
+  if (loading && !user) return <EditorLoadingFallback />
+  return <WikiBodyEditorInner {...props} user={user} />
+}
+
+function WikiBodyEditorInner({
+  user,
   orgId,
   spaceId,
   pageId,
@@ -71,8 +81,7 @@ export function WikiBodyEditor({
   onBeforeNavigate,
   noteAuthorName,
   poll,
-}: WikiBodyEditorProps) {
-  const { user } = useCurrentUser()
+}: WikiBodyEditorProps & { user: ReturnType<typeof useCurrentUser>['user'] }) {
   const selfUserId = user?.id ?? ''
   const selfName = displayNameOf(user)
   const collabAllowed = isCollabEnabledForOrg(orgId)

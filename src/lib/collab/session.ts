@@ -82,6 +82,24 @@ export interface MinutesSeed {
  */
 export type MinutesSeeder = (doc: Y.Doc) => MinutesSeed
 
+/**
+ * 種の記録（`seeds` の値）を読む。今の形は `{ basis, joinedAt }`。
+ * 1つ前の版は基準の文字列だけを入れるので、**部屋にいちばん先に居た扱い（joinedAt 0）**にする。
+ * 旧版の画面は今の形を読めず自分の種を残すので、こちらも旧版の種を残せば両側で同じ答えになる。
+ * それ以外（さらに前の版の数値など）も同じく joinedAt 0・基準なしで読む。
+ */
+function readSeedRecord(value: unknown): { basis: string; joinedAt: number } {
+  if (typeof value === 'string') return { basis: value, joinedAt: 0 }
+  if (value && typeof value === 'object') {
+    const record = value as { basis?: unknown; joinedAt?: unknown }
+    return {
+      basis: typeof record.basis === 'string' ? record.basis : '',
+      joinedAt: typeof record.joinedAt === 'number' ? record.joinedAt : Number.MAX_SAFE_INTEGER,
+    }
+  }
+  return { basis: '', joinedAt: 0 }
+}
+
 export class MinutesCollabSession {
   readonly doc: Y.Doc
   readonly awareness: Awareness
@@ -96,6 +114,8 @@ export class MinutesCollabSession {
   private seeder: MinutesSeeder | null = null
   /** いま部屋に居る人（自分を含む）。返事を返す人を決めるのに使う */
   private peers: CollabPeer[] = []
+  /** 器を行き来させた相手（目録を送った・差分を受け取った）。あとから見えた相手と握手し直さないため */
+  private readonly handshaked = new Set<string>()
   private pendingUpdates: Uint8Array[] = []
   private updateTimer: ReturnType<typeof setTimeout> | null = null
   private awarenessTimer: ReturnType<typeof setTimeout> | null = null
@@ -146,6 +166,26 @@ export class MinutesCollabSession {
   /** 部屋の顔ぶれを入れ替える。在席が変わるたびに呼ぶ */
   setPeers(peers: CollabPeer[]): void {
     this.peers = peers
+    this.handshakeLatecomers()
+  }
+
+  /**
+   * あとから見えた「本文を持つ相手」と、まだ一度も合わせ込んでいなければ1回だけ握手する。
+   *
+   * Supabase の在席はサーバー間で遅れて伝わるので、入った瞬間の一覧に先客が載って
+   * いないことがある（2026-09-26 に実ブラウザで8回中2回）。そのとき自分ひとりだと
+   * 思って本文を作るので、先客の器を一度も受け取らないまま、相手の打鍵が画面に出ない
+   * （相手のかたまりを持たないので保留になる）。見えた時点で握手すれば器が行き来し、
+   * 二重は `repairSeeds` の同じ規則で1つに戻る。
+   * 宛先付きの目録には、宛先の本人が答える（返事役の選び直しは通らない）。
+   */
+  private handshakeLatecomers(): void {
+    if (!this.started || this.disposed || this.degraded || !this.synced) return
+    for (const peer of this.peers) {
+      if (peer.id === this.options.selfId || !peer.collab || this.handshaked.has(peer.id)) continue
+      this.handshaked.add(peer.id)
+      this.sendSync1(peer.id)
+    }
   }
 
   start(): void {
@@ -269,6 +309,11 @@ export class MinutesCollabSession {
     return next
   }
 
+  /** 自分が部屋に入った時刻。一覧にまだ載っていなければ、いちばん新しい扱い */
+  private selfJoinedAt(): number {
+    return this.peers.find((peer) => peer.id === this.options.selfId)?.joinedAt ?? Number.MAX_SAFE_INTEGER
+  }
+
   private sendSync1(to?: string): void {
     if (this.disposed || this.degraded) return
     this.syncAttempts += 1
@@ -301,7 +346,8 @@ export class MinutesCollabSession {
       this.doc.transact(() => {
         // 値は「その本文を読んだときの列の更新時刻」。種が2つ入ったとき、
         // どちらが新しい本文かをこれで決める
-        this.seeds.set(seedHash, typeof basis === 'string' ? basis : '')
+        // あわせて「部屋に入った時刻」も残す。二重になったとき、先に居た人の種を残すため
+        this.seeds.set(seedHash, { basis: typeof basis === 'string' ? basis : '', joinedAt: this.selfJoinedAt() })
       })
       this.markSynced()
       return true
@@ -326,6 +372,7 @@ export class MinutesCollabSession {
       }
 
       if (message.event === 'y-sync1') {
+        this.handshaked.add(message.from)
         // 本文を持っていない人は返さない（空の器を配ると、受け取った側が
         // 「本文が入った」と勘違いして空のまま打ち始める）
         if (!this.synced) return
@@ -359,6 +406,7 @@ export class MinutesCollabSession {
         if (!this.synced) this.degrade('too-large')
         return
       }
+      this.handshaked.add(message.from)
       const bytes = base64ToBytes(message.payload)
       this.applyingRemote = true
       try {
@@ -400,6 +448,8 @@ export class MinutesCollabSession {
     this.synced = true
     this.clearSyncTimer()
     this.options.onSynced?.()
+    // 本文を持つ前に見えていた相手とも合わせ込む（持つ前は握手を増やさない）
+    this.handshakeLatecomers()
   }
 
   private handleSeedsChange = (): void => {
@@ -408,32 +458,36 @@ export class MinutesCollabSession {
   }
 
   /**
-   * 種が2つ以上入った＝本文が二重になっている。**新しいほうを残して、それ以外を消す。**
+   * 種が2つ以上入った＝本文が二重になっている。**部屋に先に居た人の種を残して、それ以外を消す。**
    *
    * 選び方をどう工夫しても、在席が行き渡るより短い間に2人が開けば互いが見えず、
    * 衝突は残る。そこで「起きないようにする」のをやめ、「起きても全員が同じ規則で
    * 1つに戻す」ようにした。消すのはただの削除なので、全員が同じ規則で消せば同じ形に
    * 落ち着き、同じものを2回消しても壊れない。
    *
+   * 残すのは**部屋に入った時刻が古い人の種**（2026-09-26 の Fable 裁定で、列の更新時刻が
+   * 新しい種から変えた）。本文を持つ人の器は、列と同じかそれより進んでいる（列は書記が
+   * その器から書く）。列の時刻で決めると、先客の保存で列が進む → 後から列を読んだ人の
+   * 種が必ず勝つ → 先客のまだ保存していない打鍵が消える、という逆転が起きていた。
+   * 入った時刻が同じときだけ、列の更新時刻が新しいほう → 合言葉の大きいほうで決める。
+   *
    * 本文のかたまりの持ち主は、種の合言葉から決まる番号（`seedClientId`）で分かる。
    */
   private repairSeeds(): void {
-    const entries = [...this.seeds.entries()].map(([seedHash, basis]) => ({
-      seedHash,
-      // 1つ前の版は基準を持たない印（数値）を入れる。読めない印はいちばん古い扱いにする
-      basis: typeof basis === 'string' ? basis : '',
-    }))
+    const entries = [...this.seeds.entries()].map(([seedHash, value]) => ({ seedHash, ...readSeedRecord(value) }))
     if (entries.length < 2) return
-    // どちらが新しいか分からないときは、勝手に選ばない。判断材料が無いのに片方を
+    // どちらが先か分からないときは、勝手に選ばない。判断材料が無いのに片方を
     // 消すと、消えた側は戻せない
-    if (entries.every((entry) => entry.basis === '')) {
+    const first = entries[0]
+    if (entries.every((entry) => entry.joinedAt === first.joinedAt && entry.basis === first.basis)) {
       this.degrade('duplicate-seed')
       return
     }
-    // 列の更新時刻が新しいほうを残す。同じなら合言葉の大きいほう（全員で同じ答えになる）
-    const winner = entries.reduce((best, entry) =>
-      entry.basis > best.basis || (entry.basis === best.basis && entry.seedHash > best.seedHash) ? entry : best
-    )
+    const winner = entries.reduce((best, entry) => {
+      if (entry.joinedAt !== best.joinedAt) return entry.joinedAt < best.joinedAt ? entry : best
+      if (entry.basis !== best.basis) return entry.basis > best.basis ? entry : best
+      return entry.seedHash > best.seedHash ? entry : best
+    })
     const winnerOwner = seedClientId(winner.seedHash)
     // **残すほうを自分が持っているか、先に確かめる。**
     // 通は1通ずつ配られるので、「消す判断のもとになった印」だけ先に届いて本文が
