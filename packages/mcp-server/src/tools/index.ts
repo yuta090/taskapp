@@ -16,8 +16,9 @@ import { wikiTools } from './wiki.js'
 import { minutesTools } from './minutes.js'
 import { schedulingTools } from './scheduling.js'
 import { fileTools } from './files.js'
+import { voteTools } from './votes.js'
 
-export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools]
+export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools, ...voteTools]
 
 /** MCP の tools/list が返す1件分の形 */
 export interface ToolListEntry {
