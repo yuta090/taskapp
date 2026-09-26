@@ -92,3 +92,17 @@ describe('useMyDocInsertions の保険', () => {
     expect(fetchDocInsertions).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('useMyDocInsertions（Wiki）', () => {
+  it('Wiki のページでも読み・作る。知らせは wiki-page-view に送る', async () => {
+    const { result } = renderHook(() => useMyDocInsertions({ wikiPageId: 'w1' }), { wrapper: wrapper() })
+    await waitFor(() =>
+      expect(fetchDocInsertions).toHaveBeenCalledWith(expect.anything(), { wikiPageId: 'w1' }, ['pending', 'applied', 'remove_requested'])
+    )
+    await act(async () => {
+      await result.current.create('paragraph', '足す', null)
+    })
+    expect(createDocInsertion).toHaveBeenCalledWith(expect.anything(), { source: { wikiPageId: 'w1' }, kind: 'paragraph', content: '足す', anchor: null })
+    expect(sent).toContain('wiki-page-view:w1|insertion-changed')
+  })
+})

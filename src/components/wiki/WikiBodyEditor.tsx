@@ -44,6 +44,8 @@ interface WikiBodyEditorProps {
     wikiPageId: string
     currentUserId: string | null
     nameOf: (userId: string) => string
+    /** 相手先の差し込みをこの画面で本文に取り込むか（WikiEditor の poll.applyInsertions へそのまま渡す） */
+    applyInsertions?: boolean
   }
   /** 見出しのリンクに添えるページ名。渡したときだけ見出しの「リンクをコピー」を載せる（WikiEditor に素通し） */
   headingLinkTitle?: string
