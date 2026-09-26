@@ -1,10 +1,11 @@
 'use client'
 
-import { Fragment, useMemo, type ReactNode } from 'react'
+import { Fragment, useContext, useMemo, useState, type ReactNode } from 'react'
 import { CheckSquare, Square } from '@phosphor-icons/react'
 import {
   MEETING_NOTE_TYPE,
   parseMinutesMarkdown,
+  serializeMinutesBlocks,
   TASK_MARKER_TYPE,
   TOGGLE_TYPE,
   type MinutesBlock,
@@ -20,6 +21,10 @@ import { formatNoteStampLabel, normalizeNoteAuthor } from '@/lib/minutes/noteSta
 import { DocPollBlock } from '@/components/editor/docPoll/DocPollContext'
 import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
 import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
+import { DocInsertionView } from '@/components/editor/docInsertion/DocInsertionView'
+import { DOC_INSERTION_TYPE, type DocInsertion, type DocInsertionKind } from '@/lib/doc-insertions/logic'
+import { PortalInsertionContext, type PortalInsertionContextValue } from './PortalInsertionContext'
+import { InsertionComposer, PendingInsertion } from './PortalInsertionParts'
 
 /**
  * このアプリのホスト名。社内の人がアドレスバーからコピーした絶対URL
@@ -321,6 +326,12 @@ function renderBlock(block: MinutesBlock, key: React.Key, isFirst: boolean): Rea
       return renderToggle(block, key)
     case MEETING_NOTE_TYPE:
       return renderMeetingNote(block, key)
+    case DOC_INSERTION_TYPE:
+      return (
+        <div key={key} className="my-2 text-sm text-gray-700 leading-[1.8]">
+          <InsertionBlock block={block} />
+        </div>
+      )
     case DOC_POLL_TYPE:
       // 投票。押せるかどうか・票は、外側の DocPollHost が配るもので決まる（無ければ「この画面では投票できません」）
       return (
@@ -380,12 +391,162 @@ export interface PortalMinutesDocumentProps {
   md: string
 }
 
+/**
+ * 本文に入った「相手先が足した行・メモ」。自分が足したもので反映済みなら「削除」（消してもらう）を出す。
+ */
+function InsertionBlock({ block }: { block: MinutesBlock }) {
+  const ctx = useContext(PortalInsertionContext)
+  const props = (block.props ?? {}) as Record<string, unknown>
+  const id = typeof props.insertionId === 'string' ? props.insertionId : ''
+  const mine = ctx?.rows.find((r) => r.id === id)
+  return (
+    <DocInsertionView
+      kind={props.kind === 'meeting_note' ? 'meeting_note' : 'paragraph'}
+      author={typeof props.author === 'string' ? props.author : ''}
+      createdAt={typeof props.createdAt === 'string' ? props.createdAt : ''}
+      badge={
+        mine?.status === 'remove_requested' ? <span className="rounded bg-gray-100 px-1 text-gray-500">削除待ち</span> : undefined
+      }
+      actions={
+        mine?.status === 'applied' ? (
+          <button type="button" onClick={() => void ctx?.withdraw(id)} className="text-gray-500 hover:underline">
+            削除
+          </button>
+        ) : undefined
+      }
+    >
+      {renderInline(Array.isArray(block.content) ? block.content : [])}
+    </DocInsertionView>
+  )
+}
+
+/** 最上位の1まとまり（見出し・段落・箇条書きのまとまり など）と、その後ろに足すときの目印 */
+interface RootUnit {
+  node: ReactNode
+  /** この後ろに足すときに送る、そのまとまりの最後の行の Markdown（社内の画面が同じ行を探す） */
+  anchor: string
+}
+
+function buildRootUnits(original: readonly MinutesBlock[], shown: readonly MinutesBlock[]): RootUnit[] {
+  const units: RootUnit[] = []
+  let i = 0
+  while (i < shown.length) {
+    const type = shown[i].type
+    const start = i
+    if (isListItemType(type)) {
+      while (i < shown.length && shown[i].type === type) i++
+    } else {
+      i++
+    }
+    const node = isListItemType(type)
+      ? renderListGroup(type, shown.slice(start, i), units.length)
+      : renderBlock(shown[start], units.length, units.length === 0)
+    let anchor = ''
+    try {
+      anchor = serializeMinutesBlocks([original[i - 1]]).trim()
+    } catch {
+      anchor = ''
+    }
+    units.push({ node, anchor })
+  }
+  return units
+}
+
+/**
+ * 書き足せる本文（相手先ポータルの議事録・DOC_VOTE_SPEC §5）。まとまりごとに「＋」を出し、押すとその下に欄を開く。
+ * 自分の差し込みで本文にまだ出ていないもの（反映待ち・反映済みだが本文が古い）は、足した場所の後ろに重ねて出す。
+ * 足した場所が見つからないもの（そのあとで行が書き換えられた）は末尾に出す。
+ */
+function InsertableDocument({
+  original,
+  shown,
+  ctx,
+}: {
+  original: readonly MinutesBlock[]
+  shown: readonly MinutesBlock[]
+  ctx: PortalInsertionContextValue
+}) {
+  const [openAt, setOpenAt] = useState<number | 'end' | null>(null)
+  const units = useMemo(() => buildRootUnits(original, shown), [original, shown])
+  const inBody = useMemo(() => {
+    const ids = new Set<string>()
+    const walk = (blocks: readonly MinutesBlock[]) => {
+      for (const b of blocks) {
+        const id = (b.props as Record<string, unknown> | undefined)?.insertionId
+        if (b.type === DOC_INSERTION_TYPE && typeof id === 'string') ids.add(id)
+        if (b.children?.length) walk(b.children)
+      }
+    }
+    walk(original)
+    return ids
+  }, [original])
+  const overlay = ctx.rows.filter(
+    (r) => (r.status === 'pending' || r.status === 'applied') && !inBody.has(r.id)
+  )
+  const anchors = new Set(units.map((u) => u.anchor))
+  const at = (anchor: string) => overlay.filter((r) => r.anchor !== null && r.anchor.trim() === anchor)
+  const atEnd = overlay.filter((r) => r.anchor === null || !anchors.has(r.anchor.trim()))
+
+  const submit = (anchor: string | null) => async (kind: DocInsertionKind, content: string) => {
+    await ctx.create(kind, content, anchor)
+    setOpenAt(null)
+  }
+  const pendingList = (rows: DocInsertion[]) =>
+    rows.map((r) => <PendingInsertion key={r.id} row={r} onWithdraw={(id) => void ctx.withdraw(id)} />)
+
+  return (
+    <div>
+      {units.map((unit, idx) => (
+        <div key={idx} className="group relative pr-7">
+          {unit.node}
+          <button
+            type="button"
+            aria-label="この後ろに書き足す"
+            title="この後ろに書き足す"
+            onClick={() => setOpenAt(idx)}
+            // スマホは乗せる操作が無いので薄く出しておく。PC は乗せたときだけ
+            className="absolute right-0 top-1 rounded px-1.5 text-sm text-gray-400 opacity-60 hover:bg-gray-100 hover:text-gray-600 md:opacity-0 md:group-hover:opacity-100"
+          >
+            ＋
+          </button>
+          {pendingList(at(unit.anchor))}
+          {openAt === idx && <InsertionComposer onSubmit={submit(unit.anchor)} onCancel={() => setOpenAt(null)} />}
+        </div>
+      ))}
+      {pendingList(atEnd)}
+      {openAt === 'end' ? (
+        <InsertionComposer onSubmit={submit(null)} onCancel={() => setOpenAt(null)} />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpenAt('end')}
+          className="mt-3 rounded border border-dashed border-gray-300 px-3 py-1 text-xs text-gray-500 hover:bg-gray-50"
+        >
+          ＋ 行・メモを足す
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function PortalMinutesDocument({ md }: PortalMinutesDocumentProps): ReactNode {
+  const insertion = useContext(PortalInsertionContext)
   // 本文が変わらないかぎり組み立て直さない。議事録が長いと変換は同期で重くなる
   // (実測: 約300KB・4,000ブロックで 17ms。相手先の端末はこれより遅い)ので、
   // 画面のほかの操作による描き直しのたびに走らせない。
+  // 書き足せる画面では、足す場所の目印を作るために元の本文（社内リンクを外す前）も持つ
+  const parsed = useMemo<{ original: MinutesBlock[]; shown: MinutesBlock[] } | null>(() => {
+    if (!insertion || !md || !md.trim()) return null
+    try {
+      const original = parseMinutesMarkdown(md)
+      return { original, shown: stripInternalLinks(original, APP_HOST) }
+    } catch {
+      return null
+    }
+  }, [insertion, md])
+
   const nodes = useMemo<ReactNode[] | null>(() => {
-    if (!md || !md.trim()) return null
+    if (insertion || !md || !md.trim()) return null
     // JSX の組み立て自体は try の外で行う(ESLint react-hooks/error-boundaries の
     // 指摘どおり、try/catch の中で JSX を作っても React のレンダリング時の例外は
     // 捕まえられない)。ここで捕まえたいのは Markdown → ブロック木への変換の失敗。
@@ -395,6 +556,12 @@ export function PortalMinutesDocument({ md }: PortalMinutesDocumentProps): React
       return null
     }
   }, [md])
+
+  if (insertion) {
+    // 本文がまだ無くても、末尾に足す欄は出す（会議中に最初の1行を足せるように）
+    if (parsed) return <InsertableDocument original={parsed.original} shown={parsed.shown} ctx={insertion} />
+    if (!md || !md.trim()) return <InsertableDocument original={[]} shown={[]} ctx={insertion} />
+  }
 
   if (!md || !md.trim()) return null
 

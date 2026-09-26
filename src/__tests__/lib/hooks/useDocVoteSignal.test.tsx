@@ -288,3 +288,23 @@ describe('議事録が保存された知らせ（minutes-saved）', () => {
     expect(ch.send).not.toHaveBeenCalled()
   })
 })
+
+describe('差し込みの知らせと、同じ画面の中への知らせ', () => {
+  it('insertion-changed を受けたら、その文書に登録した人を呼ぶ', async () => {
+    const cb = vi.fn()
+    const off = onDocSignal('meeting-minutes-view:m3', 'insertion-changed', cb)
+    renderHook(() => useDocVoteSignal({ meetingId: 'm3' }, vi.fn()))
+    const ch = await subscribed()
+    act(() => ch.emitBroadcast('insertion-changed'))
+    expect(cb).toHaveBeenCalledTimes(1)
+    off()
+  })
+
+  it('送った知らせは、同じ画面の中で待っている人にも届く（つながっていなくても）', () => {
+    const cb = vi.fn()
+    const off = onDocSignal('meeting-minutes-view:local', 'minutes-saved', cb)
+    sendDocSignal('meeting-minutes-view:local', 'minutes-saved')
+    expect(cb).toHaveBeenCalledTimes(1)
+    off()
+  })
+})

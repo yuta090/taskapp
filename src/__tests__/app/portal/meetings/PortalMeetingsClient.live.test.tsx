@@ -13,6 +13,10 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({ user: { id: 'cli' }, loading: false, error: null }),
 }))
+// 差し込み（PR5）は別のテストで見る。ここでは議事録の読み直しだけを見る
+vi.mock('@/lib/hooks/useMyDocInsertions', () => ({
+  useMyDocInsertions: () => ({ rows: [], create: vi.fn(), withdraw: vi.fn() }),
+}))
 vi.mock('@/components/editor/docPoll/DocPollHost', () => ({
   DocPollHost: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))

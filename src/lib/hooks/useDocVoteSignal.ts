@@ -23,10 +23,11 @@ const SIGNAL_EVENT = 'vote-changed'
  * 同じチャネルに相乗りするほかの知らせ。同じ名前のチャネルを2本開くと互いに閉じ合うので、
  * 道は1本のまま知らせの種類で振り分ける。
  * - minutes-saved: 議事録が保存された（書記が保存のあとに送る。相手先ポータルが本文を読み直す・PR4）
+ * - insertion-changed: 相手先の差し込みの台帳が変わった（作った・取り下げた・反映した。PR5）
  * - subscribed   : （送らない・この画面の中だけ）チャネルにつながった。つながる前の分を読み直す合図
  */
-export type DocSignalEvent = 'minutes-saved' | 'subscribed'
-const EXTRA_EVENTS: readonly DocSignalEvent[] = ['minutes-saved']
+export type DocSignalEvent = 'minutes-saved' | 'insertion-changed' | 'subscribed'
+const EXTRA_EVENTS: readonly DocSignalEvent[] = ['minutes-saved', 'insertion-changed']
 
 function dispatchLocal(topic: string, event: DocSignalEvent) {
   listeners.get(listenerKey(topic, event))?.forEach((cb) => cb())
@@ -52,6 +53,9 @@ export function onDocSignal(topic: string, event: DocSignalEvent, cb: () => void
 
 /** その文書のチャネルで知らせを送る。つながっていなければ何もしない（画面は壊さない） */
 export function sendDocSignal(topic: string, event: DocSignalEvent): void {
+  // 同じ画面の中で待っている人にも届ける（自分の合図はチャネルから戻ってこない。self: false）。
+  // 例: 社内の画面が保存したあと、同じ画面の差し込みの取り込みが「反映済み」の確認を回す
+  dispatchLocal(topic, event)
   const ch = liveChannels.get(topic)
   if (!ch) return
   void Promise.resolve(ch.send({ type: 'broadcast', event, payload: {} })).catch((err) => {
