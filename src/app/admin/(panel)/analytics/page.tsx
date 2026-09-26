@@ -48,7 +48,7 @@ function formatDateTime(iso: string | null): string {
 }
 
 async function fetchAnalyticsData(period: (typeof PERIODS)[number]) {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
   const nowMs = Date.now()
   const nowDate = new Date(nowMs)
 

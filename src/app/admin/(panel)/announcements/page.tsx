@@ -9,7 +9,7 @@ export default async function AdminAnnouncementsPage() {
   const currentUserId = await verifySuperadmin()
   if (!currentUserId) redirect('/admin/login')
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: currentUserId })
 
   const [announcementsResult, orgsResult] = await Promise.all([
     admin

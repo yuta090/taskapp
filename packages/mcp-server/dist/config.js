@@ -56,12 +56,24 @@ export function runWithAuthContext(ctx, fn) {
  * リクエストのストア → stdio のプロセス全体 の順に見て、どちらも無ければ例外。
  */
 export function getAuthContext() {
+    const ctx = getAuthContextOrNull();
+    if (ctx)
+        return ctx;
+    throw new Error(AUTH_REASON_LABELS.noAuthContext);
+}
+/**
+ * getAuthContext() の例外を投げない版。
+ * supabase/client.ts の getSupabaseClient() が「今の呼び出しに紐づく ctx があれば、
+ * その ctx 向けのクライアントを返す。無ければ（スクリプト等）共有のシングルトンを返す」
+ * を選ぶために使う。ツール本体は引き続き getAuthContext()（無ければ即例外）を使うこと。
+ */
+export function getAuthContextOrNull() {
     const fromRequest = authStore.getStore();
     if (fromRequest)
         return fromRequest;
     if (processAuthContext)
         return processAuthContext;
-    throw new Error(AUTH_REASON_LABELS.noAuthContext);
+    return null;
 }
 // =============================================================================
 // APIキーの検証
@@ -70,7 +82,7 @@ export function getAuthContext() {
  * API キーを検証して認証コンテキストを作って返す（グローバルは書き換えない）。
  * 呼び出し元が runWithAuthContext に渡す。
  */
-export async function resolveAuthContext(apiKey) {
+export async function resolveAuthContext(apiKey, channel = 'cli') {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.rpc('rpc_validate_api_key', { p_api_key: apiKey });
     if (error || !data || data.length === 0) {
@@ -85,7 +97,7 @@ export async function resolveAuthContext(apiKey) {
         allowed_space_ids: row.allowed_space_ids || null,
         allowed_actions: row.allowed_actions || ['read'],
         space_id: row.space_id || null,
-    });
+    }, channel);
 }
 /**
  * OAuth の合鍵（の控え）から認証コンテキストを作る。
@@ -93,7 +105,7 @@ export async function resolveAuthContext(apiKey) {
  * 生のAPIキーを見る rpc_validate_api_key と別の関数にしてあるので、OAuth の合鍵は
  * /api/mcp でしか通らない（CLI 用の /api/tools は生のAPIキーしか受け付けない）。
  */
-export async function resolveAuthContextFromOAuthToken(tokenHash) {
+export async function resolveAuthContextFromOAuthToken(tokenHash, channel = 'mcp') {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.rpc('rpc_validate_oauth_token', { p_token_hash: tokenHash });
     if (error || !data || data.length === 0) {
@@ -108,7 +120,7 @@ export async function resolveAuthContextFromOAuthToken(tokenHash) {
         allowed_space_ids: row.allowed_space_ids || null,
         allowed_actions: row.allowed_actions || ['read'],
         space_id: row.space_id || null,
-    });
+    }, channel);
 }
 /**
  * stdio サーバーの起動時に1回だけ呼ぶ。プロセス全体のコンテキストを決める。
@@ -121,7 +133,7 @@ export async function initializeAuth() {
         process.exit(1);
     }
     try {
-        processAuthContext = await resolveAuthContext(apiKey);
+        processAuthContext = await resolveAuthContext(apiKey, 'stdio');
     }
     catch (e) {
         console.error('FATAL: API key validation failed:', e instanceof Error ? e.message : String(e));

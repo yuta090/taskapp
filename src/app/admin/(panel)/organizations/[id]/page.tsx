@@ -21,7 +21,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * 通知は最新 N 件（org_id, created_at の索引あり）、タスク・API キーは件数だけ（head count）。
  */
 async function fetchOrgDetail(orgId: string): Promise<OrgDetail | null> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
 
   const [
     orgResult,
