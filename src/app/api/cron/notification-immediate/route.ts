@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ candidateCount: 0, emailsSent: 0, errors: [], skipped: 'quiet_hours' })
     }
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'cron' }) as SupabaseClient
     const cutoff = new Date(nowReal.getTime() - IMMEDIATE_MAX_AGE_MINUTES * 60 * 1000)
 
     const { data: notifRows, error: notifError } = await admin

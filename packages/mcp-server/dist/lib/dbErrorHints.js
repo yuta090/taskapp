@@ -24,7 +24,7 @@ export function hideDbErrorWithHint(error, context, fallbackMessage) {
     console.error(`${context} failed:`, error.code, error.message);
     const hint = PG_ERROR_HINTS[error.code ?? ''];
     if (hint)
-        return new ToolUserError(hint.message, hint.status);
-    return new Error(fallbackMessage);
+        return new ToolUserError(hint.message, hint.status, { cause: error });
+    return new Error(fallbackMessage, { cause: error });
 }
 //# sourceMappingURL=dbErrorHints.js.map

@@ -17,7 +17,7 @@ import { HeadingLinks, type HeadingLinksEditor } from '@/components/editor/Headi
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { CheckCircle, Checks, Flag, ListBullets, NotePencil, User } from '@phosphor-icons/react'
+import { CheckCircle, CheckSquareOffset, Checks, Flag, ListBullets, NotePencil, User } from '@phosphor-icons/react'
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { seedMinutesDoc } from '@/lib/collab/seed'
@@ -26,6 +26,7 @@ import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
+import { useInPlaceLinkOpener } from '@/components/editor/inPlaceLinkOpener'
 import { useEditorClickBehaviors } from '@/components/editor/editorClickBehaviors'
 import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
@@ -66,6 +67,10 @@ import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
 import { completeFailureMessage } from '@/lib/minutes/taskActions'
 import { MinutesCompleteError } from '@/lib/hooks/useMinutesTaskActions'
 import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
+import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
+import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
+import { docPollSpec } from '@/components/editor/docPoll/docPollBlock'
+import { MeetingDocPollHost } from '@/components/editor/docPoll/MeetingDocPollHost'
 
 /**
  * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
@@ -143,6 +148,11 @@ interface MinutesEditorProps {
    * URL の `#` での移動を載せる
    */
   headingLinkTitle?: string
+  /**
+   * この議事録の会議の id。渡すと投票ブロックが押せる（社内の議事録画面だけが渡す）。
+   * 渡さない画面では「/」に投票を出さず、置いてある投票は「この画面では投票できません」と出す。
+   */
+  meetingId?: string
 }
 
 /**
@@ -197,10 +207,13 @@ export function TaskMarkerChip({ taskId, orgId, spaceId, resolverRef }: TaskMark
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const goToTask = useCallback(
-    () => router.push(buildTaskHref(orgId, spaceId, encodeURIComponent(taskId))),
-    [router, orgId, spaceId, taskId]
-  )
+  // 議事録画面が「その場で開く」受け口を用意していれば、画面を移らず右パネルで開く
+  const inPlaceOpener = useInPlaceLinkOpener()
+  const goToTask = useCallback(() => {
+    const href = buildTaskHref(orgId, spaceId, encodeURIComponent(taskId))
+    if (inPlaceOpener?.(href)) return
+    router.push(href)
+  }, [router, inPlaceOpener, orgId, spaceId, taskId])
 
   const load = useCallback(async () => {
     const resolver = getResolver()
@@ -415,6 +428,8 @@ function useMinutesSchema(
         [MEETING_NOTE_TYPE]: meetingNoteSpec,
         [TOC_TYPE]: tableOfContentsSpec,
         [DIVIDER_TYPE]: dividerSpec,
+        // 投票。Markdown では `<!--vote:番号-->議題`（DOC_VOTE_SPEC §3.2）
+        [DOC_POLL_TYPE]: docPollSpec,
       },
       styleSpecs: {
         bold: defaultStyleSpecs.bold,
@@ -450,6 +465,7 @@ function MinutesEditorImpl({
   registerApi,
   onResolveTask,
   noteAuthorName,
+  meetingId,
   collaboration,
   isApplyingRemote,
   headingLinkTitle,
@@ -587,10 +603,45 @@ function MinutesEditorImpl({
     editor.focus()
   }, [editor])
 
+  /** 今の行を投票にする。番号はここで作り、DB の投票は MeetingDocPollHost が作る */
+  const insertPoll = useCallback(
+    (reasonRequired: DocPollReasonRequired) => {
+      insertOrUpdateBlockForSlashMenu(editor, {
+        type: DOC_POLL_TYPE,
+        props: { pollId: crypto.randomUUID(), reasonRequired },
+      })
+      editor.focus()
+    },
+    [editor]
+  )
+  const hasPoll = meetingId != null
+
   const getSlashMenuItems = useCallback(
     async (query: string) =>
       filterSuggestionItems(
         [
+          ...(hasPoll
+            ? [
+                {
+                  key: 'insert_vote',
+                  title: '投票',
+                  subtext: 'OK・NG・保留を押してもらい、誰が押したかを残す',
+                  aliases: ['vote', 'v', 'poll', 'ok', 'ng', 'touhyou', 'とうひょう', '投票'],
+                  group: jaLocale.slash_menu.paragraph.group,
+                  icon: <CheckSquareOffset size={18} />,
+                  onItemClick: () => insertPoll('none'),
+                },
+                {
+                  key: 'insert_vote_must',
+                  title: '投票（理由必須）',
+                  subtext: 'NG と保留は理由を書かないと押せない',
+                  aliases: ['votemust', 'vote-must', 'must', 'hissu', 'ひっす', '必須', '投票必須'],
+                  group: jaLocale.slash_menu.paragraph.group,
+                  icon: <CheckSquareOffset size={18} weight="fill" />,
+                  onItemClick: () => insertPoll('ng_hold'),
+                },
+              ]
+            : []),
           // 会議中にいちばん使うので先頭に置く（ユーザー要望・2026-09-15）
           {
             key: 'insert_meeting_note',
@@ -629,7 +680,7 @@ function MinutesEditorImpl({
         ],
         query
       ),
-    [editor, openLinkPicker, insertMeetingNote, insertToc]
+    [editor, openLinkPicker, insertMeetingNote, insertToc, insertPoll, hasPoll]
   )
 
   /**
@@ -818,27 +869,37 @@ function MinutesEditorImpl({
     [setChecked, isApplyingRemote]
   )
 
+  const editorView = (
+    <BlockNoteView
+      editor={editor}
+      editable={mountEditable}
+      onChange={() => {
+        const markdown = serializeMinutesBlocks(editor.document)
+        handleCheckboxCompletion(markdown)
+        onChange?.(markdown)
+      }}
+      theme={isDark ? 'dark' : 'light'}
+      slashMenu={false}
+    >
+      {/* 既定のメニューの代わりに、Markdown で往復できる項目だけに絞ったメニューを置く。
+          行の左の「＋」もこのメニューを開くので、これを外すと「＋」も押して何も起きなくなる。
+          読み取り専用のときは差し込めないので置かない */}
+      {effectiveEditable && (
+        <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
+      )}
+    </BlockNoteView>
+  )
+
   return (
     // relative: 見出しのリンクボタンを本文の上に重ねて置く基準
     <div className="minutes-editor relative" data-testid="minutes-editor" ref={editorContainerRef}>
-      <BlockNoteView
-        editor={editor}
-        editable={mountEditable}
-        onChange={() => {
-          const markdown = serializeMinutesBlocks(editor.document)
-          handleCheckboxCompletion(markdown)
-          onChange?.(markdown)
-        }}
-        theme={isDark ? 'dark' : 'light'}
-        slashMenu={false}
-      >
-        {/* 既定のメニューの代わりに、Markdown で往復できる項目だけに絞ったメニューを置く。
-            行の左の「＋」もこのメニューを開くので、これを外すと「＋」も押して何も起きなくなる。
-            読み取り専用のときは差し込めないので置かない */}
-        {effectiveEditable && (
-          <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
-        )}
-      </BlockNoteView>
+      {meetingId ? (
+        <MeetingDocPollHost editor={editor as never} meetingId={meetingId} spaceId={spaceId} editable={effectiveEditable}>
+          {editorView}
+        </MeetingDocPollHost>
+      ) : (
+        editorView
+      )}
       {headingLinkTitle !== undefined && (
         <HeadingLinks
           editor={editor as unknown as HeadingLinksEditor}

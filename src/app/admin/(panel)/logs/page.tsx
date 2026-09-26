@@ -4,7 +4,7 @@ import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import LogsPageClient, { type AuditLogRow, type TaskEventRow, type AuthEventLogRow } from './LogsPageClient'
 
 async function fetchLogsData(): Promise<{ auditLogs: AuditLogRow[]; taskEvents: TaskEventRow[]; authEventLogs: AuthEventLogRow[] }> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
 
   const [logsResult, eventsResult, authResult] = await Promise.all([
     admin

@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       url.searchParams.get('recipientOverride') ||
       (typeof body.recipientOverride === 'string' ? body.recipientOverride : null)
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'cron' }) as SupabaseClient
     // 絶対時刻は本物の現在時刻を使う（window計算・保存用）。jstNow は曜日成分の判定にのみ使う
     // （jstNow の絶対時刻はオフセットしており記録に使ってはいけない）。
     const nowReal = new Date()

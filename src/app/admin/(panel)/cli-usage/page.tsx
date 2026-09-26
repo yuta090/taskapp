@@ -1,8 +1,10 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import { mapWithConcurrency, EMAIL_LOOKUP_CONCURRENCY } from '@/lib/admin/concurrency'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+import { formatErrorDetail, sourceLabel } from '@/lib/cli-usage/adminFormat'
 
 interface UsageLog {
   id: string
@@ -14,6 +16,20 @@ interface UsageLog {
   org_id: string
   user_id: string | null
   api_key_id: string | null
+}
+
+/** 「直近のログ」表だけで使う、原因の詳細つきの行 */
+interface RecentUsageLog {
+  id: string
+  tool_name: string
+  status: string
+  error_message: string | null
+  error_detail: Record<string, unknown> | null
+  response_ms: number | null
+  created_at: string
+  org_id: string
+  user_id: string | null
+  source: string
 }
 
 interface OrgRow {
@@ -113,13 +129,25 @@ function formatDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-async function fetchCliUsageData() {
-  const admin = createAdminClient()
+async function fetchCliUsageData(statusFilter: 'all' | 'error') {
+  const admin = createAdminClient({ channel: 'admin' })
   const nowMs = Date.now()
   const thirtyDaysAgo = new Date(nowMs - 30 * 86400000)
 
-  // Fetch logs, orgs, profiles in parallel
-  const [logsResult, orgsResult, profilesResult] = await Promise.all([
+  // 「直近のログ」表だけ error_detail(jsonb)・source を含む別クエリにする（5000件の集計クエリを重くしないため）
+  let recentQuery = admin
+    .from('cli_usage_logs')
+    .select('id, tool_name, status, error_message, error_detail, response_ms, created_at, org_id, user_id, source')
+    .gte('created_at', thirtyDaysAgo.toISOString())
+    .order('created_at', { ascending: false })
+  if (statusFilter === 'error') {
+    recentQuery = recentQuery.eq('status', 'error').limit(100)
+  } else {
+    recentQuery = recentQuery.limit(50)
+  }
+
+  // Fetch logs, orgs, profiles, recent logs in parallel
+  const [logsResult, orgsResult, profilesResult, recentResult] = await Promise.all([
     admin
       .from('cli_usage_logs')
       .select('id, tool_name, status, error_message, response_ms, created_at, org_id, user_id, api_key_id')
@@ -128,9 +156,11 @@ async function fetchCliUsageData() {
       .limit(5000),
     admin.from('organizations').select('id, name'),
     admin.from('profiles').select('id, display_name'),
+    recentQuery,
   ])
 
   const logs = (logsResult.data ?? []) as UsageLog[]
+  const recentRows = (recentResult.data ?? []) as RecentUsageLog[]
   const orgMap = new Map<string, string>()
   ;(orgsResult.data as OrgRow[] | null)?.forEach((o) => orgMap.set(o.id, o.name))
   const profileMap = new Map<string, string>()
@@ -140,7 +170,8 @@ async function fetchCliUsageData() {
 
   // 表示名が無い人だけ、メールを管理用の鍵(admin.auth.admin)で補う
   // （profilesにemail列は無い。メールの正はauth.users）
-  const userIdsMissingName = [...new Set(logs.map((l) => l.user_id).filter((id): id is string => !!id))].filter(
+  const allUserIds = [...logs.map((l) => l.user_id), ...recentRows.map((l) => l.user_id)]
+  const userIdsMissingName = [...new Set(allUserIds.filter((id): id is string => !!id))].filter(
     (id) => !profileMap.has(id)
   )
   const missingNameEmails = await mapWithConcurrency(
@@ -195,12 +226,14 @@ async function fetchCliUsageData() {
     .slice(0, 10)
     .map(([orgId, count]) => ({ name: orgMap.get(orgId) ?? orgId.slice(0, 8), count }))
 
-  // Recent logs (latest 50)
-  const recentLogs = logs.slice(0, 50).map((l) => ({
+  // Recent logs（既定は直近50件。「エラーだけ」に絞ると直近100件のエラー行）
+  const recentLogs = recentRows.map((l) => ({
     id: l.id,
     toolName: l.tool_name,
     status: l.status,
     errorMessage: l.error_message,
+    errorDetailText: formatErrorDetail(l.error_detail),
+    source: l.source,
     responseMs: l.response_ms,
     createdAt: l.created_at,
     orgName: orgMap.get(l.org_id) ?? l.org_id.slice(0, 8),
@@ -219,11 +252,18 @@ async function fetchCliUsageData() {
   }
 }
 
-export default async function AdminCliUsagePage() {
+export default async function AdminCliUsagePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>
+}) {
   // (panel) layout でも門番を通しているが、service role でデータを取るページなので
   // データ取得の直前でも確認する（Next.js の推奨: 認可はデータ源の近くで）。
   const currentUserId = await verifySuperadmin()
   if (!currentUserId) redirect('/admin/login')
+
+  const { status } = await searchParams
+  const statusFilter: 'all' | 'error' = status === 'error' ? 'error' : 'all'
 
   const {
     totalCount,
@@ -234,7 +274,7 @@ export default async function AdminCliUsagePage() {
     commandRanking,
     orgRanking,
     recentLogs,
-  } = await fetchCliUsageData()
+  } = await fetchCliUsageData(statusFilter)
 
   const maxDaily = Math.max(1, ...dailyEntries.map(([, c]) => c))
   const maxCommand = Math.max(1, ...commandRanking.map(([, c]) => c))
@@ -339,12 +379,35 @@ export default async function AdminCliUsagePage() {
       </div>
 
       {/* Recent Logs Table */}
-      <h2 className="text-sm font-medium text-gray-700 mb-3">直近のログ</h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-medium text-gray-700">
+          直近のログ{statusFilter === 'error' && '（エラーだけ・最新100件）'}
+        </h2>
+        <div className="inline-flex rounded-lg border border-gray-200 bg-surface p-0.5">
+          <Link
+            href="/admin/cli-usage"
+            className={`px-3 py-1 text-xs rounded-md ${
+              statusFilter === 'all' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            すべて
+          </Link>
+          <Link
+            href="/admin/cli-usage?status=error"
+            className={`px-3 py-1 text-xs rounded-md ${
+              statusFilter === 'error' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            エラーだけ
+          </Link>
+        </div>
+      </div>
       <div className="bg-surface border border-gray-200 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">時刻</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">口</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">組織</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">ユーザー</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">機能</th>
@@ -355,36 +418,45 @@ export default async function AdminCliUsagePage() {
           <tbody>
             {recentLogs.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                   まだログがありません
                 </td>
               </tr>
             )}
             {recentLogs.map((log) => (
               <tr key={log.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap">
+                <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap align-top">
                   {new Date(log.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
                 </td>
-                <td className="px-4 py-2 text-gray-700">{log.orgName}</td>
-                <td className="px-4 py-2 text-gray-700">{log.userName}</td>
-                <td className="px-4 py-2 text-gray-700" title={log.toolName}>
+                <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap align-top">{sourceLabel(log.source)}</td>
+                <td className="px-4 py-2 text-gray-700 align-top">{log.orgName}</td>
+                <td className="px-4 py-2 text-gray-700 align-top">{log.userName}</td>
+                <td className="px-4 py-2 text-gray-700 align-top" title={log.toolName}>
                   {getToolLabel(log.toolName)}
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2 align-top">
                   {log.status === 'success' ? (
                     <span className="inline-flex items-center text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
                       OK
                     </span>
                   ) : (
-                    <span
-                      className="inline-flex items-center text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full cursor-help"
-                      title={log.errorMessage ?? ''}
-                    >
-                      Error
-                    </span>
+                    <div className="space-y-1">
+                      <span className="inline-flex items-center text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
+                        Error
+                      </span>
+                      {log.errorMessage && <p className="text-xs text-red-700">{log.errorMessage}</p>}
+                      {log.errorDetailText && (
+                        <details>
+                          <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">詳細</summary>
+                          <pre className="mt-1 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 whitespace-pre-wrap break-all max-w-md">
+                            {log.errorDetailText}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
                   )}
                 </td>
-                <td className="px-4 py-2 text-xs text-gray-500 text-right whitespace-nowrap">
+                <td className="px-4 py-2 text-xs text-gray-500 text-right whitespace-nowrap align-top">
                   {log.responseMs != null ? `${log.responseMs}ms` : '-'}
                 </td>
               </tr>

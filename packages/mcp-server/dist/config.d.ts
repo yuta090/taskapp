@@ -1,4 +1,4 @@
-import type { AuthContext, ActionType } from './auth/authorize.js';
+import type { AuthContext, ActionType, Channel } from './auth/authorize.js';
 export interface McpServerConfig {
     supabaseUrl: string;
     supabaseServiceKey: string;
@@ -16,17 +16,24 @@ export declare function runWithAuthContext<T>(ctx: AuthContext, fn: () => Promis
  */
 export declare function getAuthContext(): AuthContext;
 /**
+ * getAuthContext() の例外を投げない版。
+ * supabase/client.ts の getSupabaseClient() が「今の呼び出しに紐づく ctx があれば、
+ * その ctx 向けのクライアントを返す。無ければ（スクリプト等）共有のシングルトンを返す」
+ * を選ぶために使う。ツール本体は引き続き getAuthContext()（無ければ即例外）を使うこと。
+ */
+export declare function getAuthContextOrNull(): AuthContext | null;
+/**
  * API キーを検証して認証コンテキストを作って返す（グローバルは書き換えない）。
  * 呼び出し元が runWithAuthContext に渡す。
  */
-export declare function resolveAuthContext(apiKey: string): Promise<AuthContext>;
+export declare function resolveAuthContext(apiKey: string, channel?: Channel): Promise<AuthContext>;
 /**
  * OAuth の合鍵（の控え）から認証コンテキストを作る。
  *
  * 生のAPIキーを見る rpc_validate_api_key と別の関数にしてあるので、OAuth の合鍵は
  * /api/mcp でしか通らない（CLI 用の /api/tools は生のAPIキーしか受け付けない）。
  */
-export declare function resolveAuthContextFromOAuthToken(tokenHash: string): Promise<AuthContext>;
+export declare function resolveAuthContextFromOAuthToken(tokenHash: string, channel?: Channel): Promise<AuthContext>;
 /**
  * stdio サーバーの起動時に1回だけ呼ぶ。プロセス全体のコンテキストを決める。
  * HTTP からは呼ばないこと（resolveAuthContext + runWithAuthContext を使う）。
@@ -34,6 +41,6 @@ export declare function resolveAuthContextFromOAuthToken(tokenHash: string): Pro
 export declare function initializeAuth(): Promise<void>;
 /** テスト専用。プロセス全体のコンテキストを差し替える */
 export declare function __setProcessAuthContextForTest(ctx: AuthContext | null): void;
-export type { AuthContext, ActionType };
+export type { AuthContext, ActionType, Channel };
 export { parseAllowedActions };
 //# sourceMappingURL=config.d.ts.map

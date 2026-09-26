@@ -1188,6 +1188,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
                 onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
                 noteAuthorName={noteAuthorName}
                 headingLinkTitle={meetingTitle}
+                meetingId={meetingId}
                 collaboration={collaboration}
                 isApplyingRemote={isApplyingRemote}
               />

@@ -15,7 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  */
 
 function admin(): SupabaseClient {
-  return createAdminClient() as SupabaseClient
+  return createAdminClient({ channel: 'connector' }) as SupabaseClient
 }
 
 function getEncryptionKey(): string {
