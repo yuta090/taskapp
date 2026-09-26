@@ -65,6 +65,7 @@ export function useDocVoteSignal(source: DocPollSource | null, onSignal: () => v
     }
 
     const scheduleRetry = (status: string) => {
+      if (retryTimer) return
       const delay = RETRY_DELAYS_MS[attempt - 1]
       if (delay === undefined) {
         warnSignal(`合図のチャネルにつながりませんでした (${status})。諦めます`)
@@ -99,6 +100,18 @@ export function useDocVoteSignal(source: DocPollSource | null, onSignal: () => v
       }
       if (disposed) return
 
+      // 同じ名前のチャネルが一覧に残っていると、channel() はそれ（閉じている途中のもの）を返し、
+      // subscribe() が何もしないまま固まる。すぐ開き直したときに起きるので、先に外して待つ
+      const stale = supabase.getChannels().find((c) => c.topic === `realtime:${topic}`)
+      if (stale) {
+        try {
+          await supabase.removeChannel(stale)
+        } catch (err) {
+          warnSignal('残っていたチャネルを外せませんでした', err)
+        }
+        if (disposed) return
+      }
+
       try {
         const created = supabase.channel(topic, {
           // 自分の合図は受け取らない（押した側は自分で読み直している）。受領確認は待たない
@@ -112,11 +125,17 @@ export function useDocVoteSignal(source: DocPollSource | null, onSignal: () => v
         created.subscribe((status) => {
           if (disposed || channel !== created) return
           if (status === 'SUBSCRIBED') {
+            // やり直しの回数は、つながるたびに数え直す（長い会議で何度切れてもやり直す）。
+            // いまつながった回を1回目として数える
+            attempt = 1
             channelRef.current = created
             setConnected(true)
+            // つなぐ前と、切れていた間に押された票は合図が届いていないので、1回読み直す
+            onSignalRef.current()
             return
           }
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // CLOSED はサーバーに閉じられたとき（鍵の期限切れなど）。自分で閉じたときは上で弾いている
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             channelRef.current = null
             setConnected(false)
             scheduleRetry(status)

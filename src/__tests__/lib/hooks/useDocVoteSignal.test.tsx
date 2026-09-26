@@ -11,6 +11,8 @@ type StatusCb = (status: string) => void
 
 let order: string[] = []
 let channels: FakeChannel[] = []
+/** クライアントがまだ一覧に持っているチャネル（閉じている途中のものを含む） */
+let listed: Array<{ topic: string }> = []
 
 interface FakeChannel {
   topic: string
@@ -43,7 +45,9 @@ function createFakeChannel(topic: string, options: FakeChannel['options']): Fake
   return channel
 }
 
-const mockRemoveChannel = vi.fn()
+const mockRemoveChannel = vi.fn(async (ch: { topic: string }) => {
+  listed = listed.filter((c) => c !== ch)
+})
 const mockSetAuth = vi.fn(async (token?: string | null) => {
   order.push(`setAuth:${token}`)
 })
@@ -56,9 +60,11 @@ vi.mock('@/lib/supabase/client', () => ({
     channel: (topic: string, options: FakeChannel['options']) => {
       const ch = createFakeChannel(topic, options)
       channels.push(ch)
+      listed.push({ topic: `realtime:${topic}` })
       return ch
     },
-    removeChannel: (ch: unknown) => mockRemoveChannel(ch),
+    getChannels: () => listed,
+    removeChannel: (ch: { topic: string }) => mockRemoveChannel(ch),
     auth: { getSession: () => mockGetSession() },
     realtime: { setAuth: (token?: string | null) => mockSetAuth(token) },
   }),
@@ -85,6 +91,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   order = []
   channels = []
+  listed = []
 })
 
 afterEach(() => {
@@ -126,6 +133,7 @@ describe('useDocVoteSignal', () => {
     const onSignal = vi.fn()
     renderHook(() => useDocVoteSignal({ meetingId: 'm1' }, onSignal))
     const ch = await subscribed()
+    onSignal.mockClear() // つながったときの読み直しの分
     act(() => ch.emitBroadcast('vote-changed'))
     expect(onSignal).toHaveBeenCalledTimes(1)
   })
@@ -171,5 +179,72 @@ describe('useDocVoteSignal', () => {
     const ch = await subscribed()
     unmount()
     expect(mockRemoveChannel).toHaveBeenCalledWith(ch)
+  })
+
+  it('サーバーに閉じられたら（CLOSED）、つながっていない扱いにしてやり直す', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { result } = renderHook(() => useDocVoteSignal({ meetingId: 'm1' }, vi.fn()))
+    const ch = await subscribed()
+    expect(result.current.connected).toBe(true)
+    act(() => ch.emitStatus('CLOSED'))
+    expect(result.current.connected).toBe(false)
+    act(() => result.current.notify())
+    expect(ch.send).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(2_000) })
+    await flush()
+    expect(channels).toHaveLength(2)
+    warn.mockRestore()
+  })
+
+  it('つながるたびに1回読み直す（つなぐ前・切れていた間の票を拾う）', async () => {
+    const onSignal = vi.fn()
+    renderHook(() => useDocVoteSignal({ meetingId: 'm1' }, onSignal))
+    await subscribed()
+    expect(onSignal).toHaveBeenCalledTimes(1)
+  })
+
+  it('つながったらやり直しの回数を0に戻す（長い会議で何度切れてもやり直す）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderHook(() => useDocVoteSignal({ meetingId: 'm1' }, vi.fn()))
+    for (let round = 0; round < 3; round += 1) {
+      const ch = await subscribed()
+      act(() => ch.emitStatus('CHANNEL_ERROR'))
+      await act(async () => { vi.advanceTimersByTime(2_000) })
+    }
+    await flush()
+    expect(channels).toHaveLength(4)
+    warn.mockRestore()
+  })
+
+  it('同じ名前のチャネルが一覧に残っていたら、外してから作り直す（すぐ開き直したとき）', async () => {
+    listed.push({ topic: 'realtime:wiki-page-view:w1' })
+    const stale = listed[0]
+    renderHook(() => useDocVoteSignal({ wikiPageId: 'w1' }, vi.fn()))
+    await flush()
+    expect(mockRemoveChannel).toHaveBeenCalledWith(stale)
+    expect(channels).toHaveLength(1)
+  })
+
+  it('開いている文書が変わったら、古いチャネルを外して新しい方に入る', async () => {
+    const { rerender } = renderHook(({ id }) => useDocVoteSignal({ wikiPageId: id }, vi.fn()), {
+      initialProps: { id: 'w1' },
+    })
+    const first = await subscribed()
+    rerender({ id: 'w2' })
+    await flush()
+    expect(mockRemoveChannel).toHaveBeenCalledWith(first)
+    expect(channels[channels.length - 1].topic).toBe('wiki-page-view:w2')
+  })
+
+  it('鍵を待っている間に閉じたら、チャネルを作らない', async () => {
+    let resolve: (v: { data: { session: { access_token: string } } }) => void = () => {}
+    mockGetSession.mockImplementationOnce(() => new Promise((r) => { resolve = r }))
+    const { unmount } = renderHook(() => useDocVoteSignal({ meetingId: 'm1' }, vi.fn()))
+    unmount()
+    await act(async () => {
+      resolve({ data: { session: { access_token: 'jwt-self' } } })
+    })
+    await flush()
+    expect(channels).toHaveLength(0)
   })
 })
