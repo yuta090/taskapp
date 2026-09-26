@@ -16,6 +16,7 @@ import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { EditorToolbarButton } from '@/components/editor/EditorToolbarButton'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
+import { useEditorClickBehaviors } from '@/components/editor/editorClickBehaviors'
 import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import type { AppLinkKind } from '@/lib/navigation/appLinks'
 import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE } from '@/lib/minutes/markdown'
@@ -121,6 +122,9 @@ export function WikiEditor({
   // 「書いてよいか」は載せたときの値のまま渡し、以後の変化は載せ直さない道で当てる
   // （変えるとエディタが丸ごと作り直される。理由は useStableEditable の注を参照）
   const mountEditable = useStableEditable(editor, editable)
+
+  // 折りたたみの題名クリックで開閉・表の列の境目のダブルクリックで幅合わせ
+  useEditorClickBehaviors(editorContainerRef, editor)
 
   /**
    * 今の行をメモに変える（空の行なら、その行がそのままメモになる）。
