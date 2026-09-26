@@ -4,7 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { isRemoteTool, isRemoteToolAllowedFor } from '@/lib/mcp/remoteTools'
 import { resolveApiKey, type ResolvedKey } from '@/lib/mcp/resolveApiKey'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { logToolUsage, type ToolAuthInfo } from '@/lib/cli-usage/logToolUsage'
 
 /**
  * リモートMCP の受け口。ChatGPT・Claude のウェブ版・Cursor などの外部チャットがここにつなぐ。
@@ -35,37 +35,15 @@ function unauthorized(request: NextRequest, message: string) {
   )
 }
 
-/** 利用記録（fire-and-forget）。失敗しても応答は止めない */
+/** 利用記録（fire-and-forget）。失敗しても応答は止めない。口の区別は source:'mcp' で付ける */
 function logUsage(
   toolName: string,
   status: 'success' | 'error',
   responseMs: number,
-  info: { keyId: string; orgId: string; userId: string | null; spaceId: string | null } | null,
-  errorMessage?: string,
+  info: ToolAuthInfo | null,
+  error?: unknown,
 ) {
-  if (!info) return
-  try {
-    const admin = createAdminClient()
-    admin
-      .from('cli_usage_logs')
-      .insert({
-        api_key_id: info.keyId === 'dev-key' ? null : info.keyId,
-        org_id: info.orgId,
-        space_id: info.spaceId,
-        user_id: info.userId,
-        tool_name: toolName,
-        status,
-        error_message: errorMessage || null,
-        response_ms: responseMs,
-        // 口の区別。CLI と外部チャットの利用を分けて数えられるようにする
-        source: 'mcp',
-      })
-      .then(({ error }: { error: { message: string } | null }) => {
-        if (error) console.error('cli_usage_logs insert failed:', error.message)
-      })
-  } catch {
-    // 応答を止めない
-  }
+  logToolUsage({ toolName, status, responseMs, info, source: 'mcp', error })
 }
 
 /**
@@ -146,7 +124,7 @@ async function buildServer(ctx: ResolvedKey): Promise<Server> {
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      logUsage(name, 'error', Date.now() - startedAt, authInfo, message)
+      logUsage(name, 'error', Date.now() - startedAt, authInfo, error)
       // 断りの理由（権限・引数・状態）はそのまま AI に見せる。内部の詳細は dispatch 側で伏せてある
       return { content: [{ type: 'text', text: message }], isError: true }
     }

@@ -252,6 +252,8 @@ describe('POST /api/tools', () => {
       space_id: 'space-A',
       tool_name: 'task_list',
       status: 'success',
+      source: 'cli',
+      error_detail: null,
     })
   })
 
@@ -270,6 +272,8 @@ describe('POST /api/tools', () => {
       user_id: null,
       space_id: 'space-B',
       status: 'error',
+      source: 'cli',
+      error_message: '拒否理由',
     })
   })
 
@@ -279,5 +283,29 @@ describe('POST /api/tools', () => {
     await callTools({ tool: 'task_list' })
 
     expect(insertedUsageLogs).toHaveLength(0)
+  })
+
+  // 500に潰した応答(masking)は変えず、原因の詳細(error_detail)は運営画面用のログにだけ残す(2026-09-26)
+  it('logs the real cause to error_detail even though the 500 response stays masked', async () => {
+    dispatchImpl = (_apiKey, _tool, _params, onAuthenticated) => {
+      onAuthenticated?.({ keyId: 'key-C', orgId: 'org-C', userId: 'user-C', spaceId: 'space-C' })
+      const dbError = { code: '42501', message: 'permission denied for table tasks' }
+      return Promise.reject(new Error('unexpected internal failure', { cause: dbError }))
+    }
+
+    const response = await callTools({ tool: 'task_list', params: { spaceId: 'space-C' } })
+    const data = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(data.error).toBe('Internal server error')
+    expect(JSON.stringify(data)).not.toContain('permission denied')
+
+    expect(insertedUsageLogs).toHaveLength(1)
+    expect(insertedUsageLogs[0].error_message).toBe('unexpected internal failure')
+    expect(insertedUsageLogs[0].error_detail).toMatchObject({
+      name: 'Error',
+      message: 'unexpected internal failure',
+      cause: { code: '42501', message: 'permission denied for table tasks' },
+    })
   })
 })
