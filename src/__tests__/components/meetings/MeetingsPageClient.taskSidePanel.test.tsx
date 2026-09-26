@@ -9,6 +9,13 @@ import type { Meeting } from '@/types/database'
 vi.mock('@/components/task/ProjectTaskInspector', () => ({
   ProjectTaskInspector: () => null,
 }))
+const overlayProps = vi.fn()
+vi.mock('@/components/wiki/WikiPageOverlay', () => ({
+  WikiPageOverlay: (props: { pageId: string; onClose: () => void }) => {
+    overlayProps(props)
+    return <div data-testid="wiki-overlay">{props.pageId}</div>
+  },
+}))
 vi.mock('@/components/meeting/MeetingInspector', () => ({
   MeetingInspector: () => null,
 }))
@@ -131,6 +138,7 @@ vi.mock('@/components/meeting/MinutesDocumentView', () => ({
       <div data-testid="minutes-document-view">
         <button onClick={() => { opened = openInPlace?.('/org-1/project/space-1?task=t1') ?? false }}>タスクのリンク</button>
         <button onClick={() => { opened = openInPlace?.('/org-1/project/space-2?task=t9') ?? false }}>別プロジェクトのタスク</button>
+        <button onClick={() => { opened = openInPlace?.('/org-1/project/space-1/wiki?page=w1') ?? false }}>Wikiのリンク</button>
         <span>{props.meeting.title}</span>
         <button onClick={props.onBack}>戻る</button>
         <button onClick={props.onOpenInfo}>情報</button>
@@ -229,5 +237,49 @@ describe('MeetingsPageClient — 議事録の中のタスクを右パネルで�
     rerenderPage()
     fireEvent.click(screen.getByText('タスクのリンク'))
     expect(pushSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+const WIKI_URL = '/org-1/project/space-1/meetings?meeting=m1&wiki=w1'
+
+describe('MeetingsPageClient — 議事録の中の Wiki を重ねて開く', () => {
+  it('本文の Wiki を押すと、画面を移らず URL に wiki を足して履歴を1つ積む', () => {
+    renderPage()
+    fireEvent.click(screen.getByText('Wikiのリンク'))
+    expect(opened).toBe(true)
+    expect(pushSpy).toHaveBeenCalledWith(null, '', WIKI_URL)
+  })
+
+  it('wiki が付いているあいだは、議事録の上に Wiki を重ねて出す', () => {
+    searchParamsValue = 'meeting=m1&wiki=w1'
+    renderPage()
+    expect(screen.getByTestId('wiki-overlay').textContent).toBe('w1')
+    expect(screen.getByTestId('minutes-document-view')).toBeInTheDocument()
+  })
+
+  it('閉じるときは、積んだ履歴を1つ戻す', () => {
+    const { rerenderPage } = renderPage()
+    fireEvent.click(screen.getByText('Wikiのリンク'))
+    searchParamsValue = 'meeting=m1&wiki=w1'
+    rerenderPage()
+    act(() => overlayProps.mock.calls.at(-1)![0].onClose())
+    expect(backSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('リンクから直接開いたときは、閉じると wiki を外すだけ', () => {
+    searchParamsValue = 'meeting=m1&wiki=w1'
+    renderPage()
+    act(() => overlayProps.mock.calls.at(-1)![0].onClose())
+    expect(backSpy).not.toHaveBeenCalled()
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', MINUTES_URL)
+  })
+  it('重ねた Wiki の中からタスクを開くと、Wiki を閉じて右パネルに出す（履歴は積み増さない）', () => {
+    const { rerenderPage } = renderPage()
+    fireEvent.click(screen.getByText('Wikiのリンク'))
+    searchParamsValue = 'meeting=m1&wiki=w1'
+    rerenderPage()
+    fireEvent.click(screen.getByText('タスクのリンク'))
+    expect(pushSpy).toHaveBeenCalledTimes(1)
+    expect(replaceSpy).toHaveBeenLastCalledWith(null, '', TASK_URL)
   })
 })

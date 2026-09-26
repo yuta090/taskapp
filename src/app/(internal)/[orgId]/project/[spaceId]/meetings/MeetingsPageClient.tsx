@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Notebook, NotePencil, CalendarCheck, Plus, CaretDown, FunnelSimple, CalendarBlank, X } from '@phosphor-icons/react'
 import { useInspector, useShellFullscreen } from '@/components/layout'
 import { toast } from 'sonner'
@@ -27,6 +27,7 @@ import { MEETING_QUERY_PARAM, PROPOSAL_QUERY_PARAM } from '@/lib/navigation/meet
 import { parseInAppLinkTarget } from '@/lib/navigation/appLinks'
 import { InPlaceLinkOpenerProvider } from '@/components/editor/inPlaceLinkOpener'
 import { ProjectTaskInspector } from '@/components/task/ProjectTaskInspector'
+import { WikiPageOverlay } from '@/components/wiki/WikiPageOverlay'
 
 interface MeetingsPageClientProps {
   orgId: string
@@ -61,6 +62,8 @@ const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
 const INFO_QUERY_PARAM = 'info'
 // 議事録の中から開いたタスク（右パネル）。タスク一覧のリンク（buildTaskDeepLink）と同じ名前
 const TASK_QUERY_PARAM = 'task'
+// 議事録の中から開いた Wiki（議事録の上に重ねる）
+const WIKI_QUERY_PARAM = 'wiki'
 
 export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) {
   const spaceName = useSpaceName(spaceId)
@@ -129,6 +132,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   // 議事録の中から開いたタスク。会議詳細の代わりに右パネルへ出す（議事録は出したまま）。
   // 情報シートと同じく URL に載せ、「戻る」でパネルだけが閉じるようにする
   const selectedTaskId = searchParams.get(TASK_QUERY_PARAM)
+  const selectedWikiId = searchParams.get(WIKI_QUERY_PARAM)
+  const router = useRouter()
 
   // 会議メモに残す「書いた人」の名前。書ける人が議事録を開いているときだけ読む
   // （会議詳細の MeetingInspector が出ていれば同じ一覧を共有する。全画面などで出ていない
@@ -326,7 +331,13 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       pushedMinutesIdRef.current = meetingId
       // 前の会議で開いていたシート（?info=1）・タスクのパネル（?task=）は持ち越さない
       updateQuery(
-        { meeting: meetingId, proposal: null, [INFO_QUERY_PARAM]: null, [TASK_QUERY_PARAM]: null },
+        {
+          meeting: meetingId,
+          proposal: null,
+          [INFO_QUERY_PARAM]: null,
+          [TASK_QUERY_PARAM]: null,
+          [WIKI_QUERY_PARAM]: null,
+        },
         { push: !alreadyPushed }
       )
     },
@@ -346,7 +357,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const closeMinutesDocument = useCallback(() => {
     setFullscreen(false)
     pushedMinutesIdRef.current = null
-    updateQuery({ meeting: null, [INFO_QUERY_PARAM]: null, [TASK_QUERY_PARAM]: null })
+    updateQuery({ meeting: null, [INFO_QUERY_PARAM]: null, [TASK_QUERY_PARAM]: null, [WIKI_QUERY_PARAM]: null })
   }, [setFullscreen, updateQuery])
 
   // スマホの会議詳細（シート）。開くときに履歴を1つ積み、閉じるときは1つ戻す。
@@ -372,57 +383,110 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     updateQuery({ [INFO_QUERY_PARAM]: null })
   }, [goBack, showInfo, updateQuery])
 
-  // 議事録の中から開いたタスク（右パネル）。会議中に資料を開くたびに画面が移らないようにする。
-  // 開くときに履歴を1つ積み、×では1つ戻す（情報シートと同じ作り。端末・ブラウザの「戻る」で
-  // パネルだけが閉じる）。開いたまま別のタスクへ移るときは積み増さず差し替える
+  // 議事録の中から開いたタスク（右パネル）と Wiki（重ねる）。会議中に資料を開くたびに
+  // 画面が移らないようにする。開くときに履歴を1つ積み、閉じるときは1つ戻す（情報シートと
+  // 同じ作り。端末・ブラウザの「戻る」でパネルだけが閉じる）。開いたまま別のタスク・ページへ
+  // 移るときは積み増さず差し替える
   const pushedTaskRef = useRef(false)
+  const pushedWikiRef = useRef(false)
 
-  const openTaskPanel = useCallback(
-    (taskId: string) => {
-      const alreadyPushed = pushedTaskRef.current
-      pushedTaskRef.current = true
-      updateQuery({ [TASK_QUERY_PARAM]: taskId }, { push: !alreadyPushed })
+  const openStacked = useCallback(
+    (
+      param: string,
+      id: string,
+      pushedRef: { current: boolean },
+      replaces?: { param: string; pushedRef: { current: boolean } }
+    ) => {
+      // replaces: 開くのと同時に閉じるもの。閉じる側が積んだ履歴は、開く側が引き継ぐ
+      // （履歴の数を増やさず、「戻る」1回で議事録に帰れるようにする）
+      const alreadyPushed = pushedRef.current || !!replaces?.pushedRef.current
+      if (replaces) replaces.pushedRef.current = false
+      pushedRef.current = true
+      updateQuery(
+        { [param]: id, ...(replaces ? { [replaces.param]: null } : {}) },
+        { push: !alreadyPushed }
+      )
     },
     [updateQuery]
   )
 
-  const closeTaskPanel = useCallback(() => {
-    if (backInFlightRef.current) return
-    // 履歴を戻すのは「自分で積んだパネルを、いま開いている」ときだけ（closeInfoSheet と同じ）
-    if (pushedTaskRef.current && selectedTaskId) {
-      pushedTaskRef.current = false
-      goBack()
-      return
-    }
-    updateQuery({ [TASK_QUERY_PARAM]: null })
-  }, [goBack, selectedTaskId, updateQuery])
+  const closeStacked = useCallback(
+    (param: string, isOpen: boolean, pushedRef: { current: boolean }) => {
+      if (backInFlightRef.current) return
+      // 履歴を戻すのは「自分で積んだものを、いま開いている」ときだけ（closeInfoSheet と同じ）
+      if (pushedRef.current && isOpen) {
+        pushedRef.current = false
+        goBack()
+        return
+      }
+      updateQuery({ [param]: null })
+    },
+    [goBack, updateQuery]
+  )
 
-  // パネルが閉じたら、履歴を積んだ印を落とす（「戻る」で閉じた場合を含む）
+  // 重ねた Wiki の中からタスクを開いたときは、Wiki を閉じる（右パネルが Wiki の裏に隠れるため）
+  const openTaskPanel = useCallback(
+    (taskId: string) =>
+      openStacked(
+        TASK_QUERY_PARAM,
+        taskId,
+        pushedTaskRef,
+        selectedWikiId ? { param: WIKI_QUERY_PARAM, pushedRef: pushedWikiRef } : undefined
+      ),
+    [openStacked, selectedWikiId]
+  )
+  const closeTaskPanel = useCallback(
+    () => closeStacked(TASK_QUERY_PARAM, !!selectedTaskId, pushedTaskRef),
+    [closeStacked, selectedTaskId]
+  )
+  const openWikiOverlay = useCallback(
+    (pageId: string) => openStacked(WIKI_QUERY_PARAM, pageId, pushedWikiRef),
+    [openStacked]
+  )
+  const closeWikiOverlay = useCallback(
+    () => closeStacked(WIKI_QUERY_PARAM, !!selectedWikiId, pushedWikiRef),
+    [closeStacked, selectedWikiId]
+  )
+
+  // 閉じたら、履歴を積んだ印を落とす（「戻る」で閉じた場合を含む）
   useEffect(() => {
     if (!selectedTaskId) pushedTaskRef.current = false
   }, [selectedTaskId])
+  useEffect(() => {
+    if (!selectedWikiId) pushedWikiRef.current = false
+  }, [selectedWikiId])
 
   /**
-   * 本文のリンク・「タスク作成済み」の印の受け口。このプロジェクトのタスクだけを引き受けて
-   * 右パネルで開く。それ以外（別のプロジェクト・会議・ファイル…）は false を返し、
+   * 本文のリンク・「タスク作成済み」の印の受け口。このプロジェクトのタスクは右パネル、
+   * Wiki は重ねて開く。それ以外（別のプロジェクト・会議・ファイル…）は false を返し、
    * これまでどおり画面を移る。
    *
    * 一度だけ作って変えない（中身は押した時点の openTaskPanel を ref から読む）。openTaskPanel は
    * URL が変わるたびに作り直されるので、そのまま依存にするとパネルの開け閉めのたびに
    * 議事録のエディタ全体が描き直しになる
    */
-  const openTaskPanelRef = useRef(openTaskPanel)
+  const openersRef = useRef({ task: openTaskPanel, wiki: openWikiOverlay })
   useEffect(() => {
-    openTaskPanelRef.current = openTaskPanel
-  }, [openTaskPanel])
+    openersRef.current = { task: openTaskPanel, wiki: openWikiOverlay }
+  }, [openTaskPanel, openWikiOverlay])
   const openInPlace = useCallback(
     (href: string) => {
       const target = parseInAppLinkTarget(href, orgId, spaceId)
-      if (target?.kind !== 'task') return false
-      openTaskPanelRef.current(target.id)
+      if (!target) return false
+      openersRef.current[target.kind](target.id)
       return true
     },
     [orgId, spaceId]
+  )
+
+  // 重ねた Wiki の「Wikiで開く」。議事録の書きかけを確定させてから Wiki 画面へ移る
+  // （保存しきれない・離れるのをやめたときは移らない。確認は MinutesDocumentView が出す）
+  const openWikiPage = useCallback(
+    async (href: string) => {
+      const ok = (await minutesViewRef.current?.confirmLeave()) ?? true
+      if (ok) router.push(href)
+    },
+    [router]
   )
 
   // MEDIUM-B: Inspector の×（一覧へ戻る）から離れるときは、保存されていない書きかけが
@@ -720,6 +784,17 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
           onToggleFullscreen={handleToggleFullscreen}
           noteAuthorName={noteAuthorName}
         />
+        {/* 受け口の内側に置く: 重ねた Wiki の中のリンクも、タスクは右パネル・Wiki は重ねたまま差し替え */}
+        {selectedWikiId && (
+          <WikiPageOverlay
+            key={selectedWikiId}
+            orgId={orgId}
+            spaceId={spaceId}
+            pageId={selectedWikiId}
+            onClose={closeWikiOverlay}
+            onOpenPage={(href) => void openWikiPage(href)}
+          />
+        )}
       </InPlaceLinkOpenerProvider>
     )
   }
