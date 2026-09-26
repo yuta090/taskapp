@@ -43,6 +43,13 @@ function setup(props: Partial<React.ComponentProps<typeof DocPollView>> = {}) {
 }
 
 describe('DocPollView', () => {
+  it('本文の中で目立つよう、色付きの面と左の帯、「投票」の札で出す', () => {
+    setup()
+    const block = screen.getByTestId('doc-poll')
+    expect(block).toHaveClass('bg-indigo-50', 'border-l-4', 'border-l-indigo-500')
+    expect(within(block).getByText('投票')).toBeInTheDocument()
+  })
+
   it('OK / NG / 保留のボタンに人数を出し、自分の選んだものを押された状態にする', () => {
     setup({ state: makeState('none', [vote('me', 'ng'), vote('a', 'ok'), vote('b', 'ok')]) })
     expect(screen.getByRole('button', { name: /OK 2/ })).toHaveAttribute('aria-pressed', 'false')
