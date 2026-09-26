@@ -56,3 +56,15 @@ describe('planInsertionSync', () => {
     expect(plan.markRemoved).toEqual(['i2'])
   })
 })
+
+describe('planInsertionSync（取り消し・社内が採らなかった）', () => {
+  it('取り消された（withdrawn）のに本文にある行は消す（取り込み済みで保存の前に取り消された）', () => {
+    const plan = planInsertionSync([p('b1', 'A'), ins('b9', 'i1')], [row('i1', { status: 'withdrawn' })], matches)
+    expect(plan.remove).toEqual(['b9'])
+    expect(plan.markRemoved).toEqual([])
+  })
+  it('取り消されて本文にも無い行は何もしない', () => {
+    const plan = planInsertionSync([p('b1', 'A')], [row('i1', { status: 'withdrawn' })], matches)
+    expect(plan).toEqual({ insert: [], markApplied: [], remove: [], markRemoved: [] })
+  })
+})

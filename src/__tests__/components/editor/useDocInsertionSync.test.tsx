@@ -7,7 +7,11 @@ import type { DocInsertion } from '@/lib/doc-insertions/logic'
 const fetchDocInsertions = vi.fn()
 const markDocInsertionApplied = vi.fn()
 const markDocInsertionRemoved = vi.fn()
+const claimDocInsertion = vi.fn()
+const dismissDocInsertion = vi.fn()
 vi.mock('@/lib/doc-insertions/api', () => ({
+  claimDocInsertion: (...a: unknown[]) => claimDocInsertion(...a),
+  dismissDocInsertion: (...a: unknown[]) => dismissDocInsertion(...a),
   fetchDocInsertions: (...a: unknown[]) => fetchDocInsertions(...a),
   markDocInsertionApplied: (...a: unknown[]) => markDocInsertionApplied(...a),
   markDocInsertionRemoved: (...a: unknown[]) => markDocInsertionRemoved(...a),
@@ -57,6 +61,8 @@ beforeEach(() => {
   fetchDocInsertions.mockReset()
   markDocInsertionApplied.mockReset().mockResolvedValue(undefined)
   markDocInsertionRemoved.mockReset().mockResolvedValue(undefined)
+  claimDocInsertion.mockReset().mockResolvedValue(true)
+  dismissDocInsertion.mockReset().mockResolvedValue(undefined)
   listeners.clear()
   sent.length = 0
 })
@@ -131,5 +137,47 @@ describe('useDocInsertionSync（社内の編集画面が相手先の差し込み
       listeners.get('meeting-minutes-view:m1|insertion-changed')?.()
     })
     await waitFor(() => expect(fetchDocInsertions).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('useDocInsertionSync（1つのタブだけが取り込む・社内が採らなかった・取り消し）', () => {
+  it('取り込む権利が取れなかったら本文に入れない（ほかのタブが取り込んでいる）', async () => {
+    fetchDocInsertions.mockResolvedValue([row('i1')])
+    claimDocInsertion.mockResolvedValue(false)
+    const { editor } = fakeEditor([{ id: 'b1', type: 'paragraph' }])
+    renderHook(() => useDocInsertionSync({ editor, meetingId: 'm1', enabled: true }), { wrapper: wrapper() })
+    await waitFor(() => expect(claimDocInsertion).toHaveBeenCalledWith(expect.anything(), 'i1', expect.any(String)))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(editor.insertBlocks).not.toHaveBeenCalled()
+  })
+
+  it('取り込んだ行を社内が保存の前に消したら、保存のあとに「採らなかった」として閉じる（入れ直さない）', async () => {
+    fetchDocInsertions.mockResolvedValue([row('i1')])
+    const { editor } = fakeEditor([{ id: 'b1', type: 'paragraph' }])
+    renderHook(() => useDocInsertionSync({ editor, meetingId: 'm1', enabled: true }), { wrapper: wrapper() })
+    await waitFor(() => expect(editor.insertBlocks).toHaveBeenCalledTimes(1))
+    // 社内の人が消した
+    editor.document = editor.document.filter((b) => b.id !== 'i1')
+    await act(async () => {
+      listeners.get('meeting-minutes-view:m1|minutes-saved')?.()
+    })
+    await waitFor(() => expect(dismissDocInsertion).toHaveBeenCalledWith(expect.anything(), 'i1'))
+    expect(editor.insertBlocks).toHaveBeenCalledTimes(1)
+  })
+
+  it('取り消されたのに本文にある行は消す', async () => {
+    fetchDocInsertions.mockResolvedValue([row('i1', { status: 'withdrawn' })])
+    const { editor } = fakeEditor([{ id: 'b1', type: 'paragraph' }, { id: 'x9', type: 'docInsertion', props: { insertionId: 'i1' } }])
+    renderHook(() => useDocInsertionSync({ editor, meetingId: 'm1', enabled: true }), { wrapper: wrapper() })
+    await waitFor(() => expect(editor.removeBlocks).toHaveBeenCalledWith(['x9']))
+  })
+
+  it('取り消された行も台帳から読む', async () => {
+    fetchDocInsertions.mockResolvedValue([])
+    const { editor } = fakeEditor([{ id: 'b1', type: 'paragraph' }])
+    renderHook(() => useDocInsertionSync({ editor, meetingId: 'm1', enabled: true }), { wrapper: wrapper() })
+    await waitFor(() =>
+      expect(fetchDocInsertions).toHaveBeenCalledWith(expect.anything(), { meetingId: 'm1' }, ['pending', 'remove_requested', 'withdrawn'])
+    )
   })
 })

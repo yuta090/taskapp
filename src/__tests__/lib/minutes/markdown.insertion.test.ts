@@ -38,3 +38,14 @@ describe('相手先が足した行・メモ（<!--ins:番号 種類 日時 名�
     expect(b.type).not.toBe('docInsertion')
   })
 })
+
+describe('相手先が書いたリンクの形は、押せるリンクにしない（文字のまま）', () => {
+  it('[文字](URL) は文字として読み、往復しても文字のまま', () => {
+    const md = `<!--ins:${ID} paragraph 2026-09-26T14:30 A-->[請求書はこちら](https://evil.example)`
+    const [b] = parseMinutesMarkdown(md)
+    expect(JSON.stringify(b.content)).not.toContain('"type":"link"')
+    expect(JSON.stringify(b.content)).toContain('[請求書はこちら](https://evil.example)')
+    const again = parseMinutesMarkdown(serializeMinutesBlocks([b]))
+    expect(JSON.stringify(again[0].content)).not.toContain('"type":"link"')
+  })
+})

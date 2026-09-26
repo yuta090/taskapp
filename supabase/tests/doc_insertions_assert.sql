@@ -19,6 +19,7 @@ set client_min_messages = notice;
 \set W_pub   '00000000-0000-4000-8000-0000000f0d01'
 \set W_unpub '00000000-0000-4000-8000-0000000f0d02'
 \set MS1 '00000000-0000-4000-8000-0000000f0f01'
+\set M2 '00000000-0000-4000-8000-0000000f0e03'
 
 -- ---- 検証用の小道具（呼んだ人の権限で動く） ----
 create schema if not exists dvt;
@@ -68,7 +69,7 @@ grant execute on all functions in schema dvt to authenticated, anon;
 
 -- ---- 下ごしらえ ----
 insert into auth.users(id) values (:'u_ed'), (:'u_view'), (:'u_cli'), (:'u_cli2'), (:'u_other'), (:'u_mfa');
-insert into profiles(id, display_name) values (:'u_cli', '鈴木 一郎>テスト'), (:'u_cli2', '田中') on conflict (id) do update set display_name = excluded.display_name;
+insert into profiles(id, display_name) values (:'u_cli', '鈴木 一郎><!--テスト'), (:'u_cli2', '田中') on conflict (id) do update set display_name = excluded.display_name;
 insert into organizations(id, name) values (:'O1', '検証org');
 insert into org_memberships(org_id, user_id, role) values
   (:'O1', :'u_ed', 'member'), (:'O1', :'u_view', 'member'), (:'O1', :'u_cli', 'client'),
@@ -80,7 +81,8 @@ insert into space_memberships(space_id, user_id, role) values
 insert into auth.mfa_factors(user_id, status) values (:'u_mfa', 'verified');
 insert into meetings(id, org_id, space_id, title, held_at, status, minutes_md, created_by) values
   (:'M_live', :'O1', :'S1', '会議中', now(), 'in_progress', '# 会議中', :'u_ed'),
-  (:'M_planned', :'O1', :'S1', '予定', now(), 'planned', '', :'u_ed');
+  (:'M_planned', :'O1', :'S1', '予定', now(), 'planned', '', :'u_ed'),
+  (:'M2', :'O1', :'S1', '別の会議', now(), 'ended', '', :'u_ed');
 insert into wiki_pages(id, org_id, space_id, title, body, created_by, updated_by) values
   (:'W_pub', :'O1', :'S1', '公開', '[]', :'u_ed', :'u_ed'),
   (:'W_unpub', :'O1', :'S1', '未公開', '[]', :'u_ed', :'u_ed');
@@ -97,12 +99,13 @@ select dvt.check('create_meeting', dvt.create_as('i1', format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, %L)', :'M_live', 'paragraph', E'会議中に足す行\n2行目', '# 会議中')), 'ok');
 select dvt.check('create_note', dvt.create_as('i2', format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_live', 'meeting_note', 'メモ')), 'ok');
-select dvt.check('create_wiki', dvt.create_as('iw', format(
-  'select rpc_doc_insertion_create(%L, null, %L, %L, %L)', :'W_pub', 'paragraph', 'Wikiに足す', 'blk-1')), 'ok');
+-- Wiki はまだ取り込む画面が無いので断る（PR6 で開ける）
+select dvt.check('create_wiki_not_yet', dvt.try(format(
+  'select rpc_doc_insertion_create(%L, null, %L, %L, %L)', :'W_pub', 'paragraph', 'Wikiに足す', 'blk-1')), 'err:22023:%');
 select dvt.check('create_planned', dvt.try(format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_planned', 'paragraph', 'x')), 'err:42501:%');
 select dvt.check('create_unpub', dvt.try(format(
-  'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_unpub', 'paragraph', 'x')), 'err:42501:%');
+  'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_unpub', 'paragraph', 'x')), 'err:22023:%');
 select dvt.check('bad_kind', dvt.try(format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_live', 'heading', 'x')), 'err:22023:%');
 select dvt.check('empty', dvt.try(format(
@@ -129,13 +132,13 @@ select dvt.check('limit_21st', dvt.try(format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_live', 'paragraph', 'over')), 'err:22023:too_many_pending');
 -- 別の文書なら数えない
 select dvt.check('limit_other_doc', dvt.try(format(
-  'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_pub', 'paragraph', 'ok')), 'ok');
+  'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M2', 'paragraph', 'ok')), 'ok');
 
 -- 名前はプロフィールから取り、目印を壊す > は落とす
 reset role;
 select dvt.check('author_from_profile',
   (select author_name || '|' || space_id::text || '|' || status from doc_insertions where id = dvt.id('i1')),
-  '鈴木 一郎テスト|' || :'S1' || '|pending');
+  '鈴木 一郎!--テスト|' || :'S1' || '|pending');
 set role authenticated;
 
 -- 社内・別 space の相手先は作れない
@@ -148,11 +151,11 @@ select dvt.check('other_space_cannot_create', dvt.try(format(
 
 -- ---- 読める範囲 ----
 select dvt.as_user(:'u_cli');
-select dvt.check('client_reads_own', (select count(*)::text from doc_insertions), '22');
+select dvt.check('client_reads_own', (select count(*)::text from doc_insertions), '21');
 select dvt.as_user(:'u_cli2');
 select dvt.check('client2_reads_none', (select count(*)::text from doc_insertions), '0');
 select dvt.as_user(:'u_view');
-select dvt.check('internal_reads_all', (select count(*)::text from doc_insertions), '22');
+select dvt.check('internal_reads_all', (select count(*)::text from doc_insertions), '21');
 
 -- ---- 直接は書けない ----
 select dvt.as_user(:'u_cli');
@@ -193,6 +196,50 @@ update meetings set minutes_md = '# 会議中' where id = :'M_live';
 set role authenticated;
 select dvt.check('remove_ok', dvt.try(format('select rpc_doc_insertion_mark_removed(%L)', dvt.id('i1'))), 'ok');
 select dvt.check('removed_state', (select status from doc_insertions where id = dvt.id('i1')), 'removed');
+
+-- ---- 取り込む権利（1つのタブだけが本文に入れる） ----
+select dvt.as_user(:'u_cli');
+select dvt.check('create_c1', dvt.create_as('c1', format(
+  'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_live', 'paragraph', '取り込み待ち')), 'ok');
+select dvt.as_user(:'u_ed');
+select dvt.check('claim_a', dvt.try(format('select rpc_doc_insertion_claim(%L, %L)', dvt.id('c1'), 'tab-A')), 'ok');
+select dvt.check('claim_a_true', (select rpc_doc_insertion_claim(dvt.id('c1'), 'tab-A'))::text, 'true');
+select dvt.check('claim_b_false', (select rpc_doc_insertion_claim(dvt.id('c1'), 'tab-B'))::text, 'false');
+reset role;
+update doc_insertions set claimed_until = now() - interval '1 second' where id = dvt.id('c1');
+set role authenticated;
+select dvt.check('claim_b_after_expiry', (select rpc_doc_insertion_claim(dvt.id('c1'), 'tab-B'))::text, 'true');
+select dvt.as_user(:'u_view');
+select dvt.check('viewer_cannot_claim', dvt.try(format('select rpc_doc_insertion_claim(%L, %L)', dvt.id('c1'), 'tab-V')), 'err:42501:%');
+select dvt.as_user(:'u_cli');
+select dvt.check('client_cannot_claim', dvt.try(format('select rpc_doc_insertion_claim(%L, %L)', dvt.id('c1'), 'tab-C')), 'err:42501:%');
+-- 本文にもう入っていれば、取らずに反映済みにする（前のタブが保存して、反映済みの印を立てる前に閉じた）
+reset role;
+update meetings set minutes_md = '# 会議中' || E'\n' || '<!--ins:' || dvt.id('c1') || ' paragraph 2026-09-26T10:00 鈴木-->取り込み待ち' where id = :'M_live';
+set role authenticated;
+select dvt.as_user(:'u_ed');
+select dvt.check('claim_in_body_false', (select rpc_doc_insertion_claim(dvt.id('c1'), 'tab-C'))::text, 'false');
+select dvt.check('claim_in_body_applied', (select status from doc_insertions where id = dvt.id('c1')), 'applied');
+
+-- ---- 社内が採らなかった（保存の前に本文から消した）----
+select dvt.as_user(:'u_cli');
+select dvt.check('create_d1', dvt.create_as('d1', format(
+  'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_live', 'paragraph', '採らない')), 'ok');
+select dvt.as_user(:'u_cli2');
+select dvt.check('client_cannot_dismiss', dvt.try(format('select rpc_doc_insertion_dismiss(%L)', dvt.id('d1'))), 'err:42501:%');
+select dvt.as_user(:'u_ed');
+select dvt.check('dismiss_ok', dvt.try(format('select rpc_doc_insertion_dismiss(%L)', dvt.id('d1'))), 'ok');
+select dvt.check('dismissed_state', (select status from doc_insertions where id = dvt.id('d1')), 'dismissed');
+
+-- ---- 取り込み済み（本文にある）反映待ちを取り消すと、削除依頼になる（本文に残さない） ----
+select dvt.as_user(:'u_cli');
+select dvt.check('create_w1', dvt.create_as('w1', format(
+  'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_live', 'paragraph', '取り消す行')), 'ok');
+reset role;
+update meetings set minutes_md = minutes_md || E'\n' || '<!--ins:' || dvt.id('w1') || ' paragraph 2026-09-26T10:00 鈴木-->取り消す行' where id = :'M_live';
+set role authenticated;
+select dvt.as_user(:'u_cli');
+select dvt.check('withdraw_in_body', (select rpc_doc_insertion_withdraw(dvt.id('w1'))), 'remove_requested');
 
 -- ---- 二要素認証・未ログイン ----
 select dvt.as_user(:'u_mfa');

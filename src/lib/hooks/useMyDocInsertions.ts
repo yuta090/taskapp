@@ -30,13 +30,9 @@ export function useMyDocInsertions(meetingId: string | null) {
 
   useEffect(() => {
     if (!topic) return
-    const refetch = () => void queryClient.invalidateQueries({ queryKey })
-    const offChanged = onDocSignal(topic, 'insertion-changed', refetch)
-    const offSaved = onDocSignal(topic, 'minutes-saved', refetch)
-    return () => {
-      offChanged()
-      offSaved()
-    }
+    // 社内が反映した・消したときは社内の画面が insertion-changed を送る。保存のたびには読み直さない
+    // （会議中は数秒ごとに保存されるので、見ている相手先の人数分の読み込みになる）
+    return onDocSignal(topic, 'insertion-changed', () => void queryClient.invalidateQueries({ queryKey }))
   }, [topic, queryClient, queryKey])
 
   const create = useCallback(

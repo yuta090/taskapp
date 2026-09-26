@@ -57,3 +57,16 @@ export async function markDocInsertionRemoved(supabase: SupabaseClient, id: stri
   const { error } = await supabase.rpc('rpc_doc_insertion_mark_removed', { p_id: id })
   if (error) throw error
 }
+
+/** 本文に取り込む権利を取る（1件ごと・2分）。取れたら true。本文にもう入っていれば DB が反映済みにして false */
+export async function claimDocInsertion(supabase: SupabaseClient, id: string, tab: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('rpc_doc_insertion_claim', { p_id: id, p_tab: tab })
+  if (error) throw error
+  return data === true
+}
+
+/** 取り込んだ行を社内が保存の前に消した（採らなかった）ので閉じる。本文にまだあれば DB が断る */
+export async function dismissDocInsertion(supabase: SupabaseClient, id: string): Promise<void> {
+  const { error } = await supabase.rpc('rpc_doc_insertion_dismiss', { p_id: id })
+  if (error) throw error
+}

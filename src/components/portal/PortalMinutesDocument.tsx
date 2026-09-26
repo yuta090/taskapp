@@ -24,7 +24,7 @@ import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
 import { DocInsertionView } from '@/components/editor/docInsertion/DocInsertionView'
 import { DOC_INSERTION_TYPE, type DocInsertion, type DocInsertionKind } from '@/lib/doc-insertions/logic'
 import { PortalInsertionContext, type PortalInsertionContextValue } from './PortalInsertionContext'
-import { InsertionComposer, PendingInsertion } from './PortalInsertionParts'
+import { InsertionComposer, PendingInsertion, WithdrawButton } from './PortalInsertionParts'
 
 /**
  * このアプリのホスト名。社内の人がアドレスバーからコピーした絶対URL
@@ -408,11 +408,7 @@ function InsertionBlock({ block }: { block: MinutesBlock }) {
         mine?.status === 'remove_requested' ? <span className="rounded bg-gray-100 px-1 text-gray-500">削除待ち</span> : undefined
       }
       actions={
-        mine?.status === 'applied' ? (
-          <button type="button" onClick={() => void ctx?.withdraw(id)} className="text-gray-500 hover:underline">
-            削除
-          </button>
-        ) : undefined
+        mine?.status === 'applied' && ctx ? <WithdrawButton label="削除" onWithdraw={() => ctx.withdraw(id)} /> : undefined
       }
     >
       {renderInline(Array.isArray(block.content) ? block.content : [])}
@@ -420,14 +416,23 @@ function InsertionBlock({ block }: { block: MinutesBlock }) {
   )
 }
 
-/** 最上位の1まとまり（見出し・段落・箇条書きのまとまり など）と、その後ろに足すときの目印 */
+/** 最上位の1まとまり（見出し・段落・箇条書きのまとまり など） */
 interface RootUnit {
   node: ReactNode
-  /** この後ろに足すときに送る、そのまとまりの最後の行の Markdown（社内の画面が同じ行を探す） */
-  anchor: string
+  /** まとまりの最後の行の位置。後ろに足すときの目印（その行の Markdown）は、要るときだけ作る */
+  lastIndex: number
 }
 
-function buildRootUnits(original: readonly MinutesBlock[], shown: readonly MinutesBlock[]): RootUnit[] {
+/** この後ろに足すときに送る目印（その行の Markdown。社内の画面が同じ行を探す） */
+function anchorOf(original: readonly MinutesBlock[], lastIndex: number): string {
+  try {
+    return serializeMinutesBlocks([original[lastIndex]]).trim()
+  } catch {
+    return ''
+  }
+}
+
+function buildRootUnits(shown: readonly MinutesBlock[]): RootUnit[] {
   const units: RootUnit[] = []
   let i = 0
   while (i < shown.length) {
@@ -441,13 +446,7 @@ function buildRootUnits(original: readonly MinutesBlock[], shown: readonly Minut
     const node = isListItemType(type)
       ? renderListGroup(type, shown.slice(start, i), units.length)
       : renderBlock(shown[start], units.length, units.length === 0)
-    let anchor = ''
-    try {
-      anchor = serializeMinutesBlocks([original[i - 1]]).trim()
-    } catch {
-      anchor = ''
-    }
-    units.push({ node, anchor })
+    units.push({ node, lastIndex: i - 1 })
   }
   return units
 }
@@ -467,7 +466,7 @@ function InsertableDocument({
   ctx: PortalInsertionContextValue
 }) {
   const [openAt, setOpenAt] = useState<number | 'end' | null>(null)
-  const units = useMemo(() => buildRootUnits(original, shown), [original, shown])
+  const units = useMemo(() => buildRootUnits(shown), [shown])
   const inBody = useMemo(() => {
     const ids = new Set<string>()
     const walk = (blocks: readonly MinutesBlock[]) => {
@@ -480,19 +479,25 @@ function InsertableDocument({
     walk(original)
     return ids
   }, [original])
-  const overlay = ctx.rows.filter(
-    (r) => (r.status === 'pending' || r.status === 'applied') && !inBody.has(r.id)
+  // 重ねて出すのは反映待ちだけ（反映済みは本文が正。社内が本文から消した行を出し続けない）
+  const overlay = ctx.rows.filter((r) => r.status === 'pending' && !inBody.has(r.id))
+  // 目印（本文の Markdown）づくりは重いので、重ねて出すものがあるときだけ作る
+  const hasOverlay = overlay.length > 0
+  const unitAnchors = useMemo(
+    () => (hasOverlay ? units.map((u) => anchorOf(original, u.lastIndex)) : null),
+    [units, original, hasOverlay]
   )
-  const anchors = new Set(units.map((u) => u.anchor))
-  const at = (anchor: string) => overlay.filter((r) => r.anchor !== null && r.anchor.trim() === anchor)
-  const atEnd = overlay.filter((r) => r.anchor === null || !anchors.has(r.anchor.trim()))
+  const at = (idx: number) =>
+    unitAnchors ? overlay.filter((r) => r.anchor !== null && r.anchor.trim() === unitAnchors[idx]) : []
+  const anchorSet = new Set(unitAnchors ?? [])
+  const atEnd = overlay.filter((r) => r.anchor === null || !anchorSet.has(r.anchor.trim()))
 
-  const submit = (anchor: string | null) => async (kind: DocInsertionKind, content: string) => {
-    await ctx.create(kind, content, anchor)
+  const submit = (lastIndex: number | null) => async (kind: DocInsertionKind, content: string) => {
+    await ctx.create(kind, content, lastIndex === null ? null : anchorOf(original, lastIndex))
     setOpenAt(null)
   }
   const pendingList = (rows: DocInsertion[]) =>
-    rows.map((r) => <PendingInsertion key={r.id} row={r} onWithdraw={(id) => void ctx.withdraw(id)} />)
+    rows.map((r) => <PendingInsertion key={r.id} row={r} onWithdraw={ctx.withdraw} />)
 
   return (
     <div>
@@ -509,8 +514,8 @@ function InsertableDocument({
           >
             ＋
           </button>
-          {pendingList(at(unit.anchor))}
-          {openAt === idx && <InsertionComposer onSubmit={submit(unit.anchor)} onCancel={() => setOpenAt(null)} />}
+          {pendingList(at(idx))}
+          {openAt === idx && <InsertionComposer onSubmit={submit(unit.lastIndex)} onCancel={() => setOpenAt(null)} />}
         </div>
       ))}
       {pendingList(atEnd)}
@@ -545,8 +550,9 @@ export function PortalMinutesDocument({ md }: PortalMinutesDocumentProps): React
     }
   }, [insertion, md])
 
+  const insertable = insertion != null
   const nodes = useMemo<ReactNode[] | null>(() => {
-    if (insertion || !md || !md.trim()) return null
+    if (insertable || !md || !md.trim()) return null
     // JSX の組み立て自体は try の外で行う(ESLint react-hooks/error-boundaries の
     // 指摘どおり、try/catch の中で JSX を作っても React のレンダリング時の例外は
     // 捕まえられない)。ここで捕まえたいのは Markdown → ブロック木への変換の失敗。
@@ -555,7 +561,7 @@ export function PortalMinutesDocument({ md }: PortalMinutesDocumentProps): React
     } catch {
       return null
     }
-  }, [md])
+  }, [md, insertable])
 
   if (insertion) {
     // 本文がまだ無くても、末尾に足す欄は出す（会議中に最初の1行を足せるように）

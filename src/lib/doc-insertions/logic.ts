@@ -13,7 +13,7 @@ export const DOC_INSERTION_CONTENT_MAX = 2000
 /** 反映待ちは1人×1文書この件数まで（DB と同じ） */
 export const DOC_INSERTION_PENDING_MAX = 20
 
-export type DocInsertionStatus = 'pending' | 'applied' | 'withdrawn' | 'remove_requested' | 'removed'
+export type DocInsertionStatus = 'pending' | 'applied' | 'withdrawn' | 'remove_requested' | 'removed' | 'dismissed'
 
 export interface DocInsertion {
   id: string

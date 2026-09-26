@@ -99,3 +99,19 @@ describe('ポータルの議事録に書き足す', () => {
     expect(screen.getByTestId('doc-insertion')).toHaveAttribute('data-kind', 'meeting_note')
   })
 })
+
+describe('ポータルの書き足し（直し）', () => {
+  it('反映済みの行は重ねて出さない（社内が本文から消した行が残り続けないように）', () => {
+    renderWith('# 定例', { rows: [row('a1', { status: 'applied', content: '反映済みで本文に無い' })] })
+    expect(screen.queryByText('反映済みで本文に無い')).toBeNull()
+  })
+
+  it('取り消しに失敗したら理由を出す', async () => {
+    renderWith('# 定例', {
+      rows: [row('p1', { content: '取り消す行' })],
+      withdraw: vi.fn().mockRejectedValue({ code: '22023', message: 'invalid_state' }),
+    })
+    fireEvent.click(screen.getByRole('button', { name: '取り消す' }))
+    expect(await screen.findByText('この行はもう取り消せません')).toBeInTheDocument()
+  })
+})

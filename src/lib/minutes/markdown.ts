@@ -1066,7 +1066,8 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
       blocks.push({
         type: DOC_INSERTION_TYPE,
         props: { insertionId: insMatch[1], kind: insMatch[2], createdAt: insMatch[3], author: (insMatch[4] ?? '').trim() },
-        content: tokenizeLinesWithMarker(insLines),
+        // 相手先が書いた本文は文字と改行だけ（DOC_VOTE_SPEC §5）。[文字](URL) を押せるリンクにしない
+        content: tokenizeInline(insLines.join('\n'), true),
       })
       i = j
       continue
