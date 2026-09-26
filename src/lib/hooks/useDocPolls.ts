@@ -18,8 +18,13 @@ export function docPollsQueryKey(source: DocPollSource | null) {
 const STALE_TIME = 15_000
 /** 議事録で合図のチャネルにつながらないときの読み直しの間隔（会議中に皆で押すので短く） */
 const MEETING_REFETCH_MS = 5_000
-/** 合図が届いている間の、取りこぼし用の読み直しの間隔 */
+/** 議事録で合図が届いている間の、取りこぼし用の読み直しの間隔 */
 const CONNECTED_REFETCH_MS = 60_000
+/**
+ * 合図を受けてから読み直すまでの待ち。続けて届いた合図は最後の1回にまとめる
+ * （20人が同時に押すと各画面に19回届き、1回ずつ読み直すと全体で人数の2乗の取得になる）
+ */
+const SIGNAL_DEBOUNCE_MS = 400
 
 /**
  * 投票を先に読み始める。投票に要るのは文書の番号だけなので、本文やエディタの読み込みを
@@ -71,10 +76,22 @@ export function useDocPolls(source: DocPollSource | null) {
 
   // ほかの人が押した合図。自分の送信の途中は読み直さない（まだ届いていない押し直しが画面から
   // 一瞬消える）。送り終えたときの読み直しで、ほかの人の票も一緒に入る
+  const signalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleSignal = useCallback(() => {
-    if (chainsRef.current.size > 0) return
-    void queryClient.invalidateQueries({ queryKey })
+    if (signalTimerRef.current) clearTimeout(signalTimerRef.current)
+    signalTimerRef.current = setTimeout(() => {
+      signalTimerRef.current = null
+      if (chainsRef.current.size > 0) return
+      // 読み込み中の取得があればそれを使う（打ち切って出し直さない）
+      void queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false })
+    }, SIGNAL_DEBOUNCE_MS)
   }, [queryClient, queryKey])
+  useEffect(
+    () => () => {
+      if (signalTimerRef.current) clearTimeout(signalTimerRef.current)
+    },
+    [queryKey]
+  )
   const { connected, notify } = useDocVoteSignal(stableSource, handleSignal)
 
   const { data, isFetched } = useQuery({
@@ -83,9 +100,9 @@ export function useDocPolls(source: DocPollSource | null) {
     enabled: docId != null,
     staleTime: STALE_TIME,
     refetchOnWindowFocus: true,
-    // 合図が届いている間は、取りこぼし用にゆっくり読み直すだけ。つながらないときは、
-    // 議事録は会議中に皆で押すので5秒ごとに読み直す（画面が裏にある間は止まる）
-    refetchInterval: connected ? CONNECTED_REFETCH_MS : kind === 'meeting' ? MEETING_REFETCH_MS : false,
+    // 議事録は会議中に皆で押すので定期にも読み直す。合図が届いている間は取りこぼし用に60秒ごと、
+    // つながらないときは5秒ごと（画面が裏にある間は止まる）。Wiki は合図と開き直しだけで足りる
+    refetchInterval: kind !== 'meeting' ? false : connected ? CONNECTED_REFETCH_MS : MEETING_REFETCH_MS,
   })
 
   /**
