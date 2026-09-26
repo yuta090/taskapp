@@ -15,6 +15,7 @@ export function docPollsQueryKey(source: DocPollSource | null) {
 }
 
 const STALE_TIME = 15_000
+const MEETING_REFETCH_MS = 5_000
 
 /**
  * 投票を先に読み始める。投票に要るのは文書の番号だけなので、本文やエディタの読み込みを
@@ -65,6 +66,9 @@ export function useDocPolls(source: DocPollSource | null) {
     enabled: docId != null,
     staleTime: STALE_TIME,
     refetchOnWindowFocus: true,
+    // 議事録は会議中に皆で押すので、開いている間は5秒ごとに読み直す（画面が裏にある間は止まる）。
+    // 押した瞬間に届ける合図のチャネル（DOC_VOTE_SPEC §6）を足すまでのつなぎ
+    refetchInterval: kind === 'meeting' ? MEETING_REFETCH_MS : false,
   })
 
   // 投票ごとの「送っている途中の列」と、最後に押した回。押し直しを押した順に1本ずつ送るために持つ
