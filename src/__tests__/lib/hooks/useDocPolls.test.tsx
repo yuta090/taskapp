@@ -14,6 +14,15 @@ vi.mock('@/lib/doc-polls/api', () => ({
 }))
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }))
 
+// 合図のチャネル（useDocVoteSignal）は差し替えて、受けた合図と送った合図だけを見る
+const signal = { onSignal: (() => {}) as () => void, notify: vi.fn(), connected: false }
+vi.mock('@/lib/hooks/useDocVoteSignal', () => ({
+  useDocVoteSignal: (_source: unknown, onSignal: () => void) => {
+    signal.onSignal = onSignal
+    return { connected: signal.connected, notify: signal.notify }
+  },
+}))
+
 import { useDocPolls, usePrefetchDocPolls } from '@/lib/hooks/useDocPolls'
 
 const state = (): Record<string, DocPollState> => ({
@@ -38,6 +47,8 @@ beforeEach(() => {
   fetchDocPolls.mockReset()
   castDocVote.mockReset()
   createDocPoll.mockReset()
+  signal.notify.mockReset()
+  signal.connected = false
 })
 
 describe('useDocPolls', () => {
@@ -159,5 +170,71 @@ describe('useDocPolls の送る順番', () => {
       resolvers[1]()
       await p2
     })
+  })
+})
+
+describe('useDocPolls の合図（ほかの人の画面にすぐ出す）', () => {
+  it('押し終えたら、ほかの人に合図を送る', async () => {
+    fetchDocPolls.mockResolvedValue(state())
+    castDocVote.mockResolvedValue(undefined)
+    const { result } = renderHook(() => useDocPolls({ meetingId: 'm1' }), { wrapper: wrapper() })
+    await waitFor(() => expect(result.current.isFetched).toBe(true))
+    await act(async () => {
+      await result.current.castVote({ pollId: 'p1', userId: 'me', choice: 'ok', memo: '' })
+    })
+    expect(signal.notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('送れなかったら合図は送らない', async () => {
+    fetchDocPolls.mockResolvedValue(state())
+    castDocVote.mockRejectedValue(new Error('x'))
+    const { result } = renderHook(() => useDocPolls({ meetingId: 'm1' }), { wrapper: wrapper() })
+    await waitFor(() => expect(result.current.isFetched).toBe(true))
+    await act(async () => {
+      await result.current.castVote({ pollId: 'p1', userId: 'me', choice: 'ok', memo: '' }).catch(() => {})
+    })
+    expect(signal.notify).not.toHaveBeenCalled()
+  })
+
+  it('投票を作ったら合図を送る', async () => {
+    fetchDocPolls.mockResolvedValue({})
+    createDocPoll.mockResolvedValue(undefined)
+    const { result } = renderHook(() => useDocPolls({ wikiPageId: 'w1' }), { wrapper: wrapper() })
+    await waitFor(() => expect(result.current.isFetched).toBe(true))
+    await act(async () => {
+      await result.current.createPoll('p9', 'none')
+    })
+    expect(signal.notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('ほかの人の合図を受けたら票を読み直す', async () => {
+    fetchDocPolls.mockResolvedValue(state())
+    const { result } = renderHook(() => useDocPolls({ wikiPageId: 'w1' }), { wrapper: wrapper() })
+    await waitFor(() => expect(result.current.isFetched).toBe(true))
+    expect(fetchDocPolls).toHaveBeenCalledTimes(1)
+    act(() => signal.onSignal())
+    await waitFor(() => expect(fetchDocPolls).toHaveBeenCalledTimes(2))
+  })
+
+  it('自分の送信の途中に合図が来ても、その場では読み直さない（押した票が一瞬消えないように）', async () => {
+    fetchDocPolls.mockResolvedValue(state())
+    let resolveCast: () => void = () => {}
+    castDocVote.mockImplementation(() => new Promise<void>((r) => { resolveCast = r }))
+    const { result } = renderHook(() => useDocPolls({ wikiPageId: 'w1' }), { wrapper: wrapper() })
+    await waitFor(() => expect(result.current.isFetched).toBe(true))
+    let pending: Promise<void> = Promise.resolve()
+    act(() => {
+      pending = result.current.castVote({ pollId: 'p1', userId: 'me', choice: 'ok', memo: '' })
+    })
+    await waitFor(() => expect(castDocVote).toHaveBeenCalledTimes(1))
+    act(() => signal.onSignal())
+    await act(async () => { await Promise.resolve() })
+    expect(fetchDocPolls).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      resolveCast()
+      await pending
+    })
+    // 送り終えたあとの読み直しで、ほかの人の票も入る
+    await waitFor(() => expect(fetchDocPolls).toHaveBeenCalledTimes(2))
   })
 })
