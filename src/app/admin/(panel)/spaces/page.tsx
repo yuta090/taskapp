@@ -4,7 +4,7 @@ import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import SpacesPageClient, { type SpaceRow } from './SpacesPageClient'
 
 async function fetchSpacesData(): Promise<SpaceRow[]> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
 
   const [spacesResult, orgsResult, tasksResult, membersResult] = await Promise.all([
     admin.from('spaces').select('id, org_id, name, type, archived_at, created_at').order('created_at', { ascending: false }),

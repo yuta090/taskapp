@@ -12,7 +12,7 @@ export default async function AdminBlogPage() {
   const currentUserId = await verifySuperadmin()
   if (!currentUserId) redirect('/admin/login')
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: currentUserId })
   const { data } = await (admin as SupabaseClient)
     .from('blog_posts')
     .select('id, slug, title, status, published_at, updated_at, noindex')

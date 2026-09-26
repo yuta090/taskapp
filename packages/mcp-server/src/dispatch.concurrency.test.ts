@@ -141,4 +141,37 @@ describe('dispatchTool — 同時実行のテナント分離', () => {
     const good = await dispatchTool('key-alpha', 'fake_tool', {})
     expect(good).toEqual({ orgId: 'org-alpha' })
   })
+
+  /**
+   * change_log トリガー向けの送信元区分（channel）も、他の認証情報と同じ ctx に載る。
+   * getSupabaseClient()（supabase/client.ts）は ctx オブジェクトそのものを鍵に
+   * ヘッダー入りクライアントを WeakMap で作り分けるため、割り込みで ctx が
+   * すり替わらないこと・呼び出しごとに別オブジェクトであることの両方が安全の前提になる。
+   */
+  it('同時に割り込んでも channel は自分の呼び出しのものを見続け、ctx は呼び出しごとに別オブジェクト', async () => {
+    const alphaEntered = gate()
+    const alphaMayFinish = gate()
+    const seenCtx: Record<string, unknown> = {}
+
+    handlerImpl = async (params) => {
+      const which = (params as { which: string }).which
+      if (which === 'alpha') {
+        alphaEntered.open()
+        await alphaMayFinish.promise
+      }
+      seenCtx[which] = getAuthContext()
+      return { channel: getAuthContext().channel }
+    }
+
+    const alpha = dispatchTool('key-alpha', 'fake_tool', { which: 'alpha' }, undefined, 'stdio')
+    await alphaEntered.promise
+
+    const beta = await dispatchTool('key-beta', 'fake_tool', { which: 'beta' }, undefined, 'mcp')
+    alphaMayFinish.open()
+
+    expect(beta).toEqual({ channel: 'mcp' })
+    expect(await alpha).toEqual({ channel: 'stdio' })
+    // 割り込みで同じ ctx オブジェクトを共有していたら、client.ts の WeakMap 分離が壊れる
+    expect(seenCtx.alpha).not.toBe(seenCtx.beta)
+  })
 })

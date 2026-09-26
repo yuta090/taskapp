@@ -43,9 +43,16 @@ vi.mock('@/lib/mcp/resolveApiKey', () => ({
   },
 }))
 
+// 利用記録(fire-and-forget)の挿入内容を確かめられるよう、admin client をモックする
+const insertedUsageLogs: Record<string, unknown>[] = []
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
-    from: () => ({ insert: () => ({ then: (r: (v: { error: null }) => void) => r({ error: null }) }) }),
+    from: () => ({
+      insert: (row: Record<string, unknown>) => {
+        insertedUsageLogs.push(row)
+        return { then: (r: (v: { error: null }) => void) => r({ error: null }) }
+      },
+    }),
   }),
 }))
 
@@ -88,6 +95,7 @@ async function readRpc(res: Response): Promise<Record<string, unknown>> {
 
 beforeEach(() => {
   dispatched.length = 0
+  insertedUsageLogs.length = 0
   validKeys = new Set([KEY])
   dispatchImpl = async () => ({ ok: true })
 })
@@ -186,5 +194,39 @@ describe('/api/mcp — 呼び出しごとの認証', () => {
     await Promise.all([call(KEY), call('second-api-key-0123456789')])
 
     expect(dispatched.map((d) => d.apiKey).sort()).toEqual([KEY, 'second-api-key-0123456789'].sort())
+  })
+})
+
+describe('/api/mcp — 利用記録', () => {
+  it('成功時は source:"mcp" で1行書く', async () => {
+    await POST(rpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'task_list', arguments: {} } }, KEY))
+
+    expect(insertedUsageLogs).toHaveLength(1)
+    expect(insertedUsageLogs[0]).toMatchObject({ status: 'success', source: 'mcp', error_detail: null })
+  })
+
+  it('失敗時は source:"mcp" と error_detail（原因の詳細）を書く。AIへの応答文言は変わらない', async () => {
+    const dbError = { code: '42501', message: 'permission denied for table tasks' }
+    dispatchImpl = async () => {
+      throw new Error('タスク一覧の取得に失敗しました', { cause: dbError })
+    }
+
+    const res = await POST(
+      rpc({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'task_list', arguments: {} } }, KEY),
+    )
+    const body = await readRpc(res)
+    const content = (body.result as { content: { type: string; text: string }[] }).content
+
+    expect(content[0].text).toBe('タスク一覧の取得に失敗しました')
+
+    expect(insertedUsageLogs).toHaveLength(1)
+    expect(insertedUsageLogs[0]).toMatchObject({
+      status: 'error',
+      source: 'mcp',
+      error_message: 'タスク一覧の取得に失敗しました',
+    })
+    expect(insertedUsageLogs[0].error_detail).toMatchObject({
+      cause: { code: '42501', message: 'permission denied for table tasks' },
+    })
   })
 })
