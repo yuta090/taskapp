@@ -44,7 +44,7 @@ vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
 let capturedOnChange: ((md: string) => void) | undefined
 let capturedOnBeforeNavigate: (() => Promise<void>) | undefined
-let lastEditorProps: { minutesMd: string; editable: boolean } | null = null
+let lastEditorProps: { minutesMd: string; editable: boolean; headingLinkTitle?: string } | null = null
 let mountCount = 0
 
 vi.mock('@/components/meeting/MinutesEditorDynamic', () => ({
@@ -53,10 +53,11 @@ vi.mock('@/components/meeting/MinutesEditorDynamic', () => ({
     editable: boolean
     onChange?: (md: string) => void
     onBeforeNavigate?: () => Promise<void>
+    headingLinkTitle?: string
   }) => {
     capturedOnChange = props.onChange
     capturedOnBeforeNavigate = props.onBeforeNavigate
-    lastEditorProps = { minutesMd: props.minutesMd, editable: props.editable }
+    lastEditorProps = { minutesMd: props.minutesMd, editable: props.editable, headingLinkTitle: props.headingLinkTitle }
     React.useEffect(() => {
       mountCount += 1
     }, [])
@@ -806,6 +807,24 @@ describe('議事録からタスクやWikiへ移って戻ったとき、見てい
     saveMinutesScroll('m1', 900, BODY.length)
     await open()
     expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(900)
+  })
+
+  it('URL に見出しの # があれば、覚えた場所には戻さない（見出しへの移動を優先する）', async () => {
+    saveMinutesScroll('m1', 900, BODY.length)
+    window.history.replaceState(null, '', '/org1/project/space1/meetings?meeting=m1#' + encodeURIComponent('まとめ'))
+    try {
+      await open()
+      expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(0)
+      // 覚えた場所はこの回で使い切る（次に # 無しで開いたときに古い場所へ飛ばさない）
+      expect(readMinutesScroll('m1', BODY.length)).toBeNull()
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
+
+  it('見出しのリンクに添えるため、会議名をエディタに渡す', async () => {
+    await open()
+    expect(lastEditorProps?.headingLinkTitle).toBe('定例MTG')
   })
 
   it('覚えていなければ先頭のまま', async () => {

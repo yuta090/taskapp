@@ -895,6 +895,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               currentPageId={activePage.id}
               noteAuthorName={noteAuthorName}
               poll={pollProps}
+              headingLinkTitle={activePage.title}
             />
           </div>
         </div>

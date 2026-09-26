@@ -248,6 +248,8 @@ interface MinutesDocumentBodyProps {
   /** 「最新を読み込む」。外側に取り直しを頼み、外側が key を変えて作り直す */
   onRequestReload: () => void
   noteAuthorName?: string
+  /** 見出しのリンクに添える会議名 */
+  meetingTitle: string
 }
 
 /** 利用者が自分で動かしたと分かる操作。これが来たら、戻した位置を押さえるのをやめる */
@@ -272,6 +274,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       onSaveStateChange,
       onRequestReload,
       noteAuthorName,
+      meetingTitle,
     },
     ref
   ) {
@@ -883,6 +886,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       // 覚えた位置は取り出した時点で消える。戻せても戻せなくても、この回で使い切る
       restoredForRef.current = meetingId
       if (top === null) return
+      // 見出しへのリンク（URL の #）で開いたときは、そちらへの移動（HeadingLinks）を優先する。
+      // ここで位置を押さえると、見出しへ動いた直後に覚えた場所へ引き戻してしまう
+      if (window.location.hash) return
       holdScrollTop(el, top)
     },
     [meetingId, holdScrollTop]
@@ -1181,6 +1187,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
                 // チェックだけ外れてサーバーには `[x]` が残る（見た目と中身がずれる）
                 onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
                 noteAuthorName={noteAuthorName}
+                headingLinkTitle={meetingTitle}
                 meetingId={meetingId}
                 collaboration={collaboration}
                 isApplyingRemote={isApplyingRemote}
@@ -1428,6 +1435,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
             onSaveStateChange={setSaveState}
             onRequestReload={handleReloadLatest}
             noteAuthorName={noteAuthorName}
+            meetingTitle={meeting.title}
           />
         )}
       </div>
