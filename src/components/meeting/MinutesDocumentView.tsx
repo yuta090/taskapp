@@ -400,7 +400,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
      *   ここでは合流「後」の本文は組み立てない（呼び出し側がエディタへ挿し込む）。
      * - 'conflict': それ以外（本当の競合・読み直し自体に失敗）。
      */
-    const tryRebaseFromServer = useCallback(async (): Promise<
+    const tryRebaseFromServer = useCallback(async (sending?: string): Promise<
       { kind: 'same' } | { kind: 'appended'; addition: string; serverRaw: string; updatedAt: string } | { kind: 'conflict' }
     > => {
       let fresh: Meeting | null = null
@@ -413,6 +413,13 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       const freshRaw = fresh.minutes_md ?? ''
       if (freshRaw === knownServerRawRef.current) {
         baseUpdatedAtRef.current = fresh.updated_at
+        return { kind: 'same' }
+      }
+      // 誰かが（部屋の別の人・閉じる直前の書記など）いま送ろうとした本文と同じものを先に
+      // 保存していた。競合ではない（末尾の追記と見なして二重に差し込むこともしない）
+      if (sending !== undefined && freshRaw === sending) {
+        baseUpdatedAtRef.current = fresh.updated_at
+        knownServerRawRef.current = freshRaw
         return { kind: 'same' }
       }
       // 同時編集中、部屋の中の人が保存した分は競合ではない。内容は器で既に全員に
@@ -466,7 +473,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
               attempted0Row = true
               // 0行だった。開始/終了など本文以外の更新で updated_at だけが進んだ見せかけの
               // 競合か、AI秘書の末尾追記だけが原因の競合かもしれないので、読み直して確かめる。
-              const outcome = await tryRebaseFromServer()
+              const outcome = await tryRebaseFromServer(content)
               if (outcome.kind === 'same') {
                 base = baseUpdatedAtRef.current
                 continue
@@ -596,16 +603,22 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
      * 1回保存する（前の書記が抜けた瞬間の書きかけを取りこぼさないため）。
      */
     const wasScribeRef = useRef(false)
+    /**
+     * 本文を持ったまま書記でなかったことがあるか。あるなら、書記になったときは部屋の記録が
+     * 無くても必ず読み直す（前の書記が閉じる直前にした保存は、部屋の記録に残らない）
+     */
+    const everFollowerRef = useRef(false)
     useEffect(() => {
       if (!collabActive || !isScribe) {
+        if (collabActive && collabSynced) everFollowerRef.current = true
         wasScribeRef.current = false
         return
       }
       if (wasScribeRef.current) return
       wasScribeRef.current = true
-      // まだ誰も保存していない＝自分が最初の1人。引き継ぎではないので基準はそのまま
+      // まだ誰も保存しておらず、ずっと自分が書記＝自分が最初の1人。引き継ぎではないので基準はそのまま
       const saved = collabMeta ? readSavedState(collabMeta) : { savedAt: null, savedHash: null }
-      if (!saved.savedAt) return
+      if (!saved.savedAt && !everFollowerRef.current) return
 
       let cancelled = false
       void (async () => {
@@ -625,7 +638,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       return () => {
         cancelled = true
       }
-    }, [collabActive, isScribe, collabMeta, fetchMeetingDetail, meetingId])
+    }, [collabActive, isScribe, collabSynced, collabMeta, fetchMeetingDetail, meetingId])
 
     /**
      * 器に種が2つ入った＝本文が二重になっている。その内容は保存せず、列から読み直す。
@@ -734,11 +747,14 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         // 議事録が空で上書きされないように）。「捨てて戻る」が選ばれていた場合も送らない（N4）。
         const isBlank = currentContentRef.current.trim() === ''
         // 同時編集中は、書記がもう同じ内容を保存していれば送らない（送ると、
-        // 古い基準で書きに行って無駄に弾かれる）。逆に**まだ保存されていなければ
-        // 書記でなくても送る** — 最後の1人が閉じた場面を取りこぼさないため
+        // 古い基準で書きに行って無駄に弾かれる）
         const savedHash = collabMetaRef.current ? readSavedState(collabMetaRef.current).savedHash : null
         const alreadySaved =
           savedHash !== null && savedHash === minutesContentHash(currentContentRef.current)
+        // 書記でない人は、閉じるときも自分では保存しない。中身は器で書記に届いていて、書記が
+        // 保存する。ここで送ると、その保存の記録が部屋に届かないまま（閉じたあとなので）残った
+        // 書記の次の保存が弾かれ、偽の競合の帯が出て部屋全体の保存が止まる（2026-09-26）
+        const followerInRoom = collabActiveRef.current && !isScribeRef.current
         if (
           canEditRef.current &&
           !conflictRef.current &&
@@ -746,7 +762,8 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           !discardedRef.current &&
           isDirty &&
           !isBlank &&
-          !alreadySaved
+          !alreadySaved &&
+          !followerInRoom
         ) {
           void scheduleSaveRef.current?.(currentContentRef.current)
         }
