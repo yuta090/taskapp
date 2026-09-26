@@ -66,12 +66,53 @@ export function MeetingNoteBlock({
   )
 }
 
+/** Enter の扱いに要るものだけに絞ったエディタの形（テストから本物をそのまま渡せる）。 */
+type NoteEnterEditor = {
+  document: NoteEnterBlock[]
+  schema: { blockSchema: Record<string, { content?: string }> }
+  getTextCursorPosition: () => { block: { id: string; type: string } }
+  setTextCursorPosition: (block: never, placement: 'start' | 'end') => void
+  blur: () => void
+}
+type NoteEnterBlock = { id: string; type: string; children?: NoteEnterBlock[] }
+
+/** 本文を上から順に並べる（入れ子の中も、見えている順に拾う）。 */
+function flattenBlocks(blocks: NoteEnterBlock[], out: NoteEnterBlock[] = []): NoteEnterBlock[] {
+  for (const b of blocks) {
+    out.push(b)
+    if (b.children?.length) flattenBlocks(b.children, out)
+  }
+  return out
+}
+
+/**
+ * メモの中で Enter を押したら、行を割らずに**すぐ下の書ける行の先頭へ移る**
+ * （ユーザー指定・2026-09-26）。既定だとメモの下に空の行が1つ増えていた。
+ * 区切り線・目次のように文字を持てない行は飛ばす。書ける行が1つも無ければ、
+ * カーソルを外して編集を終える。メモの中の改行は Shift+Enter のまま。
+ *
+ * 日本語の変換を確定する Enter は ProseMirror がここへ渡さないので、変換中に
+ * 押してもメモを抜けない。
+ */
+export function exitNoteOnEnter(editor: NoteEnterEditor): boolean {
+  const current = editor.getTextCursorPosition().block
+  if (current.type !== MEETING_NOTE_TYPE) return false
+  const ordered = flattenBlocks(editor.document)
+  const index = ordered.findIndex((b) => b.id === current.id)
+  const target = ordered
+    .slice(index + 1)
+    .find((b) => editor.schema.blockSchema[b.type]?.content === 'inline')
+  if (target) editor.setTextCursorPosition(target as never, 'start')
+  else editor.blur()
+  return true
+}
+
 /**
  * 会議メモ。Markdown では行頭の `<!--note-->` で表す（`markdown.ts` 側と対）。
  * 書いた日時と名前を持つときは `<!--note:2026-09-15T14:30 高橋 優太-->` になる。
  * Wiki（本文は BlockNote の JSON）では props の createdAt / author にそのまま入る。
  */
-export const meetingNoteSpec = createReactBlockSpec(
+const meetingNoteBaseSpec = createReactBlockSpec(
   {
     type: MEETING_NOTE_TYPE,
     propSchema: { createdAt: { default: '' }, author: { default: '' } },
@@ -87,6 +128,20 @@ export const meetingNoteSpec = createReactBlockSpec(
     ),
   }
 )() // createReactBlockSpec が返すのは「作る関数」。1回呼んで仕様そのものにする
+
+/** 会議メモ。Enter で行を割らずに下の行へ移る（`exitNoteOnEnter`）。 */
+export const meetingNoteSpec = {
+  ...meetingNoteBaseSpec,
+  extensions: [
+    ...(meetingNoteBaseSpec.extensions ?? []),
+    createExtension({
+      key: 'meeting-note-enter-exits',
+      keyboardShortcuts: {
+        Enter: ({ editor }) => exitNoteOnEnter(editor as unknown as NoteEnterEditor),
+      },
+    }),
+  ],
+}
 
 /**
  * 折りたたみ。BlockNote の既定の折りたたみをそのまま使い、**入力ルールだけ足す**。
