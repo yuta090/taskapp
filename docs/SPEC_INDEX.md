@@ -31,6 +31,7 @@
 | **決定の記録** | `spec/DECISION_RECORD_SPEC.md` | 確定するのはページでなく決定1件 v1.0（決める札の紐づけ方で完了の可否が決まる・確定時点の控えに名札・「凍結」は編集を止めない） |
 | **Doc Links (Wiki/議事録)** | `spec/DOC_LINK_SPEC.md` | 本文からファイル・Wiki・議事録・タスクへリンクを貼る v1.1（画面と CLI/API で同じ形・同じタブで開いて戻れる・タスクの説明文の URL も押せる） |
 | **Co-editing（同時編集）** | `spec/COEDITING_SPEC.md` | 議事録・Wiki の同時編集 v1.1（Yjs・正本は今の列のまま・器は編集中だけ・保存は書記1人）**議事録は実装済み（組織ごとに開く）・Wiki は未着手** |
+| **投票ブロック** | `spec/DOC_VOTE_SPEC.md` | Wiki・議事録の投票 v1.0（OK/NG/保留・理由必須は作成時に固定・票は本文でなく DB・履歴は追記だけ・相手先の差し込みは台帳経由）**PR1（社内の Wiki）実装中** |
 | **Data Table View** | `spec/DATA_TABLE_VIEW_SPEC.md` | ファイル(CSV/TSV)→表ビュー v0.1（読み取り専用）＋リッチ編集 v1.0 方針 |
 | **Burndown Chart** | `spec/BURNDOWN_SPEC.md` | バーンダウンチャート & マイルストーン開始日（Phase 1-2.5） |
 | **Design System** | `design/DESIGN_SYSTEM.md` | デザイントークン・ステータス色・コンポーネントパターン |
