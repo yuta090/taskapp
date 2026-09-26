@@ -663,7 +663,7 @@ export declare const allTools: ({
         status: "error" | "ok" | "warning";
         entityTable: string;
         entityId: string;
-        actorType: "user" | "system" | "ai" | "service";
+        actorType: "system" | "user" | "ai" | "service";
         reason?: string | undefined;
         actorService?: string | undefined;
         requestId?: string | undefined;
@@ -680,7 +680,7 @@ export declare const allTools: ({
         entityId: string;
         reason?: string | undefined;
         status?: "error" | "ok" | "warning" | undefined;
-        actorType?: "user" | "system" | "ai" | "service" | undefined;
+        actorType?: "system" | "user" | "ai" | "service" | undefined;
         actorService?: string | undefined;
         requestId?: string | undefined;
         sessionId?: string | undefined;

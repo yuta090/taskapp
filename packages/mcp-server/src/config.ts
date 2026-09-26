@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { config as dotenvConfig } from 'dotenv'
-import type { AuthContext, ActionType } from './auth/authorize.js'
+import type { AuthContext, ActionType, Channel } from './auth/authorize.js'
 import { createAuthContext } from './auth/authorize.js'
 import { getSupabaseClient } from './supabase/client.js'
 import { AUTH_REASON_LABELS } from './lib/authReasonLabels.js'
@@ -74,10 +74,22 @@ export function runWithAuthContext<T>(ctx: AuthContext, fn: () => Promise<T>): P
  * リクエストのストア → stdio のプロセス全体 の順に見て、どちらも無ければ例外。
  */
 export function getAuthContext(): AuthContext {
+  const ctx = getAuthContextOrNull()
+  if (ctx) return ctx
+  throw new Error(AUTH_REASON_LABELS.noAuthContext)
+}
+
+/**
+ * getAuthContext() の例外を投げない版。
+ * supabase/client.ts の getSupabaseClient() が「今の呼び出しに紐づく ctx があれば、
+ * その ctx 向けのクライアントを返す。無ければ（スクリプト等）共有のシングルトンを返す」
+ * を選ぶために使う。ツール本体は引き続き getAuthContext()（無ければ即例外）を使うこと。
+ */
+export function getAuthContextOrNull(): AuthContext | null {
   const fromRequest = authStore.getStore()
   if (fromRequest) return fromRequest
   if (processAuthContext) return processAuthContext
-  throw new Error(AUTH_REASON_LABELS.noAuthContext)
+  return null
 }
 
 // =============================================================================
@@ -88,7 +100,7 @@ export function getAuthContext(): AuthContext {
  * API キーを検証して認証コンテキストを作って返す（グローバルは書き換えない）。
  * 呼び出し元が runWithAuthContext に渡す。
  */
-export async function resolveAuthContext(apiKey: string): Promise<AuthContext> {
+export async function resolveAuthContext(apiKey: string, channel: Channel = 'cli'): Promise<AuthContext> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.rpc('rpc_validate_api_key', { p_api_key: apiKey })
 
@@ -98,15 +110,18 @@ export async function resolveAuthContext(apiKey: string): Promise<AuthContext> {
 
   const row = (data as Record<string, unknown>[])[0]
 
-  return createAuthContext({
-    key_id: row.key_id as string,
-    user_id: (row.user_id as string) || null,
-    org_id: row.org_id as string,
-    scope: row.scope as string,
-    allowed_space_ids: (row.allowed_space_ids as string[]) || null,
-    allowed_actions: (row.allowed_actions as string[]) || ['read'],
-    space_id: (row.space_id as string) || null,
-  })
+  return createAuthContext(
+    {
+      key_id: row.key_id as string,
+      user_id: (row.user_id as string) || null,
+      org_id: row.org_id as string,
+      scope: row.scope as string,
+      allowed_space_ids: (row.allowed_space_ids as string[]) || null,
+      allowed_actions: (row.allowed_actions as string[]) || ['read'],
+      space_id: (row.space_id as string) || null,
+    },
+    channel,
+  )
 }
 
 /**
@@ -115,7 +130,10 @@ export async function resolveAuthContext(apiKey: string): Promise<AuthContext> {
  * 生のAPIキーを見る rpc_validate_api_key と別の関数にしてあるので、OAuth の合鍵は
  * /api/mcp でしか通らない（CLI 用の /api/tools は生のAPIキーしか受け付けない）。
  */
-export async function resolveAuthContextFromOAuthToken(tokenHash: string): Promise<AuthContext> {
+export async function resolveAuthContextFromOAuthToken(
+  tokenHash: string,
+  channel: Channel = 'mcp',
+): Promise<AuthContext> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.rpc('rpc_validate_oauth_token', { p_token_hash: tokenHash })
 
@@ -125,15 +143,18 @@ export async function resolveAuthContextFromOAuthToken(tokenHash: string): Promi
 
   const row = (data as Record<string, unknown>[])[0]
 
-  return createAuthContext({
-    key_id: row.key_id as string,
-    user_id: (row.user_id as string) || null,
-    org_id: row.org_id as string,
-    scope: row.scope as string,
-    allowed_space_ids: (row.allowed_space_ids as string[]) || null,
-    allowed_actions: (row.allowed_actions as string[]) || ['read'],
-    space_id: (row.space_id as string) || null,
-  })
+  return createAuthContext(
+    {
+      key_id: row.key_id as string,
+      user_id: (row.user_id as string) || null,
+      org_id: row.org_id as string,
+      scope: row.scope as string,
+      allowed_space_ids: (row.allowed_space_ids as string[]) || null,
+      allowed_actions: (row.allowed_actions as string[]) || ['read'],
+      space_id: (row.space_id as string) || null,
+    },
+    channel,
+  )
 }
 
 /**
@@ -148,7 +169,7 @@ export async function initializeAuth(): Promise<void> {
   }
 
   try {
-    processAuthContext = await resolveAuthContext(apiKey)
+    processAuthContext = await resolveAuthContext(apiKey, 'stdio')
   } catch (e) {
     console.error('FATAL: API key validation failed:', e instanceof Error ? e.message : String(e))
     process.exit(1)
@@ -166,5 +187,5 @@ export function __setProcessAuthContextForTest(ctx: AuthContext | null): void {
   processAuthContext = ctx
 }
 
-export type { AuthContext, ActionType }
+export type { AuthContext, ActionType, Channel }
 export { parseAllowedActions }

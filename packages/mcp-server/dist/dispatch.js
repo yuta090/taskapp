@@ -12,9 +12,12 @@ import { allTools } from './tools/index.js';
  * onAuthenticated: 認証直後（ハンドラ実行前）に、この呼び出し自身の ctx/spaceId を報告する。
  * 呼び出し元（利用記録など）は、共有のモジュールを読み直すのではなく必ずこの値を使う。
  * 戻り値ではなくコールバックにするのは、ハンドラが失敗した場合でも呼び出し元に渡すため。
+ *
+ * channel: change_log トリガー向けの送信元区分。唯一の本番呼び出し元（/api/tools）は
+ * CLI なので既定は 'cli'。テスト・将来の呼び出し元だけが明示的に上書きする。
  */
-export async function dispatchTool(apiKey, toolName, params, onAuthenticated) {
-    const ctx = await resolveAuthContext(apiKey);
+export async function dispatchTool(apiKey, toolName, params, onAuthenticated, channel = 'cli') {
+    const ctx = await resolveAuthContext(apiKey, channel);
     return dispatchToolWithContext(ctx, toolName, params, onAuthenticated);
 }
 /**

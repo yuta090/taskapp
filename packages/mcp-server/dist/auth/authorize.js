@@ -104,7 +104,7 @@ export async function authorizeAndLog(params) {
 /**
  * 認証コンテキストをAPIキーから作成
  */
-export function createAuthContext(keyData) {
+export function createAuthContext(keyData, channel) {
     return {
         keyId: keyData.key_id,
         userId: keyData.user_id,
@@ -113,6 +113,7 @@ export function createAuthContext(keyData) {
         spaceId: keyData.space_id ?? null,
         allowedSpaceIds: keyData.allowed_space_ids,
         allowedActions: keyData.allowed_actions,
+        channel,
     };
 }
 //# sourceMappingURL=authorize.js.map
