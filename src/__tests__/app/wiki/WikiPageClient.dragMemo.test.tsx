@@ -108,6 +108,9 @@ vi.mock('@/lib/hooks/useMilestones', () => ({
 }))
 
 const NO_REFERENCING_TASKS = vi.hoisted(() => [] as never[])
+// 本文の投票ブロックの先読み（中身はエディタ側で確かめる。ここでは画面の配線だけを見る）
+vi.mock('@/lib/hooks/useDocPolls', () => ({ usePrefetchDocPolls: () => {} }))
+
 vi.mock('@/lib/hooks/useWikiPageReferencingTasks', () => ({
   useWikiPageReferencingTasks: () => ({ tasks: NO_REFERENCING_TASKS, loading: false, error: null }),
 }))
