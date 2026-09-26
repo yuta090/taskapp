@@ -643,66 +643,12 @@ export declare const allTools: ({
     description: string;
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
-        entityTable: import("zod").ZodString;
-        entityId: import("zod").ZodString;
-        action: import("zod").ZodString;
-        actorType: import("zod").ZodDefault<import("zod").ZodEnum<["user", "system", "ai", "service"]>>;
-        actorService: import("zod").ZodOptional<import("zod").ZodString>;
-        requestId: import("zod").ZodOptional<import("zod").ZodString>;
-        sessionId: import("zod").ZodOptional<import("zod").ZodString>;
-        entityDisplay: import("zod").ZodOptional<import("zod").ZodString>;
-        reason: import("zod").ZodOptional<import("zod").ZodString>;
-        status: import("zod").ZodDefault<import("zod").ZodEnum<["ok", "error", "warning"]>>;
-        changedFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString, "many">>;
-        beforeData: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodUnknown>>;
-        afterData: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodUnknown>>;
-        payload: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodUnknown>>;
-    }, "strip", import("zod").ZodTypeAny, {
-        spaceId: string;
-        action: string;
-        status: "error" | "ok" | "warning";
-        entityTable: string;
-        entityId: string;
-        actorType: "system" | "user" | "ai" | "service";
-        reason?: string | undefined;
-        actorService?: string | undefined;
-        requestId?: string | undefined;
-        sessionId?: string | undefined;
-        entityDisplay?: string | undefined;
-        changedFields?: string[] | undefined;
-        beforeData?: Record<string, unknown> | undefined;
-        afterData?: Record<string, unknown> | undefined;
-        payload?: Record<string, unknown> | undefined;
-    }, {
-        spaceId: string;
-        action: string;
-        entityTable: string;
-        entityId: string;
-        reason?: string | undefined;
-        status?: "error" | "ok" | "warning" | undefined;
-        actorType?: "system" | "user" | "ai" | "service" | undefined;
-        actorService?: string | undefined;
-        requestId?: string | undefined;
-        sessionId?: string | undefined;
-        entityDisplay?: string | undefined;
-        changedFields?: string[] | undefined;
-        beforeData?: Record<string, unknown> | undefined;
-        afterData?: Record<string, unknown> | undefined;
-        payload?: Record<string, unknown> | undefined;
-    }>;
-    handler: typeof import("./activity.js").activityLog;
-} | {
-    name: string;
-    description: string;
-    inputSchema: import("zod").ZodObject<{
-        spaceId: import("zod").ZodString;
         entityTable: import("zod").ZodOptional<import("zod").ZodString>;
         entityId: import("zod").ZodOptional<import("zod").ZodString>;
         actorId: import("zod").ZodOptional<import("zod").ZodString>;
         action: import("zod").ZodOptional<import("zod").ZodString>;
         from: import("zod").ZodOptional<import("zod").ZodString>;
         to: import("zod").ZodOptional<import("zod").ZodString>;
-        sessionId: import("zod").ZodOptional<import("zod").ZodString>;
         limit: import("zod").ZodDefault<import("zod").ZodNumber>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
@@ -710,7 +656,6 @@ export declare const allTools: ({
         action?: string | undefined;
         entityTable?: string | undefined;
         entityId?: string | undefined;
-        sessionId?: string | undefined;
         actorId?: string | undefined;
         from?: string | undefined;
         to?: string | undefined;
@@ -720,7 +665,6 @@ export declare const allTools: ({
         limit?: number | undefined;
         entityTable?: string | undefined;
         entityId?: string | undefined;
-        sessionId?: string | undefined;
         actorId?: string | undefined;
         from?: string | undefined;
         to?: string | undefined;
