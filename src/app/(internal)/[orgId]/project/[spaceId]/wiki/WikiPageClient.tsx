@@ -23,6 +23,7 @@ import { noteAuthorNameOf } from '@/lib/minutes/noteStamp'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import { useWikiDecisionCounts } from '@/lib/hooks/useWikiDecisionCounts'
 import { useWikiPageReferencingTasks } from '@/lib/hooks/useWikiPageReferencingTasks'
+import { usePrefetchDocPolls } from '@/lib/hooks/useDocPolls'
 import type { WikiReferencingTask } from '@/lib/wiki/referencingTasks'
 import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
@@ -198,6 +199,19 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const { user: currentUser } = useCurrentUser()
   // メモに残す「書いた人」の名前。一覧の作成者表示と同じメンバー一覧から引く（取り直しは起きない）
   const noteAuthorName = useMemo(() => noteAuthorNameOf(members, currentUser?.id), [members, currentUser?.id])
+  // 投票ブロックで「誰が押したか」を出すための名前の引き方。抜けた人は番号でなく言葉で出す
+  const voterNameOf = useMemo(() => {
+    const byId = new Map(members.map((m) => [m.id, m.displayName]))
+    return (userId: string) => byId.get(userId) || '（メンバー外の人）'
+  }, [members])
+  const activePageId = activePage?.id ?? null
+  const pollProps = useMemo(
+    () =>
+      activePageId
+        ? { wikiPageId: activePageId, currentUserId: currentUser?.id ?? null, nameOf: voterNameOf }
+        : undefined,
+    [activePageId, currentUser?.id, voterNameOf]
+  )
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照。既存4本と並列で取得する。
   const { linksByPageId } = useWikiMilestoneLinks(orgId, spaceId)
 
@@ -447,6 +461,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     loading: referencingTasksLoading,
     error: referencingTasksError,
   } = useWikiPageReferencingTasks(orgId, spaceId, selectedPageId)
+  // 本文の投票ブロックの票を、本文と並べて先に読み始める
+  usePrefetchDocPolls(selectedPageId ? { wikiPageId: selectedPageId } : null)
   // 担当者の名前は一覧と同じメンバー一覧から引く（取り直しは起きない）。
   // 引けない人（抜けた人・権限で名前が読めない人）は空欄にせず「メンバー外」と出す
   const referencingTasks = useMemo<WikiReferencingTask[]>(
@@ -1200,6 +1216,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               spaceId={spaceId}
               currentPageId={activePage.id}
               noteAuthorName={noteAuthorName}
+              poll={pollProps}
             />
           </div>
         </div>

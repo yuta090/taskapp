@@ -8,7 +8,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { ListBullets, Notebook, NotePencil } from '@phosphor-icons/react'
+import { CheckSquareOffset, ListBullets, Notebook, NotePencil } from '@phosphor-icons/react'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
 import { dividerSpec, meetingNoteSpec, tableOfContentsSpec } from '@/components/meeting/minutesBlocks'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
@@ -22,6 +22,10 @@ import type { AppLinkKind } from '@/lib/navigation/appLinks'
 import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
+import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
+import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
+import { docPollSpec } from '@/components/editor/docPoll/docPollBlock'
+import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
 
 interface WikiEditorProps {
   initialContent?: string
@@ -38,6 +42,15 @@ interface WikiEditorProps {
    * メンバー一覧の読み込み中や分からないときは空で、そのときは日時だけが残る。
    */
   noteAuthorName?: string
+  /**
+   * 投票ブロックに配るもの（社内の Wiki 画面だけが渡す）。無い画面（相手先ポータルなど）では
+   * 「/」に投票を出さず、置いてある投票は「この画面では投票できません」と出す。
+   */
+  poll?: {
+    wikiPageId: string
+    currentUserId: string | null
+    nameOf: (userId: string) => string
+  }
 }
 
 // Custom schema with meetings block
@@ -51,6 +64,8 @@ const schema = BlockNoteSchema.create({
     [TOC_TYPE]: tableOfContentsSpec,
     // 既定の区切り線に `---` ＋スペースの入力ルールだけ足したもの
     [DIVIDER_TYPE]: dividerSpec,
+    // 投票。本文には番号と理由必須の設定だけを持ち、票は DB に置く（DOC_VOTE_SPEC）
+    [DOC_POLL_TYPE]: docPollSpec,
   },
 })
 
@@ -60,6 +75,7 @@ const WIKI_DICTIONARY = {
   placeholders: {
     ...jaLocale.placeholders,
     default: '文字を入力、または「/」でメニューを開く',
+    [DOC_POLL_TYPE]: '議題（書かなくてもよい）',
   },
 }
 
@@ -76,6 +92,7 @@ export function WikiEditor({
   currentPageId,
   onBeforeNavigate,
   noteAuthorName,
+  poll,
 }: WikiEditorProps) {
   const isInternalApp = Boolean(orgId && spaceId)
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate, isInternalApp)
@@ -144,10 +161,50 @@ export function WikiEditor({
     editor.focus()
   }, [editor])
 
+  /**
+   * 今の行を投票にする（空の行ならその行が投票になる。書いてある字は議題になる）。
+   * 番号はここで作って本文に置き、DB の投票は DocPollHost が作る（通信を待たずに置ける）。
+   */
+  const insertPoll = useCallback(
+    (reasonRequired: DocPollReasonRequired) => {
+      insertOrUpdateBlockForSlashMenu(editor, {
+        type: DOC_POLL_TYPE,
+        props: { pollId: crypto.randomUUID(), reasonRequired },
+      })
+      editor.focus()
+    },
+    [editor]
+  )
+
+  const hasPoll = poll != null
+
   const getSlashMenuItems = useCallback(
     async (query: string) =>
       filterSuggestionItems(
         [
+          // 投票はいちばん上に置く（「/v」で先頭に出る）
+          ...(hasPoll
+            ? [
+                {
+                  key: 'insert_vote',
+                  title: '投票',
+                  subtext: 'OK・NG・保留を押してもらい、誰が押したかを残す',
+                  aliases: ['vote', 'v', 'poll', 'ok', 'ng', 'touhyou', 'とうひょう', '投票'],
+                  group: jaLocale.slash_menu.paragraph.group,
+                  icon: <CheckSquareOffset size={18} />,
+                  onItemClick: () => insertPoll('none'),
+                },
+                {
+                  key: 'insert_vote_must',
+                  title: '投票（理由必須）',
+                  subtext: 'NG と保留は理由を書かないと押せない',
+                  aliases: ['votemust', 'vote-must', 'must', 'hissu', 'ひっす', '必須', '投票必須'],
+                  group: jaLocale.slash_menu.paragraph.group,
+                  icon: <CheckSquareOffset size={18} weight="fill" />,
+                  onItemClick: () => insertPoll('ng_hold'),
+                },
+              ]
+            : []),
           {
             key: 'insert_note',
             title: 'メモ',
@@ -176,7 +233,7 @@ export function WikiEditor({
         ],
         query
       ),
-    [editor, orgId, spaceId, openLinkPicker, insertNote, insertToc]
+    [editor, orgId, spaceId, openLinkPicker, insertNote, insertToc, insertPoll, hasPoll]
   )
 
   // Insert meetings block with orgId/spaceId (toolbar button below the editor)
@@ -208,22 +265,38 @@ export function WikiEditor({
     [editor]
   )
 
+  const editorView = (
+    <BlockNoteView
+      editor={editor}
+      editable={mountEditable}
+      onChange={() => {
+        const json = JSON.stringify(editor.document)
+        onChange?.(json)
+      }}
+      theme={isDark ? 'dark' : 'light'}
+      slashMenu={false}
+    >
+      {/* 既定のメニューの代わりに、出す項目を絞った「/」メニューを置く。
+          行の左の「＋」もこのメニューを開くので、これを外すと「＋」も押して何も起きなくなる */}
+      <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
+    </BlockNoteView>
+  )
+
   return (
     <div className="wiki-editor" ref={editorContainerRef}>
-      <BlockNoteView
-        editor={editor}
-        editable={mountEditable}
-        onChange={() => {
-          const json = JSON.stringify(editor.document)
-          onChange?.(json)
-        }}
-        theme={isDark ? 'dark' : 'light'}
-        slashMenu={false}
-      >
-        {/* 既定のメニューの代わりに、出す項目を絞った「/」メニューを置く。
-            行の左の「＋」もこのメニューを開くので、これを外すと「＋」も押して何も起きなくなる */}
-        <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
-      </BlockNoteView>
+      {poll ? (
+        <DocPollHost
+          editor={editor as never}
+          source={{ wikiPageId: poll.wikiPageId }}
+          currentUserId={poll.currentUserId}
+          nameOf={poll.nameOf}
+          editable={editable}
+        >
+          {editorView}
+        </DocPollHost>
+      ) : (
+        editorView
+      )}
       {/* 本文の下の差し込みツールバー。PDFで保存するときは紙に載せない（押すためのもの） */}
       {editable && (
         <div data-print-hide className="flex items-center gap-2 mt-2 px-1">
