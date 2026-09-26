@@ -102,23 +102,49 @@ export function InsertionComposer({
   )
 }
 
-/** 自分の差し込みで、本文にまだ出ていないもの（反映待ち・反映済みだが本文が古い） */
-export function PendingInsertion({ row, onWithdraw }: { row: DocInsertion; onWithdraw: (id: string) => void }) {
-  const waiting = row.status === 'pending'
+/** 取り消し・削除のボタン。失敗したら理由をその場に出す */
+export function WithdrawButton({ label, onWithdraw }: { label: string; onWithdraw: () => Promise<void> }) {
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          setError(null)
+          try {
+            await onWithdraw()
+          } catch (e) {
+            setError(insertionErrorMessage(e))
+          } finally {
+            setBusy(false)
+          }
+        }}
+        className="text-gray-500 hover:underline disabled:opacity-50"
+      >
+        {label}
+      </button>
+      {error && (
+        <span role="alert" className="text-red-600">
+          {error}
+        </span>
+      )}
+    </>
+  )
+}
+
+/** 自分の差し込みで、本文にまだ入っていないもの（反映待ち） */
+export function PendingInsertion({ row, onWithdraw }: { row: DocInsertion; onWithdraw: (id: string) => Promise<void> }) {
   return (
     <div className="my-1.5 opacity-80">
       <DocInsertionView
         kind={row.kind}
         author={row.author_name}
         createdAt={insertionStamp(row.created_at)}
-        badge={<span className="rounded bg-gray-100 px-1 text-gray-500">{waiting ? '反映待ち' : '反映済み'}</span>}
-        actions={
-          waiting ? (
-            <button type="button" onClick={() => onWithdraw(row.id)} className="text-gray-500 hover:underline">
-              取り消す
-            </button>
-          ) : undefined
-        }
+        badge={<span className="rounded bg-gray-100 px-1 text-gray-500">反映待ち</span>}
+        actions={<WithdrawButton label="取り消す" onWithdraw={() => onWithdraw(row.id)} />}
       >
         <span className="text-sm text-gray-700">{row.content}</span>
       </DocInsertionView>

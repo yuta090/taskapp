@@ -49,6 +49,11 @@ export function planInsertionSync<B extends BlockLike>(
       else plan.markRemoved.push(row.id)
       continue
     }
+    // 取り消された（取り込んで保存する前に相手先が取り消した）のに本文にある行は消す
+    if (row.status === 'withdrawn') {
+      if (block) plan.remove.push(block.id)
+      continue
+    }
     if (row.status !== 'pending') continue
     if (block) {
       plan.markApplied.push(row.id)
