@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 import { assertInSpace, requireActorUserId } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
+import { notFoundOr } from '../lib/dbErrors.js'
 
 /**
  * entityId の確認を通せる表（space_id 列を持ち、そのプロジェクトの行だけを指せる表）。
@@ -51,7 +52,10 @@ export interface ActivityLog {
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  // 0件（PGRST116）だけ「見つかりません」。それ以外(権限エラー等)は生の文言を出さない一般の
+  // エラーのままだが、どちらも元のDBエラーを cause に残す(運営画面の利用記録から追える)
+  if (error) throw notFoundOr(error, 'activity/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return data.org_id
 }
 
@@ -163,7 +167,8 @@ export async function activitySearch(params: z.infer<typeof activitySearchSchema
 
   if (error) {
     console.error('activity_search failed:', error.code, error.message)
-    throw new Error('アクティビティログの検索に失敗しました')
+    // 文言は変えない。cause に元のDBエラーを残し、運営画面の利用記録から原因を追えるようにする
+    throw new Error('アクティビティログの検索に失敗しました', { cause: error })
   }
   return (data || []) as ActivityLog[]
 }

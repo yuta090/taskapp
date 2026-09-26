@@ -505,3 +505,21 @@ describe('MinutesEditor の「/」メニュー', () => {
     expect(capturedSlashMenuProps).toBeUndefined()
   })
 })
+
+vi.mock('@/components/editor/docPoll/MeetingDocPollHost', () => ({
+  MeetingDocPollHost: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+describe('MinutesEditor の投票', () => {
+  it('会議が分かる画面では「/v」で投票が先頭に出る', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} meetingId="m1" />)
+    const items = await capturedSlashMenuProps!.getItems!('v')
+    expect(items.slice(0, 2).map((i: { key: string }) => i.key)).toEqual(['insert_vote', 'insert_vote_must'])
+  })
+
+  it('会議を渡さない画面では「/」に投票を出さない', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = await capturedSlashMenuProps!.getItems!('投票')
+    expect(items.map((i: { key: string }) => i.key)).toEqual([])
+  })
+})

@@ -65,7 +65,7 @@ const PAGES: Array<{ name: string; call: () => Promise<unknown> }> = [
   { name: 'blog/[id]', call: () => BlogEditorPage({ params: Promise.resolve({ id: 'new' }) }) },
   { name: 'blog/cta', call: () => BlogCtaPage() },
   { name: 'blog', call: () => BlogListPage() },
-  { name: 'cli-usage', call: () => CliUsagePage() },
+  { name: 'cli-usage', call: () => CliUsagePage({ searchParams: Promise.resolve({}) }) },
   { name: 'dashboard', call: () => DashboardPage() },
   { name: 'invites', call: () => InvitesPage() },
   { name: 'logs', call: () => LogsPage() },

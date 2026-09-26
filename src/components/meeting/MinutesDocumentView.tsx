@@ -1181,6 +1181,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
                 // チェックだけ外れてサーバーには `[x]` が残る（見た目と中身がずれる）
                 onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
                 noteAuthorName={noteAuthorName}
+                meetingId={meetingId}
                 collaboration={collaboration}
                 isApplyingRemote={isApplyingRemote}
               />
