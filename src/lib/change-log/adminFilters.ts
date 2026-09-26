@@ -60,8 +60,9 @@ export function parseChangeLogFilters(params: SearchParams): ChangeLogFilters {
   const table = first(params.table)
   if (table && TABLE_RE.test(table)) out.table = table
 
+  // 行の ID は表と一緒のときだけ使う（表なしでは change_log_table_row_id_idx が効かず全件を読む）
   const row = first(params.row)
-  if (row && UUID_RE.test(row)) out.rowId = row
+  if (row && UUID_RE.test(row) && out.table) out.rowId = row
 
   const actor = first(params.actor)
   if (actor && UUID_RE.test(actor)) out.actorId = actor
@@ -85,6 +86,30 @@ export function parseChangeLogFilters(params: SearchParams): ChangeLogFilters {
   return out
 }
 
+export const DEFAULT_WINDOW_DAYS = 30
+
+/** 日本時間の YYYY-MM-DD（toISOString は UTC になり日付がずれるので使わない） */
+function jstDateString(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+}
+
+/**
+ * 表・人・組織・「いつから」のどれも無いときは、直近30日（日本時間の日付で数える）に絞る。
+ * 経路・操作だけの絞り込みで表を頭から全部読まないようにするため。
+ */
+export function applyDefaultWindow(
+  filters: ChangeLogFilters,
+  now: Date = new Date(),
+): { filters: ChangeLogFilters; defaultFromDate: string | null } {
+  if (filters.table || filters.actorId || filters.orgId || filters.from) return { filters, defaultFromDate: null }
+  const todayJst = jstDateString(now)
+  // 日本時間の今日の正午から数える（夏時間の無い固定+9時間なので日付の引き算だけでよい）
+  const base = new Date(`${todayJst}T12:00:00+09:00`)
+  base.setUTCDate(base.getUTCDate() - DEFAULT_WINDOW_DAYS)
+  const fromDate = jstDateString(base)
+  return { filters: { ...filters, from: `${fromDate}T00:00:00+09:00` }, defaultFromDate: fromDate }
+}
+
 export function opLabel(op: ChangeLogOp): string {
   return OP_LABELS[op]
 }
@@ -106,4 +131,25 @@ export function rowIdOf(rowPk: Record<string, unknown> | null): string {
   if (!rowPk) return '-'
   if (typeof rowPk.id === 'string' || typeof rowPk.id === 'number') return String(rowPk.id)
   return Object.values(rowPk).map(String).join(' / ')
+}
+
+/** 詳細ページの URL の id。change_log.id（bigint）として安全な正の整数だけを受け付ける */
+export function parseChangeLogId(raw: string): number | null {
+  if (!/^\d{1,15}$/.test(raw)) return null
+  const n = Number(raw)
+  return n > 0 ? n : null
+}
+
+/**
+ * 変更前後の中身の表示。削除した Wiki の本文のような大きな値でも画面が重くならないよう、
+ * 長ければ先頭だけを見せ、全文は開いたときだけ見る（全文も同じページには載る。1件だけなので許容）。
+ */
+export function previewJson(
+  value: unknown,
+  maxChars = 20000,
+): { preview: string; full: string; truncated: boolean } | null {
+  if (value === null || value === undefined) return null
+  const full = JSON.stringify(value, null, 2)
+  if (full.length <= maxChars) return { preview: full, full, truncated: false }
+  return { preview: full.slice(0, maxChars), full, truncated: true }
 }

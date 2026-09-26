@@ -6,6 +6,9 @@ import {
   actorKindLabel,
   rowIdOf,
   CHANGE_LOG_PAGE_LIMIT,
+  applyDefaultWindow,
+  parseChangeLogId,
+  previewJson,
 } from '@/lib/change-log/adminFilters'
 
 const UUID = '00000000-0000-4000-8000-00000000aaaa'
@@ -49,6 +52,11 @@ describe('parseChangeLogFilters — 運営画面の絞り込み（URL の ?…�
     expect(parseChangeLogFilters({ from: '2026/09/26' })).toEqual({})
   })
 
+  it('行の ID は表と一緒のときだけ受け付ける（表なしの行 ID だけでは索引が使えず全件を読むため）', () => {
+    expect(parseChangeLogFilters({ row: UUID })).toEqual({})
+    expect(parseChangeLogFilters({ table: 'tasks', row: UUID })).toEqual({ table: 'tasks', rowId: UUID })
+  })
+
   it('同じキーが複数あれば最初の値を使う', () => {
     expect(parseChangeLogFilters({ op: ['U', 'D'] })).toEqual({ op: 'U' })
   })
@@ -82,5 +90,42 @@ describe('表示の言葉', () => {
 
   it('1ページの件数は 100', () => {
     expect(CHANGE_LOG_PAGE_LIMIT).toBe(100)
+  })
+})
+
+describe('applyDefaultWindow — 条件がほとんど無いときは直近30日に絞る', () => {
+  // 2026-09-26 00:30 JST（UTC では 9/25）。日本時間の日付で数える
+  const now = new Date('2026-09-25T15:30:00Z')
+
+  it('表・人・組織・期間のどれも無ければ、日本時間で30日前からにする', () => {
+    expect(applyDefaultWindow({ channel: 'cli' }, now)).toEqual({
+      filters: { channel: 'cli', from: '2026-08-27T00:00:00+09:00' },
+      defaultFromDate: '2026-08-27',
+    })
+  })
+
+  it('表・人・組織・いつから のどれかがあれば、そのまま', () => {
+    for (const f of [{ table: 'tasks' }, { actorId: UUID }, { orgId: UUID }, { from: '2026-09-01T00:00:00+09:00' }]) {
+      expect(applyDefaultWindow(f, now)).toEqual({ filters: f, defaultFromDate: null })
+    }
+  })
+})
+
+describe('詳細ページの部品', () => {
+  it('parseChangeLogId: 正の整数だけを受け付ける', () => {
+    expect(parseChangeLogId('42')).toBe(42)
+    expect(parseChangeLogId('0')).toBeNull()
+    expect(parseChangeLogId('4a')).toBeNull()
+    expect(parseChangeLogId('-1')).toBeNull()
+    expect(parseChangeLogId('99999999999999999999')).toBeNull()
+  })
+
+  it('previewJson: 短ければ全文、長ければ先頭だけ（全文も返す）', () => {
+    expect(previewJson({ a: 1 }, 100)).toEqual({ preview: '{\n  "a": 1\n}', full: '{\n  "a": 1\n}', truncated: false })
+    const long = previewJson({ body: 'x'.repeat(50) }, 20)!
+    expect(long.truncated).toBe(true)
+    expect(long.preview.length).toBe(20)
+    expect(long.full).toContain('x'.repeat(50))
+    expect(previewJson(null, 20)).toBeNull()
   })
 })

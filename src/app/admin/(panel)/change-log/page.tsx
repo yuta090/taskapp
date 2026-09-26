@@ -6,6 +6,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import {
   CHANGE_LOG_PAGE_LIMIT,
   parseChangeLogFilters,
+  applyDefaultWindow,
   opLabel,
   channelLabel,
   channelOptions,
@@ -19,7 +20,14 @@ import {
  * データの変更の控え（change_log）を探す運営画面。
  * DB トリガーが主要な表の追加・更新・削除を全部記録している。誰が・どの経路で・何を・いつ変えたかを、
  * 表・行・人・組織・経路・操作・期間で絞って見る。秘密の列は記録の時点で伏せてある。
+ *
+ * 一覧では変更前後の中身（old_row / new_row）を取らない。削除した本文は全文が残っていて、
+ * 100件まとめて送ると重くなるため。中身は1件ずつ詳細ページ（./[id]）で見る。
  */
+
+/** 一覧で取る列（中身の old_row / new_row は取らない） */
+const LIST_COLUMNS =
+  'id, occurred_at, txid, table_name, op, row_pk, org_id, space_id, actor_kind, actor_user_id, api_key_id, channel, request_id, changed_columns'
 
 interface ChangeLogRow {
   id: number
@@ -36,14 +44,12 @@ interface ChangeLogRow {
   channel: string
   request_id: string | null
   changed_columns: string[] | null
-  old_row: Record<string, unknown> | null
-  new_row: Record<string, unknown> | null
 }
 
 async function fetchChangeLog(filters: ChangeLogFilters) {
   const admin = createAdminClient({ channel: 'admin' })
 
-  let query = admin.from('change_log').select('*')
+  let query = admin.from('change_log').select(LIST_COLUMNS)
   if (filters.table) query = query.eq('table_name', filters.table)
   if (filters.rowId) query = query.eq('row_pk->>id', filters.rowId)
   if (filters.actorId) query = query.eq('actor_user_id', filters.actorId)
@@ -53,7 +59,11 @@ async function fetchChangeLog(filters: ChangeLogFilters) {
   if (filters.from) query = query.gte('occurred_at', filters.from)
   if (filters.to) query = query.lte('occurred_at', filters.to)
 
-  const { data, error } = await query.order('id', { ascending: false }).limit(CHANGE_LOG_PAGE_LIMIT)
+  // 並びは時刻の新しい順（索引 (occurred_at desc, id desc)・(org_id, occurred_at desc) 等の順にそのまま読める）
+  const { data, error } = await query
+    .order('occurred_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(CHANGE_LOG_PAGE_LIMIT)
   if (error) console.error('[admin/change-log] change_log query error:', error.message)
   const rows = (data ?? []) as ChangeLogRow[]
 
@@ -104,7 +114,7 @@ export default async function AdminChangeLogPage({
   if (!currentUserId) redirect('/admin/login')
 
   const raw = await searchParams
-  const filters = parseChangeLogFilters(raw)
+  const { filters, defaultFromDate } = applyDefaultWindow(parseChangeLogFilters(raw))
   const { rows, actorNames, orgNames, failed } = await fetchChangeLog(filters)
 
   // 入力欄に戻す値（URL のまま。日付は YYYY-MM-DD）
@@ -119,7 +129,7 @@ export default async function AdminChangeLogPage({
     org: filters.orgId,
     channel: filters.channel,
     op: filters.op,
-    from: filters.from ? formValue('from') : undefined,
+    from: filters.from && !defaultFromDate ? formValue('from') : undefined,
     to: filters.to ? formValue('to') : undefined,
   }
   const inputClass =
@@ -139,7 +149,7 @@ export default async function AdminChangeLogPage({
             <input name="table" defaultValue={formValue('table')} placeholder="wiki_pages" className={inputClass} />
           </label>
           <label className="text-xs text-gray-600 space-y-1">
-            <span>行の ID</span>
+            <span>行の ID（表と一緒に）</span>
             <input name="row" defaultValue={formValue('row')} placeholder="UUID" className={inputClass} />
           </label>
           <label className="text-xs text-gray-600 space-y-1">
@@ -172,7 +182,7 @@ export default async function AdminChangeLogPage({
           </label>
           <label className="text-xs text-gray-600 space-y-1">
             <span>いつから</span>
-            <input type="date" name="from" defaultValue={formValue('from')} className={inputClass} />
+            <input type="date" name="from" defaultValue={formValue('from') || defaultFromDate || ''} className={inputClass} />
           </label>
           <label className="text-xs text-gray-600 space-y-1">
             <span>いつまで</span>
@@ -188,6 +198,12 @@ export default async function AdminChangeLogPage({
           </Link>
         </div>
       </form>
+
+      {defaultFromDate && (
+        <p className="mb-4 text-xs text-gray-500">
+          表・人・組織・いつから のどれも指定が無いため、{defaultFromDate} 以降（直近30日）に絞っています。
+        </p>
+      )}
 
       {failed && (
         <p className="mb-4 text-sm text-red-700">変更履歴を読み込めませんでした。サーバーの記録を確認してください。</p>
@@ -266,26 +282,9 @@ export default async function AdminChangeLogPage({
                     {r.changed_columns && r.changed_columns.length > 0 && (
                       <p className="text-gray-600 break-all">{r.changed_columns.join(', ')}</p>
                     )}
-                    <details>
-                      <summary className="text-gray-500 cursor-pointer hover:text-gray-700">中身</summary>
-                      {r.old_row && (
-                        <>
-                          <p className="mt-1 text-gray-500">変更前</p>
-                          <pre className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 whitespace-pre-wrap break-all max-w-md max-h-80 overflow-auto">
-                            {JSON.stringify(r.old_row, null, 2)}
-                          </pre>
-                        </>
-                      )}
-                      {r.new_row && (
-                        <>
-                          <p className="mt-1 text-gray-500">変更後</p>
-                          <pre className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 whitespace-pre-wrap break-all max-w-md max-h-80 overflow-auto">
-                            {JSON.stringify(r.new_row, null, 2)}
-                          </pre>
-                        </>
-                      )}
-                      <p className="mt-1 text-gray-400">取引番号 {r.txid}（同じ番号は1回の操作でまとめて起きた変更）</p>
-                    </details>
+                    <Link href={`/admin/change-log/${r.id}`} className="text-indigo-ink hover:underline">
+                      中身を見る
+                    </Link>
                   </td>
                 </tr>
               )
