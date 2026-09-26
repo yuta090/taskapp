@@ -97,6 +97,8 @@ export default async function PortalWikiPage({ searchParams }: PageProps) {
     title: p.published_title,
     body: p.published_body,
     publishedAt: p.published_at,
+    // 中の投票の番号は元のページのもの。投票を読む・押すときは元のページで判定する
+    sourcePageId: p.source_page_id,
   }))
 
   return (

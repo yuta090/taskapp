@@ -151,3 +151,10 @@ describe('DocPollView', () => {
     expect(screen.getByRole('button', { name: /OK/ })).toBeDisabled()
   })
 })
+
+describe('DocPollView の議題を外から渡す（ポータルの議事録のように本文を自前で描く画面）', () => {
+  it('title を渡すと、その中身を議題として出す', () => {
+    setup({ title: <span>会場はオンラインでよいか</span>, contentRef: undefined })
+    expect(screen.getByText('会場はオンラインでよいか')).toBeInTheDocument()
+  })
+})

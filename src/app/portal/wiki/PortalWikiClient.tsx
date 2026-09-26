@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { BookOpen, ArrowLeft } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 
 interface Project {
   id: string
@@ -14,6 +15,8 @@ interface Project {
 
 interface PublishedWikiPage {
   id: string
+  /** 公開した元の Wiki ページ。中の投票はこのページのもの */
+  sourcePageId: string
   title: string
   body: string
   publishedAt: string
@@ -33,6 +36,8 @@ export function PortalWikiClient({
   actionCount = 0,
 }: PortalWikiClientProps) {
   const [selectedPage, setSelectedPage] = useState<PublishedWikiPage | null>(null)
+  const { user } = useCurrentUser()
+  const currentUserId = user?.id ?? null
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('ja-JP', {
@@ -81,6 +86,8 @@ export function PortalWikiClient({
                 key={selectedPage.id}
                 initialContent={selectedPage.body || undefined}
                 editable={false}
+                // 中の投票を押せるようにする（元のページの投票。名前は投票側で引く）
+                poll={{ wikiPageId: selectedPage.sourcePageId, currentUserId }}
               />
             </div>
           ) : wikiPages.length === 0 ? (

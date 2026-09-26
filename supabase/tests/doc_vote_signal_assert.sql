@@ -10,7 +10,8 @@
 -- 視点（org O1 に S1、別 org O2 に S3）:
 --   u_ed    社内 member（S1 editor）
 --   u_view  社内 member（S1 viewer）… 投票は押せるので合図にも入れる
---   u_cli   相手先（org=client ＋ S1 space=client）… 入れない（ポータルは PR4 で足す）
+--   u_cli   相手先（org=client ＋ S1 space=client）… ここの会議は予定のまま・Wiki は未公開なので入れない。
+--           読める文書（進行中/終了の会議・公開済みの Wiki）なら入れることは run_doc_polls_client.sh（PR3）で確かめる
 --   u_o2    別 org O2 の社内 member … 入れない
 --   u_mfa   社内 member（S1 editor）で二要素認証を登録済み。aal1 では入れない
 --

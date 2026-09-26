@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { CheckSquareOffset } from '@phosphor-icons/react'
 import {
@@ -72,7 +72,12 @@ export interface DocPollViewProps {
   /** 押す・選び直す（choice）・取り消す（null） */
   onCast: (choice: DocVoteChoice | null, memo: string) => Promise<void>
   /** 議題（本文の文字）を入れる場所。BlockNote が渡す */
-  contentRef: (node: HTMLElement | null) => void
+  contentRef?: (node: HTMLElement | null) => void
+  /**
+   * 議題を中身で渡す（相手先ポータルの議事録のように、エディタを使わず本文を自前で描く画面）。
+   * 渡したときは contentRef は使わない
+   */
+  title?: ReactNode
 }
 
 export function DocPollView({
@@ -83,6 +88,7 @@ export function DocPollView({
   nameOf,
   onCast,
   contentRef,
+  title,
 }: DocPollViewProps) {
   const reasonRequired = state?.poll.reason_required ?? reasonFromBlock
   const votes = state?.votes ?? []
@@ -135,7 +141,11 @@ export function DocPollView({
           投票
         </span>
         {/* 議題。文字を持てるのはこの中だけ。空のままでもよい（ボタンだけの投票） */}
-        <div className="min-w-0 flex-1 font-medium" ref={contentRef} />
+        {title !== undefined ? (
+          <div className="min-w-0 flex-1 font-medium">{title}</div>
+        ) : (
+          <div className="min-w-0 flex-1 font-medium" ref={contentRef} />
+        )}
         {reasonRequired === 'ng_hold' && (
           <span
             contentEditable={false}

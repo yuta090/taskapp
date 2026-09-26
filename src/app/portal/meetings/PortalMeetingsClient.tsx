@@ -6,6 +6,11 @@ import { PortalShell } from '@/components/portal'
 // 共有 barrel を経由しない（議事録の Markdown 変換器がポータル全ページの
 // 共有チャンクに載るのを避けるため。components/portal/index.ts のコメント参照）
 import { PortalMinutesDocument } from '@/components/portal/PortalMinutesDocument'
+import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+
+// ポータルの議事録はエディタを使わず自前で描くので、投票の番号を振り直す相手（本文）は無い
+const NO_EDITOR = { document: [] }
 
 interface Project {
   id: string
@@ -59,6 +64,8 @@ function MeetingInspector({
   onClose: () => void
 }) {
   const hasMinutes = !!meeting.minutesMd?.trim()
+  const { user } = useCurrentUser()
+  const currentUserId = user?.id ?? null
 
   // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
   // 会議名・日時・サマリー・本文だけに絞る指定は globals.css の @media print 側にあり、
@@ -125,7 +132,15 @@ function MeetingInspector({
           {meeting.minutesMd?.trim() ? (
             <div>
               <div className="text-xs font-medium text-gray-500 mb-2">議事録</div>
-              <PortalMinutesDocument md={meeting.minutesMd} />
+              {/* 中の投票を押せるようにする（相手先も押せる。読める会議＝進行中・終了の会議だけ） */}
+              <DocPollHost
+                editor={NO_EDITOR}
+                source={{ meetingId: meeting.id }}
+                currentUserId={currentUserId}
+                editable={false}
+              >
+                <PortalMinutesDocument md={meeting.minutesMd} />
+              </DocPollHost>
             </div>
           ) : (
             <div className="text-center py-8 text-gray-400">
