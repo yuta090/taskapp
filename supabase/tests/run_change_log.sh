@@ -72,6 +72,25 @@ fi
 
 RES="$WORK/results.txt"
 grep -oE "(PASS|FAIL)\[[a-z0-9_]+\].*" "$OUT" > "$RES" || true
+
+echo "== self-check: 秘密らしい列を足すと本 migration が止まる（1トランザクションで流し、取り消す） =="
+SC_ERR="$WORK/selfcheck.txt"
+set +e
+{ echo "alter table public.slack_workspaces add column signing_value text;"; cat "$TARGET"; } \
+  | PGOPTIONS='--client-min-messages=warning' psql "$conn" -q -v ON_ERROR_STOP=1 -1 >/dev/null 2>"$SC_ERR"
+sc_rc=$?
+set -e
+if [ "$sc_rc" -ne 0 ] && grep -q "slack_workspaces.signing_value" "$SC_ERR"; then
+  echo "PASS[selfcheck_stops_on_new_secret_column]: stopped" >> "$RES"
+else
+  echo "FAIL[selfcheck_stops_on_new_secret_column]: rc=$sc_rc $(head -1 "$SC_ERR")" >> "$RES"
+fi
+left="$(psql "$conn" -qtA -c "select count(*) from information_schema.columns where table_name = 'slack_workspaces' and column_name = 'signing_value'")"
+if [ "$left" = "0" ]; then
+  echo "PASS[selfcheck_rolled_back]: column not left" >> "$RES"
+else
+  echo "FAIL[selfcheck_rolled_back]: column left" >> "$RES"
+fi
 sed 's/^/  /' "$RES"
 NPASS="$(grep -c '^PASS\[' "$RES" || true)"
 NFAIL="$(grep -c '^FAIL\[' "$RES" || true)"

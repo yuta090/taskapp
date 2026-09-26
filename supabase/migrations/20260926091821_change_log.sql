@@ -9,7 +9,7 @@
 -- 節:
 --   1) ロック（対象の表を先に押さえる。トリガーを付ける migration の決まり）
 --   2) 表 change_log（RLS 有効・許可のポリシー無し = authenticated / anon は1行も見えない）
---   3) change_log_redact: 秘密の列を伏せ、大きい本文は長さと md5 に縮める
+--   3) change_log_redact: 秘密の列（jsonb の中のキーも、どの深さでも）を伏せ、大きい本文は長さと md5 に縮める
 --   4) change_log_capture: トリガー関数（誰が・どの経路かを決めて1行書く）
 --   5) change_log_attach: 表にトリガーを付ける
 --   6) 対象の表に付ける（明示の一覧だけ。載っていない表は控えない）
@@ -22,6 +22,15 @@
 -- 冪等: create table / index は if not exists、関数は create or replace、ポリシーは有無を見てから作る。
 --   トリガーは change_log_attach が付け直す。何度流しても同じ形になる。
 --
+-- 当て方: 対象の表を share row exclusive でロックする（読むのは止めない。書き込みは適用の間だけ待たせる）。
+--   人の少ない時間に流す。ロック待ちの 3 秒を超えて止まったら、何も変わっていないので、そのまま流し直せばよい。
+--
+-- 分かっている限界:
+--   - 未ログイン（anon）の書き込みは system / system として残る（利用者を示す sub が無いため）。
+--   - 表ごとの全削除（truncate）は控えない（行ごとのトリガーは truncate では動かない）。
+--   - 表の持ち主（postgres）は権限に関係なく change_log を更新・削除できる。追記だけを守るのは、利用者の役割と
+--     サーバーの鍵（service_role）に書き込みの権限を付けないことによる。
+--
 -- 保持: 当面は消さない。表が 1GB を超えたら、pg_cron で 400 日より古い行を消す仕組みを検討する。
 --
 -- 不可逆な点: なし（控えの表と関数を足し、トリガーを付けるだけ。既存の行は変えない）。
@@ -31,7 +40,7 @@
 
 
 -- =============================================================================
--- 節 1: ロック（ある表だけ。待つのは 3 秒まで）
+-- 節 1: ロック（ある表だけ。share row exclusive = 読むのは止めない。待つのは 3 秒まで）
 -- =============================================================================
 
 do $$
@@ -56,7 +65,7 @@ begin
   loop
     v_rel := to_regclass('public.' || quote_ident(v_name));
     if v_rel is not null then
-      execute format('lock table %s in access exclusive mode', v_rel);
+      execute format('lock table %s in share row exclusive mode', v_rel);
     end if;
   end loop;
 end $$;
@@ -94,6 +103,8 @@ create index if not exists change_log_table_row_idx on public.change_log (table_
 create index if not exists change_log_org_occurred_idx on public.change_log (org_id, occurred_at desc);
 create index if not exists change_log_actor_occurred_idx on public.change_log (actor_user_id, occurred_at desc);
 create index if not exists change_log_txid_idx on public.change_log (txid);
+-- 行ごとの検索（rpc_change_log_search の p_table + p_row_id）用。新しい順にそのまま読める
+create index if not exists change_log_table_row_id_idx on public.change_log (table_name, (row_pk ->> 'id'), id desc);
 
 alter table public.change_log enable row level security;
 
@@ -123,10 +134,64 @@ revoke all on sequence public.change_log_id_seq from public, anon, authenticated
 
 -- =============================================================================
 -- 節 3: change_log_redact（秘密の列を伏せる・大きい本文を縮める）
---   (a) 列名が秘密らしい形 → "[redacted]"
+--   (a) 名前が秘密らしい形 → "[redacted]"。列名だけでなく、jsonb の中のキーにも、どの深さでも当てる
+--       （連携の metadata / import_config は、秘密を入れ子のキーに持つ。例: metadata の *_secret_encrypted、
+--        import_config の kintone_app_tokens）
 --   (b) 表ごとの明示の一覧（列名の形では拾えない物）→ "[redacted]"
 --   (c) 大きい本文 → 追加・更新では {"len": 文字数, "md5": …}。削除では全文を残す（消えた中身を戻せるように）
 -- =============================================================================
+
+create or replace function public.change_log_is_secret_key(p_key text)
+  returns boolean
+  language sql
+  immutable
+  set search_path = pg_catalog, public
+as $$
+  select p_key ~* '(tokens?|secret|hash|password|credentials?|private_key|cipher|nonce|otp|code|encrypted|webhook_url)$|^(access|refresh)_'
+$$;
+
+revoke all on function public.change_log_is_secret_key(text) from public, anon, authenticated;
+
+-- jsonb の値を、どの深さでも (a) で伏せる（オブジェクトのキーを見る。配列は要素ごとに潜る）
+create or replace function public.change_log_redact_value(p_val jsonb)
+  returns jsonb
+  language plpgsql
+  immutable
+  set search_path = pg_catalog, public
+as $$
+declare
+  v_out jsonb;
+  v_key text;
+  v_val jsonb;
+begin
+  if p_val is null then
+    return null;
+  end if;
+
+  case jsonb_typeof(p_val)
+    when 'object' then
+      v_out := '{}'::jsonb;
+      for v_key, v_val in select key, value from jsonb_each(p_val)
+      loop
+        if v_val <> 'null'::jsonb and public.change_log_is_secret_key(v_key) then
+          v_out := v_out || jsonb_build_object(v_key, '[redacted]');
+        else
+          v_out := v_out || jsonb_build_object(v_key, public.change_log_redact_value(v_val));
+        end if;
+      end loop;
+      return v_out;
+    when 'array' then
+      return coalesce(
+        (select jsonb_agg(public.change_log_redact_value(e.value) order by e.ord)
+           from jsonb_array_elements(p_val) with ordinality as e(value, ord)),
+        '[]'::jsonb);
+    else
+      return p_val;
+  end case;
+end;
+$$;
+
+revoke all on function public.change_log_redact_value(jsonb) from public, anon, authenticated;
 
 create or replace function public.change_log_redact(p_table text, p_row jsonb, p_op char)
   returns jsonb
@@ -135,29 +200,23 @@ create or replace function public.change_log_redact(p_table text, p_row jsonb, p
   set search_path = pg_catalog, public
 as $$
 declare
-  v_out jsonb := p_row;
+  v_out jsonb := '{}'::jsonb;
   v_key text;
   v_val jsonb;
+  v_new jsonb;
   v_text text;
 begin
   if p_row is null or jsonb_typeof(p_row) <> 'object' then
-    return p_row;
+    return public.change_log_redact_value(p_row);
   end if;
 
   for v_key, v_val in select key, value from jsonb_each(p_row)
   loop
     if v_val = 'null'::jsonb then
-      continue;
-    end if;
+      v_new := v_val;
 
-    -- (a) 列名の形
-    if v_key ~* '(token|secret|hash|password|credential|private_key|cipher|nonce|otp|code|encrypted)$|^(access|refresh)_' then
-      v_out := jsonb_set(v_out, array[v_key], '"[redacted]"'::jsonb);
-      continue;
-    end if;
-
-    -- (b) 表ごとの明示の一覧
-    if (p_table, v_key) in (
+    -- (a) 列名の形 / (b) 表ごとの明示の一覧
+    elsif public.change_log_is_secret_key(v_key) or (p_table, v_key) in (
       ('api_keys', 'key_hash'),
       ('channel_accounts', 'credentials_encrypted'),
       ('integration_connections', 'access_token'),
@@ -169,18 +228,10 @@ begin
       ('org_ai_config', 'api_key_encrypted'),
       ('slack_workspaces', 'bot_token_encrypted')
     ) then
-      v_out := jsonb_set(v_out, array[v_key], '"[redacted]"'::jsonb);
-      continue;
-    end if;
+      v_new := '"[redacted]"'::jsonb;
 
-    -- webhook の送り先 URL（integration_sinks.config の url）は、それ自体が合言葉を含むことがある
-    if p_table = 'integration_sinks' and v_key = 'config' and jsonb_typeof(v_val) = 'object' and v_val ? 'url' then
-      v_out := jsonb_set(v_out, array[v_key, 'url'], '"[redacted]"'::jsonb);
-      continue;
-    end if;
-
-    -- (c) 大きい本文
-    if p_op in ('I', 'U') and (p_table, v_key) in (
+    -- (c) 大きい本文（元の値の長さと md5）
+    elsif p_op in ('I', 'U') and (p_table, v_key) in (
       ('wiki_pages', 'body'),
       ('meetings', 'minutes_md'),
       ('meetings', 'summary_body'),
@@ -190,8 +241,17 @@ begin
       ('blog_posts', 'body_md')
     ) then
       v_text := case when jsonb_typeof(v_val) = 'string' then v_val #>> '{}' else v_val::text end;
-      v_out := jsonb_set(v_out, array[v_key], jsonb_build_object('len', length(v_text), 'md5', md5(v_text)));
+      v_new := jsonb_build_object('len', length(v_text), 'md5', md5(v_text));
+
+    else
+      v_new := public.change_log_redact_value(v_val);
+      -- webhook の送り先 URL（integration_sinks.config の url）は、それ自体が合言葉を含むことがある
+      if p_table = 'integration_sinks' and v_key = 'config' and jsonb_typeof(v_new) = 'object' and v_new ? 'url' then
+        v_new := jsonb_set(v_new, '{url}', '"[redacted]"'::jsonb);
+      end if;
     end if;
+
+    v_out := v_out || jsonb_build_object(v_key, v_new);
   end loop;
 
   return v_out;
@@ -201,6 +261,7 @@ $$;
 revoke all on function public.change_log_redact(text, jsonb, char) from public, anon, authenticated;
 
 -- ロールバック（節 3）: drop function if exists public.change_log_redact(text, jsonb, char);
+--   drop function if exists public.change_log_redact_value(jsonb); drop function if exists public.change_log_is_secret_key(text);
 
 
 -- =============================================================================
@@ -266,6 +327,14 @@ begin
       when 'channel_event_subscriptions' then array['expire_time', 'last_renew_error']
       else array[]::text[]
     end || array['updated_at'];
+
+    -- Google Tasks のポーリング（src/lib/google-tasks/poll.ts）は metadata の直下の poll_cursor だけを進める。
+    --   metadata の違いが poll_cursor だけなら、metadata も定期更新として扱う
+    if tg_table_name = 'integration_connections'
+       and 'metadata' = any (v_changed)
+       and (v_old -> 'metadata') - 'poll_cursor' is not distinct from (v_new -> 'metadata') - 'poll_cursor' then
+      v_noise := v_noise || array['metadata'];
+    end if;
 
     if v_changed <@ v_noise then
       return null;
@@ -381,11 +450,8 @@ begin
     raise exception 'change_log_attach: % に主キーがありません', p_table;
   end if;
 
-  if exists (select 1 from pg_trigger where tgrelid = p_table and tgname = 'change_log_capture' and not tgisinternal) then
-    execute format('drop trigger change_log_capture on %s', p_table);
-  end if;
   execute format(
-    'create trigger change_log_capture after insert or update or delete on %s for each row execute function public.change_log_capture(%s)',
+    'create or replace trigger change_log_capture after insert or update or delete on %s for each row execute function public.change_log_capture(%s)',
     p_table, v_args
   );
 end;
@@ -439,6 +505,8 @@ end $$;
 -- =============================================================================
 -- 節 7: 秘密の列の伏せ忘れの点検
 --   秘密を持つ表で、列名が秘密らしい文字列の列（文字列・json・バイト列）が、change_log_redact で伏せられることを確かめる。
+--   ここで見るのは表の列（一番上の階層）だけ。jsonb の中のキーは、change_log_redact_value がどの深さでも
+--   名前の形で伏せる（下で連携の metadata / import_config の形を1つずつ確かめる）。
 --   伏せられない列があれば migration を止める（列を足したら、change_log_redact の一覧も直す）。
 --   秘密ではないと確かめた列だけを除外する（表示用の先頭数文字・外部の識別子・状態）。
 -- =============================================================================
@@ -475,6 +543,16 @@ begin
     v_missing := v_missing || 'integration_sinks.config.url'::text;
   end if;
 
+  -- 入れ子のキー（multica・受信口の metadata、kintone の import_config）
+  v_got := public.change_log_redact('integration_connections',
+    '{"metadata": {"multica": {"base_url": "u", "send_secret_encrypted": "x", "receive_secret_encrypted": "x"},
+                   "generic_inbound": {"receive_secret_encrypted": "x"}},
+      "import_config": {"kintone_app_tokens": {"1": "x"}, "target_space_id": "s"}}'::jsonb, 'D');
+  if v_got::text like '%"x"%' or v_got #>> '{metadata,multica,base_url}' is distinct from 'u'
+     or v_got #>> '{import_config,target_space_id}' is distinct from 's' then
+    v_missing := v_missing || 'integration_connections.metadata/import_config (nested)'::text;
+  end if;
+
   if cardinality(v_missing) > 0 then
     raise exception 'change_log: 伏せられない秘密らしい列があります: %', array_to_string(v_missing, ', ');
   end if;
@@ -505,17 +583,18 @@ begin
     raise exception 'forbidden' using errcode = '42501';
   end if;
 
-  return query
-    select c.*
-      from public.change_log c
-     where (p_org_id is null or c.org_id = p_org_id)
-       and (p_table is null or c.table_name = p_table)
-       and (p_row_id is null or c.row_pk ->> 'id' = p_row_id)
-       and (p_actor is null or c.actor_user_id = p_actor)
-       and (p_from is null or c.occurred_at >= p_from)
-       and (p_to is null or c.occurred_at < p_to)
-     order by c.occurred_at desc, c.id desc
-     limit least(greatest(coalesce(p_limit, 100), 1), 1000);
+  -- 与えられた条件だけで問い合わせを組む（行ごとの検索が change_log_table_row_id_idx をそのまま使えるように）。
+  -- 値はすべて using で渡す
+  return query execute
+    'select c.* from public.change_log c where true'
+    || case when p_org_id is not null then ' and c.org_id = $1' else '' end
+    || case when p_table is not null then ' and c.table_name = $2' else '' end
+    || case when p_row_id is not null then ' and (c.row_pk ->> ''id'') = $3' else '' end
+    || case when p_actor is not null then ' and c.actor_user_id = $4' else '' end
+    || case when p_from is not null then ' and c.occurred_at >= $5' else '' end
+    || case when p_to is not null then ' and c.occurred_at < $6' else '' end
+    || ' order by c.id desc limit $7'
+    using p_org_id, p_table, p_row_id, p_actor, p_from, p_to, least(greatest(coalesce(p_limit, 100), 1), 1000);
 end;
 $$;
 
@@ -542,4 +621,6 @@ grant execute on function public.rpc_change_log_search(uuid, text, text, uuid, t
 -- drop function if exists public.change_log_attach(regclass);
 -- drop function if exists public.change_log_capture();
 -- drop function if exists public.change_log_redact(text, jsonb, char);
+-- drop function if exists public.change_log_redact_value(jsonb);
+-- drop function if exists public.change_log_is_secret_key(text);
 -- drop table if exists public.change_log;

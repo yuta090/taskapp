@@ -258,7 +258,7 @@ select test.check('f_search_non_superadmin_denied',
   test.run('authenticated', test.user_claims(:'u_req'), null, 'select * from public.rpc_change_log_search()'), 'error:42501');
 select test.check('f_search_anon_denied',
   test.run('anon', null, null, 'select * from public.rpc_change_log_search()'), 'error:42501');
-select test.check('f_capture_not_callable',
+select test.check('f_redact_not_callable',
   test.run('authenticated', test.user_claims(:'u_req'), null, $q$select public.change_log_redact('x', '{}', 'I')$q$), 'error:42501');
 select test.check('f_attach_not_callable',
   test.run('authenticated', test.user_claims(:'u_req'), null, $q$select public.change_log_attach('public.tasks')$q$), 'error:42501');
@@ -272,3 +272,92 @@ select test.check('f_search_superadmin_ok',
                      from public.rpc_change_log_search(p_table => 'wiki_pages', p_row_id => %L)$q$, :'W1')), 'ok');
 select test.check('f_search_superadmin_finds_delete',
   (select n::text || '/' || d_actor from search_out), '2/' || :'u_req');
+
+select test.check('f_capture_not_executable_by_users',
+  (select has_function_privilege('authenticated', 'public.change_log_capture()', 'execute')::text || '/'
+          || has_function_privilege('anon', 'public.change_log_capture()', 'execute')::text), 'false/false');
+
+-- -----------------------------------------------------------------------------
+-- (g) 入れ子の秘密（連携の metadata / import_config）は、どの深さでも伏せる
+--     形は multica の接続（metadata.multica.*_secret_encrypted）・受信口（metadata.generic_inbound.*）・
+--     kintone（import_config.kintone_app_tokens）に合わせる
+-- -----------------------------------------------------------------------------
+\set C1 'f1000000-0000-0000-0000-000000000001'
+-- import_config.kintone_app_tokens はサーバーの鍵からしか書けない（既存のトリガー）ので、service_role で書く
+select test.check('g_nested_insert_ok', test.run('service_role', '{"role":"service_role"}', null, $q$
+insert into public.integration_connections (id, provider, owner_type, owner_id, org_id, access_token, auth_kind, metadata, import_config)
+values ('f1000000-0000-0000-0000-000000000001', 'multica', 'org', 'a0000000-0000-0000-0000-000000000001',
+  'a0000000-0000-0000-0000-000000000001', '', 'shared_secret',
+  '{"multica": {"base_url": "https://multica.example", "send_secret_encrypted": "PLANT-SEND-CIPHER", "receive_secret_encrypted": "PLANT-RECV-CIPHER"},
+    "generic_inbound": {"receive_secret_encrypted": "PLANT-GENERIC-CIPHER"},
+    "list": [{"client_secret": "PLANT-LIST-SECRET", "name": "keep"}]}',
+  '{"kintone_app_tokens": {"101": "PLANT-KINTONE-TOKEN"}, "target_space_id": "b0000000-0000-0000-0000-000000000001"}')
+$q$), 'ok');
+select test.check('g_nested_update_ok', test.run('service_role', '{"role":"service_role"}', null, $q$
+update public.integration_connections
+   set metadata = jsonb_set(metadata, '{multica,send_secret_encrypted}', '"PLANT-SEND-CIPHER-2"'),
+       import_config = jsonb_set(import_config, '{kintone_app_tokens,102}', '"PLANT-KINTONE-TOKEN-2"')
+ where id = 'f1000000-0000-0000-0000-000000000001'
+$q$), 'ok');
+select test.check('g_nested_update_logged',
+  (select array_to_string(c.changed_columns, ',') from test.last('integration_connections', :'C1') c), 'import_config,metadata,updated_at');
+select test.check('g_nested_keeps_harmless_values',
+  (select (c.new_row #>> '{metadata,multica,base_url}') || '/' || (c.new_row #>> '{metadata,list,0,name}')
+          || '/' || (c.new_row #>> '{import_config,target_space_id}')
+     from public.change_log c where c.table_name = 'integration_connections' and c.op = 'I' and c.row_pk ->> 'id' = :'C1'),
+  'https://multica.example/keep/' || :'S1');
+select test.check('g_nested_marks_redacted',
+  (select (c.new_row #>> '{metadata,multica,send_secret_encrypted}') || '/' || (c.new_row #>> '{import_config,kintone_app_tokens}')
+     from test.last('integration_connections', :'C1') c),
+  '[redacted]/[redacted]');
+select test.check('g_nested_delete_ok', test.run('service_role', '{"role":"service_role"}', null,
+  $q$delete from public.integration_connections where id = 'f1000000-0000-0000-0000-000000000001'$q$), 'ok');
+select test.check('g_nested_secrets_absent_everywhere',
+  (select count(*)::text from public.change_log
+    where coalesce(old_row::text, '') || coalesce(new_row::text, '') like '%PLANT-%'), '0');
+select test.check('g_nested_logged_three_ops',
+  (select string_agg(op, '' order by id) from public.change_log where table_name = 'integration_connections' and row_pk ->> 'id' = :'C1'),
+  'IUD');
+
+-- -----------------------------------------------------------------------------
+-- (h) Google Tasks のポーリングが metadata.poll_cursor だけを進める更新は控えない
+-- -----------------------------------------------------------------------------
+\set C2 'f1000000-0000-0000-0000-000000000002'
+insert into public.integration_connections (id, provider, owner_type, owner_id, org_id, access_token, metadata)
+values (:'C2', 'google_tasks', 'user', :'u_req', :'O1', '', '{"tasklist_id": "L1"}');
+select count(*) as before_h from public.change_log \gset
+update public.integration_connections set metadata = metadata || '{"poll_cursor": "2026-09-26T00:00:00Z"}' where id = :'C2';
+update public.integration_connections
+   set metadata = metadata || '{"poll_cursor": "2026-09-26T01:00:00Z"}', last_poll_attempt_at = now() where id = :'C2';
+select test.check('h_poll_cursor_only_not_logged',
+  (select (count(*) - :before_h)::text from public.change_log), '0');
+update public.integration_connections set metadata = metadata || '{"poll_cursor": "c3", "tasklist_id": "L2"}' where id = :'C2';
+select test.check('h_other_metadata_change_logged',
+  (select array_to_string(c.changed_columns, ',') || '/' || (c.new_row #>> '{metadata,tasklist_id}')
+     from test.last('integration_connections', :'C2') c), 'metadata,updated_at/L2');
+
+-- -----------------------------------------------------------------------------
+-- (i) 付いたトリガーの数 = 対象の一覧の数（60）
+-- -----------------------------------------------------------------------------
+select test.check('i_trigger_count',
+  (select count(*)::text from pg_trigger where tgname = 'change_log_capture' and not tgisinternal), '60');
+
+-- -----------------------------------------------------------------------------
+-- (j) 行ごとの検索は (table_name, row_pk->>'id', id desc) の索引で引ける
+-- -----------------------------------------------------------------------------
+select test.check('j_row_index_exists',
+  (select count(*)::text from pg_indexes where schemaname = 'public' and tablename = 'change_log'
+      and indexdef like '%(table_name, ((row_pk ->> ''id''::text)), id DESC)%'), '1');
+create or replace function test.plan_uses_row_index() returns text language plpgsql as $$
+declare v_line text; v_all text := '';
+begin
+  set local enable_seqscan = off;
+  set local enable_bitmapscan = off;
+  for v_line in execute
+    $q$explain select * from public.change_log where table_name = 'wiki_pages' and (row_pk ->> 'id') = 'x' order by id desc limit 100$q$
+  loop
+    v_all := v_all || v_line;
+  end loop;
+  return (v_all like '%change_log_table_row_id_idx%' and v_all not like '%Sort%')::text;
+end $$;
+select test.check('j_row_query_uses_index', test.plan_uses_row_index(), 'true');
