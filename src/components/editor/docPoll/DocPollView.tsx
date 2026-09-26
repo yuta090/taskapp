@@ -120,20 +120,26 @@ export function DocPollView({
   }
 
   return (
+    // 本文の段落と見分けがつくよう、色付きの面と左の帯、「投票」の札で出す（決めごとを押してもらう場所なので目立たせる）。
+    // indigo は中央トークンなのでダークでも反転する。amber/orange は「相手先に見える」印なので使わない
     <div
       data-testid="doc-poll"
-      className="my-1 w-full rounded border border-gray-200 bg-surface px-3 py-2"
+      className="my-2 w-full rounded-md border border-indigo-500/30 border-l-4 border-l-indigo-500 bg-indigo-50 px-3 py-2.5"
     >
       <div className="flex items-start gap-2">
-        <span contentEditable={false} aria-hidden className="mt-0.5 shrink-0 select-none text-gray-400">
-          <CheckSquareOffset size={18} />
+        <span
+          contentEditable={false}
+          className="mt-0.5 inline-flex shrink-0 select-none items-center gap-1 text-xs font-semibold text-indigo-ink"
+        >
+          <CheckSquareOffset size={18} weight="bold" aria-hidden />
+          投票
         </span>
         {/* 議題。文字を持てるのはこの中だけ。空のままでもよい（ボタンだけの投票） */}
         <div className="min-w-0 flex-1 font-medium" ref={contentRef} />
         {reasonRequired === 'ng_hold' && (
           <span
             contentEditable={false}
-            className="shrink-0 select-none rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500"
+            className="shrink-0 select-none rounded bg-surface px-1.5 py-0.5 text-[10px] text-gray-500"
           >
             NG・保留は理由必須
           </span>
@@ -154,7 +160,8 @@ export function DocPollView({
                 data-testid={`doc-poll-choice-${choice}`}
                 onClick={(e) => handleChoice(choice, e.currentTarget)}
                 className={`inline-flex items-center gap-1 rounded border px-2.5 py-0.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                  selected ? SELECTED_CLASS[choice] : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  // 選んでいないボタンも、色付きの面の上で押せる形に見えるよう白い地にする
+                  selected ? SELECTED_CLASS[choice] : 'border-gray-200 bg-surface text-gray-600 hover:bg-gray-50'
                 }`}
               >
                 <span>{DOC_VOTE_LABELS[choice]}</span>
