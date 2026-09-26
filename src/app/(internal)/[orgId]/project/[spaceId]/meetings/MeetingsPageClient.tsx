@@ -249,16 +249,17 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     }
   }, [setInspector])
 
-  // 全画面表示中はEscで抜ける（Wiki(WikiPageClient.tsx)と同じ。IME変換確定のEscでは抜けない）
+  // 全画面表示中はEscで抜ける（Wiki(WikiPageClient.tsx)と同じ。IME変換確定のEscでは抜けない）。
+  // Wiki を重ねている間は、Esc は Wiki を閉じるのに使う（全画面は抜けない）
   useEffect(() => {
-    if (!fullscreen) return
+    if (!fullscreen || selectedWikiId) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return
       if (e.key === 'Escape') setFullscreen(false)
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [fullscreen, setFullscreen])
+  }, [fullscreen, setFullscreen, selectedWikiId])
 
   // 会議一覧の画面を離れたら全画面表示も解除する（次に開いた画面でLeftNavが消えたままにならないように）
   useEffect(() => () => setFullscreen(false), [setFullscreen])
@@ -791,6 +792,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
             orgId={orgId}
             spaceId={spaceId}
             pageId={selectedWikiId}
+            canEdit={canEdit}
             onClose={closeWikiOverlay}
             onOpenPage={(href) => void openWikiPage(href)}
           />
