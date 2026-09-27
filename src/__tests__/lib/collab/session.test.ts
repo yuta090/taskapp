@@ -17,6 +17,7 @@ import {
   SYNC_WAIT_MS,
   UPDATE_FLUSH_MS,
   AWARENESS_FLUSH_MS,
+  PERIODIC_SYNC_MS,
 } from '@/lib/collab/session'
 import type { DegradeReason } from '@/lib/collab/session'
 import { minutesSeedHash, seedClientId } from '@/lib/collab/hash'
@@ -714,6 +715,95 @@ describe('在席が遅れて届いたとき（2026-09-26 に実ブラウザで�
     const before = hub.sent.filter((m) => m.from === 'b' && m.event === 'y-sync1').length
     b.session.setPeers([{ id: 'ghost', userId: 'ghost', joinedAt: 50, collab: true }, { id: 'b', userId: 'b', joinedAt: 200, collab: false }])
     expect(hub.sent.filter((m) => m.from === 'b' && m.event === 'y-sync1').length).toBe(before)
+  })
+})
+
+describe('相手の本文の元を持たないまま更新だけが届いたとき（2026-09-27 本番で報告）', () => {
+  // 同じページを2つの窓で開き、片方で打ち続けているところへもう片方が入る。在席の遅れで
+  // 後から来た窓は自分で本文を作り、そこへ相手の打鍵の更新だけが先に届く。元（相手の本文の
+  // かたまり）を持たないので保留になり、画面に出ない。ここで「もう合わせ込んだ」と印を付けると、
+  // あとで在席が届いても握手せず、**帯も出ないまま、ずっとずれる**
+  const OLDER = '2026-09-27T15:40:00+09:00'
+  const NEWER = '2026-09-27T15:45:00+09:00'
+  const LATER_BODY = `${BASE}\n- 列の新しい本文`
+
+  it('打鍵の更新を受け取っただけでは握手済みにしない。在席が届いたら握手して揃う', () => {
+    const hub = createFakeHub()
+    const right = join(hub, 'right', [{ id: 'right', userId: 'u', joinedAt: 100 }], BASE, OLDER)
+    // 後から来た窓は、右が見えないまま列の新しい本文で種をまく
+    const left = join(hub, 'left', [{ id: 'left', userId: 'u', joinedAt: 200 }], LATER_BODY, NEWER)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    // 右が打つ（左には「更新」だけが届く）
+    applyMarkdown(right.session.doc, `${BASE}\n- 右が打った`)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    // 在席が届く
+    const full = [
+      { id: 'right', userId: 'u', joinedAt: 100, collab: true },
+      { id: 'left', userId: 'u', joinedAt: 200, collab: true },
+    ]
+    right.session.setPeers(full)
+    left.session.setPeers(full)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+
+    expect(readBackMarkdown(left.session.doc)).toBe(`${BASE}\n- 右が打った`)
+    expect(readBackMarkdown(right.session.doc)).toBe(`${BASE}\n- 右が打った`)
+    expect(blockGroupCount(left.session.doc)).toBe(1)
+  })
+
+  it('届いた更新の元が手元に無ければ、在席を待たずに送り主へ足りない分を頼む', () => {
+    const hub = createFakeHub()
+    const left = join(hub, 'left', [{ id: 'left', userId: 'u', joinedAt: 200 }], LATER_BODY, NEWER)
+    // 右の窓の器（左はこの器の元を持っていない）。右が打った分の差分だけを左へ届ける
+    const rightDoc = new Y.Doc()
+    seedWith(BASE, OLDER)(rightDoc)
+    const beforeTyping = Y.encodeStateVector(rightDoc)
+    applyMarkdown(rightDoc, `${BASE}\n- 右が打った`)
+    hub.sendAs('right', 'y-update', Y.encodeStateAsUpdate(rightDoc, beforeTyping))
+
+    const asked = hub.sent.filter((m) => m.from === 'left' && m.event === 'y-sync1' && m.to === 'right')
+    expect(asked).toHaveLength(1)
+    // 同じ相手へ続けて届いても、頼み直すのは間を置いてから
+    hub.sendAs('right', 'y-update', Y.encodeStateAsUpdate(rightDoc, beforeTyping))
+    expect(hub.sent.filter((m) => m.from === 'left' && m.event === 'y-sync1' && m.to === 'right')).toHaveLength(1)
+    expect(left.degraded).toEqual([])
+  })
+})
+
+describe('1通を取りこぼしたとき', () => {
+  it('入り直さなくても、定期の目録の交換で取り戻す', () => {
+    const hub = createFakeHub()
+    const room: Room = [
+      { id: 'a', userId: 'a', joinedAt: 100 },
+      { id: 'b', userId: 'b', joinedAt: 200 },
+    ]
+    const a = join(hub, 'a', [room[0]])
+    const b = join(hub, 'b', room)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    // b に届かないあいだに a が打つ（入り直しの知らせは出ない）
+    hub.disconnect('b')
+    applyMarkdown(a.session.doc, `${BASE}\n- 取りこぼした行`)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    hub.restore('b')
+    expect(readBackMarkdown(b.session.doc)).toBe(BASE)
+
+    vi.advanceTimersByTime(PERIODIC_SYNC_MS)
+    expect(readBackMarkdown(b.session.doc)).toBe(`${BASE}\n- 取りこぼした行`)
+  })
+
+  it('揃っているあいだは、目録の交換で本文を送らない（空の差分だけ）', () => {
+    const hub = createFakeHub()
+    const room: Room = [
+      { id: 'a', userId: 'a', joinedAt: 100 },
+      { id: 'b', userId: 'b', joinedAt: 200 },
+    ]
+    join(hub, 'a', [room[0]])
+    join(hub, 'b', room)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    const before = hub.sent.length
+    vi.advanceTimersByTime(PERIODIC_SYNC_MS)
+    const since = hub.sent.slice(before)
+    expect(since.filter((m) => m.event === 'y-update')).toHaveLength(0)
+    expect(since.every((m) => m.payload.length < 100)).toBe(true)
   })
 })
 
