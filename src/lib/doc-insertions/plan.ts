@@ -11,6 +11,8 @@ export interface InsertionSyncPlan {
   remove: string[]
   /** 本文にもう無いので削除済みにする */
   markRemoved: string[]
+  /** 削除依頼だが、下に社内の子の行があって消せないので反映済みに戻す（子の行ごと消さない） */
+  keep: string[]
 }
 
 function collectInsertionBlocks(doc: BlockLike[]): Map<string, BlockLike> {
@@ -37,7 +39,8 @@ export function planInsertionSync<B extends BlockLike>(
   matches: (block: B, anchor: string) => boolean
 ): InsertionSyncPlan {
   const present = collectInsertionBlocks(doc)
-  const plan: InsertionSyncPlan = { insert: [], markApplied: [], remove: [], markRemoved: [] }
+  const plan: InsertionSyncPlan = { insert: [], markApplied: [], remove: [], markRemoved: [], keep: [] }
+  const hasChildren = (b: BlockLike) => (b.children?.length ?? 0) > 0
   const last = doc[doc.length - 1]
   // 同じ場所に続けて足すとき、次はこの後ろに入れる
   const tailOf = new Map<string, string>()
@@ -45,13 +48,15 @@ export function planInsertionSync<B extends BlockLike>(
   for (const row of rows) {
     const block = present.get(row.id)
     if (row.status === 'remove_requested') {
-      if (block) plan.remove.push(block.id)
-      else plan.markRemoved.push(row.id)
+      if (!block) plan.markRemoved.push(row.id)
+      else if (hasChildren(block)) plan.keep.push(row.id)
+      else plan.remove.push(block.id)
       continue
     }
-    // 取り消された（取り込んで保存する前に相手先が取り消した）のに本文にある行は消す
+    // 取り消された（取り込んで保存する前に相手先が取り消した）のに本文にある行は消す。
+    // 下に社内の子の行があれば消さない（子の行ごと消えてしまう）
     if (row.status === 'withdrawn') {
-      if (block) plan.remove.push(block.id)
+      if (block && !hasChildren(block)) plan.remove.push(block.id)
       continue
     }
     if (row.status !== 'pending') continue

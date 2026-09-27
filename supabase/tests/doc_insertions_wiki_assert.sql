@@ -71,7 +71,7 @@ grant execute on all functions in schema dvt to authenticated, anon;
 insert into auth.users(id) values (:'u_ed'), (:'u_cli'), (:'u_cli2');
 insert into organizations(id, name) values (:'O1', '検証org');
 insert into org_memberships(org_id, user_id, role) values (:'O1', :'u_ed', 'member'), (:'O1', :'u_cli', 'client'), (:'O1', :'u_cli2', 'client');
-insert into spaces(id, org_id, type, name) values (:'S1', :'O1', 'project', 'S1');
+insert into spaces(id, org_id, type, name, portal_visible_sections) values (:'S1', :'O1', 'project', 'S1', '{"tasks": true, "requests": true, "all_tasks": true, "files": true, "meetings": true, "wiki": true, "history": true}'::jsonb);
 insert into space_memberships(space_id, user_id, role) values (:'S1', :'u_ed', 'editor'), (:'S1', :'u_cli', 'client'), (:'S1', :'u_cli2', 'client');
 insert into wiki_pages(id, org_id, space_id, title, body, created_by, updated_by) values
   (:'W_pub', :'O1', :'S1', '公開', '[{"id":"b1","type":"paragraph","props":{},"content":[],"children":[]}]', :'u_ed', :'u_ed'),
@@ -132,5 +132,55 @@ select dvt.as_user(:'u_cli');
 select dvt.check('create_broken', dvt.create_as('w4', format(
   'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_pub', 'paragraph', 'x')), 'ok');
 select dvt.check('withdraw_broken_body', (select rpc_doc_insertion_withdraw(dvt.id('w4'))), 'withdrawn');
+
+-- ---- 本文の書き方に左右されない（jsonb::text の「": "」の形でも見つける） ----
+select dvt.as_user(:'u_cli');
+select dvt.check('create_w5', dvt.create_as('w5', format(
+  'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_pub', 'paragraph', '空白つきの本文')), 'ok');
+reset role;
+update wiki_pages set body = (format(
+  '[{"id":"p1","type":"paragraph","props":{},"content":[],"children":[]},{"id":"%s","type":"docInsertion","props":{"insertionId":"%s","kind":"paragraph"},"content":[],"children":[]}]',
+  dvt.id('w5'), dvt.id('w5')))::jsonb::text
+ where id = :'W_pub';
+set role authenticated;
+select dvt.as_user(:'u_ed');
+select dvt.check('in_body_jsonb_spacing', dvt.try(format('select rpc_doc_insertion_mark_applied(%L, false)', dvt.id('w5'))), 'ok');
+
+-- ---- 反映待ちで本文に入っていて、下に子の行があれば取り消しを断る ----
+select dvt.as_user(:'u_cli');
+select dvt.check('create_w6', dvt.create_as('w6', format(
+  'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_pub', 'paragraph', '子のつく行')), 'ok');
+reset role;
+update wiki_pages set body = format(
+  '[{"id":"%s","type":"docInsertion","props":{"insertionId":"%s","kind":"paragraph"},"content":[],"children":[{"id":"c9","type":"paragraph","props":{},"content":[],"children":[]}]}]',
+  dvt.id('w6'), dvt.id('w6'))
+ where id = :'W_pub';
+set role authenticated;
+select dvt.as_user(:'u_cli');
+select dvt.check('withdraw_pending_in_body_children', dvt.try(format('select rpc_doc_insertion_withdraw(%L)', dvt.id('w6'))), 'err:22023:has_children');
+
+-- ---- 子の行があって消せなかった削除依頼は、社内が反映済みに戻せる ----
+reset role;
+update doc_insertions set status = 'remove_requested' where id = dvt.id('w6');
+set role authenticated;
+select dvt.as_user(:'u_cli');
+select dvt.check('client_cannot_keep', dvt.try(format('select rpc_doc_insertion_keep(%L)', dvt.id('w6'))), 'err:42501:%');
+select dvt.as_user(:'u_ed');
+select dvt.check('keep_ok', dvt.try(format('select rpc_doc_insertion_keep(%L)', dvt.id('w6'))), 'ok');
+select dvt.check('kept_applied', (select status from doc_insertions where id = dvt.id('w6')), 'applied');
+
+-- ---- ポータルで Wiki・会議の欄を切った space では、相手先は書き足せない ----
+reset role;
+alter table spaces disable trigger user;
+update spaces set portal_visible_sections = '{"tasks": true, "requests": true, "all_tasks": true, "files": true, "meetings": false, "wiki": false, "history": true}'::jsonb where id = :'S1';
+alter table spaces enable trigger user;
+insert into meetings(id, org_id, space_id, title, held_at, status, minutes_md, created_by)
+  values ('00000000-0000-4000-8000-0000000f1e01', :'O1', :'S1', '会議', now(), 'ended', '# 会議', :'u_ed');
+set role authenticated;
+select dvt.as_user(:'u_cli2');
+select dvt.check('wiki_section_off', dvt.try(format(
+  'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_pub', 'paragraph', 'x')), 'err:42501:%');
+select dvt.check('meetings_section_off', dvt.try(format(
+  'select rpc_doc_insertion_create(null, %L, %L, %L, null)', '00000000-0000-4000-8000-0000000f1e01', 'paragraph', 'x')), 'err:42501:%');
 
 \echo 'DOC INSERTIONS WIKI 全項目 PASS'

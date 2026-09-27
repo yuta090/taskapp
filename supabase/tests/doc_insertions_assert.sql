@@ -74,7 +74,8 @@ insert into organizations(id, name) values (:'O1', '検証org');
 insert into org_memberships(org_id, user_id, role) values
   (:'O1', :'u_ed', 'member'), (:'O1', :'u_view', 'member'), (:'O1', :'u_cli', 'client'),
   (:'O1', :'u_cli2', 'client'), (:'O1', :'u_other', 'client'), (:'O1', :'u_mfa', 'client');
-insert into spaces(id, org_id, type, name) values (:'S1', :'O1', 'project', 'S1'), (:'S2', :'O1', 'project', 'S2');
+insert into spaces(id, org_id, type, name, portal_visible_sections) values (:'S1', :'O1', 'project', 'S1', '{"tasks": true, "requests": true, "all_tasks": true, "files": true, "meetings": true, "wiki": true, "history": true}'::jsonb);
+insert into spaces(id, org_id, type, name) values (:'S2', :'O1', 'project', 'S2');
 insert into space_memberships(space_id, user_id, role) values
   (:'S1', :'u_ed', 'editor'), (:'S1', :'u_view', 'viewer'), (:'S1', :'u_cli', 'client'),
   (:'S1', :'u_cli2', 'client'), (:'S2', :'u_other', 'client'), (:'S1', :'u_mfa', 'client');

@@ -9,7 +9,9 @@ const markDocInsertionApplied = vi.fn()
 const markDocInsertionRemoved = vi.fn()
 const claimDocInsertion = vi.fn()
 const dismissDocInsertion = vi.fn()
+const keepDocInsertion = vi.fn()
 vi.mock('@/lib/doc-insertions/api', () => ({
+  keepDocInsertion: (...a: unknown[]) => keepDocInsertion(...a),
   fetchInsertionsToSync: (...a: unknown[]) => fetchDocInsertions(a[0], a[1], ['pending', 'remove_requested', 'withdrawn']),
   claimDocInsertion: (...a: unknown[]) => claimDocInsertion(...a),
   dismissDocInsertion: (...a: unknown[]) => dismissDocInsertion(...a),
@@ -64,6 +66,7 @@ beforeEach(() => {
   markDocInsertionRemoved.mockReset().mockResolvedValue(undefined)
   claimDocInsertion.mockReset().mockResolvedValue(true)
   dismissDocInsertion.mockReset().mockResolvedValue(undefined)
+  keepDocInsertion.mockReset().mockResolvedValue(undefined)
   listeners.clear()
   sent.length = 0
 })
@@ -195,5 +198,30 @@ describe('useDocInsertionSync（Wiki）', () => {
       listeners.get('wiki-page-view:w1|wiki-saved')?.()
     })
     await waitFor(() => expect(markDocInsertionApplied).toHaveBeenCalledWith(expect.anything(), 'i1', false))
+  })
+})
+
+describe('useDocInsertionSync（同時編集で別のタブが保存する）', () => {
+  it('入れた行が本文から消えていたら、保存の知らせを待たずに次の見直しで「採らなかった」として閉じる', async () => {
+    fetchDocInsertions.mockResolvedValue([row('i1')])
+    const { editor } = fakeEditor([{ id: 'b1', type: 'paragraph' }])
+    renderHook(() => useDocInsertionSync({ editor, source: { meetingId: 'm1' }, enabled: true }), { wrapper: wrapper() })
+    await waitFor(() => expect(editor.insertBlocks).toHaveBeenCalledTimes(1))
+    editor.document = editor.document.filter((b) => b.id !== 'i1')
+    // 保存したのは別のタブ（書記）。こちらには保存の知らせが来ず、台帳の読み直しだけが来る
+    await act(async () => {
+      listeners.get('meeting-minutes-view:m1|insertion-changed')?.()
+    })
+    await waitFor(() => expect(dismissDocInsertion).toHaveBeenCalledWith(expect.anything(), 'i1'))
+  })
+
+  it('削除依頼で子の行があれば、消さずに反映済みへ戻す', async () => {
+    fetchDocInsertions.mockResolvedValue([row('i1', { status: 'remove_requested' })])
+    const { editor } = fakeEditor([
+      { id: 'x9', type: 'docInsertion', props: { insertionId: 'i1' }, children: [{ id: 'c1', type: 'paragraph' }] },
+    ])
+    renderHook(() => useDocInsertionSync({ editor, source: { meetingId: 'm1' }, enabled: true }), { wrapper: wrapper() })
+    await waitFor(() => expect(keepDocInsertion).toHaveBeenCalledWith(expect.anything(), 'i1'))
+    expect(editor.removeBlocks).not.toHaveBeenCalled()
   })
 })

@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   claimDocInsertion,
   dismissDocInsertion,
+  keepDocInsertion,
   fetchInsertionsToSync,
   markDocInsertionApplied,
   markDocInsertionRemoved,
@@ -192,12 +193,11 @@ export function useDocInsertionSync({
           })
         }
         for (const id of plan.markRemoved) await attempt(() => markDocInsertionRemoved(supabase, id))
-        if (confirm) {
-          for (const id of dismiss) {
-            // 閉じたあとも「このタブが入れた」の覚えは消さない（台帳の読み直しが遅れても入れ直さない）
-            await attempt(() => dismissDocInsertion(supabase, id))
-          }
-        }
+        for (const id of plan.keep) await attempt(() => keepDocInsertion(supabase, id))
+        // 「採らなかった」は見直しのたびに確かめる（同時編集では保存するのが別のタブ＝書記で、
+        // こちらには保存の知らせが来ない。DB が本文に無いことを確かめるので、早すぎても害は無い）。
+        // 閉じたあとも「このタブが入れた」の覚えは消さない（台帳の読み直しが遅れても入れ直さない）
+        for (const id of dismiss) await attempt(() => dismissDocInsertion(supabase, id))
         if (changed) {
           sendDocSignal(topic, 'insertion-changed')
           void queryClient.invalidateQueries({ queryKey })
