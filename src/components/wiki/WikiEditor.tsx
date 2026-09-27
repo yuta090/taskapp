@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react'
@@ -27,6 +27,8 @@ import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
 import { docPollSpec } from '@/components/editor/docPoll/docPollBlock'
 import { DocPollHost } from '@/components/editor/docPoll/DocPollHost'
 import { HeadingLinks, type HeadingLinksEditor } from '@/components/editor/HeadingLinks'
+import { DOC_INSERTION_TYPE } from '@/lib/doc-insertions/logic'
+import { docInsertionSpec } from '@/components/editor/docInsertion/docInsertionBlock'
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { seedWikiDoc } from '@/lib/collab/seed'
@@ -49,6 +51,15 @@ export interface WikiEditorCollaboration {
   userName: string
   /** 何番の色でカーソルを描くか。部屋の中で重ならないように呼び出し側が決める */
   colorIndex: number
+}
+
+import { useDocInsertionSync, type InsertionEditorLike } from '@/components/editor/docInsertion/useDocInsertionSync'
+
+/** 相手先の差し込みを本文に取り込む（社内の編集画面だけが置く）。QueryClient の下でだけ描くため部品に分ける */
+function WikiInsertionSync({ editor, wikiPageId }: { editor: InsertionEditorLike; wikiPageId: string }) {
+  const source = useMemo(() => ({ wikiPageId }), [wikiPageId])
+  useDocInsertionSync({ editor, source, enabled: true })
+  return null
 }
 
 interface WikiEditorProps {
@@ -78,6 +89,11 @@ interface WikiEditorProps {
     nameOf?: (userId: string) => string
     /** 見えない・押せない投票に出す言葉（相手先ポータルは「この投票は終了しました」） */
     closedNote?: string
+    /**
+     * 相手先の差し込み（反映待ち）をこの画面で本文に取り込むか（社内の編集できる画面だけ）。
+     * どのタブが入れるかは DB の取り込む権利で1つに絞る（DOC_VOTE_SPEC §5.1）
+     */
+    applyInsertions?: boolean
   }
   /**
    * 見出しのリンクに添えるページ名。渡したときだけ、見出しの「リンクをコピー」ボタンと
@@ -106,6 +122,8 @@ const schema = BlockNoteSchema.create({
     [DIVIDER_TYPE]: dividerSpec,
     // 投票。本文には番号と理由必須の設定だけを持ち、票は DB に置く（DOC_VOTE_SPEC）
     [DOC_POLL_TYPE]: docPollSpec,
+    // 相手先が足した行・メモ（DOC_VOTE_SPEC §5.1）。本文に入れるのは社内の編集画面だけ
+    [DOC_INSERTION_TYPE]: docInsertionSpec,
   },
 })
 
@@ -419,6 +437,9 @@ export function WikiEditor({
           editable={editable}
         >
           {editorView}
+          {poll.applyInsertions && editable && (
+            <WikiInsertionSync editor={editor as unknown as InsertionEditorLike} wikiPageId={poll.wikiPageId} />
+          )}
         </DocPollHost>
       ) : (
         editorView
