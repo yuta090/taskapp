@@ -16,6 +16,7 @@
 
 import { normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
+import { DOC_INSERTION_TYPE } from '@/lib/doc-insertions/logic'
 
 // ---- 型 ----
 
@@ -314,6 +315,15 @@ const TOC_LINE_RE = /^<!--toc-->\s*$/
  * 投票ブロック（DOC_VOTE_SPEC §3.2）。`<!--vote:<番号>-->議題`、理由必須は `<!--vote:<番号> must-->議題`。
  * 票は本文でなく DB（doc_votes）にあるので、本文に残すのは番号と設定と議題だけ。形は以後変えない。
  */
+/**
+ * 相手先が足した行・メモ（DOC_VOTE_SPEC §5.1）。1行目は `<!--ins:<番号> <kind> <日時> <名前>-->本文`、
+ * 続く行は `<!--ins-->本文`。名前は4欄目以降の全部（空白を含んでよい。> は作るときに落としてある）。
+ * 形は以後変えない（文書に残る）。
+ */
+const INS_LINE_RE =
+  /^<!--ins(?::([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) (paragraph|meeting_note) (\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?: ([^>]*))?)?-->/
+const INS_CONT_MARKER = '<!--ins-->'
+
 const VOTE_LINE_RE = /^<!--vote:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})( must)?-->/
 
 /** 折りたたみのブロック種別（BlockNote 既定の折りたたみと同じ名前）。 */
@@ -830,6 +840,7 @@ function isBlockTriggerLine(line: string, lines: string[], idx: number, depth: n
   // 目次も同じ。1行だけのブロックなので、前後の段落と混ぜない
   if (TOC_LINE_RE.test(line)) return true
   if (VOTE_LINE_RE.test(line)) return true
+  if (INS_LINE_RE.exec(line)?.[1]) return true
   if (DIVIDER_LINE_RE.test(line)) return true
   if (
     /^\|/.test(line) &&
@@ -1038,6 +1049,27 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
     if (TOC_LINE_RE.test(line)) {
       blocks.push({ type: TOC_TYPE, props: {} })
       i++
+      continue
+    }
+
+    // 相手先が足した行・メモ。1行目に番号と種類。続く `<!--ins-->` の行は同じブロック
+    const insMatch = INS_LINE_RE.exec(line)
+    if (insMatch && insMatch[1]) {
+      const insLines: string[] = [line.slice(insMatch[0].length)]
+      let j = i + 1
+      while (j < end && lineIndentChars(lines[j]) === depth) {
+        const next = stripIndent(lines[j], depth)
+        if (!next.startsWith(INS_CONT_MARKER)) break
+        insLines.push(next.slice(INS_CONT_MARKER.length))
+        j++
+      }
+      blocks.push({
+        type: DOC_INSERTION_TYPE,
+        props: { insertionId: insMatch[1], kind: insMatch[2], createdAt: insMatch[3], author: (insMatch[4] ?? '').trim() },
+        // 相手先が書いた本文は文字と改行だけ（DOC_VOTE_SPEC §5）。[文字](URL) を押せるリンクにしない
+        content: tokenizeInline(insLines.join('\n'), true),
+      })
+      i = j
       continue
     }
 
@@ -1537,6 +1569,22 @@ function blockToLines(block: NormalizedBlockView, computedNumber: number | null)
     case TOC_TYPE:
       // 中身は持たない。目印の1行だけを書く
       return [TOC_MARKER]
+    case DOC_INSERTION_TYPE: {
+      const insertionId = typeof block.props.insertionId === 'string' ? block.props.insertionId : ''
+      const kind = block.props.kind === 'meeting_note' ? 'meeting_note' : 'paragraph'
+      const createdAt = typeof block.props.createdAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(block.props.createdAt)
+        ? block.props.createdAt
+        : ''
+      // 番号・日時の無いもの（壊れた props）は、目印を付けずに普通の行として残す（文字を落とさない）
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(insertionId) || !createdAt) {
+        return textToLines(contentArrayToText(block.content))
+      }
+      const author = typeof block.props.author === 'string' ? block.props.author.replace(/[>\n]/g, '').trim() : ''
+      const head = `<!--ins:${insertionId} ${kind} ${createdAt}${author ? ` ${author}` : ''}-->`
+      return collapseEmbeddedBlankLines(contentArrayToText(block.content))
+        .split('\n')
+        .map((l, idx) => (idx === 0 ? head : INS_CONT_MARKER) + l)
+    }
     case DOC_POLL_TYPE: {
       // 番号の無い投票（置いた直後に番号を振る前）は書かない。書くと読み戻せない形になる
       const pollId = typeof block.props.pollId === 'string' ? block.props.pollId : ''
