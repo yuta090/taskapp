@@ -106,3 +106,34 @@ describe('useMyDocInsertions（Wiki）', () => {
     expect(sent).toContain('wiki-page-view:w1|insertion-changed')
   })
 })
+
+describe('useMyDocInsertions の待っている間の読み直し', () => {
+  it('反映待ち・削除待ちがある間だけ、15秒ごとに読み直す（合図の道が無い Wiki のため）', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    try {
+      fetchDocInsertions.mockResolvedValue([
+        { id: 'p1', status: 'pending', wiki_page_id: 'w1', meeting_id: null },
+      ])
+      renderHook(() => useMyDocInsertions({ wikiPageId: 'w1' }), { wrapper: wrapper() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(fetchDocInsertions).toHaveBeenCalledTimes(1)
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_100) })
+      expect(fetchDocInsertions).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('待っているものが無ければ定期には読み直さない', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    try {
+      fetchDocInsertions.mockResolvedValue([{ id: 'a1', status: 'applied', wiki_page_id: 'w1', meeting_id: null }])
+      renderHook(() => useMyDocInsertions({ wikiPageId: 'w1' }), { wrapper: wrapper() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(40_000) })
+      expect(fetchDocInsertions).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

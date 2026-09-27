@@ -9,6 +9,9 @@ import { onDocSignal, sendDocSignal } from '@/lib/hooks/useDocVoteSignal'
 
 const EMPTY: DocInsertion[] = []
 
+/** 自分の書き足しを待っている間の読み直しの間隔 */
+const WAITING_REFETCH_MS = 15_000
+
 /**
  * 相手先ポータルの議事録・Wiki で、自分の差し込み（反映待ち・反映済み・削除依頼）を持つ（DOC_VOTE_SPEC §5）。
  * 作る・取り下げるのたびに、同じ議事録を開いている社内の画面へ「差し込みが変わった」と知らせる
@@ -33,6 +36,12 @@ export function useMyDocInsertions(target: string | DocInsertionSource | null) {
     enabled: source != null,
     staleTime: 10_000,
     refetchOnWindowFocus: true,
+    // 反映待ち・削除待ちがある間だけ、15秒ごとに読み直す（保険）。社内からの「反映した」知らせは
+    // 合図の道で届くが、投票の無い Wiki のように道を張らない画面では届かないため
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((r) => r.status === 'pending' || r.status === 'remove_requested')
+        ? WAITING_REFETCH_MS
+        : false,
   })
 
   useEffect(() => {
