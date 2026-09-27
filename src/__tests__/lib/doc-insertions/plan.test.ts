@@ -65,6 +65,26 @@ describe('planInsertionSync（取り消し・社内が採らなかった）', ()
   })
   it('取り消されて本文にも無い行は何もしない', () => {
     const plan = planInsertionSync([p('b1', 'A')], [row('i1', { status: 'withdrawn' })], matches)
-    expect(plan).toEqual({ insert: [], markApplied: [], remove: [], markRemoved: [] })
+    expect(plan).toEqual({ insert: [], markApplied: [], remove: [], markRemoved: [], keep: [] })
+  })
+})
+
+describe('planInsertionSync（子の行がある差し込み）', () => {
+  it('削除依頼でも、下に子の行があれば消さずに反映済みへ戻す（社内の行ごと消さない）', () => {
+    const plan = planInsertionSync(
+      [p('b1', 'A'), { ...ins('b9', 'i1'), children: [p('c1', '社内の補足')] }],
+      [row('i1', { status: 'remove_requested' })],
+      matches
+    )
+    expect(plan.remove).toEqual([])
+    expect(plan.keep).toEqual(['i1'])
+  })
+  it('取り消された行も、子の行があれば消さない', () => {
+    const plan = planInsertionSync(
+      [{ ...ins('b9', 'i1'), children: [p('c1', '補足')] }],
+      [row('i1', { status: 'withdrawn' })],
+      matches
+    )
+    expect(plan.remove).toEqual([])
   })
 })

@@ -95,3 +95,9 @@ export async function dismissDocInsertion(supabase: SupabaseClient, id: string):
   const { error } = await supabase.rpc('rpc_doc_insertion_dismiss', { p_id: id })
   if (error) throw error
 }
+
+/** 削除依頼を受けたが下に社内の行があって消せなかったので、反映済みに戻す（社内の編集者） */
+export async function keepDocInsertion(supabase: SupabaseClient, id: string): Promise<void> {
+  const { error } = await supabase.rpc('rpc_doc_insertion_keep', { p_id: id })
+  if (error) throw error
+}

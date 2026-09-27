@@ -28,7 +28,12 @@ export function MeetingDocPollHost({
   children: ReactNode
 }) {
   // 相手先が足した行・メモを本文に取り込む（DOC_VOTE_SPEC §5）。投票と同じ合図のチャネルを使う
-  useDocInsertionSync({ editor: editor as unknown as InsertionEditorLike, meetingId, enabled: applyInsertions })
+  const insertionSource = useMemo(() => ({ meetingId }), [meetingId])
+  useDocInsertionSync({
+    editor: editor as unknown as InsertionEditorLike,
+    source: insertionSource,
+    enabled: applyInsertions,
+  })
   const { members } = useSpaceMembers(spaceId)
   const { user } = useCurrentUser()
   const nameOf = useMemo(() => {

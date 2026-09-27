@@ -136,9 +136,15 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const pollProps = useMemo(
     () =>
       activePageId
-        ? { wikiPageId: activePageId, currentUserId: currentUser?.id ?? null, nameOf: voterNameOf }
+        ? {
+            wikiPageId: activePageId,
+            currentUserId: currentUser?.id ?? null,
+            nameOf: voterNameOf,
+            // 相手先の差し込みを取り込むのは編集できる画面だけ（どのタブが入れるかは DB で1つに絞る）
+            applyInsertions: canEdit,
+          }
         : undefined,
-    [activePageId, currentUser?.id, voterNameOf]
+    [activePageId, currentUser?.id, voterNameOf, canEdit]
   )
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照。既存4本と並列で取得する。
   const { linksByPageId } = useWikiMilestoneLinks(orgId, spaceId)

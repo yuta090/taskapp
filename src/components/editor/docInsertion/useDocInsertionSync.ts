@@ -6,11 +6,13 @@ import { createClient } from '@/lib/supabase/client'
 import {
   claimDocInsertion,
   dismissDocInsertion,
+  keepDocInsertion,
   fetchInsertionsToSync,
   markDocInsertionApplied,
   markDocInsertionRemoved,
 } from '@/lib/doc-insertions/api'
 import { DOC_INSERTION_TYPE, type DocInsertion } from '@/lib/doc-insertions/logic'
+import type { DocInsertionSource } from '@/lib/doc-insertions/api'
 import { planInsertionSync } from '@/lib/doc-insertions/plan'
 import { onDocSignal, sendDocSignal } from '@/lib/hooks/useDocVoteSignal'
 import { serializeMinutesBlocks } from '@/lib/minutes/markdown'
@@ -40,8 +42,14 @@ function matchesMinutesAnchor(block: BlockLike, anchor: string): boolean {
   }
 }
 
+/** Wiki は足す場所をブロックの id で持つ */
+function matchesWikiAnchor(block: BlockLike, anchor: string): boolean {
+  return block.id === anchor
+}
+
 /**
- * 社内の議事録の編集画面が、相手先の差し込みを本文に取り込む（DOC_VOTE_SPEC §5・§5.1）。
+ * 社内の編集画面（議事録・Wiki）が、相手先の差し込みを本文に取り込む（DOC_VOTE_SPEC §5・§5.1）。
+ * 保存のあとの知らせは、議事録は minutes-saved、Wiki は wiki-saved（どちらも同じ画面の中で届く）。
  *
  * - 取り込む前に、差し込み1件ごとに DB で「取り込む権利」を取る（2分）。取れたタブだけが本文に入れる。
  *   同時編集を使わない組織やスマホでは編集できる画面が全部ここに来るので、取らないと同じ行が2回入る
@@ -52,17 +60,21 @@ function matchesMinutesAnchor(block: BlockLike, anchor: string): boolean {
  */
 export function useDocInsertionSync({
   editor,
-  meetingId,
+  source,
   enabled,
 }: {
   editor: InsertionEditorLike
-  meetingId: string
+  source: DocInsertionSource
   enabled: boolean
 }) {
   const queryClient = useQueryClient()
   const supabase = useMemo(() => createClient(), [])
-  const topic = `meeting-minutes-view:${meetingId}`
-  const queryKey = useMemo(() => ['docInsertions', 'sync', 'meeting', meetingId] as const, [meetingId])
+  const isWiki = source.wikiPageId != null
+  const docId = (source.wikiPageId ?? source.meetingId) as string
+  const topic = isWiki ? `wiki-page-view:${docId}` : `meeting-minutes-view:${docId}`
+  const savedEvent = isWiki ? 'wiki-saved' : 'minutes-saved'
+  const matches = isWiki ? matchesWikiAnchor : matchesMinutesAnchor
+  const queryKey = useMemo(() => ['docInsertions', 'sync', isWiki ? 'wiki' : 'meeting', docId] as const, [isWiki, docId])
   // このタブの札（取り込む権利を持つタブを見分ける）
   const tabIdRef = useRef<string | null>(null)
   if (tabIdRef.current == null) tabIdRef.current = crypto.randomUUID()
@@ -77,7 +89,7 @@ export function useDocInsertionSync({
   const { data: rows, dataUpdatedAt } = useQuery({
     queryKey,
     // 反映待ち・削除依頼と、最近の取り消し（取り込んで保存する前に取り消されたら本文から消すため）
-    queryFn: () => fetchInsertionsToSync(supabase, { meetingId }),
+    queryFn: () => fetchInsertionsToSync(supabase, isWiki ? { wikiPageId: docId } : { meetingId: docId }),
     enabled,
     refetchInterval: enabled ? REFETCH_MS : false,
     staleTime: 5_000,
@@ -139,7 +151,7 @@ export function useDocInsertionSync({
       }
       runningRef.current = true
       try {
-        const plan = planInsertionSync(editor.document, list, matchesMinutesAnchor)
+        const plan = planInsertionSync(editor.document, list, matches)
         // 自分が入れたのに本文から消えている＝社内が採らなかった。入れ直さない
         const dismiss = plan.insert.filter((x) => insertedRef.current.has(x.row.id)).map((x) => x.row.id)
         const candidates = plan.insert.filter((x) => !insertedRef.current.has(x.row.id))
@@ -158,7 +170,7 @@ export function useDocInsertionSync({
         const fresh = planInsertionSync(
           editor.document,
           list.filter((r) => r.status !== 'pending' || claimed.has(r.id)),
-          matchesMinutesAnchor
+          matches
         )
         insertAndRemove(
           fresh.insert.filter((x) => claimed.has(x.row.id)),
@@ -181,12 +193,11 @@ export function useDocInsertionSync({
           })
         }
         for (const id of plan.markRemoved) await attempt(() => markDocInsertionRemoved(supabase, id))
-        if (confirm) {
-          for (const id of dismiss) {
-            // 閉じたあとも「このタブが入れた」の覚えは消さない（台帳の読み直しが遅れても入れ直さない）
-            await attempt(() => dismissDocInsertion(supabase, id))
-          }
-        }
+        for (const id of plan.keep) await attempt(() => keepDocInsertion(supabase, id))
+        // 「採らなかった」は見直しのたびに確かめる（同時編集では保存するのが別のタブ＝書記で、
+        // こちらには保存の知らせが来ない。DB が本文に無いことを確かめるので、早すぎても害は無い）。
+        // 閉じたあとも「このタブが入れた」の覚えは消さない（台帳の読み直しが遅れても入れ直さない）
+        for (const id of dismiss) await attempt(() => dismissDocInsertion(supabase, id))
         if (changed) {
           sendDocSignal(topic, 'insertion-changed')
           void queryClient.invalidateQueries({ queryKey })
@@ -198,7 +209,7 @@ export function useDocInsertionSync({
         if (again && rowsRef.current) void pass(rowsRef.current, again.confirm)
       }
     },
-    [editor, insertAndRemove, queryClient, queryKey, supabase, topic]
+    [editor, insertAndRemove, matches, queryClient, queryKey, supabase, topic]
   )
 
   // 台帳を読んだら（読み直しのたびにも）見直す。中身が同じでも読み直しの時刻で回す
@@ -213,12 +224,12 @@ export function useDocInsertionSync({
       void queryClient.invalidateQueries({ queryKey })
     })
     // 保存が通ったら確かめる（同じ画面の保存の知らせは sendDocSignal が中でも届ける）
-    const offSaved = onDocSignal(topic, 'minutes-saved', () => {
+    const offSaved = onDocSignal(topic, savedEvent, () => {
       if (rowsRef.current?.length) void pass(rowsRef.current, true)
     })
     return () => {
       offChanged()
       offSaved()
     }
-  }, [enabled, topic, queryClient, queryKey, pass])
+  }, [enabled, topic, savedEvent, queryClient, queryKey, pass])
 }

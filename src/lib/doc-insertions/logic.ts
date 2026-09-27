@@ -57,6 +57,8 @@ export function insertionErrorMessage(error: unknown): string {
       return '使えない文字が含まれています（<!-- と --> は使えません）'
     case 'invalid_state':
       return 'この行はもう取り消せません'
+    case 'has_children':
+      return 'この行の下に社内の書き足しがあるため、削除できません'
   }
   if (e.code === '42501') return 'この文書には書き足せません'
   return '送れませんでした。もう一度お試しください'

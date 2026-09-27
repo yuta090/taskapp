@@ -74,7 +74,8 @@ insert into organizations(id, name) values (:'O1', '検証org');
 insert into org_memberships(org_id, user_id, role) values
   (:'O1', :'u_ed', 'member'), (:'O1', :'u_view', 'member'), (:'O1', :'u_cli', 'client'),
   (:'O1', :'u_cli2', 'client'), (:'O1', :'u_other', 'client'), (:'O1', :'u_mfa', 'client');
-insert into spaces(id, org_id, type, name) values (:'S1', :'O1', 'project', 'S1'), (:'S2', :'O1', 'project', 'S2');
+insert into spaces(id, org_id, type, name, portal_visible_sections) values (:'S1', :'O1', 'project', 'S1', '{"tasks": true, "requests": true, "all_tasks": true, "files": true, "meetings": true, "wiki": true, "history": true}'::jsonb);
+insert into spaces(id, org_id, type, name) values (:'S2', :'O1', 'project', 'S2');
 insert into space_memberships(space_id, user_id, role) values
   (:'S1', :'u_ed', 'editor'), (:'S1', :'u_view', 'viewer'), (:'S1', :'u_cli', 'client'),
   (:'S1', :'u_cli2', 'client'), (:'S2', :'u_other', 'client'), (:'S1', :'u_mfa', 'client');
@@ -99,13 +100,13 @@ select dvt.check('create_meeting', dvt.create_as('i1', format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, %L)', :'M_live', 'paragraph', E'会議中に足す行\n2行目', '# 会議中')), 'ok');
 select dvt.check('create_note', dvt.create_as('i2', format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_live', 'meeting_note', 'メモ')), 'ok');
--- Wiki はまだ取り込む画面が無いので断る（PR6 で開ける）
-select dvt.check('create_wiki_not_yet', dvt.try(format(
-  'select rpc_doc_insertion_create(%L, null, %L, %L, %L)', :'W_pub', 'paragraph', 'Wikiに足す', 'blk-1')), 'err:22023:%');
+-- Wiki（公開済み）にも書き足せる（PR6 で開けた。詳しくは run_doc_insertions_wiki.sh）
+select dvt.check('create_wiki', dvt.try(format(
+  'select rpc_doc_insertion_create(%L, null, %L, %L, %L)', :'W_pub', 'paragraph', 'Wikiに足す', 'blk-1')), 'ok');
 select dvt.check('create_planned', dvt.try(format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_planned', 'paragraph', 'x')), 'err:42501:%');
 select dvt.check('create_unpub', dvt.try(format(
-  'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_unpub', 'paragraph', 'x')), 'err:22023:%');
+  'select rpc_doc_insertion_create(%L, null, %L, %L, null)', :'W_unpub', 'paragraph', 'x')), 'err:42501:%');
 select dvt.check('bad_kind', dvt.try(format(
   'select rpc_doc_insertion_create(null, %L, %L, %L, null)', :'M_live', 'heading', 'x')), 'err:22023:%');
 select dvt.check('empty', dvt.try(format(
@@ -151,11 +152,11 @@ select dvt.check('other_space_cannot_create', dvt.try(format(
 
 -- ---- 読める範囲 ----
 select dvt.as_user(:'u_cli');
-select dvt.check('client_reads_own', (select count(*)::text from doc_insertions), '21');
+select dvt.check('client_reads_own', (select count(*)::text from doc_insertions), '22');
 select dvt.as_user(:'u_cli2');
 select dvt.check('client2_reads_none', (select count(*)::text from doc_insertions), '0');
 select dvt.as_user(:'u_view');
-select dvt.check('internal_reads_all', (select count(*)::text from doc_insertions), '21');
+select dvt.check('internal_reads_all', (select count(*)::text from doc_insertions), '22');
 
 -- ---- 直接は書けない ----
 select dvt.as_user(:'u_cli');

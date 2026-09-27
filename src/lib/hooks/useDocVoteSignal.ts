@@ -23,10 +23,11 @@ const SIGNAL_EVENT = 'vote-changed'
  * 同じチャネルに相乗りするほかの知らせ。同じ名前のチャネルを2本開くと互いに閉じ合うので、
  * 道は1本のまま知らせの種類で振り分ける。
  * - minutes-saved: 議事録が保存された（書記が保存のあとに送る。相手先ポータルが本文を読み直す・PR4）
+ * - wiki-saved   : （送るが相手は待っていない・主に画面の中）Wiki の本文が保存された。差し込みの確かめに使う（PR6）
  * - insertion-changed: 相手先の差し込みの台帳が変わった（作った・取り下げた・反映した。PR5）
  * - subscribed   : （送らない・この画面の中だけ）チャネルにつながった。つながる前の分を読み直す合図
  */
-export type DocSignalEvent = 'minutes-saved' | 'insertion-changed' | 'subscribed'
+export type DocSignalEvent = 'minutes-saved' | 'wiki-saved' | 'insertion-changed' | 'subscribed'
 const EXTRA_EVENTS: readonly DocSignalEvent[] = ['minutes-saved', 'insertion-changed']
 
 function dispatchLocal(topic: string, event: DocSignalEvent) {

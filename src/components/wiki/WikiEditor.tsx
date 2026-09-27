@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react'
@@ -53,6 +53,15 @@ export interface WikiEditorCollaboration {
   colorIndex: number
 }
 
+import { useDocInsertionSync, type InsertionEditorLike } from '@/components/editor/docInsertion/useDocInsertionSync'
+
+/** 相手先の差し込みを本文に取り込む（社内の編集画面だけが置く）。QueryClient の下でだけ描くため部品に分ける */
+function WikiInsertionSync({ editor, wikiPageId }: { editor: InsertionEditorLike; wikiPageId: string }) {
+  const source = useMemo(() => ({ wikiPageId }), [wikiPageId])
+  useDocInsertionSync({ editor, source, enabled: true })
+  return null
+}
+
 interface WikiEditorProps {
   initialContent?: string
   onChange?: (content: string) => void
@@ -80,6 +89,11 @@ interface WikiEditorProps {
     nameOf?: (userId: string) => string
     /** 見えない・押せない投票に出す言葉（相手先ポータルは「この投票は終了しました」） */
     closedNote?: string
+    /**
+     * 相手先の差し込み（反映待ち）をこの画面で本文に取り込むか（社内の編集できる画面だけ）。
+     * どのタブが入れるかは DB の取り込む権利で1つに絞る（DOC_VOTE_SPEC §5.1）
+     */
+    applyInsertions?: boolean
   }
   /**
    * 見出しのリンクに添えるページ名。渡したときだけ、見出しの「リンクをコピー」ボタンと
@@ -423,6 +437,9 @@ export function WikiEditor({
           editable={editable}
         >
           {editorView}
+          {poll.applyInsertions && editable && (
+            <WikiInsertionSync editor={editor as unknown as InsertionEditorLike} wikiPageId={poll.wikiPageId} />
+          )}
         </DocPollHost>
       ) : (
         editorView

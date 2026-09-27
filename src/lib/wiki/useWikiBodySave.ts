@@ -1,5 +1,6 @@
 'use client'
 
+import { sendDocSignal } from '@/lib/hooks/useDocVoteSignal'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { WikiConflictError, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages'
@@ -242,6 +243,8 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
           knownServerBodyRef.current = content
           noteSavedInRoom(result.updatedAt, content)
           setSaveStatus('saved')
+          // 同じ画面の差し込みの取り込みに「保存された」と知らせる（反映済みの確かめ・DOC_VOTE_SPEC §5）
+          sendDocSignal(`wiki-page-view:${pageId}`, 'wiki-saved')
           if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
           savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
           return
@@ -334,6 +337,7 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
           knownServerBodyRef.current = content
           noteSavedInRoom(retryResult.updatedAt, content)
           setSaveStatus('saved')
+          sendDocSignal(`wiki-page-view:${pageId}`, 'wiki-saved')
           if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
           savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
         } catch (retryErr) {
