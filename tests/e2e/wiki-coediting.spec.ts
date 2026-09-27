@@ -105,4 +105,55 @@ test.describe('Wiki の同時編集', () => {
       }
     }
   })
+
+  test('URL から直接開いた窓どうしでも、相手が打っている最中に開いても揃う', async ({ page, context }) => {
+    // 2026-09-27 本番で報告: URL から直接開くと「書けるか」の判定が読み込み中のまま同時編集を
+    // 使うか決めてしまい、2つの窓とも1人用に固まってずれたままになった
+    const title = `E2E同時編集-${Date.now()}`
+    let pageUrl: string | null = null
+    try {
+      await page.goto(`${SPACE_URL}/wiki`)
+      await page.getByRole('button', { name: '新規ページ' }).click()
+      await page.getByPlaceholder('ページタイトル').fill(title)
+      await page.getByRole('button', { name: '作成', exact: true }).click()
+      await expect(page.locator('.wiki-editor .bn-editor')).toBeVisible({ timeout: 30000 })
+      pageUrl = page.url()
+
+      // 1つ目も URL から開き直す（一覧を通らない）
+      await page.goto(pageUrl)
+      await expect(page.locator('.wiki-editor .bn-editor')).toHaveAttribute('contenteditable', 'true', { timeout: 30000 })
+      await typeAtEnd(page, 'はじめ')
+
+      // 1つ目で打ち続けているあいだに、2つ目を URL から開く
+      let typing = true
+      const loop = (async () => {
+        while (typing) {
+          await page.keyboard.insertText('あ')
+          await page.waitForTimeout(150)
+        }
+      })()
+      const other = await context.newPage()
+      await other.goto(pageUrl)
+      await expect(other.locator('.wiki-editor .bn-editor')).toHaveAttribute('contenteditable', 'true', { timeout: 30000 })
+      await page.waitForTimeout(2000)
+      typing = false
+      await loop
+
+      await page.keyboard.insertText('一つ目の印')
+      await expect(editorText(other, '一つ目の印')).toBeVisible({ timeout: 10000 })
+      await appendToLine(other, '一つ目の印', '二つ目の印')
+      await expect(editorText(page, '一つ目の印二つ目の印')).toBeVisible({ timeout: 10000 })
+      await expect(page.getByTestId('wiki-conflict-banner')).toHaveCount(0)
+      await expect(other.getByTestId('wiki-conflict-banner')).toHaveCount(0)
+      await other.close()
+    } finally {
+      if (pageUrl) {
+        await page.goto(pageUrl)
+        await page.getByRole('button', { name: 'ページを削除' }).click()
+        await page.getByRole('button', { name: '削除する' }).click()
+        await expect(page).not.toHaveURL(/[?&]page=/, { timeout: 15000 })
+        await expect(page.getByRole('heading', { name: title, exact: true })).toHaveCount(0, { timeout: 15000 })
+      }
+    }
+  })
 })
