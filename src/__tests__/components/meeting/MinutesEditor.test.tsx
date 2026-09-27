@@ -506,6 +506,28 @@ describe('MinutesEditor の「/」メニュー', () => {
   })
 })
 
+// 見出しのリンク。中身は HeadingLinks.test.tsx で確かめるので、ここは「渡したか」だけを見る
+vi.mock('@/components/editor/HeadingLinks', () => ({
+  HeadingLinks: ({ pageTitle, editor }: { pageTitle: string; editor: unknown }) => (
+    <div data-testid="heading-links" data-title={pageTitle} data-same-editor={String(editor === mockEditor)} />
+  ),
+}))
+
+describe('MinutesEditor の見出しリンク', () => {
+  it('会議名を渡すと、見出しのリンクを載せる。閲覧中でも載せる', () => {
+    render(<MinutesEditor minutesMd="" editable={false} orgId={ORG_ID} spaceId={SPACE_ID} headingLinkTitle="9/26定例" />)
+    const el = screen.getByTestId('heading-links')
+    expect(el).toHaveAttribute('data-title', '9/26定例')
+    expect(el).toHaveAttribute('data-same-editor', 'true')
+    expect(screen.getByTestId('minutes-editor')).toHaveClass('relative')
+  })
+
+  it('会議名を渡さなければ載せない', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.queryByTestId('heading-links')).toBeNull()
+  })
+})
+
 vi.mock('@/components/editor/docPoll/MeetingDocPollHost', () => ({
   MeetingDocPollHost: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))

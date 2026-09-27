@@ -914,6 +914,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               onBeforeNavigate={flushPendingSave}
               noteAuthorName={noteAuthorName}
               poll={pollProps}
+              headingLinkTitle={activePage.title}
             />
           </div>
         </div>
