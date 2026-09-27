@@ -1303,6 +1303,57 @@ export declare const allTools: ({
         description?: string | null | undefined;
     }>;
     handler: typeof import("./files.js").fileUpdate;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        wikiPageId: import("zod").ZodOptional<import("zod").ZodString>;
+        meetingId: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        wikiPageId?: string | undefined;
+        meetingId?: string | undefined;
+    }, {
+        spaceId: string;
+        wikiPageId?: string | undefined;
+        meetingId?: string | undefined;
+    }>;
+    handler: typeof import("./votes.js").voteList;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        pollId: import("zod").ZodString;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        pollId: string;
+    }, {
+        spaceId: string;
+        pollId: string;
+    }>;
+    handler: typeof import("./votes.js").voteShow;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        pollId: import("zod").ZodString;
+        choice: import("zod").ZodEnum<["ok", "ng", "hold", "none"]>;
+        memo: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        pollId: string;
+        choice: "ok" | "none" | "ng" | "hold";
+        memo?: string | undefined;
+    }, {
+        spaceId: string;
+        pollId: string;
+        choice: "ok" | "none" | "ng" | "hold";
+        memo?: string | undefined;
+    }>;
+    handler: typeof import("./votes.js").voteCast;
 })[];
 /** MCP の tools/list が返す1件分の形 */
 export interface ToolListEntry {

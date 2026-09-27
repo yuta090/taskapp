@@ -16,6 +16,10 @@ import {
 } from '@/lib/minutes/markdown'
 import { stripInternalLinks } from '@/lib/minutes/internalLinks'
 import { formatNoteStampLabel, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
+// エディタを読み込まない中身だけを使う（docPollBlock.tsx は BlockNote ごと持ち込むので使わない）
+import { DocPollBlock } from '@/components/editor/docPoll/DocPollContext'
+import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
+import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
 
 /**
  * このアプリのホスト名。社内の人がアドレスバーからコピーした絶対URL
@@ -317,6 +321,17 @@ function renderBlock(block: MinutesBlock, key: React.Key, isFirst: boolean): Rea
       return renderToggle(block, key)
     case MEETING_NOTE_TYPE:
       return renderMeetingNote(block, key)
+    case DOC_POLL_TYPE:
+      // 投票。押せるかどうか・票は、外側の DocPollHost が配るもので決まる（無ければ「この画面では投票できません」）
+      return (
+        <div key={key} className="my-2">
+          <DocPollBlock
+            pollId={typeof block.props?.pollId === 'string' ? block.props.pollId : ''}
+            reasonRequired={(block.props?.reasonRequired === 'ng_hold' ? 'ng_hold' : 'none') as DocPollReasonRequired}
+            title={<span className="text-sm text-gray-700">{renderInline(Array.isArray(block.content) ? block.content : [])}</span>}
+          />
+        </div>
+      )
     case 'table':
       return renderTable(block, key)
     case 'codeBlock':

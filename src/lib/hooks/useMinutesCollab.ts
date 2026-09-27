@@ -46,14 +46,22 @@ function newTabId(): string {
 }
 
 export interface UseMinutesCollabOptions {
+  /** 部屋の ID。議事録なら会議の ID、Wiki ならページの ID */
   meetingId: string
+  /** 部屋の名前の頭。省略すると議事録（`meeting-minutes:`）。Wiki は `wiki-page:` */
+  topicPrefix?: string
   /** 在席を共有するか（書ける人だけ）。同時編集の可否とは別 */
   presenceEnabled: boolean
   self: { userId: string; name: string }
   /** この組織で同時編集を開いているか */
   collabAllowed: boolean
-  /** 開いたときの本文。長さの判定に使う */
+  /** 開いたときの本文（Wiki はブロックの JSON）。長さの判定に使う */
   initialMarkdown: string
+  /**
+   * この文字数を超えたら同時編集を使わない（既定は議事録の `MAX_COLLAB_LENGTH`）。
+   * Wiki の本文は JSON で同じ中身でも数倍の長さになるので、呼び出し側で広げる
+   */
+  maxLength?: number
   /** 部屋の誰かがタスク化した。列を読み直す（器の本文と列がずれたため） */
   onRoomReload?: () => void
 }
@@ -143,16 +151,18 @@ function createChannelTransport(): ChannelTransport {
 
 export function useMinutesCollab({
   meetingId,
+  topicPrefix,
   presenceEnabled,
   self,
   collabAllowed,
   initialMarkdown,
+  maxLength = MAX_COLLAB_LENGTH,
   onRoomReload,
 }: UseMinutesCollabOptions): UseMinutesCollabResult {
   // 使うかどうかは開いた時点で決め、途中で変えない（器の作り直しは本文の二重を招く）。
   // 画面の幅は描画の途中では見ない（effect で見る）ので、ここには入れない
   const [wanted] = useState(
-    () => collabAllowed && presenceEnabled && !!self.userId && initialMarkdown.length <= MAX_COLLAB_LENGTH
+    () => collabAllowed && presenceEnabled && !!self.userId && initialMarkdown.length <= maxLength
   )
 
   /**
@@ -338,6 +348,7 @@ export function useMinutesCollab({
     setColorIndex: publishColorIndex,
   } = useMinutesPresence({
     meetingId,
+    topicPrefix,
     enabled: presenceEnabled,
     self,
     tabId,

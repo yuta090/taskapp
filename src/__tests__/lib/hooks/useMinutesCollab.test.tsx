@@ -22,6 +22,8 @@ const BASE = ['# 会議', '', '- 決めたこと'].join('\n')
 let capturedCollab: MinutesCollabWiring | undefined
 /** このタブの見分け札。同時編集のフックが作って在席へ渡す */
 let capturedTabId = ''
+/** 在席に渡した部屋の名前の頭（議事録と Wiki で切り替わる） */
+let capturedTopicPrefix: string | undefined
 let othersState: MinutesPresencePeer[] = []
 const sendCollabSpy = vi.fn()
 const setCollabActiveSpy = vi.fn()
@@ -33,8 +35,9 @@ const setCollabStateSpy = vi.fn()
 const setColorIndexSpy = vi.fn()
 
 vi.mock('@/lib/hooks/useMinutesPresence', () => ({
-  useMinutesPresence: (options: { collab?: MinutesCollabWiring; tabId: string }) => {
+  useMinutesPresence: (options: { collab?: MinutesCollabWiring; tabId: string; topicPrefix?: string }) => {
     capturedCollab = options.collab
+    capturedTopicPrefix = options.topicPrefix
     capturedTabId = options.tabId
     return {
       others: othersState,
@@ -107,6 +110,22 @@ beforeEach(() => {
   capturedCollab = undefined
   capturedTabId = ''
   othersState = []
+})
+
+describe('部屋の名前', () => {
+  it('Wiki のページでは、在席に wiki-page: の部屋を頼む', async () => {
+    renderHook(() =>
+      useMinutesCollab({
+        meetingId: 'p1',
+        topicPrefix: 'wiki-page:',
+        presenceEnabled: true,
+        self: { userId: 'u-self', name: '自分' },
+        collabAllowed: true,
+        initialMarkdown: '[]',
+      })
+    )
+    expect(capturedTopicPrefix).toBe('wiki-page:')
+  })
 })
 
 describe('書記の決め方', () => {

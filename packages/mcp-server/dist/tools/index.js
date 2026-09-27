@@ -15,7 +15,8 @@ import { wikiTools } from './wiki.js';
 import { minutesTools } from './minutes.js';
 import { schedulingTools } from './scheduling.js';
 import { fileTools } from './files.js';
-export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools];
+import { voteTools } from './votes.js';
+export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools, ...voteTools];
 /**
  * tools/list の中身を作る。zod スキーマを JSON Schema に直す唯一の場所。
  *

@@ -256,6 +256,8 @@ describe('WikiEditor slash menu and Japanese texts', () => {
   })
 })
 
+vi.mock('@/lib/hooks/useVoterNames', () => ({ useVoterNames: () => () => '' }))
+
 vi.mock('@/lib/hooks/useDocPolls', () => ({
   useDocPolls: () => ({ polls: {}, isFetched: false, castVote: vi.fn(), createPoll: vi.fn() }),
 }))

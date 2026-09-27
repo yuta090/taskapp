@@ -42,6 +42,10 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
 
 vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
+// 保存のあとの「保存された」知らせ（相手先ポータルがその場で読み直す・DOC_VOTE_SPEC §6）
+const mockSendDocSignal = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/hooks/useDocVoteSignal', () => ({ sendDocSignal: mockSendDocSignal }))
+
 let capturedOnChange: ((md: string) => void) | undefined
 let capturedOnBeforeNavigate: (() => Promise<void>) | undefined
 let lastEditorProps: { minutesMd: string; editable: boolean } | null = null
@@ -981,5 +985,35 @@ describe('戻した場所を、本文が組み上がるまで押さえる', () =
     const { unmount } = await openAt(900)
     unmount()
     expect(observer().disconnected).toBe(true)
+  })
+})
+
+describe('MinutesDocumentView — 保存のあとの知らせ', () => {
+  it('保存が通ったら、その会議のチャネルに「保存された」と知らせる', async () => {
+    const { updateMinutes } = setup()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    act(() => capturedOnChange?.('# 定例MTG\n\n会議中に足した行'))
+    expect(mockSendDocSignal).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(updateMinutes).toHaveBeenCalled()
+    expect(mockSendDocSignal).toHaveBeenCalledWith('meeting-minutes-view:m1', 'minutes-saved')
+  })
+
+  it('保存に失敗したら知らせない', async () => {
+    const failing = vi.fn().mockRejectedValue(new Error('network'))
+    setup({}, { updateMinutes: failing })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    act(() => capturedOnChange?.('# 定例MTG\n\n会議中に足した行'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(failing).toHaveBeenCalled()
+    expect(mockSendDocSignal).not.toHaveBeenCalled()
   })
 })
