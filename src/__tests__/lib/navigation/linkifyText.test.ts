@@ -59,6 +59,30 @@ describe('splitTextIntoLinkParts — 外部のリンク', () => {
   })
 })
 
+describe('splitTextIntoLinkParts — 見出しへのリンク', () => {
+  // 見出しの「リンクをコピー」で入る形。# の後ろは日本語を %エンコードしたもの
+  const url =
+    'https://agentpm.app/0f1e2d3c-4b5a-4968-8776-655443322110/project/1a2b3c4d-5e6f-4a0b-9c8d-7e6f5a4b3c2d/wiki?page=9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a#' +
+    encodeURIComponent('1-振り分けの結果')
+
+  it('# と %エンコードされた日本語を含む URL を最後までリンクにする', () => {
+    expect(splitTextIntoLinkParts(url)).toEqual([{ kind: 'external', value: url, href: url }])
+  })
+
+  it('コピーした2行（ページ名 §見出し ＋ URL）を貼っても URL だけがリンクになる', () => {
+    const parts = splitTextIntoLinkParts(`9/26定例 §1. 振り分けの結果\n${url}`)
+    expect(parts).toEqual([
+      { kind: 'text', value: '9/26定例 §1. 振り分けの結果\n' },
+      { kind: 'external', value: url, href: url },
+    ])
+  })
+
+  it('URL の直後に句読点が続いても、アンカーは欠けない', () => {
+    const parts = splitTextIntoLinkParts(`ここを見て ${url}。`)
+    expect(parts.find((p) => p.kind === 'external')?.href).toBe(url)
+  })
+})
+
 describe('splitTextIntoLinkParts — 拾ってはいけないもの', () => {
   it.each([
     ['日付', '9/13 に確認する'],

@@ -15,10 +15,13 @@ test.describe('Wiki を PDF で保存したときに紙へ載る範囲', () => {
     await page.goto(`${SPACE_URL}/wiki`)
 
     // 一覧の先頭のページを開く（ページの id は組織ごとに違うので固定しない）。
-    // フォルダは本文が空のことがある（別の E2E が作って消している途中のものも含む）ので除く
+    // フォルダは本文が空のことがある（別の E2E が作って消している途中のものも含む）ので除く。
+    // 別の E2E が同時に作っている「E2E〜」のページも、本文を書いている途中なので除く
+    // （wiki-heading-link.spec.ts と並んで走ると、書きかけの短いページを刷って落ちた）
     const firstRow = page
       .locator('[data-testid^="wiki-page-row-"]')
       .filter({ hasNot: page.getByTestId('wiki-folder-icon') })
+      .filter({ hasNot: page.getByRole('heading', { name: /^E2E/ }) })
       .first()
     await expect(firstRow).toBeVisible({ timeout: 20000 })
     const pageTitle = (await firstRow.innerText()).split('\n')[0].trim()

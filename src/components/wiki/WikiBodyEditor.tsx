@@ -45,6 +45,8 @@ interface WikiBodyEditorProps {
     currentUserId: string | null
     nameOf: (userId: string) => string
   }
+  /** 見出しのリンクに添えるページ名。渡したときだけ見出しの「リンクをコピー」を載せる（WikiEditor に素通し） */
+  headingLinkTitle?: string
 }
 
 /**
@@ -81,6 +83,7 @@ function WikiBodyEditorInner({
   onBeforeNavigate,
   noteAuthorName,
   poll,
+  headingLinkTitle,
 }: WikiBodyEditorProps & { user: ReturnType<typeof useCurrentUser>['user'] }) {
   const selfUserId = user?.id ?? ''
   const selfName = displayNameOf(user)
@@ -242,6 +245,7 @@ function WikiBodyEditorInner({
               currentPageId={pageId}
               noteAuthorName={noteAuthorName}
               poll={poll}
+              headingLinkTitle={headingLinkTitle}
               collaboration={collaboration}
               registerApi={registerApi}
             />
