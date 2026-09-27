@@ -36,7 +36,10 @@ const IDLE_MS = 60_000
  */
 const RETRY_DELAYS_MS = [2_000, 6_000]
 
-const TOPIC_PREFIX = 'meeting-minutes:'
+/** 議事録の部屋の名前の頭。DB の判定関数 `app_can_track_meeting_minutes` と揃える */
+export const MINUTES_TOPIC_PREFIX = 'meeting-minutes:'
+/** Wiki のページの部屋の名前の頭。DB の判定関数 `app_can_track_wiki_page` と揃える */
+export const WIKI_TOPIC_PREFIX = 'wiki-page:'
 
 /** 名前が取れなかった人の呼び方 */
 const FALLBACK_NAME = 'メンバー'
@@ -84,7 +87,13 @@ export interface MinutesCollabWiring {
 }
 
 interface UseMinutesPresenceOptions {
+  /** 部屋の ID。議事録なら会議の ID、Wiki ならページの ID */
   meetingId: string
+  /**
+   * 部屋の名前の頭（既定は議事録の `meeting-minutes:`）。Wiki は `wiki-page:`。
+   * 入れる人の判定は DB 側で名前の頭ごとに分かれている
+   */
+  topicPrefix?: string
   /** 書ける人が、詳細を読み込み終えて開いている間だけ true。閲覧だけの人は購読しない */
   enabled: boolean
   self: MinutesPresenceSelf
@@ -188,6 +197,7 @@ function warnPresence(message: string, err?: unknown): void {
 
 export function useMinutesPresence({
   meetingId,
+  topicPrefix = MINUTES_TOPIC_PREFIX,
   enabled,
   self,
   tabId,
@@ -397,7 +407,7 @@ export function useMinutesPresence({
      * 参加の返事（SUBSCRIBED）の時点では一覧がまだ届いておらず、必ず「自分ひとり」に
      * 見えるので、そこで始めると入った人が毎回自分の本文で器を作り直してしまう。
      */
-    const handlePresence = () => {
+    const handlePresence = (fromSync: boolean) => {
       const read = syncOthers()
       if (read === null) return
       const wiring = collabRef.current
@@ -418,6 +428,11 @@ export function useMinutesPresence({
         : [self, ...read.room]
       wiring.onPeers(room)
       if (presenceArrived) return
+      // 「入った」は一覧の更新（sync）でだけ知らせる。Supabase は入ったときの一覧を受け取ると、
+      // 先客ごとの join を**一覧を更新する前に**出す（そのあとで sync）。join の時点で知らせると、
+      // 先客が見えないまま「自分ひとりだ」と判断して本文を作り、先客と一度も合わせ込まない
+      // （2026-09-26 に実ブラウザで確認。議事録は本文が同じなので表に出ていなかった）
+      if (!fromSync) return
       presenceArrived = true
       clearPresenceWaitTimer()
       wiring.onStatus('joined')
@@ -540,7 +555,7 @@ export function useMinutesPresence({
       if (disposed) return
 
       try {
-        const created = supabase.channel(`${TOPIC_PREFIX}${meetingId}`, {
+        const created = supabase.channel(`${topicPrefix}${meetingId}`, {
           config: {
             private: true,
             // 鍵はタブごと。人ごとにすると、同じ人の2つ目のタブが1つ目を
@@ -553,9 +568,9 @@ export function useMinutesPresence({
         })
         channel = created
         created
-          .on('presence', { event: 'sync' }, handlePresence)
-          .on('presence', { event: 'join' }, handlePresence)
-          .on('presence', { event: 'leave' }, handlePresence)
+          .on('presence', { event: 'sync' }, () => handlePresence(true))
+          .on('presence', { event: 'join' }, () => handlePresence(false))
+          .on('presence', { event: 'leave' }, () => handlePresence(false))
         // 同時編集の更新。購読の前に登録する（あとから足すと最初の数通を取りこぼす）
         for (const event of COLLAB_EVENTS) {
           created.on('broadcast', { event }, (raw: { payload?: unknown }) => {
@@ -615,7 +630,7 @@ export function useMinutesPresence({
       teardown()
       setOthers((prev) => (prev.length === 0 ? prev : EMPTY_PEERS))
     }
-  }, [enabled, meetingId, userId, tabId, supabase, pushTrack, setEditing, clearIdleTimer])
+  }, [enabled, meetingId, topicPrefix, userId, tabId, supabase, pushTrack, setEditing, clearIdleTimer])
 
   /**
    * 同時編集の更新を配る。つながっていなければ黙って捨てる（打つ手は止めない。

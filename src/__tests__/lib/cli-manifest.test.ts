@@ -248,3 +248,41 @@ describe('cli-manifest: review cancel', () => {
     expect(cancel.options.find((o) => o.param === 'taskId')!.required).toBe(true)
   })
 })
+
+/**
+ * 投票ブロック（Wiki・議事録）の CLI。仕様: docs/spec/DOC_VOTE_SPEC.md §7-7。
+ * API キーは社内メンバー専用なので、投票を読める・押せる範囲（社内）はそのままで問題ない。
+ */
+describe('cli-manifest: vote（投票ブロック）', () => {
+  const manifest = getManifest()
+  const vote = manifest.commands.find((c) => c.name === 'vote')!
+
+  it('list / show / cast が、それぞれ vote_list / vote_show / vote_cast を呼ぶ', () => {
+    expect(vote.subcommands!.map((s) => s.name)).toEqual(['list', 'show', 'cast'])
+    expect(vote.subcommands!.find((s) => s.name === 'list')!.tool).toBe('vote_list')
+    expect(vote.subcommands!.find((s) => s.name === 'show')!.tool).toBe('vote_show')
+    expect(vote.subcommands!.find((s) => s.name === 'cast')!.tool).toBe('vote_cast')
+  })
+
+  it('list は --wiki-page-id / --meeting-id をどちらも任意で持つ（どちらか片方は実行時に確かめる）', () => {
+    const list = vote.subcommands!.find((s) => s.name === 'list')!
+    const wikiPageId = list.options.find((o) => o.param === 'wikiPageId')!
+    const meetingId = list.options.find((o) => o.param === 'meetingId')!
+    expect(wikiPageId.required).toBeFalsy()
+    expect(meetingId.required).toBeFalsy()
+  })
+
+  it('show / cast は --poll-id が必須', () => {
+    const show = vote.subcommands!.find((s) => s.name === 'show')!
+    const cast = vote.subcommands!.find((s) => s.name === 'cast')!
+    expect(show.options.find((o) => o.param === 'pollId')!.required).toBe(true)
+    expect(cast.options.find((o) => o.param === 'pollId')!.required).toBe(true)
+  })
+
+  it('cast の --choice は ok/ng/hold/none から選び、必須', () => {
+    const cast = vote.subcommands!.find((s) => s.name === 'cast')!
+    const choice = cast.options.find((o) => o.param === 'choice')!
+    expect(choice.choices).toEqual(['ok', 'ng', 'hold', 'none'])
+    expect(choice.required).toBe(true)
+  })
+})

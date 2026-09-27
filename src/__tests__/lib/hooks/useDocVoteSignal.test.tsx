@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useDocVoteSignal } from '@/lib/hooks/useDocVoteSignal'
+import { useDocVoteSignal, onDocSignal, sendDocSignal } from '@/lib/hooks/useDocVoteSignal'
 
 // 投票の「票が変わった」合図（DOC_VOTE_SPEC §6）。
 // - 合図だけを送る private チャネル。本文も票も運ばない（受けた側が読み直す）
@@ -246,5 +246,45 @@ describe('useDocVoteSignal', () => {
     })
     await flush()
     expect(channels).toHaveLength(0)
+  })
+})
+
+/**
+ * 議事録が保存されたことの知らせ（DOC_VOTE_SPEC §6・PR4）。同じ文書のチャネルに相乗りする
+ * （同じ名前のチャネルを2本開くと互いに閉じ合うので、道は1本のまま知らせの種類で振り分ける）。
+ */
+describe('議事録が保存された知らせ（minutes-saved）', () => {
+  it('受けたら、その文書に登録した人を呼ぶ。票の読み直し（onSignal）は呼ばない', async () => {
+    const onSignal = vi.fn()
+    const onSaved = vi.fn()
+    const off = onDocSignal('meeting-minutes-view:m1', 'minutes-saved', onSaved)
+    renderHook(() => useDocVoteSignal({ meetingId: 'm1' }, onSignal))
+    const ch = await subscribed()
+    onSignal.mockClear()
+    act(() => ch.emitBroadcast('minutes-saved'))
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onSignal).not.toHaveBeenCalled()
+    off()
+    act(() => ch.emitBroadcast('minutes-saved'))
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('つながっているチャネルがあれば、その道で送る', async () => {
+    renderHook(() => useDocVoteSignal({ meetingId: 'm1' }, vi.fn()))
+    const ch = await subscribed()
+    sendDocSignal('meeting-minutes-view:m1', 'minutes-saved')
+    expect(ch.send).toHaveBeenCalledWith({ type: 'broadcast', event: 'minutes-saved', payload: {} })
+  })
+
+  it('つながっていなければ何もしない（画面を壊さない）', () => {
+    expect(() => sendDocSignal('meeting-minutes-view:none', 'minutes-saved')).not.toThrow()
+  })
+
+  it('閉じたあとは送らない', async () => {
+    const { unmount } = renderHook(() => useDocVoteSignal({ meetingId: 'm2' }, vi.fn()))
+    const ch = await subscribed()
+    unmount()
+    sendDocSignal('meeting-minutes-view:m2', 'minutes-saved')
+    expect(ch.send).not.toHaveBeenCalled()
   })
 })

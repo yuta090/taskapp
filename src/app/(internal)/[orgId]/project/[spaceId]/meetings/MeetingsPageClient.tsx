@@ -761,7 +761,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
 
   const breadcrumbItems = [
     { label: spaceName || 'プロジェクト', href: `/${orgId}/project/${spaceId}` },
-    { label: '議事録' },
+    { label: '会議・議事録' },
   ]
 
   // 議事録の文書ビュー（Wiki のエディタビューと同じ考え方: 選んだら一覧を丸ごと

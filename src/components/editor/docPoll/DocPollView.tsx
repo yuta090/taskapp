@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { CheckSquareOffset } from '@phosphor-icons/react'
 import {
@@ -72,7 +72,18 @@ export interface DocPollViewProps {
   /** 押す・選び直す（choice）・取り消す（null） */
   onCast: (choice: DocVoteChoice | null, memo: string) => Promise<void>
   /** 議題（本文の文字）を入れる場所。BlockNote が渡す */
-  contentRef: (node: HTMLElement | null) => void
+  contentRef?: (node: HTMLElement | null) => void
+  /**
+   * 議題を中身で渡す（相手先ポータルの議事録のように、エディタを使わず本文を自前で描く画面）。
+   * 渡したときは contentRef は使わない
+   */
+  title?: ReactNode
+  /**
+   * 見えない・押せない投票に出す言葉（相手先ポータル）。相手先に見えるのは公開した控えなので、
+   * 社内が元のページから消した投票などは読めなくなる。そのとき「用意できていません」ではなく
+   * 「終了しました」と出す（押して権限が無いと返ってきたときも同じ）
+   */
+  closedNote?: string
 }
 
 export function DocPollView({
@@ -83,6 +94,8 @@ export function DocPollView({
   nameOf,
   onCast,
   contentRef,
+  title,
+  closedNote,
 }: DocPollViewProps) {
   const reasonRequired = state?.poll.reason_required ?? reasonFromBlock
   const votes = state?.votes ?? []
@@ -101,7 +114,8 @@ export function DocPollView({
       await onCast(choice, memo)
       setMemoTarget(null)
     } catch (e) {
-      setError(voteErrorMessage(e))
+      const err = (e ?? {}) as { code?: string }
+      setError(closedNote && err.code === '42501' ? closedNote : voteErrorMessage(e))
     }
   }
 
@@ -135,7 +149,11 @@ export function DocPollView({
           投票
         </span>
         {/* 議題。文字を持てるのはこの中だけ。空のままでもよい（ボタンだけの投票） */}
-        <div className="min-w-0 flex-1 font-medium" ref={contentRef} />
+        {title !== undefined ? (
+          <div className="min-w-0 flex-1 font-medium">{title}</div>
+        ) : (
+          <div className="min-w-0 flex-1 font-medium" ref={contentRef} />
+        )}
         {reasonRequired === 'ng_hold' && (
           <span
             contentEditable={false}
@@ -178,7 +196,11 @@ export function DocPollView({
               {mine.memo ? 'メモを直す' : 'メモを書く'}
             </button>
           )}
-          {STATUS_NOTE[status] && <span className="ml-1 text-xs text-gray-400">{STATUS_NOTE[status]}</span>}
+          {(status === 'missing' && closedNote ? closedNote : STATUS_NOTE[status]) && (
+            <span className="ml-1 text-xs text-gray-400">
+              {status === 'missing' && closedNote ? closedNote : STATUS_NOTE[status]}
+            </span>
+          )}
         </div>
 
         {error && (

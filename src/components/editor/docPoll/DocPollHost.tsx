@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useDocPolls } from '@/lib/hooks/useDocPolls'
+import { useVoterNames } from '@/lib/hooks/useVoterNames'
 import { collectPollBlocks, planPollSync, pollIdOf, pollOwnersOf, reasonRequiredOf } from '@/lib/doc-polls/logic'
 import type { DocPollReasonRequired, DocPollSource } from '@/lib/doc-polls/types'
-import { DocPollContext, type DocPollContextValue } from './docPollBlock'
+import { DocPollContext, type DocPollContextValue } from './DocPollContext'
 
 type BlockLike = { id: string; type: string; props?: Record<string, unknown>; children?: BlockLike[] }
 
@@ -56,16 +57,25 @@ export function DocPollHost({
   currentUserId,
   nameOf,
   editable,
+  closedNote,
+  loadPolls = true,
   children,
 }: {
   editor: DocPollEditorLike
   source: DocPollSource
   currentUserId: string | null
-  nameOf: (userId: string) => string
+  /** 名前の引き方。渡さない画面（相手先ポータル）では、押した人の名前をここで引く */
+  nameOf?: (userId: string) => string
   editable: boolean
+  /** 見えない・押せない投票に出す言葉（相手先ポータルが渡す） */
+  closedNote?: string
+  /** false なら投票を読まず合図のチャネルだけ張る（投票の無い進行中の会議のポータル）。既定は読む */
+  loadPolls?: boolean
   children: ReactNode
 }) {
-  const { polls, isFetched, castVote, createPoll } = useDocPolls(source)
+  const { polls, isFetched, castVote, createPoll } = useDocPolls(source, { loadPolls })
+  const fetchedNameOf = useVoterNames(nameOf ? null : polls)
+  const resolveName = nameOf ?? fetchedNameOf
 
   // 作っている最中か、作り終えた・作れなかった番号。何度も作りに行かないために覚える
   const skipRef = useRef(new Set<string>())
@@ -149,8 +159,8 @@ export function DocPollHost({
   }, [editor, sync])
 
   const value = useMemo<DocPollContextValue>(
-    () => ({ polls, isFetched, currentUserId, nameOf, castVote, canCreate: editable, failedIds }),
-    [polls, isFetched, currentUserId, nameOf, castVote, editable, failedIds]
+    () => ({ polls, isFetched, currentUserId, nameOf: resolveName, castVote, canCreate: editable, failedIds, closedNote }),
+    [polls, isFetched, currentUserId, resolveName, castVote, editable, failedIds, closedNote]
   )
 
   return <DocPollContext.Provider value={value}>{children}</DocPollContext.Provider>
