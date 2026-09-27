@@ -26,6 +26,31 @@ export async function fetchDocInsertions(
   return (data ?? []) as DocInsertion[]
 }
 
+/** 取り込みで読む取り消しの期間。取り込んだあと保存する前に取り消された行を消すためだけに読む */
+const RECENT_WITHDRAWN_MS = 10 * 60_000
+
+/**
+ * 社内の取り込みが読む分: 反映待ち・削除依頼と、最近（10分）取り消された分。
+ * 取り消しは消えずに増えるので全部読むと、長く使う文書ほど読み込みと見直しが重くなる
+ */
+export async function fetchInsertionsToSync(
+  supabase: SupabaseClient,
+  source: DocInsertionSource,
+  now: Date = new Date()
+): Promise<DocInsertion[]> {
+  const [column, value] = source.meetingId ? (['meeting_id', source.meetingId] as const) : (['wiki_page_id', source.wikiPageId as string] as const)
+  // 時刻の比較だけに使う（日付の文字列にはしない）
+  const since = new Date(now.getTime() - RECENT_WITHDRAWN_MS).toISOString()
+  const { data, error } = await supabase
+    .from('doc_insertions')
+    .select(COLUMNS)
+    .eq(column, value)
+    .or(`status.in.(pending,remove_requested),and(status.eq.withdrawn,closed_at.gt.${since})`)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as DocInsertion[]
+}
+
 export async function createDocInsertion(
   supabase: SupabaseClient,
   args: { source: DocInsertionSource; kind: DocInsertionKind; content: string; anchor: string | null }

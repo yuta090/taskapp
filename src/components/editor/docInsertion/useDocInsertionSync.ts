@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   claimDocInsertion,
   dismissDocInsertion,
-  fetchDocInsertions,
+  fetchInsertionsToSync,
   markDocInsertionApplied,
   markDocInsertionRemoved,
 } from '@/lib/doc-insertions/api'
@@ -30,8 +30,6 @@ export interface InsertionEditorLike {
 /** 相手先が足した・取り下げたの知らせを取りこぼしたときの保険 */
 const REFETCH_MS = 30_000
 
-/** 台帳から読む状態。取り消し（withdrawn）も読む: 取り込んで保存する前に取り消されたら、本文から消すため */
-const SYNC_STATUSES = ['pending', 'remove_requested', 'withdrawn'] as const
 
 /** 議事録の最上位の行を、足す場所（相手先の画面が送ってくる、その行の Markdown）と比べる */
 function matchesMinutesAnchor(block: BlockLike, anchor: string): boolean {
@@ -78,7 +76,8 @@ export function useDocInsertionSync({
 
   const { data: rows, dataUpdatedAt } = useQuery({
     queryKey,
-    queryFn: () => fetchDocInsertions(supabase, { meetingId }, [...SYNC_STATUSES]),
+    // 反映待ち・削除依頼と、最近の取り消し（取り込んで保存する前に取り消されたら本文から消すため）
+    queryFn: () => fetchInsertionsToSync(supabase, { meetingId }),
     enabled,
     refetchInterval: enabled ? REFETCH_MS : false,
     staleTime: 5_000,
@@ -145,14 +144,16 @@ export function useDocInsertionSync({
         const dismiss = plan.insert.filter((x) => insertedRef.current.has(x.row.id)).map((x) => x.row.id)
         const candidates = plan.insert.filter((x) => !insertedRef.current.has(x.row.id))
 
+        // 権利はまとめて同時に取りに行く（1件ずつ待たない）
         const claimed = new Set<string>()
-        for (const x of candidates) {
-          try {
-            if (await claimDocInsertion(supabase, x.row.id, tabIdRef.current as string)) claimed.add(x.row.id)
-          } catch {
-            // 取れなかった。次の見直しでまた試す
-          }
-        }
+        const results = await Promise.all(
+          candidates.map((x) =>
+            claimDocInsertion(supabase, x.row.id, tabIdRef.current as string).catch(() => false)
+          )
+        )
+        candidates.forEach((x, i) => {
+          if (results[i]) claimed.add(x.row.id)
+        })
         // 権利を待つ間に本文が変わっているかもしれないので、足す場所は今の本文で決め直す
         const fresh = planInsertionSync(
           editor.document,

@@ -10,6 +10,7 @@ const markDocInsertionRemoved = vi.fn()
 const claimDocInsertion = vi.fn()
 const dismissDocInsertion = vi.fn()
 vi.mock('@/lib/doc-insertions/api', () => ({
+  fetchInsertionsToSync: (...a: unknown[]) => fetchDocInsertions(a[0], a[1], ['pending', 'remove_requested', 'withdrawn']),
   claimDocInsertion: (...a: unknown[]) => claimDocInsertion(...a),
   dismissDocInsertion: (...a: unknown[]) => dismissDocInsertion(...a),
   fetchDocInsertions: (...a: unknown[]) => fetchDocInsertions(...a),

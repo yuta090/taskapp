@@ -52,3 +52,18 @@ describe('本文の検査（DB と同じ）', () => {
     expect(insertionErrorMessage({ code: '42501', message: 'forbidden' })).toBe('この文書には書き足せません')
   })
 })
+
+describe('取り込みの読み込み（取り消しは最近の分だけ）', () => {
+  it('反映待ち・削除依頼と、最近取り消された分だけを読む', async () => {
+    const calls: Array<[string, unknown[]]> = []
+    const b: Record<string, unknown> = {}
+    for (const fn of ['select', 'eq', 'or', 'order']) b[fn] = (...a: unknown[]) => { calls.push([fn, a]); return b }
+    b.then = (r: (v: unknown) => void) => r({ data: [], error: null })
+    const client = { from: vi.fn(() => b) }
+    const { fetchInsertionsToSync } = await import('@/lib/doc-insertions/api')
+    await fetchInsertionsToSync(client as never, { wikiPageId: 'w1' }, new Date('2026-09-27T01:00:00Z'))
+    expect(calls).toContainEqual(['eq', ['wiki_page_id', 'w1']])
+    const or = calls.find(([fn]) => fn === 'or')?.[1][0] as string
+    expect(or).toBe('status.in.(pending,remove_requested),and(status.eq.withdrawn,closed_at.gt.2026-09-27T00:50:00.000Z)')
+  })
+})
