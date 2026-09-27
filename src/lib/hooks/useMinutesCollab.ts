@@ -159,11 +159,14 @@ export function useMinutesCollab({
   maxLength = MAX_COLLAB_LENGTH,
   onRoomReload,
 }: UseMinutesCollabOptions): UseMinutesCollabResult {
-  // 使うかどうかは開いた時点で決め、途中で変えない（器の作り直しは本文の二重を招く）。
+  // 使うかどうかは、**使うと決めたら途中で変えない**（器の作り直しは本文の二重を招く）。
+  // ただし「使わない」から「使う」へは1回だけ変えてよい。URL から直接開くと「書けるか」の
+  // 判定が読み込み中のまま最初の描画が来るので、そこで決めて固めると、書ける人まで1人用に
+  // 固まり、2つの窓が互いに届かないままになる（2026-09-27 本番で報告）。書けない間は
+  // エディタも読み取り専用なので、ここで載せ替えても打った分は失われない。
   // 画面の幅は描画の途中では見ない（effect で見る）ので、ここには入れない
-  const [wanted] = useState(
-    () => collabAllowed && presenceEnabled && !!self.userId && initialMarkdown.length <= maxLength
-  )
+  const ready = collabAllowed && presenceEnabled && !!self.userId && initialMarkdown.length <= maxLength
+  const [wanted, setWanted] = useState(ready)
 
   /**
    * このタブの見分け札。**人ではなくタブで見分ける**のが要点。
@@ -183,6 +186,11 @@ export function useMinutesCollab({
   const [session, setSession] = useState<MinutesCollabSession | null>(null)
   /** 器を用意している途中か。用意しないと決めたら false になる */
   const [preparing, setPreparing] = useState(wanted)
+  useEffect(() => {
+    if (!ready || wanted) return
+    setWanted(true)
+    setPreparing(true)
+  }, [ready, wanted])
   const [degradedReason, setDegradedReason] = useState<DegradeReason | null>(null)
   const [scribeId, setScribeId] = useState<string | null>(null)
   const [synced, setSynced] = useState(false)

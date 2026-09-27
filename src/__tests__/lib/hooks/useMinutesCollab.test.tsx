@@ -128,6 +128,48 @@ describe('部屋の名前', () => {
   })
 })
 
+describe('開いた直後はまだ書けるか分からないとき（2026-09-27 本番で報告）', () => {
+  it('あとから書けると分かったら、同時編集を始める（1人用に固まらない）', async () => {
+    // URL から直接ページを開くと、「編集できるか」の判定が読み込み中のまま最初の描画が来る。
+    // そこで「使わない」と決めて固まると、2つの窓とも1人用になり、互いに届かない
+    const { result, rerender } = renderHook(
+      ({ presenceEnabled }: { presenceEnabled: boolean }) =>
+        useMinutesCollab({
+          meetingId: 'm1',
+          presenceEnabled,
+          self: { userId: 'u-self', name: '自分' },
+          collabAllowed: true,
+          initialMarkdown: BASE,
+        }),
+      { initialProps: { presenceEnabled: false } }
+    )
+    expect(result.current.solo).toBe(true)
+    rerender({ presenceEnabled: true })
+    await settle(() => result.current.pending === false && result.current.solo === false)
+    expect(result.current.solo).toBe(false)
+    expect(result.current.fragment).not.toBeNull()
+  })
+
+  it('一度始めたら、あとで書けなくなっても器は作り直さない（本文の二重を招く）', async () => {
+    const { result, rerender } = renderHook(
+      ({ presenceEnabled }: { presenceEnabled: boolean }) =>
+        useMinutesCollab({
+          meetingId: 'm1',
+          presenceEnabled,
+          self: { userId: 'u-self', name: '自分' },
+          collabAllowed: true,
+          initialMarkdown: BASE,
+        }),
+      { initialProps: { presenceEnabled: true } }
+    )
+    await settle(() => result.current.pending === false)
+    const fragment = result.current.fragment
+    rerender({ presenceEnabled: false })
+    await settle(() => true)
+    expect(result.current.fragment).toBe(fragment)
+  })
+})
+
 describe('書記の決め方', () => {
   it('部屋の顔ぶれが分かるまでは、誰が保存するか決めない', async () => {
     const { result } = await mount()

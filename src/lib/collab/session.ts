@@ -31,6 +31,13 @@ export const SYNC_WAIT_MS = 2_000
  * 送る前に測って「断る」か「輪を抜ける」に分ける。
  */
 export const MAX_MESSAGE_CHARS = 1_500_000
+/** 元の無い更新が届いたとき、同じ相手へ足りない分を頼み直すまでの間隔 */
+export const MISSING_REQUEST_INTERVAL_MS = 2_000
+/**
+ * 本文を持っているあいだ、この間隔で目録（y-sync1）を部屋へ配る。揃っていれば返事は空の差分だけ。
+ * 1通の取りこぼし・在席の遅れなど、何が原因でずれても入り直さずに取り戻すための守り
+ */
+export const PERIODIC_SYNC_MS = 20_000
 /** 中身の無い差分の大きさ。これ以下なら送らない（送っても相手に足されるものが無い） */
 const EMPTY_UPDATE_BYTES = 2
 
@@ -116,11 +123,14 @@ export class MinutesCollabSession {
   private peers: CollabPeer[] = []
   /** 器を行き来させた相手（目録を送った・差分を受け取った）。あとから見えた相手と握手し直さないため */
   private readonly handshaked = new Set<string>()
+  /** 足りない分を最後に頼んだ時刻（相手ごと）。頼みすぎないため */
+  private readonly missingRequestedAt = new Map<string, number>()
   private pendingUpdates: Uint8Array[] = []
   private updateTimer: ReturnType<typeof setTimeout> | null = null
   private awarenessTimer: ReturnType<typeof setTimeout> | null = null
   private awarenessDirty = false
   private syncTimer: ReturnType<typeof setTimeout> | null = null
+  private periodicTimer: ReturnType<typeof setInterval> | null = null
   private syncAttempts = 0
   private synced = false
   private started = false
@@ -309,6 +319,25 @@ export class MinutesCollabSession {
     return next
   }
 
+  /** 元が手元に無くて取り込めず、保留になっている更新があるか */
+  private hasHeldBackUpdates(): boolean {
+    const store = this.doc.store as { pendingStructs: unknown; pendingDs: unknown }
+    return store.pendingStructs !== null || store.pendingDs !== null
+  }
+
+  /**
+   * 送り主に「足りない分をください」と目録を送る。何が原因でずれても（在席の遅れ・1通の取りこぼし）
+   * これで自分から直る。同じ相手へは {@link MISSING_REQUEST_INTERVAL_MS} に1回まで
+   */
+  private requestMissing(from: string): void {
+    const now = Date.now()
+    const last = this.missingRequestedAt.get(from) ?? 0
+    if (now - last < MISSING_REQUEST_INTERVAL_MS) return
+    this.missingRequestedAt.set(from, now)
+    this.handshaked.add(from)
+    this.sendSync1(from)
+  }
+
   /** 自分が部屋に入った時刻。一覧にまだ載っていなければ、いちばん新しい扱い */
   private selfJoinedAt(): number {
     return this.peers.find((peer) => peer.id === this.options.selfId)?.joinedAt ?? Number.MAX_SAFE_INTEGER
@@ -406,13 +435,22 @@ export class MinutesCollabSession {
         if (!this.synced) this.degrade('too-large')
         return
       }
-      this.handshaked.add(message.from)
+      // 握手済みにするのは、器を丸ごとやり取りしたとき（y-sync2）だけ。打鍵の更新（y-update）を
+      // 受け取っただけで印を付けると、相手の本文の元を持っていないのに「合わせ込んだ」ことになり、
+      // あとで在席が届いても握手せず、**帯も出ないまま、ずっとずれる**（2026-09-27 本番で報告）
+      if (message.event === 'y-sync2') this.handshaked.add(message.from)
       const bytes = base64ToBytes(message.payload)
       this.applyingRemote = true
       try {
         Y.applyUpdate(this.doc, bytes, 'remote')
       } finally {
         this.applyingRemote = false
+      }
+      // 取り込めずに保留になった分がある＝相手の本文の元を持っていない。送り主に足りない分を頼む。
+      // 本文が入る前なら「入った」ことにしない（元の無い更新だけでは、器は空のまま）
+      if (this.hasHeldBackUpdates()) {
+        this.requestMissing(message.from)
+        if (!this.synced) return
       }
       this.markSynced()
       // **取り込んだあとに毎回確かめる。** 直しは自分の種が2つになったときしか
@@ -450,6 +488,19 @@ export class MinutesCollabSession {
     this.options.onSynced?.()
     // 本文を持つ前に見えていた相手とも合わせ込む（持つ前は握手を増やさない）
     this.handshakeLatecomers()
+    this.periodicTimer = setInterval(this.periodicSync, PERIODIC_SYNC_MS)
+  }
+
+  /**
+   * 定期の目録の交換。返事役（尋ねた人を除いたいちばん古い人）が足りない分を返し、
+   * 目録を送り返してくるので、こちらだけが持つ分も相手へ届く（行き帰り）。
+   * 待ち時間は張らない（`sendSync1` の猶予切れで種をまく道には入れない）
+   */
+  private periodicSync = (): void => {
+    if (this.disposed || this.degraded || !this.synced) return
+    const others = this.peers.some((peer) => peer.id !== this.options.selfId && peer.collab)
+    if (!others) return
+    this.send('y-sync1', Y.encodeStateVector(this.doc))
   }
 
   private handleSeedsChange = (): void => {
@@ -616,6 +667,10 @@ export class MinutesCollabSession {
 
   private clearTimers(): void {
     this.clearSyncTimer()
+    if (this.periodicTimer) {
+      clearInterval(this.periodicTimer)
+      this.periodicTimer = null
+    }
     if (this.updateTimer) {
       clearTimeout(this.updateTimer)
       this.updateTimer = null

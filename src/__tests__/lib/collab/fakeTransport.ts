@@ -16,6 +16,8 @@ export interface FakeHub {
   disconnect(userId: string): void
   /** つなぎ直す。入り直しと同じく、つながった知らせをもう一度渡す */
   reconnect(userId: string): void
+  /** 届かなかった通を戻さずに、また届くようにだけする（入り直しの知らせは出さない＝1通の取りこぼし） */
+  restore(userId: string): void
   /** その人になりすまして1通配る（宛先の確かめに使う） */
   sendAs(from: string, event: CollabEvent, bytes: Uint8Array, to?: string): void
 }
@@ -41,6 +43,9 @@ export function createFakeHub(): FakeHub {
     },
     disconnect: (userId) => {
       offline.add(userId)
+    },
+    restore: (userId) => {
+      offline.delete(userId)
     },
     reconnect: (userId) => {
       offline.delete(userId)
