@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "packages/**/dist/**",
     // 独立パッケージ（自前の toolchain/tsconfig を持つ・ルートlint対象外）
     "worker/**",
+    // スマホアプリ（Expo）。自前の tsconfig・lint（npx expo lint）を持つ
+    "apps/**",
   ]),
 ]);
 

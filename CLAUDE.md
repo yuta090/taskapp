@@ -20,6 +20,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TaskApp is a client-facing project management system with "ball ownership" concept (who needs to act next). Built with Next.js 16 (App Router) + Supabase.
 
+## スマホアプリ（`apps/mobile/`）
+
+iPhone / Android 用のアプリ（Expo・React Native）は `apps/mobile/` にある。Web と同じ Supabase・RLS を直接使い、
+マイタスクの並べ方・通知の文面・RPC の呼び方などは Web の `src/lib` を `@/…` でそのまま共有する。
+ルールは **`apps/mobile/CLAUDE.md`**。Web 側で気をつけること:
+
+- **アプリが読んでいる表・列・RPC の引数を変えるときは、古い版のアプリが壊れないか確かめる**（ストアのアプリは古い版が残る）。
+  壊れるなら、直した版をストアに出してから `src/lib/mobile/version.ts` の最低の版を上げる（古い版は更新を促す画面になる）
+- アプリから共有されている `src/lib` のファイル（`apps/mobile/src` で `@/` を grep）に、React・Next.js・ブラウザ依存を足さない
+- ルートの `tsconfig.json`・ESLint は `apps/` を対象外にしている。アプリの確認は `apps/mobile` で `npm test`・`npm run typecheck`・`npm run lint`
+
 ## Commands
 
 ```bash
