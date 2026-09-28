@@ -227,6 +227,8 @@ export function useMinutesPresence({
   }, [collab])
 
   const channelRef = useRef<RealtimeChannel | null>(null)
+  /** 部屋から外れていたら入り直す口（購読の effect の中で作る） */
+  const ensureJoinedRef = useRef<(() => void) | null>(null)
   /**
    * 自分が部屋に入った時刻（座席）。チャネルに入るたびに取り直す。
    * 顔ぶれは `onPeers` で直に渡すので、描画のための状態にはしない
@@ -321,6 +323,12 @@ export function useMinutesPresence({
 
     let disposed = false
     let channel: RealtimeChannel | null = null
+    /**
+     * 片付け中のチャネル。**片付け終わるのを待ってから次を作る。** supabase-js は同じ名前の
+     * 部屋が残っていると新しく作らずにそれを返すので、閉じかけの部屋を掴むと外れたままになる
+     * （2026-09-28 本番で、送る通がすべて部屋の外からの代替経路に回っていた）
+     */
+    let removing: Promise<unknown> | null = null
     /** 何回目の購読か（1 が最初。RETRY_DELAYS_MS の数だけやり直す） */
     let attempt = 0
     let retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -472,11 +480,31 @@ export function useMinutesPresence({
         }
       }
       try {
-        supabase.removeChannel(current)
+        removing = Promise.resolve(supabase.removeChannel(current)).catch((err) => {
+          warnPresence('チャネルを閉じられませんでした', err)
+        })
       } catch (err) {
         warnPresence('チャネルを閉じられませんでした', err)
       }
     }
+
+    /**
+     * 部屋から外れていたら入り直す（送ろうとしたとき・タブが手前に戻ったとき・ネットがつながり直したとき）。
+     * 外れたことを知らせる合図（CLOSED など）が来ないまま外れていることがある
+     */
+    const ensureJoined = (immediately: boolean) => {
+      if (disposed || retryTimer) return
+      const current = channel
+      if (!current || (current as unknown as { state?: string }).state === 'joined') return
+      channelRef.current = null
+      if (immediately) {
+        closeChannel()
+        void start()
+        return
+      }
+      scheduleRetry('CLOSED')
+    }
+    ensureJoinedRef.current = () => ensureJoined(false)
 
     const teardown = () => {
       clearIdleTimer()
@@ -515,7 +543,11 @@ export function useMinutesPresence({
       const sentByEditing = hidden && editingRef.current
       if (hidden) setEditing(false)
       if (visibleChanged && !sentByEditing) pushTrack(true)
+      // 裏に回っていたあいだに外れていることがある（ブラウザが通信の見張りを間引くため）
+      if (!hidden) ensureJoined(true)
     }
+
+    const handleOnline = () => ensureJoined(true)
 
     const handlePageHide = () => {
       disposed = true
@@ -554,6 +586,22 @@ export function useMinutesPresence({
       }
       if (disposed) return
 
+      // 前のチャネルの片付けを待つ。同じ名前の部屋が残っていれば、それも片付けてから作る
+      if (removing) {
+        await removing
+        removing = null
+      }
+      const topic = `realtime:${topicPrefix}${meetingId}`
+      const stale = supabase.getChannels?.().find((c) => c.topic === topic) ?? null
+      if (stale) {
+        try {
+          await supabase.removeChannel(stale)
+        } catch (err) {
+          warnPresence('残っていたチャネルを閉じられませんでした', err)
+        }
+      }
+      if (disposed) return
+
       try {
         const created = supabase.channel(`${topicPrefix}${meetingId}`, {
           config: {
@@ -589,6 +637,8 @@ export function useMinutesPresence({
             if (disposed || channel !== created) return
             if (status === 'SUBSCRIBED') {
               clearRetryTimer()
+              // つながったら、やり直しの回数は数え直す（あとで外れたときに、前の失敗で諦めない）
+              attempt = 1
               channelRef.current = created
               trackedRef.current = null
               // 座席は「チャネルに入るたび」に取り直す。切れて入り直した人は
@@ -606,7 +656,9 @@ export function useMinutesPresence({
               }, PRESENCE_WAIT_MS)
               return
             }
-            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            // CLOSED: つながったあとで外された（鍵の期限切れ・サーバー側の都合）。
+            // 何もしないと、外れたまま送る通がすべて届かず、帯も出ないまま、ずっとずれる
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
               // つながらなくても編集は止めない。帯を出さないだけ
               channelRef.current = null
               trackedRef.current = null
@@ -621,12 +673,30 @@ export function useMinutesPresence({
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('online', handleOnline)
+    // ログインの鍵が更新されたら、部屋の鍵も渡し直す。最初に引数で渡した鍵は supabase-js が
+    // 更新しないので、1時間ほどで期限が切れて部屋から外される
+    let authSubscription: { unsubscribe: () => void } | null = null
+    try {
+      const listener = supabase.auth.onAuthStateChange?.((event, session) => {
+        if (disposed || event !== 'TOKEN_REFRESHED' || !session?.access_token) return
+        void Promise.resolve(supabase.realtime.setAuth(session.access_token)).catch((err) => {
+          warnPresence('新しい鍵を渡せませんでした', err)
+        })
+      })
+      authSubscription = listener?.data?.subscription ?? null
+    } catch (err) {
+      warnPresence('鍵の更新を見張れませんでした', err)
+    }
     void start()
 
     return () => {
       disposed = true
+      ensureJoinedRef.current = null
+      authSubscription?.unsubscribe()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('online', handleOnline)
       teardown()
       setOthers((prev) => (prev.length === 0 ? prev : EMPTY_PEERS))
     }
@@ -639,6 +709,12 @@ export function useMinutesPresence({
   const sendCollab = useCallback((event: CollabEvent, bytes: Uint8Array, to?: string) => {
     const channel = channelRef.current
     if (!channel) return
+    // 部屋から外れていたら送らない。supabase-js は外れたチャネルの send を黙って部屋の外からの
+    // 代替経路（REST）に回すが、それでは相手に届かない。入り直せば目録合わせで埋まる
+    if ((channel as unknown as { state?: string }).state !== 'joined') {
+      ensureJoinedRef.current?.()
+      return
+    }
     try {
       void Promise.resolve(
         channel.send({
