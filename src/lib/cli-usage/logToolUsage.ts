@@ -39,7 +39,11 @@ export function logToolUsage(params: {
   if (!info) return // 認証前に失敗した等、記録すべき鍵・組織が確定していない
 
   try {
-    const admin = createAdminClient()
+    const admin = createAdminClient({
+      channel: source,
+      actorUserId: info.userId,
+      apiKeyId: info.keyId === 'dev-key' ? null : info.keyId,
+    })
     const errorMessage = status === 'error' ? (error instanceof Error ? error.message : String(error)) : null
     const errorDetail =
       status === 'error' ? describeError(error, { includeStack: !isUserFacingError(error) }) : null
