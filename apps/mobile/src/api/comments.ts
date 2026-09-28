@@ -1,6 +1,9 @@
 /**
  * タスクのコメント（Web の useTaskComments と同じ読み書き）。
  * 受信トレイへの通知（メンション・コメントが付いた）は DB のトリガー（task_comments_notify）が作る。
+ *
+ * 既知の差: Web は「相手先にも見える」コメントのとき Slack にも知らせる（/api/slack/notify）。
+ * そのサーバーはブラウザのログイン（Cookie）でしか呼べないので、アプリからのコメントでは Slack に出ない。
  */
 import type { CommentVisibility, TaskComment } from '@/types/database'
 import { supabase } from './supabase'

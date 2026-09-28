@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { STATUS_CHANGE_NO_ROWS } from '@/lib/tasks/completeFailure'
 import { completionBlocker, ensureUpdated, STATUS_CHOICES } from './taskRules'
 
 describe('completionBlocker', () => {
@@ -20,7 +21,7 @@ describe('completionBlocker', () => {
 
 describe('ensureUpdated', () => {
   it('RLS で弾かれた更新は 0 行で返ってくるので、失敗として扱う', () => {
-    expect(() => ensureUpdated([])).toThrow('このタスクを変更する権限がありません')
+    expect(() => ensureUpdated([])).toThrow(STATUS_CHANGE_NO_ROWS)
     expect(() => ensureUpdated(null)).toThrow()
   })
   it('1行以上更新されていれば成功', () => {

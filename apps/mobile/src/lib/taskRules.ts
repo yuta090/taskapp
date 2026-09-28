@@ -2,6 +2,7 @@
  * タスクを変えるときの決まり（Web の useTasks と同じ意味。あちらは hook の中に閉じているので、
  * 同じ文言・同じ条件をここに持つ）。
  */
+import { STATUS_CHANGE_NO_ROWS } from '@/lib/tasks/completeFailure'
 import type { ReviewStatus, Task, TaskStatus } from '@/types/database'
 
 export const STATUS_CHOICES: readonly { value: TaskStatus; label: string }[] = [
@@ -27,5 +28,5 @@ export function completionBlocker(
 
 /** RLS に弾かれた更新はエラーにならず 0 行で返るので、ここで失敗にする */
 export function ensureUpdated(rows: readonly unknown[] | null): void {
-  if (!rows || rows.length === 0) throw new Error('このタスクを変更する権限がありません')
+  if (!rows || rows.length === 0) throw new Error(STATUS_CHANGE_NO_ROWS)
 }

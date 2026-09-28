@@ -16,14 +16,15 @@ import {
   type MyTasksData,
 } from '~/api/tasks'
 import { toInboxItem } from '~/lib/inbox'
-import { useReadyContext } from './useSession'
+import { useReadyContext, useSession } from './useSession'
 
 export const keys = {
   myTasks: (userId: string, orgId: string) => ['myTasks', userId, orgId] as const,
   pendingReviews: (userId: string, orgId: string) => ['pendingReviews', userId, orgId] as const,
   inbox: (userId: string, orgId: string) => ['inbox', userId, orgId] as const,
-  task: (taskId: string) => ['task', taskId] as const,
-  comments: (taskId: string) => ['comments', taskId] as const,
+  // 1件ものにも userId を入れる（同じ端末で別の人がログインしたとき、前の人の取り置きを出さない）
+  task: (userId: string, taskId: string) => ['task', userId, taskId] as const,
+  comments: (userId: string, taskId: string) => ['comments', userId, taskId] as const,
 }
 
 export function useMyTasks() {
@@ -56,14 +57,16 @@ export function useInbox() {
 }
 
 export function useTaskDetail(taskId: string) {
-  return useQuery({ queryKey: keys.task(taskId), queryFn: () => fetchTask(taskId) })
+  const { userId } = useSession()
+  return useQuery({ queryKey: keys.task(userId ?? '', taskId), queryFn: () => fetchTask(taskId), enabled: !!userId })
 }
 
 export function useComments(task: { id: string; org_id: string; space_id: string } | undefined) {
+  const { userId } = useSession()
   return useQuery({
-    queryKey: keys.comments(task?.id ?? ''),
+    queryKey: keys.comments(userId ?? '', task?.id ?? ''),
     queryFn: () => fetchComments(task!),
-    enabled: !!task,
+    enabled: !!task && !!userId,
   })
 }
 
@@ -72,7 +75,7 @@ function useInvalidateTask() {
   const queryClient = useQueryClient()
   return (taskId: string) =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: keys.task(taskId) }),
+      queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'task' && q.queryKey[2] === taskId }),
       queryClient.invalidateQueries({ queryKey: ['myTasks'] }),
       queryClient.invalidateQueries({ queryKey: ['pendingReviews'] }),
     ])
@@ -129,7 +132,8 @@ export function useAddComment(task: { id: string; org_id: string; space_id: stri
   return useMutation({
     mutationFn: ({ body, visibility }: { body: string; visibility: CommentVisibility }) =>
       addComment(task!, ctx!.userId, body, visibility),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.comments(task?.id ?? '') }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'comments' && q.queryKey[2] === task?.id }),
   })
 }
 

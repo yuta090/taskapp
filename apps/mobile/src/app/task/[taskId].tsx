@@ -1,3 +1,4 @@
+import { STATUS_CHANGE_NO_ROWS, statusChangeFailureMessage } from '@/lib/tasks/completeFailure'
 import { formatTaskNumber } from '@/lib/tasks/taskNumber'
 import type { CommentVisibility, TaskStatus } from '@/types/database'
 import { Stack, useLocalSearchParams } from 'expo-router'
@@ -54,7 +55,13 @@ export default function TaskDetailScreen() {
     }
     updateStatus.mutate(
       { taskId: task.id, status },
-      { onError: (e) => Alert.alert('変更できませんでした', e instanceof Error ? e.message : '') }
+      {
+        onError: (e) => {
+          // 0 行（権限なし・削除済み）は ensureUpdated が決まった文で投げる。それ以外は DB の文を言い換える
+          const message = e instanceof Error ? e.message : null
+          Alert.alert('変更できませんでした', message === STATUS_CHANGE_NO_ROWS ? message : statusChangeFailureMessage(message))
+        },
+      }
     )
   }
 

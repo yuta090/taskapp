@@ -1,5 +1,3 @@
-import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
-import { jstNow } from '@/lib/datetime/jstNow'
 import type { MyTaskBallFilter } from '@/lib/tasks/myTaskViews'
 import { FlashList } from '@shopify/flash-list'
 import { router } from 'expo-router'
@@ -9,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { TaskRow } from '~/components/TaskRow'
 import { EmptyState, ErrorRetry, Loading } from '~/components/ui'
 import { useMyTasks, usePendingReviewTaskIds } from '~/hooks/queries'
+import { useJstToday } from '~/hooks/useJstToday'
 import { useSession } from '~/hooks/useSession'
 import { buildMyTaskListItems, type MyTaskListItem } from '~/lib/myTaskList'
 import { useColors } from '~/theme/colors'
@@ -21,19 +20,19 @@ const BALL_FILTERS: { value: MyTaskBallFilter; label: string }[] = [
 
 export default function MyTasksScreen() {
   const c = useColors()
-  const { activeOrg, orgsLoading, orgsError } = useSession()
+  const { activeOrg, orgsLoading, orgsError, refetchOrgs } = useSession()
   const [ball, setBall] = useState<MyTaskBallFilter>('all')
   const tasks = useMyTasks()
   const pending = usePendingReviewTaskIds()
 
+  const today = useJstToday()
   const items = useMemo(() => {
     if (!tasks.data) return []
-    const today = formatDateToLocalString(jstNow())
     return buildMyTaskListItems(tasks.data, { ball }, today, pending.data ?? new Set())
-  }, [tasks.data, ball, pending.data])
+  }, [tasks.data, ball, pending.data, today])
 
   const body = (() => {
-    if (orgsError) return <ErrorRetry message="組織を読み込めませんでした" onRetry={() => tasks.refetch()} />
+    if (orgsError) return <ErrorRetry message="組織を読み込めませんでした" onRetry={refetchOrgs} />
     if (!activeOrg && !orgsLoading) return <EmptyState message="所属している組織がありません" />
     // 前回の取り置きがあればそれを先に出す（isPending は取り置きも無いときだけ）
     if (tasks.isPending) return <Loading />

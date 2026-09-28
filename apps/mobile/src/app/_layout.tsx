@@ -4,7 +4,7 @@ import * as SplashScreen from 'expo-splash-screen'
 import { useEffect } from 'react'
 import { Text, useColorScheme } from 'react-native'
 import { Centered, Screen } from '~/components/ui'
-import { persister, queryClient, shouldPersistQuery } from '~/hooks/queryClient'
+import { persister, queryClient } from '~/hooks/queryClient'
 import { SessionProvider, useSession } from '~/hooks/useSession'
 import { useVersionGate } from '~/hooks/useVersionGate'
 import { useColors } from '~/theme/colors'
@@ -24,9 +24,6 @@ export default function RootLayout() {
           persister,
           buster: CACHE_BUSTER,
           maxAge: 1000 * 60 * 60 * 24,
-          dehydrateOptions: {
-            shouldDehydrateQuery: (query) => query.state.status === 'success' && shouldPersistQuery(query.queryKey),
-          },
         }}>
         <SessionProvider>
           <RootNavigator />
