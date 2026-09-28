@@ -75,3 +75,34 @@ export function wikiAppendedBlocks(known: string | null, fresh: string | null): 
   }
   return after.slice(before.length)
 }
+
+function stripBlockIds(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripBlockIds)
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'id') continue
+      out[key] = stripBlockIds(child)
+    }
+    return out
+  }
+  return value
+}
+
+/**
+ * 2つの本文が、ブロックの見分け番号（id）の違いを除いて同じか。id は画面に出ない番号で、
+ * 同時編集の種まきや DB での組み立てで振り直されるので、これだけの違いは保存しない。
+ * 読めない本文は同じと見なさない（保存へ回す安全側）。
+ */
+export function wikiBodiesEquivalent(a: string | null, b: string | null): boolean {
+  try {
+    const x = JSON.parse(a ?? '[]')
+    const y = JSON.parse(b ?? '[]')
+    return (
+      canonicalizeWikiBody(JSON.stringify(stripBlockIds(x))) ===
+      canonicalizeWikiBody(JSON.stringify(stripBlockIds(y)))
+    )
+  } catch {
+    return false
+  }
+}

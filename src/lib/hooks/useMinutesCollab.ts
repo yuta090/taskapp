@@ -422,7 +422,9 @@ export function useMinutesCollab({
     others,
     setEditing,
     active: !!session && !degradedReason,
-    pending: preparing && !degradedReason,
+    // 「使わない → 使う」に切り替わる描画（effect の前）も用意中にする。この隙間に1人用の
+    // エディタが書ける状態で出ると、そこで打った分は同時編集のエディタに載せ替えたときに消える
+    pending: (preparing || (ready && !wanted)) && !degradedReason,
     solo,
     /**
      * 書記として振る舞うのは**本文が入ってから**。入る前に保存へ行くと、

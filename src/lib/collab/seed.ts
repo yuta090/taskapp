@@ -14,7 +14,7 @@
  * 生きているエディタから渡す（全員が同じ `useMinutesSchema` を使うので同じ形になる）。
  */
 import * as Y from 'yjs'
-import { blockToNode } from '@blocknote/core'
+import { blockToNode, nodeToBlock } from '@blocknote/core'
 import type { StyleSchema } from '@blocknote/core'
 import { prosemirrorToYXmlFragment } from 'y-prosemirror'
 import type { Schema } from 'prosemirror-model'
@@ -145,4 +145,32 @@ export function seedWikiDoc(doc: Y.Doc, body: string | null, pmSchema: Schema, s
   const { update, seedHash } = buildWikiSeed(body, pmSchema, styleSchema)
   Y.applyUpdate(doc, update)
   return seedHash
+}
+
+/**
+ * 読み込んだ本文を、エディタが書き出す形に直す（既定の書式を補う）。JSON として読めなければ null。
+ *
+ * 同時編集では、器の中身をエディタへ流し込んだ瞬間に「変更」として届く。エディタは既定の書式
+ * （文字色「既定」など）を補った形で書き出すので、DB で組み立てた本文と文字列が食い違い、誰も
+ * 打っていないのに保存が走っていた。比べる前に、読み込んだ本文をこの形へ直す（`useWikiBodySave`）。
+ * 種まきと同じく、ProseMirror のスキーマは生きているエディタから借りる。
+ */
+export function normalizeWikiBody(
+  body: string | null,
+  pmSchema: Schema,
+  schema: { blockSchema: unknown; inlineContentSchema: unknown; styleSchema: StyleSchema }
+): string | null {
+  try {
+    const raw = body ?? ''
+    const parsed: unknown = raw.trim() === '' ? [] : JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    return JSON.stringify(
+      parsed.map((block) => {
+        const node = blockToNode(block as never, pmSchema, schema.styleSchema)
+        return nodeToBlock(node, pmSchema, schema.blockSchema as never, schema.inlineContentSchema as never, schema.styleSchema)
+      })
+    )
+  } catch {
+    return null
+  }
 }
