@@ -1,13 +1,16 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
-import { notFoundOr } from '../lib/dbErrors.js';
+import { ToolUserError } from '../errors.js';
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js';
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single();
-    if (error || !data)
-        throw new Error('スペースが見つかりません');
+    if (error)
+        throw notFoundOr(error, 'milestones/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました');
+    if (!data)
+        throw new ToolUserError('スペースが見つかりません', 404);
     return data.org_id;
 }
 // Schemas
@@ -53,10 +56,8 @@ export async function milestoneCreate(params) {
     })
         .select('*')
         .single();
-    if (error) {
-        console.error('milestone_create failed:', error.code, error.message);
-        throw new Error('マイルストーンの作成に失敗しました');
-    }
+    if (error)
+        throw hideDbError(error, 'milestone_create', 'マイルストーンの作成に失敗しました');
     return data;
 }
 export async function milestoneUpdate(params) {
@@ -97,10 +98,8 @@ export async function milestoneList(params) {
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId)
         .order('order_key', { ascending: true });
-    if (error) {
-        console.error('milestone_list failed:', error.code, error.message);
-        throw new Error('マイルストーン一覧の取得に失敗しました');
-    }
+    if (error)
+        throw hideDbError(error, 'milestone_list', 'マイルストーン一覧の取得に失敗しました');
     return (data || []);
 }
 export async function milestoneGet(params) {
@@ -128,10 +127,8 @@ export async function milestoneDelete(params) {
         .eq('id', params.milestoneId)
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId);
-    if (error) {
-        console.error('milestone_delete failed:', error.code, error.message);
-        throw new Error('マイルストーンの削除に失敗しました');
-    }
+    if (error)
+        throw hideDbError(error, 'milestone_delete', 'マイルストーンの削除に失敗しました');
     return { success: true, milestoneId: params.milestoneId };
 }
 // Tool definitions for MCP

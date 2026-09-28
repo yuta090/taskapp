@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { assertWriteApplied } from '../lib/staleWrite.js'
 import { getSupabaseClient, Meeting } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
+import { ToolUserError } from '../errors.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 
 // ── Schemas ──────────────────────────────────────────────
 
@@ -57,7 +59,8 @@ const H1_LINE_RE = /^#(?!#)[ \t]+.*$/
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  if (error) throw notFoundOr(error, 'minutes/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return data.org_id
 }
 
@@ -72,7 +75,8 @@ async function getMeetingScoped(meetingId: string, spaceId: string, orgId: strin
     .eq('space_id', spaceId)
     .single()
 
-  if (error || !data) throw new Error('会議が見つかりません')
+  if (error) throw notFoundOr(error, 'minutes/getMeetingScoped', '会議が見つかりません', '会議の取得に失敗しました')
+  if (!data) throw new ToolUserError('会議が見つかりません', 404)
   return data as Meeting
 }
 
@@ -131,7 +135,7 @@ export async function minutesUpdate(params: z.infer<typeof minutesUpdateSchema>)
   }
 
   const { data, error } = await query.select('*')
-  if (error) throw new Error('議事録の更新に失敗しました')
+  if (error) throw hideDbError(error, 'minutes_update', '議事録の更新に失敗しました')
 
   const rows = (data ?? []) as Meeting[]
   assertWriteApplied(rows.length, params.expectedUpdatedAt, '会議が見つかりません')
@@ -180,7 +184,7 @@ export async function minutesAppend(params: z.infer<typeof minutesAppendSchema>)
     .select('*')
     .single()
 
-  if (error) throw new Error('議事録の追記に失敗しました')
+  if (error) throw hideDbError(error, 'minutes_append', '議事録の追記に失敗しました')
   return data as Meeting
 }
 
@@ -205,7 +209,7 @@ export async function minutesToc(params: z.infer<typeof minutesTocSchema>): Prom
   }
 
   const { data, error } = await query.select('*')
-  if (error) throw new Error('議事録の更新に失敗しました')
+  if (error) throw hideDbError(error, 'minutes_toc', '議事録の更新に失敗しました')
 
   const rows = (data ?? []) as Meeting[]
   assertWriteApplied(rows.length, params.expectedUpdatedAt, '会議が見つかりません')

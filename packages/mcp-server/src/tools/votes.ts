@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
 import { ToolUserError } from '../errors.js'
 import { assertInSpace, requireActorUserId } from '../auth/scope.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 
 /**
  * 投票ブロック（Wiki・議事録）の一覧・詳細・押す/選び直す/取り消す。
@@ -13,7 +14,10 @@ import { assertInSpace, requireActorUserId } from '../auth/scope.js'
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  // 0件（PGRST116）だけ「見つかりません」。それ以外(権限エラー等)は生の文言を出さない一般の
+  // エラーのままだが、どちらも元のDBエラーを cause に残す(運営画面の利用記録から追える)
+  if (error) throw notFoundOr(error, 'votes/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return data.org_id
 }
 
@@ -133,14 +137,16 @@ export async function voteList(params: z.infer<typeof voteListSchema>): Promise<
   if (hasWiki) {
     await assertInSpace('wiki_pages', params.wikiPageId!, params.spaceId, 'Wikiページが見つかりません')
     const { data, error } = await supabase.from('wiki_pages').select('body').eq('id', params.wikiPageId).single()
-    if (error || !data) throw new Error('Wikiページが見つかりません')
+    if (error) throw notFoundOr(error, 'vote_list (wiki)', 'Wikiページが見つかりません', 'Wikiページの取得に失敗しました')
+    if (!data) throw new ToolUserError('Wikiページが見つかりません', 404)
     topics = findWikiPollTopics((data as { body: unknown }).body)
     pollFilterColumn = 'wiki_page_id'
     pollFilterValue = params.wikiPageId!
   } else {
     await assertInSpace('meetings', params.meetingId!, params.spaceId, '会議が見つかりません')
     const { data, error } = await supabase.from('meetings').select('minutes_md').eq('id', params.meetingId).single()
-    if (error || !data) throw new Error('会議が見つかりません')
+    if (error) throw notFoundOr(error, 'vote_list (meeting)', '会議が見つかりません', '会議の取得に失敗しました')
+    if (!data) throw new ToolUserError('会議が見つかりません', 404)
     topics = findMeetingPollTopics((data as { minutes_md: string | null }).minutes_md || '')
     pollFilterColumn = 'meeting_id'
     pollFilterValue = params.meetingId!
@@ -154,13 +160,13 @@ export async function voteList(params: z.infer<typeof voteListSchema>): Promise<
     .eq(pollFilterColumn, pollFilterValue)
     .order('created_at', { ascending: true })
 
-  if (pollsError) throw new Error('投票の取得に失敗しました')
+  if (pollsError) throw hideDbError(pollsError, 'vote_list (polls)', '投票の取得に失敗しました')
   const pollRows = (polls || []) as Array<{ id: string; reason_required: DocPollReasonRequired }>
   if (pollRows.length === 0) return []
 
   const pollIds = pollRows.map((p) => p.id)
   const { data: votes, error: votesError } = await supabase.from('doc_votes').select('poll_id, choice').in('poll_id', pollIds)
-  if (votesError) throw new Error('票の取得に失敗しました')
+  if (votesError) throw hideDbError(votesError, 'vote_list (votes)', '票の取得に失敗しました')
 
   const counts = new Map<string, { ok: number; ng: number; hold: number }>()
   for (const id of pollIds) counts.set(id, { ok: 0, ng: 0, hold: 0 })
@@ -212,21 +218,22 @@ export async function voteShow(params: z.infer<typeof voteShowSchema>): Promise<
     .eq('id', params.pollId)
     .eq('space_id', params.spaceId)
     .single()
-  if (pollError || !poll) throw new Error('投票が見つかりません')
+  if (pollError) throw notFoundOr(pollError, 'vote_show (poll)', '投票が見つかりません', '投票の取得に失敗しました')
+  if (!poll) throw new ToolUserError('投票が見つかりません', 404)
 
   const { data: votes, error: votesError } = await supabase
     .from('doc_votes')
     .select('user_id, choice, memo, updated_at')
     .eq('poll_id', params.pollId)
     .order('updated_at', { ascending: true })
-  if (votesError) throw new Error('票の取得に失敗しました')
+  if (votesError) throw hideDbError(votesError, 'vote_show (votes)', '票の取得に失敗しました')
 
   const { data: events, error: eventsError } = await supabase
     .from('doc_vote_events')
     .select('id, user_id, action, choice, memo, created_at')
     .eq('poll_id', params.pollId)
     .order('id', { ascending: true })
-  if (eventsError) throw new Error('履歴の取得に失敗しました')
+  if (eventsError) throw hideDbError(eventsError, 'vote_show (events)', '履歴の取得に失敗しました')
 
   const voteRows = (votes || []) as Array<{ user_id: string; choice: DocVoteChoice; memo: string; updated_at: string }>
   const eventRows = (events || []) as Array<{

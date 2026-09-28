@@ -11,7 +11,8 @@ import crypto from 'crypto'
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  if (error) throw notFoundOr(error, 'clients/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return (data as { org_id: string }).org_id
 }
 
@@ -351,7 +352,7 @@ export async function clientUpdate(
     .eq('space_id', params.spaceId)
     .eq('user_id', params.userId)
     .maybeSingle()
-  if (currentError) throw new Error('現在の役割の確認に失敗しました')
+  if (currentError) throw hideDbError(currentError, 'client_update (current)', '現在の役割の確認に失敗しました')
   if (!current) throw new ToolUserError('対象のユーザーはこのプロジェクトのメンバーではありません', 404)
   if ((current as { role: string }).role === 'admin') {
     throw new ToolUserError('管理者(admin)の役割は、この操作では変更できません', 403)
