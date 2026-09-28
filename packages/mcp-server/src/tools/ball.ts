@@ -4,6 +4,8 @@ import { checkAuth } from '../auth/helpers.js'
 import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js'
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
 import { mapRaiseExceptionError } from '../lib/rpcErrors.js'
+import { ToolUserError } from '../errors.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 
 // 画面の担当者選択肢と同じ役割の範囲（task_create/task_update と同じ）
 const CLIENT_OWNER_ROLES = ['client', 'vendor'] as const
@@ -13,7 +15,8 @@ const INTERNAL_OWNER_ROLES = ['admin', 'editor', 'viewer'] as const
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  if (error) throw notFoundOr(error, 'ball/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return data.org_id
 }
 
@@ -56,9 +59,8 @@ export async function ballPass(params: z.infer<typeof ballPassSchema>): Promise<
     .eq('space_id', params.spaceId)
     .single()
 
-  if (checkError || !existingTask) {
-    throw new Error('タスクが見つかりません')
-  }
+  if (checkError) throw notFoundOr(checkError, 'ball_pass (task)', 'タスクが見つかりません', 'タスクの確認に失敗しました')
+  if (!existingTask) throw new ToolUserError('タスクが見つかりません', 404)
 
   // 新しい担当者は、画面の担当者選択肢と同じ範囲・役割（相手先側=client/vendor、
   // 社内側=admin/editor/viewer）に限る
@@ -88,7 +90,7 @@ export async function ballPass(params: z.infer<typeof ballPassSchema>): Promise<
     .eq('space_id', params.spaceId)
     .single()
 
-  if (taskError) throw new Error('タスクが見つかりません')
+  if (taskError) throw notFoundOr(taskError, 'ball_pass (reload)', 'タスクが見つかりません', 'タスクの取得に失敗しました')
 
   return { ok: true, task: flattenTaskInternalMetrics(task as Task) }
 }
@@ -107,7 +109,7 @@ export async function ballQuery(params: z.infer<typeof ballQuerySchema>): Promis
     .order('created_at', { ascending: false })
     .limit(params.limit)
 
-  if (tasksError) throw new Error('タスクの取得に失敗しました')
+  if (tasksError) throw hideDbError(tasksError, 'ball_query', 'タスクの取得に失敗しました')
 
   const result: { tasks: Task[]; owners?: Record<string, TaskOwner[]> } = {
     tasks: ((tasks || []) as Task[]).map(flattenTaskInternalMetrics),
@@ -122,7 +124,7 @@ export async function ballQuery(params: z.infer<typeof ballQuerySchema>): Promis
       .eq('org_id', orgId)
       .eq('space_id', params.spaceId)
 
-    if (ownersError) throw new Error('担当者の取得に失敗しました')
+    if (ownersError) throw hideDbError(ownersError, 'ball_query (owners)', '担当者の取得に失敗しました')
 
     const ownersByTask: Record<string, TaskOwner[]> = {}
     for (const owner of (owners || []) as TaskOwner[]) {
@@ -162,7 +164,7 @@ export async function dashboardGet(params: z.infer<typeof dashboardGetSchema>): 
     .order('created_at', { ascending: false })
     .limit(500)
 
-  if (error) throw new Error('ダッシュボード情報の取得に失敗しました')
+  if (error) throw hideDbError(error, 'dashboard_get', 'ダッシュボード情報の取得に失敗しました')
 
   const tasks = (allTasks || []) as Task[]
 

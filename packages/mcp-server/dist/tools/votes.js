@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
 import { ToolUserError } from '../errors.js';
 import { assertInSpace, requireActorUserId } from '../auth/scope.js';
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js';
 /**
  * 投票ブロック（Wiki・議事録）の一覧・詳細・押す/選び直す/取り消す。
  * 仕様: docs/spec/DOC_VOTE_SPEC.md。書き込みは rpc_doc_vote_cast_as（20260926133744_doc_vote_cast_as.sql）だけ。
@@ -11,8 +12,12 @@ import { assertInSpace, requireActorUserId } from '../auth/scope.js';
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single();
-    if (error || !data)
-        throw new Error('スペースが見つかりません');
+    // 0件（PGRST116）だけ「見つかりません」。それ以外(権限エラー等)は生の文言を出さない一般の
+    // エラーのままだが、どちらも元のDBエラーを cause に残す(運営画面の利用記録から追える)
+    if (error)
+        throw notFoundOr(error, 'votes/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました');
+    if (!data)
+        throw new ToolUserError('スペースが見つかりません', 404);
     return data.org_id;
 }
 // 本文（BlockNote）での投票ブロックの型名。Wiki の JSON に残るので変えない（DOC_VOTE_SPEC §3.1）
@@ -105,8 +110,10 @@ export async function voteList(params) {
     if (hasWiki) {
         await assertInSpace('wiki_pages', params.wikiPageId, params.spaceId, 'Wikiページが見つかりません');
         const { data, error } = await supabase.from('wiki_pages').select('body').eq('id', params.wikiPageId).single();
-        if (error || !data)
-            throw new Error('Wikiページが見つかりません');
+        if (error)
+            throw notFoundOr(error, 'vote_list (wiki)', 'Wikiページが見つかりません', 'Wikiページの取得に失敗しました');
+        if (!data)
+            throw new ToolUserError('Wikiページが見つかりません', 404);
         topics = findWikiPollTopics(data.body);
         pollFilterColumn = 'wiki_page_id';
         pollFilterValue = params.wikiPageId;
@@ -114,8 +121,10 @@ export async function voteList(params) {
     else {
         await assertInSpace('meetings', params.meetingId, params.spaceId, '会議が見つかりません');
         const { data, error } = await supabase.from('meetings').select('minutes_md').eq('id', params.meetingId).single();
-        if (error || !data)
-            throw new Error('会議が見つかりません');
+        if (error)
+            throw notFoundOr(error, 'vote_list (meeting)', '会議が見つかりません', '会議の取得に失敗しました');
+        if (!data)
+            throw new ToolUserError('会議が見つかりません', 404);
         topics = findMeetingPollTopics(data.minutes_md || '');
         pollFilterColumn = 'meeting_id';
         pollFilterValue = params.meetingId;
@@ -128,14 +137,14 @@ export async function voteList(params) {
         .eq(pollFilterColumn, pollFilterValue)
         .order('created_at', { ascending: true });
     if (pollsError)
-        throw new Error('投票の取得に失敗しました');
+        throw hideDbError(pollsError, 'vote_list (polls)', '投票の取得に失敗しました');
     const pollRows = (polls || []);
     if (pollRows.length === 0)
         return [];
     const pollIds = pollRows.map((p) => p.id);
     const { data: votes, error: votesError } = await supabase.from('doc_votes').select('poll_id, choice').in('poll_id', pollIds);
     if (votesError)
-        throw new Error('票の取得に失敗しました');
+        throw hideDbError(votesError, 'vote_list (votes)', '票の取得に失敗しました');
     const counts = new Map();
     for (const id of pollIds)
         counts.set(id, { ok: 0, ng: 0, hold: 0 });
@@ -161,22 +170,24 @@ export async function voteShow(params) {
         .eq('id', params.pollId)
         .eq('space_id', params.spaceId)
         .single();
-    if (pollError || !poll)
-        throw new Error('投票が見つかりません');
+    if (pollError)
+        throw notFoundOr(pollError, 'vote_show (poll)', '投票が見つかりません', '投票の取得に失敗しました');
+    if (!poll)
+        throw new ToolUserError('投票が見つかりません', 404);
     const { data: votes, error: votesError } = await supabase
         .from('doc_votes')
         .select('user_id, choice, memo, updated_at')
         .eq('poll_id', params.pollId)
         .order('updated_at', { ascending: true });
     if (votesError)
-        throw new Error('票の取得に失敗しました');
+        throw hideDbError(votesError, 'vote_show (votes)', '票の取得に失敗しました');
     const { data: events, error: eventsError } = await supabase
         .from('doc_vote_events')
         .select('id, user_id, action, choice, memo, created_at')
         .eq('poll_id', params.pollId)
         .order('id', { ascending: true });
     if (eventsError)
-        throw new Error('履歴の取得に失敗しました');
+        throw hideDbError(eventsError, 'vote_show (events)', '履歴の取得に失敗しました');
     const voteRows = (votes || []);
     const eventRows = (events || []);
     const nameByUser = await displayNamesOf(supabase, [...voteRows.map((v) => v.user_id), ...eventRows.map((e) => e.user_id)]);
