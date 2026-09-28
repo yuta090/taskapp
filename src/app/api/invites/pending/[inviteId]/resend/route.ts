@@ -47,7 +47,7 @@ export async function POST(
     const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
     if (mfaBlock) return mfaBlock
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     const { data: invite, error: lookupError } = await admin
       .from('invites')

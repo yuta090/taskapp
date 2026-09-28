@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
   //     タスク管理の中核導線であり、課金判定のインフラ障害で止めるのは損失が大きい。
   //     プラン解決自体は resolveOrgLimits 側で free に fail-closed する。
   try {
-    const cap = await orgProjectCapacity(orgId)
+    const cap = await orgProjectCapacity(orgId, user.id)
     if (isProjectLimitReached(cap)) {
       return NextResponse.json(
         {

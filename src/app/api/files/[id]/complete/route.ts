@@ -49,7 +49,7 @@ export async function POST(
       return NextResponse.json({ ok: true })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
 
     const lastSlash = file.storage_path.lastIndexOf('/')
     const folder = file.storage_path.slice(0, lastSlash)

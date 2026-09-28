@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'VAPID not configured' }, { status: 500 })
     }
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'cron' }) as SupabaseClient
 
     const { data: notification, error: notificationError } = await admin
       .from('notifications')
