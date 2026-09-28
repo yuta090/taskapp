@@ -24,6 +24,8 @@ let capturedCollab: MinutesCollabWiring | undefined
 let capturedTabId = ''
 /** 在席に渡した部屋の名前の頭（議事録と Wiki で切り替わる） */
 let capturedTopicPrefix: string | undefined
+/** 在席に渡した「購読するか」 */
+let capturedPresenceEnabled: boolean | undefined
 let othersState: MinutesPresencePeer[] = []
 const sendCollabSpy = vi.fn()
 const setCollabActiveSpy = vi.fn()
@@ -38,6 +40,7 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
   useMinutesPresence: (options: { collab?: MinutesCollabWiring; tabId: string; topicPrefix?: string }) => {
     capturedCollab = options.collab
     capturedTopicPrefix = options.topicPrefix
+    capturedPresenceEnabled = (options as { enabled?: boolean }).enabled
     capturedTabId = options.tabId
     return {
       others: othersState,
@@ -167,6 +170,28 @@ describe('開いた直後はまだ書けるか分からないとき（2026-09-27
     rerender({ presenceEnabled: false })
     await settle(() => true)
     expect(result.current.fragment).toBe(fragment)
+  })
+})
+
+describe('書けるかの判定が一瞬揺れたとき（2026-09-28 本番で確認）', () => {
+  it('同時編集が始まったあとは、判定が一瞬「書けない」に戻っても部屋を出入りしない', async () => {
+    // 組織の一覧を読み直すあいだ、判定が一瞬「分からない（＝書けない）」に戻る。そのたびに部屋を
+    // 出入りすると、閉じかけの古い部屋を掴んで外れたままになることがあった
+    const { result, rerender } = renderHook(
+      ({ presenceEnabled }: { presenceEnabled: boolean }) =>
+        useMinutesCollab({
+          meetingId: 'm1',
+          presenceEnabled,
+          self: { userId: 'u-self', name: '自分' },
+          collabAllowed: true,
+          initialMarkdown: BASE,
+        }),
+      { initialProps: { presenceEnabled: true } }
+    )
+    await settle(() => result.current.pending === false)
+    expect(capturedPresenceEnabled).toBe(true)
+    rerender({ presenceEnabled: false })
+    expect(capturedPresenceEnabled).toBe(true)
   })
 })
 
