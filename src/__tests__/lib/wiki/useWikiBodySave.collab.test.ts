@@ -238,3 +238,32 @@ describe('追記を差し込めないとき', () => {
   })
 })
 
+describe('開いた直後の「変更」（誰も打っていない）', () => {
+  it('読み込んだ本文をエディタの形に直したものと同じなら、保存しない', async () => {
+    const { result, updatePage, meta } = setup()
+    // DB の本文には既定の書式も id も無い。エディタは両方を補った形で書き出す
+    const raw = JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: 'DBで作った', styles: {} }] }])
+    const editorForm = JSON.stringify([
+      { id: 'seed-1', type: 'paragraph', props: { textColor: 'default', backgroundColor: 'default', textAlignment: 'left' }, content: [{ type: 'text', text: 'DBで作った', styles: {} }], children: [] },
+    ])
+    act(() => {
+      result.current.setBaseline({ updated_at: 't0', body: raw }, { content: true })
+      result.current.setCollab({ active: true, isScribe: true, meta })
+      result.current.registerEditorApi({
+        replaceContent: vi.fn(() => true),
+        appendBlocks: vi.fn(() => 'applied' as const),
+        normalizeBody: (body: string | null) => (body === raw ? editorForm.replace('seed-1', 'other-id') : body),
+      })
+    })
+    act(() => result.current.handleChange(P, editorForm))
+    await flushTimers()
+    expect(updatePage).not.toHaveBeenCalled()
+
+    // 本当に打てば保存する
+    const typed = editorForm.replace('DBで作った', 'DBで作った＋打った')
+    act(() => result.current.handleChange(P, typed))
+    await flushTimers()
+    expect(updatePage).toHaveBeenCalledWith(P, { body: typed }, 't0')
+  })
+})
+
