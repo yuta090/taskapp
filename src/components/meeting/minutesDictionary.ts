@@ -5,6 +5,18 @@
 import { ja as jaLocale } from '@blocknote/core/locales'
 
 /**
+ * 「/」メニューの折りたたみ。議事録と Wiki で同じものを使う。
+ * 既定の日本語辞書は別名が「リスト」「トグルリスト」などで、`/toggle` と打っても出なかった
+ * （英語の辞書には toggleList がある）。Notion の癖で打つ語を足す（ユーザー指定・2026-09-28）。
+ */
+export const TOGGLE_LIST_SLASH_ITEM = {
+  ...jaLocale.slash_menu.toggle_list,
+  // 近道（`>` ＋スペース）をメニューの説明にも書く。知らないと使われない
+  subtext: '中身を隠しておける。「>」とスペースでも作れる',
+  aliases: [...jaLocale.slash_menu.toggle_list.aliases, 'toggle', 'トグル', 'とぐる', '折りたたみ', 'おりたたみ'],
+}
+
+/**
  * BlockNote の日本語辞書（`@blocknote/core/locales` の `ja`）をもとにした議事録用の辞書。
  * 画面の言葉と合わせるのが目的なので、MinutesEditor から切り出してテストできるようにしている。
  *
@@ -25,10 +37,6 @@ export const MINUTES_DICTIONARY = {
   },
   slash_menu: {
     ...jaLocale.slash_menu,
-    toggle_list: {
-      ...jaLocale.slash_menu.toggle_list,
-      // 近道（`>` ＋スペース）をメニューの説明にも書く。知らないと使われない
-      subtext: '中身を隠しておける。「>」とスペースでも作れる',
-    },
+    toggle_list: TOGGLE_LIST_SLASH_ITEM,
   },
 }
