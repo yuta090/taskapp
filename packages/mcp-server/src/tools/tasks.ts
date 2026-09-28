@@ -8,7 +8,7 @@ import { withTaskNumber } from '../lib/taskNumber.js'
 import { ToolUserError } from '../errors.js'
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
 import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace, requireActorUserId } from '../auth/scope.js'
-import { hideDbError } from '../lib/dbErrors.js'
+import { hideDbError, notFoundOr } from '../lib/dbErrors.js'
 import { buildTaskLink, withTrailingLink } from '../lib/appLinks.js'
 
 // 画面の担当者選択肢と同じ範囲: 相手先側は client/vendor、社内側は admin/editor/viewer
@@ -127,9 +127,8 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
     .eq('id', params.spaceId)
     .single()
 
-  if (spaceError || !space) {
-    throw new Error('スペースが見つかりません')
-  }
+  if (spaceError) throw notFoundOr(spaceError, 'task_create (space)', 'スペースが見つかりません', 'スペースが見つかりません')
+  if (!space) throw new ToolUserError('スペースが見つかりません', 404)
 
   const orgId = space.org_id
 
@@ -210,7 +209,7 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
       .insert(ownerRows)
       .select('*')
 
-    if (ownersError) throw new Error('担当者の登録に失敗しました')
+    if (ownersError) throw hideDbError(ownersError, 'task_create (owners)', '担当者の登録に失敗しました')
     owners = ownersData || []
   }
 
@@ -340,8 +339,9 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
   // 担当者は「本人」か「招待中の招待」のどちらか一方だけ（DB の tasks_single_assignee_chk）。
   // 片方を指定したら、もう片方は明示的に消してから入れる
   if (params.assigneeEmail !== undefined) {
-    const { data: space } = await supabase.from('spaces').select('org_id').eq('id', params.spaceId).single()
-    if (!space) throw new Error('スペースが見つかりません')
+    const { data: space, error: spaceError } = await supabase.from('spaces').select('org_id').eq('id', params.spaceId).single()
+    if (spaceError) throw notFoundOr(spaceError, 'task_update (space)', 'スペースが見つかりません', 'スペースが見つかりません')
+    if (!space) throw new ToolUserError('スペースが見つかりません', 404)
     const resolved = await resolveAssigneeByEmail((space as { org_id: string }).org_id, params.spaceId, params.assigneeEmail)
     updateData.assignee_id = resolved.assignee_id
     updateData.assignee_invite_id = resolved.assignee_invite_id
@@ -377,9 +377,9 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
     if (error) {
       const gateReason = completionGateReason(error)
       if (gateReason) throw new ToolUserError(gateReason, 409)
-      // それ以外の DB の理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
-      console.error('task_update failed:', error.code, error.message)
-      throw new Error('タスク更新に失敗しました')
+      // 0件（PGRST116）は対象のタスクが無い(=見つからない)。それ以外の DB の理由は中身を含むので
+      // 呼んだ人には返さず、サーバーのログにだけ残す（どちらも cause に元のDBエラーを持たせる）
+      throw notFoundOr(error, 'task_update', 'タスクが見つかりません', 'タスク更新に失敗しました')
     }
     data = flattenTaskInternalMetrics(updated as Task)
   }
@@ -396,7 +396,7 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
         .eq('space_id', params.spaceId)
         .maybeSingle()
 
-      if (taskCheckError) throw new Error('タスク更新に失敗しました')
+      if (taskCheckError) throw hideDbError(taskCheckError, 'task_update (actualHours space check)', 'タスク更新に失敗しました')
       if (!taskInSpace) throw new Error('タスクが見つかりません')
     }
 
@@ -408,12 +408,13 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
       // tasks 側の更新(あれば)は既にDBへ反映済みで、この呼び出しでは戻せない
       // （半分だけ保存された状態）。どこまで保存されたかは秘密を含まないので、
       // 呼んだ人に見せてよい理由として返す（ToolUserError でないと /api/tools が
-      // 中身を隠した500に潰してしまい、CLI/AIに届かない）
+      // 中身を隠した500に潰してしまい、CLI/AIに届かない）。cause には元のDBエラーを残す
       throw new ToolUserError(
         data
           ? 'タイトル等は更新できましたが、実績工数の更新に失敗しました'
           : '実績工数の更新に失敗しました',
-        400
+        400,
+        { cause: metricsError }
       )
     }
   }
@@ -426,7 +427,7 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
       .eq('space_id', params.spaceId)
       .single()
 
-    if (fetchError) throw new Error('タスク更新に失敗しました')
+    if (fetchError) throw hideDbError(fetchError, 'task_update (refetch)', 'タスク更新に失敗しました')
     data = flattenTaskInternalMetrics(fetched as Task)
   }
 
@@ -466,7 +467,7 @@ export async function taskList(params: z.infer<typeof taskListSchema>): Promise<
 
   const { data, error } = await query
 
-  if (error) throw new Error('タスク一覧の取得に失敗しました')
+  if (error) throw hideDbError(error, 'task_list', 'タスク一覧の取得に失敗しました')
   // link はそのまま Wiki・議事録の本文に貼れる（画面側の「リンクを挿入」と同じ形）
   return ((data || []) as Task[]).map((t) =>
     withTrailingLink(
@@ -489,7 +490,7 @@ export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ 
     .eq('space_id', params.spaceId)
     .single()
 
-  if (taskError) throw new Error('タスクが見つかりません')
+  if (taskError) throw notFoundOr(taskError, 'task_get', 'タスクが見つかりません', 'タスクが見つかりません')
 
   const { data: owners, error: ownersError } = await supabase
     .from('task_owners')
@@ -497,7 +498,7 @@ export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ 
     .eq('task_id', params.taskId)
     .eq('space_id', params.spaceId)
 
-  if (ownersError) throw new Error('担当者の取得に失敗しました')
+  if (ownersError) throw hideDbError(ownersError, 'task_get (owners)', '担当者の取得に失敗しました')
 
   return {
     task: withTrailingLink(
@@ -583,7 +584,7 @@ export async function taskListMy(params: z.infer<typeof taskListMySchema>): Prom
     .eq('user_id', ctx.userId)
 
   if (memberError) {
-    throw new Error('スペース一覧の取得に失敗しました')
+    throw hideDbError(memberError, 'task_list_my', 'スペース一覧の取得に失敗しました')
   }
 
   // allowed_space_idsでフィルタ
@@ -672,7 +673,7 @@ export async function taskStale(params: z.infer<typeof taskStaleSchema>): Promis
 
   const { data, error } = await query
 
-  if (error) throw new Error('滞留タスクの取得に失敗しました')
+  if (error) throw hideDbError(error, 'task_stale', '滞留タスクの取得に失敗しました')
   return ((data || []) as Task[]).map(flattenTaskInternalMetrics)
 }
 

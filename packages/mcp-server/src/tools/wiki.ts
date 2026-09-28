@@ -5,7 +5,7 @@ import { checkAuth } from '../auth/helpers.js'
 import { toWikiBlocksJson, TOC_TYPE, type Block, type WikiBodyFormat } from '../lib/wikiBody.js'
 import { assertInSpace, requireActorUserId } from '../auth/scope.js'
 import { ToolUserError } from '../errors.js'
-import { notFoundOr } from '../lib/dbErrors.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 import { buildWikiPageLink, withLink } from '../lib/appLinks.js'
 
 const bodyFormatSchema = z
@@ -19,7 +19,8 @@ const bodyFormatSchema = z
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  if (error) throw notFoundOr(error, 'wiki (space)', 'スペースが見つかりません', 'スペースが見つかりません')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return data.org_id
 }
 
@@ -114,7 +115,7 @@ export async function wikiList(params: z.infer<typeof wikiListSchema>): Promise<
     .order('updated_at', { ascending: false })
     .limit(params.limit)
 
-  if (error) throw new Error('Wikiページ一覧の取得に失敗しました')
+  if (error) throw hideDbError(error, 'wiki_list', 'Wikiページ一覧の取得に失敗しました')
   // link はそのまま Wiki・議事録の本文に貼れる（画面側の「リンクを挿入」と同じ形）
   return ((data || []) as WikiPage[]).map((page) =>
     withLink(page, buildWikiPageLink(orgId, params.spaceId, page.id))
@@ -162,7 +163,7 @@ export async function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Prom
     .select('*')
     .single()
 
-  if (error) throw new Error('Wikiページの作成に失敗しました')
+  if (error) throw hideDbError(error, 'wiki_create', 'Wikiページの作成に失敗しました')
   return data as WikiPage
 }
 
@@ -186,11 +187,12 @@ const WIKI_UPDATE_KNOWN_REASONS = [
 /**
  * DB が断った理由が見覚えのあるもの（親子・マイルストーンの境界/循環）なら、決まった
  * 日本語の ToolUserError(400) にする。見覚えのない理由は中身を隠した一般のエラーのまま返す。
+ * どちらも元のDBエラーを cause に残す（運営画面の利用記録から原因を追えるように）。
  */
-function toWikiUpdateError(message: string | undefined): Error {
-  const known = WIKI_UPDATE_KNOWN_REASONS.some((reason) => (message ?? '').includes(reason))
-  if (known) return new ToolUserError(describeWikiUpdateError(message), 400)
-  return new Error(describeWikiUpdateError(message))
+function toWikiUpdateError(error: { message?: string }): Error {
+  const known = WIKI_UPDATE_KNOWN_REASONS.some((reason) => (error.message ?? '').includes(reason))
+  if (known) return new ToolUserError(describeWikiUpdateError(error.message), 400, { cause: error })
+  return new Error(describeWikiUpdateError(error.message), { cause: error })
 }
 
 export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Promise<WikiPage> {
@@ -223,7 +225,7 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
   }
 
   const { data: rows, error } = await query.select('*')
-  if (error) throw toWikiUpdateError(error.message)
+  if (error) throw toWikiUpdateError(error)
 
   const updated = (rows ?? []) as WikiPage[]
   assertWriteApplied(updated.length, params.expectedUpdatedAt, 'Wikiページが見つかりません')
@@ -259,7 +261,7 @@ export async function wikiDelete(params: z.infer<typeof wikiDeleteSchema>): Prom
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
 
-  if (error) throw new Error('Wikiページの削除に失敗しました')
+  if (error) throw hideDbError(error, 'wiki_delete', 'Wikiページの削除に失敗しました')
   return { ok: true }
 }
 
@@ -279,7 +281,7 @@ export async function wikiVersions(params: z.infer<typeof wikiVersionsSchema>): 
     .order('created_at', { ascending: false })
     .limit(params.limit)
 
-  if (error) throw new Error('バージョン履歴の取得に失敗しました')
+  if (error) throw hideDbError(error, 'wiki_versions', 'バージョン履歴の取得に失敗しました')
   return (data || []) as WikiPageVersion[]
 }
 
@@ -351,7 +353,7 @@ export async function wikiToc(params: z.infer<typeof wikiTocSchema>): Promise<Wi
   }
 
   const { data: rows, error } = await query.select('*')
-  if (error) throw new Error('Wikiページの更新に失敗しました')
+  if (error) throw hideDbError(error, 'wiki_toc', 'Wikiページの更新に失敗しました')
 
   const updated = (rows ?? []) as WikiPage[]
   assertWriteApplied(updated.length, params.expectedUpdatedAt, 'Wikiページが見つかりません')

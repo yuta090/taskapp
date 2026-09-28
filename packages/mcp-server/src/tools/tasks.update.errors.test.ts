@@ -49,11 +49,21 @@ describe('task_update が DB に断られたとき', () => {
     expect((err as Error).message).toMatch(/決定/)
   })
 
-  it('それ以外の DB エラーは、中身を出さない従来のエラーのまま', async () => {
+  it('それ以外の DB エラーは、中身を出さない従来のエラーのまま。cause に元のDBエラーを残す', async () => {
     dbError = { code: '23505', message: 'duplicate key value violates unique constraint "secret_idx"' }
 
-    const err = await taskUpdate(toDone).catch((e: unknown) => e)
-    expect((err as Error).name).not.toBe('ToolUserError')
-    expect((err as Error).message).toBe('タスク更新に失敗しました')
+    const err = (await taskUpdate(toDone).catch((e: unknown) => e)) as Error & { cause?: unknown }
+    expect(err.name).not.toBe('ToolUserError')
+    expect(err.message).toBe('タスク更新に失敗しました')
+    expect(err.cause).toEqual(dbError)
+  })
+
+  it('0件（PGRST116、= 対象のタスクが無い）は ToolUserError(404)「タスクが見つかりません」、cause も残す', async () => {
+    dbError = { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' }
+
+    const err = (await taskUpdate(toDone).catch((e: unknown) => e)) as Error & { status?: number; cause?: unknown }
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 404 })
+    expect(err.message).toBe('タスクが見つかりません')
+    expect(err.cause).toEqual(dbError)
   })
 })
