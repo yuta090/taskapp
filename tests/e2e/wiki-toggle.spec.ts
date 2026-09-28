@@ -74,8 +74,9 @@ test('「>」＋スペースで折りたたみになり、題名で Enter を押
 
   // 折りたたみは1つのまま。「中身」は折りたたみの子（入れ子の中）に入っている
   await expect(toggles).toHaveCount(1)
-  const toggleOuter = editor.locator('.bn-block-outer', { has: toggles }).first()
-  await expect(toggleOuter.locator('.bn-block-group').getByText('中身')).toBeVisible()
+  // 本文全体も .bn-block-group なので、2段目の中にあれば子の行
+  await expect(editor.locator('.bn-block-group .bn-block-group').getByText('中身')).toBeVisible()
+  await expect(editor.locator('.bn-block-group .bn-block-group').getByText('次の行')).toHaveCount(0)
 })
 
 test('「/toggle」で折りたたみがメニューに出る', async ({ page }) => {
