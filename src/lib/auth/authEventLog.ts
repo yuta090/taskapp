@@ -47,7 +47,7 @@ export async function recordAuthFailure(input: AuthFailureInput): Promise<void> 
     const ip = request ? getClientIp(request) : null
     const userAgent = request ? clip(request.headers.get('user-agent'), USER_AGENT_MAX) : null
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: input.userId ?? undefined })
     const { error } = await admin.from('auth_event_logs').insert({
       stage: input.stage,
       provider: input.provider ?? 'google',

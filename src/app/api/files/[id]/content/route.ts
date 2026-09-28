@@ -184,7 +184,7 @@ export async function PUT(
       )
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
     const { error: uploadError } = await admin.storage
       .from('space-files')
       .upload(file.storage_path, body, {

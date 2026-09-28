@@ -1,7 +1,7 @@
-import { createClient } from '@supabase/supabase-js'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient as createBrowserClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
 import { isInternalSpaceRole } from '@/lib/roles/spaceRoles'
@@ -12,23 +12,6 @@ import { generateApiKey, STALE_CLIENT_KEY_MESSAGE } from '@/lib/api-keys/generat
 // allowed_space_ids が空なので、どのプロジェクトの鍵かを返さないと「全スペース」と誤表示される
 const USER_KEY_COLUMNS =
   'id, name, key_prefix, created_at, last_used_at, expires_at, is_active, scope, space_id, allowed_space_ids, allowed_actions'
-
-// Create admin client with service role key (bypasses RLS)
-function createAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Missing Supabase configuration')
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  })
-}
 
 // Get current user from session（二要素認証で弾く場合は blocked にレスポンスを入れて返す）
 async function getCurrentUser(): Promise<{ user: User; blocked?: undefined } | { user?: undefined; blocked: NextResponse } | null> {
@@ -78,7 +61,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid allowedActions' }, { status: 400 })
     }
 
-    const adminClient = createAdminClient()
+    const adminClient = createAdminClient({ channel: 'app', actorUserId: user.id })
 
     // Verify user has access to all selected spaces（役割も取り、相手先としての所属を見分ける）。
     // 鍵の組織(orgId)も、選んだspaceそのものから決める（DB側でも同じ一致を確かめる）
@@ -186,7 +169,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Missing key ID' }, { status: 400 })
     }
 
-    const adminClient = createAdminClient()
+    const adminClient = createAdminClient({ channel: 'app', actorUserId: user.id })
 
     // Verify the key belongs to this user
     const { data: key, error: keyError } = await adminClient
@@ -227,7 +210,7 @@ export async function GET(_request: NextRequest) {
     if (current.blocked) return current.blocked
     const user = current.user
 
-    const adminClient = createAdminClient()
+    const adminClient = createAdminClient({ channel: 'app', actorUserId: user.id })
 
     const { data, error } = await adminClient
       .from('api_keys')

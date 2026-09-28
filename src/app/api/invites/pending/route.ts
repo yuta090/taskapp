@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
     }
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
     let query = admin
       .from('invites')
       .select('id, email, invitee_name, role, space_id, created_at, expires_at, accepted_at, spaces!invites_space_id_fkey(name)')

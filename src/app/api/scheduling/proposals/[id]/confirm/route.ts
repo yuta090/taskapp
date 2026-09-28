@@ -106,7 +106,7 @@ export async function POST(
           const respondentRows = (respondents as RespondentRow[]) || []
           const respondentUserIds = respondentRows.map((r) => r.user_id)
 
-          const admin = createAdminClient()
+          const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
           const [respondentEmails, profilesResult] = await Promise.all([
             mapWithConcurrency(
               respondentUserIds,

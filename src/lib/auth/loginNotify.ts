@@ -73,7 +73,7 @@ export interface RecordDeviceLoginResult {
  */
 export async function recordDeviceLogin(input: RecordDeviceLoginInput): Promise<RecordDeviceLoginResult> {
   const { userId, deviceId, userAgent } = input
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: userId })
 
   const { data: existing, error: selectError } = await admin
     .from('user_known_devices')

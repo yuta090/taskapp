@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
     // 名前は招待を作ったあとに書く（rpc_create_invite の引数を増やさずに済ませる）。
     // 失敗しても招待自体は成立しているので止めない
     if (trimmedName && data?.invite_id) {
-      const { error: nameError } = await (createAdminClient() as SupabaseClient)
+      const { error: nameError } = await (createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient)
         .from('invites')
         .update({ invitee_name: trimmedName })
         .eq('id', data.invite_id)

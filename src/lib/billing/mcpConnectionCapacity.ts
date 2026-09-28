@@ -25,8 +25,11 @@ export interface McpConnectionCapacity {
   maxMcpConnections: number | null
 }
 
-export async function orgMcpConnectionCapacity(orgId: string): Promise<McpConnectionCapacity> {
-  const admin = createAdminClient()
+export async function orgMcpConnectionCapacity(
+  orgId: string,
+  actorUserId?: string,
+): Promise<McpConnectionCapacity> {
+  const admin = createAdminClient({ channel: 'app', actorUserId })
 
   // 件数の集計と上限の解決は互いに依存しない。直列に待つと同意の待ち時間が足し算になる
   const [{ count }, limits] = await Promise.all([

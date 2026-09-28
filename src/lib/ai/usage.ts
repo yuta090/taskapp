@@ -23,7 +23,8 @@ export interface RecordAiUsageParams {
  */
 export async function recordAiUsage(params: RecordAiUsageParams): Promise<void> {
   try {
-    const admin = createAdminClient()
+    // 呼び出し元が cron/webhook/appの各所に散らばる汎用テレメトリのため、送信元は 'system' に統一する。
+    const admin = createAdminClient({ channel: 'system' })
     await admin.from('ai_usage_events').insert({
       org_id: params.orgId,
       provider: params.provider,
@@ -48,7 +49,7 @@ export async function recordAiUsage(params: RecordAiUsageParams): Promise<void> 
  *   （プールmodelは MODEL_PRICES に必ず存在する制約をテストで固定しているので実運用では起きない）。
  */
 export async function getOrgPooledCostJpyThisMonth(orgId: string): Promise<number> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'system' })
   const { data, error } = await admin.rpc('app_org_pooled_usage_this_month', { p_org: orgId })
   if (error) {
     throw new Error(`app_org_pooled_usage_this_month failed: ${error.message}`)

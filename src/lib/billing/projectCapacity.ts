@@ -25,8 +25,8 @@ export interface ProjectCapacity {
   maxProjects: number | null
 }
 
-export async function orgProjectCapacity(orgId: string): Promise<ProjectCapacity> {
-  const admin = createAdminClient()
+export async function orgProjectCapacity(orgId: string, actorUserId?: string): Promise<ProjectCapacity> {
+  const admin = createAdminClient({ channel: 'app', actorUserId })
 
   // 件数の集計と上限の解決は互いに依存しない。直列に待つと作成の待ち時間が足し算になるので並列で走らせる。
   const [{ count }, limits] = await Promise.all([
