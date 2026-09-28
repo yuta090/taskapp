@@ -12,8 +12,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * 沈黙（null）にする — precision優先（詳細は detector.ts コメント参照）。
  */
 
+// 呼び出し元は line/webhookHandler.ts のみ（LINEの受信メッセージ処理から起動する）。
 function admin(): SupabaseClient {
-  return createAdminClient() as SupabaseClient
+  return createAdminClient({ channel: 'webhook' }) as SupabaseClient
 }
 
 export interface OpenTaskCandidate {

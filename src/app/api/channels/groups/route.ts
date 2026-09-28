@@ -131,7 +131,10 @@ export async function PATCH(request: NextRequest) {
   // 自体）は事業判断(2026-07)でFreeにも開放済みのため、これで見るとFreeでも設定できてしまう
   // （実行時ゲート hasDualModeInstantEntitlement と同じ理由で instant_line_notify に揃える）。
   if (pickupMode === 'all_plus_instant') {
-    const entitlements = await resolveOrgEntitlements(createAdminClient(), group.orgId)
+    const entitlements = await resolveOrgEntitlements(
+      createAdminClient({ channel: 'app', actorUserId: auth.userId }),
+      group.orgId,
+    )
     if (!entitlements.has('instant_line_notify')) {
       return NextResponse.json(
         { error: 'plan_required', feature: 'instant_line_notify' },

@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
     // ⚠ Stripe からの呼び出しは「ログインしていない訪問者」なので cookie client（anon）では org_billing に触れない
     // （RLS: anon は権限剥奪・SELECT は authenticated のみ）。他の webhook/cron と同じく service role を使う
-    const supabase = createAdminClient()
+    const supabase = createAdminClient({ channel: 'webhook' })
 
     // イベントタイプに応じた処理
     switch (event.type) {

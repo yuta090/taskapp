@@ -37,7 +37,8 @@ export async function nudgeFreeCapReached(
   params: NudgeFreeCapReachedParams,
 ): Promise<{ nudged: boolean }> {
   const { orgId, spaceId, account, groupExternalId, jstMonthKey, globalBudgetHard } = params
-  const client = createAdminClient() as SupabaseClient
+  // 呼び出し元は cron/channel-digest/route.ts のみ。
+  const client = createAdminClient({ channel: 'cron' }) as SupabaseClient
 
   // 1. org×月 once ガード（先着1件だけが本体を実行する）
   try {

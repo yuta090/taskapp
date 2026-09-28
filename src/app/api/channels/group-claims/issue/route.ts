@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
   } else {
     // LINE以外（google_chat 等）はPro専有の外部チャット枠。共通LINE申込ゲートは掛けず、
     // entitlement(external_chat_channels)と別枠の容量(orgExternalChatGroupCapacity)で判定する。
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId }) as SupabaseClient
     const ent = await resolveOrgEntitlements(admin, orgId)
     if (!ent.has('external_chat_channels')) {
       return NextResponse.json(

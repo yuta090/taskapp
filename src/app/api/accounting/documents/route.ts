@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '権限がありません' }, { status: 403 })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
 
     const { data: space } = await (admin as SupabaseClient)
       .from('spaces')

@@ -46,8 +46,12 @@ interface NotionConnectionRow extends ConnectionCredentialRow {
 }
 
 /** connection_id を org_id・provider='notion' の境界付きで引く。他orgの接続は絶対に引けない。 */
-async function findNotionConnection(connectionId: string, orgId: string): Promise<NotionConnectionRow | null> {
-  const admin = createAdminClient()
+async function findNotionConnection(
+  connectionId: string,
+  orgId: string,
+  actorUserId: string,
+): Promise<NotionConnectionRow | null> {
+  const admin = createAdminClient({ channel: 'app', actorUserId })
   const { data, error } = await admin
     .from('integration_connections')
     .select(
@@ -138,7 +142,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: parsed.reason }, { status: 400 })
   }
 
-  const connection = await findNotionConnection(connectionId, orgId)
+  const connection = await findNotionConnection(connectionId, orgId, auth.userId)
   if (!connection) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 })
   }
@@ -193,7 +197,7 @@ export async function PUT(request: NextRequest) {
   // notion_mappings[database_id] の更新と read_container_ids への database_id 追加(重複なし)を
   // RPC内の単一UPDATE文にまとめている。ここでは import_config 全体を組み立てない
   // （＝他DBのnotion_mappingsエントリを一切送らない。他のキーもRPC側で保持される）。
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId })
   const { data: mergedConfig, error: rpcError } = await admin.rpc('rpc_notion_mapping_merge', {
     p_connection_id: connectionId,
     p_org_id: orgId,

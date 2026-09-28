@@ -42,8 +42,12 @@ interface NotionConnectionRow extends ConnectionCredentialRow {
 }
 
 /** connection_id を org_id・provider='notion' の境界付きで引く。他orgの接続は絶対に引けない。 */
-async function findNotionConnection(connectionId: string, orgId: string): Promise<NotionConnectionRow | null> {
-  const admin = createAdminClient()
+async function findNotionConnection(
+  connectionId: string,
+  orgId: string,
+  actorUserId: string,
+): Promise<NotionConnectionRow | null> {
+  const admin = createAdminClient({ channel: 'app', actorUserId })
   const { data, error } = await admin
     .from('integration_connections')
     .select('id, org_id, provider, auth_kind, base_url, access_token_encrypted, refresh_token_encrypted, refresh_token')
@@ -119,7 +123,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  const connection = await findNotionConnection(connectionId, orgId)
+  const connection = await findNotionConnection(connectionId, orgId, auth.userId)
   if (!connection) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 })
   }

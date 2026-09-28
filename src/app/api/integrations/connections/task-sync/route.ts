@@ -294,7 +294,7 @@ export async function POST(request: NextRequest) {
   }
 
   const encrypted = await encryptToken(apiKey)
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId })
   const { data, error } = await admin
     .from('integration_connections')
     .insert({

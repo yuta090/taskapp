@@ -41,8 +41,12 @@ interface ConnectionRow extends ConnectionCredentialRow {
 }
 
 /** connection_id を org_id 境界付きで引く。他orgの接続は絶対に引けない（provider不問=汎用のため）。 */
-async function findConnection(connectionId: string, orgId: string): Promise<ConnectionRow | null> {
-  const admin = createAdminClient()
+async function findConnection(
+  connectionId: string,
+  orgId: string,
+  actorUserId: string,
+): Promise<ConnectionRow | null> {
+  const admin = createAdminClient({ channel: 'app', actorUserId })
   const { data, error } = await admin
     .from('integration_connections')
     .select(
@@ -84,7 +88,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  const connection = await findConnection(connectionId, orgId)
+  const connection = await findConnection(connectionId, orgId, auth.userId)
   if (!connection) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 })
   }
