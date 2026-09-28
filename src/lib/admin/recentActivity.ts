@@ -24,7 +24,8 @@ function computeRelativeTime(isoString: string, nowMs: number): string {
 }
 
 export async function fetchRecentActivity(): Promise<AuditLogRow[]> {
-  const admin = createAdminClient()
+  // 読み取り専用。呼び出し元は運営ダッシュボード(admin/(panel)/dashboard)のみ。
+  const admin = createAdminClient({ channel: 'admin' })
   const nowMs = Date.now()
 
   const { data, error } = await admin

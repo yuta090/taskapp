@@ -35,7 +35,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'unknown template key' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: adminUserId })
 
   if (reset === true) {
     const { error } = await admin.from('email_templates').delete().eq('key', def.key)

@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'email and password required' }, { status: 400 })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'admin', actorUserId: adminUserId })
     const { data, error } = await admin.auth.admin.createUser({
       email,
       password,
@@ -89,7 +89,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'admin', actorUserId: adminUserId })
     const { data, error } = await admin.rpc('rpc_admin_set_superadmin', {
       p_actor: adminUserId,
       p_target: userId,
