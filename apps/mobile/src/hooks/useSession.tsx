@@ -6,6 +6,7 @@ import type { Session } from '@supabase/supabase-js'
 import { useQuery } from '@tanstack/react-query'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { fetchMyOrgs, type OrgChoice } from '~/api/orgs'
+import { unregisterStoredPushToken } from '~/api/pushTokens'
 import { supabase } from '~/api/supabase'
 import { assuranceFromSession, resolveAuthStep, type AuthStep } from '~/lib/authStep'
 import { clearCachedData } from './queryClient'
@@ -95,6 +96,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     // サーバーへの失効の連絡が通信エラーで失敗すると、supabase-js は端末のセッションを消さない。
     // そのときも端末からは必ず消す（共用端末で「ログアウトしたつもり」を防ぐ）
+    // 先にこの端末を通知の宛先から外す（ログアウトした後は自分の行を消せない）
+    await unregisterStoredPushToken()
     const { error } = await supabase.auth.signOut()
     if (error) await supabase.auth.signOut({ scope: 'local' })
     // SIGNED_OUT でも消すが、イベントを待たずに消しておく

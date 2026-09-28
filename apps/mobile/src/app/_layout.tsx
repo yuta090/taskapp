@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { Text, useColorScheme } from 'react-native'
 import { Centered, Screen } from '~/components/ui'
 import { persister, queryClient } from '~/hooks/queryClient'
+import { usePushNotifications } from '~/hooks/usePushNotifications'
 import { SessionProvider, useSession } from '~/hooks/useSession'
 import { useVersionGate } from '~/hooks/useVersionGate'
 import { useColors } from '~/theme/colors'
@@ -36,6 +37,7 @@ export default function RootLayout() {
 function RootNavigator() {
   const { step } = useSession()
   const { updateRequired } = useVersionGate()
+  usePushNotifications(step)
 
   useEffect(() => {
     if (step !== 'checking') SplashScreen.hideAsync()

@@ -15,6 +15,7 @@ import {
   isNotificationTypeMuted,
   type NotificationEmailPrefs,
 } from '@/lib/notifications/digest'
+import { sendExpoPush, type MobilePushTokenRow } from '@/lib/push/sendExpoPush'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // web-push is Node-only (uses the `crypto` module directly), so this route
@@ -35,6 +36,10 @@ interface PushSubscriptionRow {
  * a row is inserted into `notifications` with channel = 'in_app'. Looks up
  * the recipient's push subscriptions and sends a Web Push notification via
  * web-push. Subscriptions that the browser has revoked (404/410) are removed.
+ *
+ * スマホアプリ（apps/mobile）の宛先（mobile_push_tokens）にも、同じ条件で Expo のプッシュ API から送る
+ * （src/lib/push/sendExpoPush.ts）。アプリは社内向けなので、宛先が相手先（client）なら送らない。
+ * VAPID が未設定のときは Web Push だけ止め、アプリには送る。
  *
  * 鳴らすかどうかは src/lib/notifications/delivery.ts が正本:
  *   - 相手を待たせる種類だけ鳴らす（知らせるだけの通知では鳴らさない）
@@ -73,10 +78,7 @@ export async function POST(request: NextRequest) {
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
     const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY
     const vapidSubject = process.env.VAPID_SUBJECT
-    if (!vapidPublicKey || !vapidPrivateKey || !vapidSubject) {
-      console.error('[push/dispatch] VAPID keys are not configured')
-      return NextResponse.json({ error: 'VAPID not configured' }, { status: 500 })
-    }
+    const vapidConfigured = !!(vapidPublicKey && vapidPrivateKey && vapidSubject)
 
     const admin = createAdminClient() as SupabaseClient
 
@@ -114,10 +116,14 @@ export async function POST(request: NextRequest) {
     const needsCount = !QUIET_HOURS_EXEMPT_TYPES.includes(notificationRow.type)
     const windowStart = new Date(jstDayStartUtc(nowReal).getTime() + QUIET_HOURS_END * 60 * 60 * 1000)
 
-    const [subscriptionsResult, prefsResult, countResult] = await Promise.all([
+    const [subscriptionsResult, mobileTokensResult, prefsResult, countResult] = await Promise.all([
       admin
         .from('push_subscriptions')
         .select('id, endpoint, p256dh, auth')
+        .eq('user_id', notificationRow.to_user_id),
+      admin
+        .from('mobile_push_tokens')
+        .select('id, token')
         .eq('user_id', notificationRow.to_user_id),
       admin
         .from('notification_email_prefs')
@@ -141,8 +147,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch push subscriptions' }, { status: 500 })
     }
 
-    const subscriptionRows = (subscriptionsResult.data || []) as PushSubscriptionRow[]
-    if (subscriptionRows.length === 0) {
+    if (mobileTokensResult.error) {
+      // アプリの宛先が引けなくても、ブラウザには送る
+      console.error('[push/dispatch] Failed to fetch mobile push tokens:', mobileTokensResult.error)
+    }
+
+    if (!vapidConfigured) {
+      console.error('[push/dispatch] VAPID keys are not configured')
+    }
+    const subscriptionRows = vapidConfigured ? ((subscriptionsResult.data || []) as PushSubscriptionRow[]) : []
+    let mobileTokenRows = (mobileTokensResult.data || []) as MobilePushTokenRow[]
+    if (subscriptionRows.length === 0 && mobileTokenRows.length === 0) {
+      // 送れる宛先が1つも無い。VAPID の設定漏れはここで従来どおり 500 で知らせる
+      if (!vapidConfigured) {
+        return NextResponse.json({ error: 'VAPID not configured' }, { status: 500 })
+      }
       return NextResponse.json({ sent: 0, failed: 0, removed: 0 })
     }
 
@@ -174,10 +193,19 @@ export async function POST(request: NextRequest) {
     const role: PushRecipientRole =
       (membership as { role?: string } | null)?.role === 'client' ? 'client' : 'internal'
 
-    webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey)
+    // アプリは社内向け（相手先はポータルを使う）。相手先の画面の文面をアプリに届けない
+    if (role === 'client') mobileTokenRows = []
+
+    if (vapidConfigured) webpush.setVapidDetails(vapidSubject!, vapidPublicKey!, vapidPrivateKey!)
 
     const message = buildPushMessage(notificationRow, role)
     const payloadJson = JSON.stringify(message)
+
+    const expoAccessToken = process.env.EXPO_ACCESS_TOKEN
+    const expoPromise =
+      mobileTokenRows.length > 0
+        ? sendExpoPush(mobileTokenRows, notificationRow, message, expoAccessToken ? { accessToken: expoAccessToken } : {})
+        : Promise.resolve({ sent: 0, failed: 0, usedIds: [] as string[], staleIds: [] as string[] })
 
     let sent = 0
     let failed = 0
@@ -204,13 +232,21 @@ export async function POST(request: NextRequest) {
       })
     )
 
+    const expo = await expoPromise
+
     // 期限切れの購読の削除と、使えた購読の記録は互いに独立なので同時に
-    const [deleteResult, updateResult] = await Promise.all([
+    const [deleteResult, updateResult, mobileDeleteResult, mobileUpdateResult] = await Promise.all([
       staleIds.length > 0
         ? admin.from('push_subscriptions').delete().in('id', staleIds)
         : Promise.resolve({ error: null }),
       usedIds.length > 0
         ? admin.from('push_subscriptions').update({ last_used_at: new Date().toISOString() }).in('id', usedIds)
+        : Promise.resolve({ error: null }),
+      expo.staleIds.length > 0
+        ? admin.from('mobile_push_tokens').delete().in('id', expo.staleIds)
+        : Promise.resolve({ error: null }),
+      expo.usedIds.length > 0
+        ? admin.from('mobile_push_tokens').update({ last_used_at: new Date().toISOString() }).in('id', expo.usedIds)
         : Promise.resolve({ error: null }),
     ])
     if (deleteResult.error) {
@@ -220,7 +256,18 @@ export async function POST(request: NextRequest) {
       console.error('[push/dispatch] Failed to update last_used_at:', updateResult.error)
     }
 
-    return NextResponse.json({ sent, failed, removed: staleIds.length })
+    if (mobileDeleteResult.error) {
+      console.error('[push/dispatch] Failed to remove stale mobile push tokens:', mobileDeleteResult.error)
+    }
+    if (mobileUpdateResult.error) {
+      console.error('[push/dispatch] Failed to update mobile last_used_at:', mobileUpdateResult.error)
+    }
+
+    return NextResponse.json({
+      sent: sent + expo.sent,
+      failed: failed + expo.failed,
+      removed: staleIds.length + expo.staleIds.length,
+    })
   } catch (error) {
     console.error('[push/dispatch] Unexpected error:', error)
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })

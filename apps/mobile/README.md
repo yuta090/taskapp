@@ -12,8 +12,9 @@ Web と同じ Supabase・同じ RLS をそのまま使う（アプリ用のサ�
 | タスク詳細 | 状態の切り替え・ボールを自分たちに戻す・社内承認の承認・コメント |
 | 受信トレイ | 通知の一覧・既読・タップでタスクへ |
 | アカウント | 組織の切り替え・Web 版を開く・ログアウト |
+| プッシュ通知 | 受信トレイに届く通知のうち、相手を待たせるものをスマホに鳴らす。タップでそのタスクを開く |
 
-Web でやること: ガント・Wiki・議事録・設定・お支払い、相手先にボールを渡す、差し戻し、Google ログイン。
+Web でやること: ガント・Wiki・議事録・設定（通知の種類のオン・オフもここ）・お支払い、相手先にボールを渡す、差し戻し、Google ログイン。
 
 ### 既知の差（Web との違い）
 
@@ -24,6 +25,25 @@ Web のサーバー API（`/api/slack/notify`・`/api/portal/notify-approval`）
 - 相手先にボールを渡したときの **承認依頼メール**（そのため相手先に渡す操作自体をアプリに出していない）
 
 アプリのトークン（Bearer）を受け付けるサーバー経路を足せば解消できる。認証の入口を増やす設計なので別途決める。
+
+## プッシュ通知
+
+- 鳴らす条件は Web のブラウザ通知と同じ（`src/lib/notifications/delivery.ts`）: 相手を待たせる種類だけ・夜21時〜朝8時と土日は鳴らさない（至急は例外）・1日の上限・本人の設定
+- 流れ: 通知が DB に入る → トリガーが Web の `/api/push/dispatch` を呼ぶ → ブラウザ（Web Push）とアプリ（Expo のプッシュ API）に送る
+- 宛先は `mobile_push_tokens`（`supabase/migrations/*_mobile_push_tokens.sql`）。登録は RPC `rpc_register_mobile_push_token` だけ
+  （2段階認証を通すまで登録できない・同じ端末を別の人が使ったら宛先を移す）。ログアウトの前に自分の行を消す
+- 相手先（client）の人にはアプリへ送らない（アプリは社内向け）
+
+### 動かすための準備（1回だけ）
+
+1. `npx eas-cli@latest init` で EAS のプロジェクトを作る（`app.json` に `extra.eas.projectId` が入る。無いと通知の登録を飛ばす）
+2. iOS: `eas credentials` で APNs の鍵を登録（Apple Developer 登録が要る）
+3. Android: Firebase で `google-services.json` を作り、FCM の鍵を `eas credentials` で登録
+4. Web（Vercel）の環境変数に `EXPO_ACCESS_TOKEN`（Expo の「Enhanced push security」のトークン）を入れる（任意だが本番では推奨）
+5. migration `*_mobile_push_tokens.sql` を本番 DB に当てる
+6. 通知は Expo Go ではなく開発ビルド（`eas build --profile development`）の実機で試す（シミュレーターには届かない）
+
+既知の穴: 送った後の「受領確認」は見ていない（アプリを消した端末の宛先が、送信時にエラーにならない限り残る）。
 
 ## 動かし方
 

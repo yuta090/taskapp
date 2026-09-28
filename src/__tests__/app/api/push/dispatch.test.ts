@@ -23,12 +23,27 @@ type TableResponses = {
   notification_email_prefs: { data: unknown; error: null | { message: string } }
   org_memberships: { data: unknown; error: null | { message: string } }
   push_subscriptions: { data: unknown[] | null; error: null | { message: string } }
+  /** スマホアプリの宛先。書かないテストは 0 件（Web だけの従来の振る舞い） */
+  mobile_push_tokens?: { data: unknown[] | null; error: null | { message: string } }
 }
+
+const sendExpoPushMock = vi.fn(async (..._args: unknown[]) => ({
+  sent: 0,
+  failed: 0,
+  usedIds: [] as string[],
+  staleIds: [] as string[],
+}))
+vi.mock('@/lib/push/sendExpoPush', () => ({
+  sendExpoPush: (...args: unknown[]) => sendExpoPushMock(...args),
+}))
 
 let responses: TableResponses
 
 const deleteMock = vi.fn(() => ({ in: vi.fn(() => Promise.resolve({ error: null })) }))
 const updateMock = vi.fn(() => ({ in: vi.fn(() => Promise.resolve({ error: null })) }))
+const mobileDeleteIn = vi.fn((..._args: unknown[]) => Promise.resolve({ error: null }))
+const mobileDeleteMock = vi.fn(() => ({ in: mobileDeleteIn }))
+const mobileUpdateMock = vi.fn(() => ({ in: vi.fn(() => Promise.resolve({ error: null })) }))
 
 const adminFromMock = vi.fn((table: string) => {
   if (table === 'notifications') {
@@ -72,6 +87,15 @@ const adminFromMock = vi.fn((table: string) => {
       })),
       delete: deleteMock,
       update: updateMock,
+    }
+  }
+  if (table === 'mobile_push_tokens') {
+    return {
+      select: vi.fn(() => ({
+        eq: vi.fn(() => Promise.resolve(responses.mobile_push_tokens ?? { data: [], error: null })),
+      })),
+      delete: mobileDeleteMock,
+      update: mobileUpdateMock,
     }
   }
   throw new Error(`unexpected table: ${table}`)
@@ -486,6 +510,129 @@ describe('POST /api/push/dispatch — 無駄な問い合わせを増やさない
 
     await callPost({ Authorization: 'Bearer test-cron-secret' }, { notificationId: 'notif-1' })
 
+    expect(adminFromMock).not.toHaveBeenCalledWith('org_memberships')
+  })
+})
+
+/**
+ * スマホアプリ（apps/mobile）への送信。鳴らす条件は Web と同じものを通し、Expo のプッシュ API で送る。
+ */
+describe('POST /api/push/dispatch — スマホアプリ', () => {
+  const mobileToken = { id: 'mob-1', token: 'ExponentPushToken[abc]' }
+  const webSub = { id: 'sub-1', endpoint: 'https://push.example/1', p256dh: 'p', auth: 'a' }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-09T03:00:00.000Z')) // 水 12:00 JST
+    process.env.CRON_SECRET = 'test-cron-secret'
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'test-public-key'
+    process.env.VAPID_PRIVATE_KEY = 'test-private-key'
+    process.env.VAPID_SUBJECT = 'mailto:test@example.com'
+    delete process.env.EXPO_ACCESS_TOKEN
+    sendExpoPushMock.mockResolvedValue({ sent: 1, failed: 0, usedIds: ['mob-1'], staleIds: [] })
+
+    responses = {
+      notificationsCount: { count: 0, error: null },
+      notification_email_prefs: { data: null, error: null },
+      notifications: {
+        data: {
+          id: 'notif-1',
+          org_id: 'org-1',
+          space_id: 'space-1',
+          to_user_id: 'user-1',
+          type: 'review_request',
+          payload: { task_id: 'task-1' },
+        },
+        error: null,
+      },
+      org_memberships: { data: { role: 'member' }, error: null },
+      push_subscriptions: { data: [], error: null },
+      mobile_push_tokens: { data: [mobileToken], error: null },
+    }
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const call = () => callPost({ authorization: 'Bearer test-cron-secret' }, { notificationId: 'notif-1' })
+
+  it('ブラウザの購読が無くても、アプリの宛先があれば送る', async () => {
+    const json = await (await call()).json()
+    expect(sendExpoPushMock).toHaveBeenCalledTimes(1)
+    expect(sendExpoPushMock.mock.calls[0][0]).toEqual([mobileToken])
+    expect(json).toEqual({ sent: 1, failed: 0, removed: 0 })
+    expect(mobileUpdateMock).toHaveBeenCalledWith(expect.objectContaining({ last_used_at: expect.any(String) }))
+  })
+
+  it('ブラウザとアプリの両方に送り、件数を合わせて返す', async () => {
+    responses.push_subscriptions = { data: [webSub], error: null }
+    const json = await (await call()).json()
+    expect(sendNotificationMock).toHaveBeenCalledTimes(1)
+    expect(sendExpoPushMock).toHaveBeenCalledTimes(1)
+    expect(json).toEqual({ sent: 2, failed: 0, removed: 0 })
+  })
+
+  it('VAPID が未設定でも、アプリには送る（Web Push だけ止める）', async () => {
+    delete process.env.VAPID_PRIVATE_KEY
+    responses.push_subscriptions = { data: [webSub], error: null }
+    const response = await call()
+    expect(response.status).toBe(200)
+    expect(sendNotificationMock).not.toHaveBeenCalled()
+    expect(sendExpoPushMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('相手先（client）にはアプリへ送らない（アプリは社内向け。ブラウザには送る）', async () => {
+    responses.org_memberships = { data: { role: 'client' }, error: null }
+    responses.push_subscriptions = { data: [webSub], error: null }
+    const json = await (await call()).json()
+    expect(sendExpoPushMock).not.toHaveBeenCalled()
+    expect(sendNotificationMock).toHaveBeenCalledTimes(1)
+    expect(json).toEqual({ sent: 1, failed: 0, removed: 0 })
+  })
+
+  it('端末からアプリが消えていたら、その宛先を消す', async () => {
+    sendExpoPushMock.mockResolvedValue({ sent: 0, failed: 1, usedIds: [], staleIds: ['mob-1'] })
+    const json = await (await call()).json()
+    expect(mobileDeleteMock).toHaveBeenCalled()
+    expect(mobileDeleteIn).toHaveBeenCalledWith('id', ['mob-1'])
+    expect(json).toEqual({ sent: 0, failed: 1, removed: 1 })
+  })
+
+  it('夜間など鳴らさない条件はアプリにも同じく効く', async () => {
+    vi.setSystemTime(new Date('2026-09-09T14:00:00.000Z')) // 水 23:00 JST
+    await call()
+    expect(sendExpoPushMock).not.toHaveBeenCalled()
+  })
+
+  it('本人がその種類を切っていたらアプリにも送らない', async () => {
+    responses.notification_email_prefs = {
+      data: {
+        email_enabled: true,
+        on_task_assigned: true,
+        on_task_mentioned: true,
+        on_review_request: false,
+        on_client_response: true,
+        on_meeting_reminder: true,
+        digest_frequency: 'daily',
+      },
+      error: null,
+    }
+    await call()
+    expect(sendExpoPushMock).not.toHaveBeenCalled()
+  })
+
+  it('Expo のアクセストークンが設定されていれば渡す', async () => {
+    process.env.EXPO_ACCESS_TOKEN = 'expo-secret'
+    await call()
+    expect(sendExpoPushMock.mock.calls[0][3]).toEqual({ accessToken: 'expo-secret' })
+  })
+
+  it('ブラウザにもアプリにも宛先が無ければ、宛先の役割は引かない', async () => {
+    responses.mobile_push_tokens = { data: [], error: null }
+    const json = await (await call()).json()
+    expect(json).toEqual({ sent: 0, failed: 0, removed: 0 })
     expect(adminFromMock).not.toHaveBeenCalledWith('org_memberships')
   })
 })

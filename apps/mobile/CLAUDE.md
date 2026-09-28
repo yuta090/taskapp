@@ -24,5 +24,7 @@ Web 用のルール（3ペイン・`bg-surface`・Next.js のページ速度レ�
   キーには必ず userId を入れる（同じ端末で別の人がログインしたとき、前の人の取り置きを出さない）。
 - **2段階認証の段階は問い合わせにしない**（`assuranceFromSession` でトークンから同期的に求める）。
   問い合わせにすると、トークン更新のたびに「確かめ中」へ戻り、開いている画面が閉じる。
+- **プッシュ通知の宛先の登録は RPC（`rpc_register_mobile_push_token`）だけ**。`mobile_push_tokens` に直接 insert しない
+  （権限を渡していない）。鳴らす条件はサーバー（`/api/push/dispatch`）が Web と共通で決める。アプリ側で条件を足さない。
 - 色は `src/theme/colors.ts` のトークンだけを使う。相手先に見えるものは `clientVisible`（Web の Amber-500）。
 - 出す前に `npm test`・`npm run typecheck`・`npm run lint` を通す。
