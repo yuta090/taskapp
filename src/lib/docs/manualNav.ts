@@ -32,7 +32,7 @@ export const MANUAL_NAV: Record<ManualSection, ManualNavEntry[]> = {
     { slug: 'tasks', title: 'タスク管理', description: '作成・編集・ボール管理' },
     { slug: 'meetings', title: '会議管理', description: '議事録・決定事項・タスク生成' },
     { slug: 'wiki', title: 'Wiki・仕様管理', description: 'ページ作成・カスタムブロック' },
-    { slug: 'files', title: 'ファイル', description: 'アップロード・共有・CSVを表で見る' },
+    { slug: 'files', title: 'ファイル', description: 'アップロード・共有・CSVを表で直す' },
     { slug: 'reviews', title: 'レビュー・承認', description: '承認フロー・監査証跡' },
     { slug: 'scheduling', title: '日程調整', description: '提案・確定・カレンダー連携' },
     { slug: 'secretary', title: 'AI秘書・チャット連携', description: 'LINE/Slack等をつなぐ・使い方' },

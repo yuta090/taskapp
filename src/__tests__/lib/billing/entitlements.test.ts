@@ -154,6 +154,8 @@ describe('planLimits', () => {
       maxProjects: 3,
       maxMembers: 5,
       maxClientUsers: null,
+      // リモートMCP(ChatGPT等)は free でも使える。差は本数で付ける（Pro専有にしない）
+      maxMcpConnections: 2,
     })
   })
   it('pro はグループ枠あり・共通LINE送信は無制限（自社LINEは原価が顧客側）', () => {
@@ -172,6 +174,7 @@ describe('planLimits', () => {
       maxProjects: null,
       maxMembers: null,
       maxClientUsers: null,
+      maxMcpConnections: null,
     })
   })
 })

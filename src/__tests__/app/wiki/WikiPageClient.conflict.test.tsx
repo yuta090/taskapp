@@ -22,6 +22,7 @@ function page(overrides: Partial<WikiPage> = {}): WikiPage {
     milestone_id: null,
     pinned_at: null,
     sort_order: null,
+    is_folder: false,
     created_by: 'user1',
     updated_by: 'user1',
     created_at: '2026-09-01T00:00:00+09:00',
@@ -112,6 +113,14 @@ vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
 // 一覧の「確定 n/m」の印に使う取得。ここでは印を検証しないので空で返す
 vi.mock('@/lib/hooks/useWikiDecisionCounts', () => ({
   useWikiDecisionCounts: () => ({ countsByPageId: new Map(), loading: false }),
+}))
+// 参照しているタスクの取得。毎回同じ配列を返す（新しい配列だとページ情報パネルを毎回作り直す）
+const NO_REFERENCING_TASKS = vi.hoisted(() => [] as never[])
+// 本文の投票ブロックの先読み（中身はエディタ側で確かめる。ここでは画面の配線だけを見る）
+vi.mock('@/lib/hooks/useDocPolls', () => ({ usePrefetchDocPolls: () => {} }))
+
+vi.mock('@/lib/hooks/useWikiPageReferencingTasks', () => ({
+  useWikiPageReferencingTasks: () => ({ tasks: NO_REFERENCING_TASKS, loading: false, error: null }),
 }))
 
 vi.mock('@/components/wiki/WikiPageInspector', () => ({
@@ -967,5 +976,19 @@ describe('WikiPageClient — Wiki 本文保存の競合検知', () => {
       await vi.advanceTimersByTimeAsync(3000)
     })
     expect(mockUpdatePage).not.toHaveBeenCalled()
+  })
+
+  // 競合の帯は画面の警告なので、PDFで保存したときに本文へ混ざらないようにする
+  // （紙に載せない印。印刷の指定は globals.css の @media print 側）
+  it('競合の帯には「紙に載せない」印が付いている', async () => {
+    mockUpdatePage.mockRejectedValueOnce(new WikiConflictError())
+    mockFetchPage
+      .mockResolvedValueOnce(INITIAL_PAGE)
+      .mockResolvedValueOnce(page({ body: '他の人が書いた本文', updated_at: '2026-09-13T00:08:00+09:00' }))
+
+    await setup()
+    await typeAndFlush()
+
+    expect(screen.getByTestId('wiki-conflict-banner')).toHaveAttribute('data-print-hide')
   })
 })

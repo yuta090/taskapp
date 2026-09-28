@@ -106,6 +106,17 @@
   --color-green-500: #22C55E;
   --color-green-600: #16A34A;
 
+  /* 同時編集のカーソルの色（議事録）。誰が書いているかを色で見分けるためだけに使う。
+     隣り合う番号で色相を変えて、6人まで見分けられるようにしてある。
+     アンバー/オレンジは「相手先に見える」印、赤は失敗の印なので使わない。
+     値を変えたら src/lib/collab/cursorColors.ts の控えも合わせること（テストが検査する）。 */
+  --color-cursor-1: #6366F1;
+  --color-cursor-2: #059669;
+  --color-cursor-3: #0EA5E9;
+  --color-cursor-4: #7C3AED;
+  --color-cursor-5: #0D9488;
+  --color-cursor-6: #C026D3;
+
   /* Shadows */
   --shadow-subtle: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-pane: -1px 0 0 0 #E5E7EB;
@@ -344,6 +355,118 @@
   --gantt-risk-none: #9DA6B4;
   --gantt-risk-none-bg: #242B36;
   --gantt-risk-none-border: #333B49;
+}
+
+/* ============================================
+   バーンダウンチャートの色（SVG 用）
+   ガントと同じく、SVG の fill/stroke には Tailwind の utility が効かないため、
+   色をここに集め src/lib/burndown/constants.ts が var(--burndown-*) で参照する。
+   ライトの値は従来の見た目そのまま。
+   ============================================ */
+:root {
+  /* 2本の線（理想ペースと実績） */
+  --burndown-ideal-line: #9CA3AF;
+  --burndown-actual-line: #3B82F6;
+  --burndown-actual-fill: #DBEAFE;
+  --burndown-added-tasks: #FEF3C7;
+
+  /* 目盛り・軸 */
+  --burndown-grid: #E2E8F0;
+  --burndown-today: #EF4444;
+  --burndown-axis-text: #64748B;
+  --burndown-label-text: #0F172A;
+
+  /* 実績の点（縁は背景と同色で抜く） */
+  --burndown-point: #3B82F6;
+  --burndown-point-hover: #1D4ED8;
+  --burndown-point-stroke: #FFFFFF;
+
+  /* 記録が無い期間の帯 */
+  --burndown-estimate-band: #F1F5F9;
+  --burndown-estimate-text: #94A3B8;
+
+  /* ホバーで出る吹き出し */
+  --burndown-tooltip-bg: #1E293B;
+  --burndown-tooltip-fg: #FFFFFF;
+  --burndown-tooltip-fg-muted: #94A3B8;
+  --burndown-tooltip-added: #FCD34D;
+  --burndown-tooltip-reopened: #F87171;
+}
+
+.dark {
+  --burndown-ideal-line: #7C8698;
+  --burndown-actual-line: #60A5FA;
+  --burndown-actual-fill: #1C3A63;
+  --burndown-added-tasks: #4A3A0F;
+
+  --burndown-grid: #2E3542;
+  --burndown-today: #F87171;
+  --burndown-axis-text: #9DA6B4;
+  --burndown-label-text: #F2F4F7;
+
+  --burndown-point: #60A5FA;
+  --burndown-point-hover: #93C5FD;
+  --burndown-point-stroke: #191E27;
+
+  --burndown-estimate-band: #232B38;
+  --burndown-estimate-text: #8A93A2;
+
+  --burndown-tooltip-bg: #2A3241;
+  --burndown-tooltip-fg: #F2F4F7;
+  --burndown-tooltip-fg-muted: #A8B2C1;
+  --burndown-tooltip-added: #FCD34D;
+  --burndown-tooltip-reopened: #F87171;
+}
+
+/* ============================================
+   文書エディタ（Wiki・議事録）の色
+   BlockNote は色をテーマの props で受け取り、自前の CSS 変数で塗る。
+   ダークのときはアプリの面（--color-surface）と文字の階調に合わせ直す。
+   本文中のリンクもここで持つ（暗い面の上で沈まない明度にする）。
+   ============================================ */
+:root {
+  --doc-link: #4F46E5;
+  --doc-link-underline: #A5B4FC;
+  --doc-link-hover: #4338CA;
+  --doc-link-hover-underline: #6366F1;
+  --doc-link-hover-bg: rgba(99, 102, 241, 0.06);
+}
+
+.dark {
+  --doc-link: #A5B4FC;
+  --doc-link-underline: #4F5BA6;
+  --doc-link-hover: #C7D2FE;
+  --doc-link-hover-underline: #818CF8;
+  --doc-link-hover-bg: rgba(129, 140, 248, 0.12);
+}
+
+/* BlockNote 既定のダーク（#1f1f1f 系）はアプリの紺寄りの面から浮くので、中央トークンへ差し替える。
+ *
+ * セレクタが2つあるのは、色を使う場所が分かれるため:
+ *  - `html.dark` … 「/」メニュー・ツールバーは本文の外（body 直下のポータル）に出る。面の子孫に
+ *    限ったセレクタでは届かず、BlockNote 既定のダーク（選択の背景 #0f0f0f＝面より暗い）がそのまま
+ *    出て「選択中が真っ黒でどれを選んでいるか分からない」状態になっていた（ユーザー申告・2026-09-17）
+ *  - `html.dark [data-color-scheme="dark"]` … 本文の中。BlockNote 自身が
+ *    `.bn-container[data-color-scheme=dark]`（詳細度 0,2,0）で塗るので、こちら（0,2,1）で上回る
+ *
+ * 選択・ホバーは「面より明るい側」に取る。gray-100(#1B2028) は面(#191E27)とほぼ同じ暗さで沈む。 */
+html.dark,
+html.dark [data-color-scheme="dark"] {
+  --bn-colors-editor-text: var(--color-gray-800);
+  --bn-colors-editor-background: var(--color-surface);
+  --bn-colors-menu-text: var(--color-gray-800);
+  --bn-colors-menu-background: var(--color-surface);
+  --bn-colors-tooltip-text: var(--color-gray-900);
+  --bn-colors-tooltip-background: var(--color-gray-200);
+  --bn-colors-hovered-text: var(--color-gray-900);
+  --bn-colors-hovered-background: var(--color-gray-200);
+  --bn-colors-selected-text: var(--color-gray-900);
+  --bn-colors-selected-background: var(--color-gray-300);
+  --bn-colors-disabled-text: var(--color-gray-400);
+  --bn-colors-disabled-background: var(--color-gray-100);
+  --bn-colors-border: var(--color-gray-300);
+  --bn-colors-side-menu: var(--color-gray-400);
+  --bn-colors-shadow: var(--color-gray-25);
 }
 
 body {
@@ -672,9 +795,9 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
   /* 編集中の本文なのでカーソルは既定が I 字。押すと画面が移るので指の形にする
      （押せることが見た目から分からない、という指摘。2026-09-13） */
   cursor: pointer;
-  color: #4f46e5 !important;
+  color: var(--doc-link) !important;
   text-decoration: underline !important;
-  text-decoration-color: #a5b4fc !important;
+  text-decoration-color: var(--doc-link-underline) !important;
   text-underline-offset: 3px !important;
   text-decoration-thickness: 1.5px !important;
   transition: color 0.15s, text-decoration-color 0.15s, background-color 0.15s;
@@ -690,9 +813,9 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 .minutes-editor .bn-block-content a[href]:hover,
 .minutes-editor [data-content-type] a[href]:hover,
 .minutes-editor a[href]:hover {
-  color: #4338ca !important;
-  text-decoration-color: #6366f1 !important;
-  background-color: rgba(99, 102, 241, 0.06);
+  color: var(--doc-link-hover) !important;
+  text-decoration-color: var(--doc-link-hover-underline) !important;
+  background-color: var(--doc-link-hover-bg);
 }
 
 /* このアプリの中の画面へ（押すと同じタブで移動し、戻るで戻れる） */
@@ -812,6 +935,17 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 .wiki-editor .bn-block-content[data-content-type="paragraph"],
 .minutes-editor .bn-block-content[data-content-type="paragraph"] {
   padding-block: 5px;
+}
+
+/* --- 表の文字は本文より一段小さく（本文と同じ16pxだと列が広がり、画面に収まらない） --- */
+
+.wiki-editor .bn-block-content[data-content-type="table"] th,
+.wiki-editor .bn-block-content[data-content-type="table"] td,
+.minutes-editor .bn-block-content[data-content-type="table"] th,
+.minutes-editor .bn-block-content[data-content-type="table"] td {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 4px 8px;
 }
 
 /* --- 見出しの余白（既定は上下 3px しかなく、本文と見分けがつかない） --- */
@@ -1014,5 +1148,145 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 @media (max-width: 640px) {
   .task6-body p:has(~ hr):not(hr ~ p):first-of-type {
     font-size: 1.1875rem;
+  }
+}
+
+/* ==========================================================================
+   紙に出す（右のパネルの「PDFで保存」）
+   ==========================================================================
+   PDF を組み立てる部品は入れず、ブラウザの印刷を借りて PDF にする。
+   紙に載せるのは data-print-root を付けたかたまりだけ。Wiki ページ（ページ名と本文）と
+   議事録（会議名・日時と本文）が同じ仕組みを使う。
+
+   仕組み: data-print-root の「先祖」と「自分と中身」以外を消す。先祖は :has() で
+   名指しできるので、間の入れ子がどれだけ深くても書き換えずに済む。
+   あわせて先祖の「画面の高さに収める」指定も外す。外さないと、この画面は枠の中だけを
+   スクロールする作りなので1画面分で切れてしまう。
+   ========================================================================== */
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  /* 紙に載せるかたまりの外にあるもの（左メニュー・右のページ情報・一覧など）は出さない。
+     先頭の body:has(...) は外せない。外すと、目印の無い画面（タスク一覧など）で
+     Ctrl+P したときに何も残らず白紙が刷られる */
+  body:has([data-print-root])
+    :not(:has([data-print-root])):not([data-print-root]):not([data-print-root] *) {
+    display: none !important;
+  }
+
+  /* かたまりの中でも、押すためのもの・警告の帯は出さない。
+     「押すものかどうか」は要素の種類（button）では決めない。本文のブロックを button で
+     描いた日に、中身が黙って PDF から消えるため。出さないものには印を貼る側で付ける */
+  [data-print-hide],
+  [data-print-root] .bn-side-menu,
+  [data-print-root] .bn-drag-handle,
+  [data-print-root] .bn-formatting-toolbar,
+  [data-print-root] .bn-link-toolbar,
+  [data-print-root] .bn-table-handle,
+  [data-print-root] .bn-toggle-button,
+  [data-print-root] .bn-tooltip {
+    display: none !important;
+  }
+
+  /* 折りたたんで閉じてある行も、紙には中身まで出す。押した人は「全部が出た」つもりで
+     PDF を渡すので、画面と同じにたたんだままにすると黙って欠ける
+     （閉じている間 BlockNote は中身の入れ物 .bn-block-group を display:none にしている） */
+  [data-print-root] .bn-block-group {
+    display: block !important;
+  }
+
+  /* 先祖とかたまりの「画面に収める」指定を外す。外さないと1画面分で切れる */
+  body :has([data-print-root]),
+  [data-print-root],
+  [data-print-root] * {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  body :has([data-print-root]),
+  [data-print-root] {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    /* 暗い配色の人が「背景のグラフィック」を入れて刷ると、先祖の暗い面がそのまま
+       紙に乗って本文が読めなくなる。ここも白に倒しておく */
+    background: #fff !important;
+  }
+
+  /* ページ名は画面では1行に収めて「…」で省くが、紙は overflow を visible に戻すので
+     省略記号が出ず、折り返しもせずに右端で切れてしまう。紙では折り返す */
+  [data-print-root] h1 {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+
+  /* 目次（Wiki・議事録どちらにも差せる）は紙にも載せる — 押して飛ぶためのものだが、
+     紙でも「何が書いてあるか」の見取り図として読める。ただし画面では1行に収めて「…」で
+     省いているので、ページ名(h1)と同じく紙では折り返させないと右端で切れる */
+  [data-print-root] [data-testid='doc-toc-item'] {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+
+  /* コードのブロックは BlockNote が「黒い地に白い文字」で描く。印刷は地の色を落として
+     文字色だけ残すので、明るい配色のまま刷ると白い紙に白い文字＝丸ごと消える。
+     長い行も紙からはみ出して切れるので、紙では折り返す */
+  [data-print-root] [data-content-type='codeBlock'],
+  [data-print-root] [data-content-type='codeBlock'] * {
+    color: #111827 !important;
+    background: transparent !important;
+  }
+
+  [data-print-root] [data-content-type='codeBlock'] {
+    border: 1px solid #d1d5db !important;
+  }
+
+  [data-print-root] pre {
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  /* 本文の左右の余白は、行の取っ手（ドラッグして並べ替える印）を置くためのもの。
+     紙には取っ手を出さないので詰めて、ページ名と本文の左端をそろえる */
+  [data-print-root] .bn-editor {
+    padding-inline: 0 !important;
+  }
+
+  /* 暗い配色のまま刷ると、白い紙に薄い文字が乗って読めない。
+     暗くしている人のときだけ、黒い文字・白い地に倒す（明るい配色の人は色をそのまま刷る） */
+  html.dark [data-print-root],
+  html.dark [data-print-root] * {
+    color: #111827 !important;
+    background-color: transparent !important;
+    border-color: #d1d5db !important;
+  }
+
+  /* 見出しの直後や、図・表の途中でページが変わらないようにする */
+  [data-print-root] h1,
+  [data-print-root] h2,
+  [data-print-root] h3 {
+    break-after: avoid;
+  }
+
+  [data-print-root] img,
+  [data-print-root] table,
+  [data-print-root] blockquote,
+  [data-print-root] pre {
+    break-inside: avoid;
   }
 }

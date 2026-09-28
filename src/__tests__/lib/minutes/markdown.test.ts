@@ -477,8 +477,10 @@ describe('parseMinutesMarkdown: エスケープ', () => {
 })
 
 describe('parseMinutesMarkdown: 未知構文は落とさない', () => {
-  it('引用・区切り線・HTML・画像は文字として残る(元の文字列がそのまま残る)', () => {
-    for (const line of ['> 引用', '---', '<div>html</div>', '![alt](img.png)']) {
+  // 区切り線は 2026-09-18 にブロックとして扱うようにしたので、ここからは外した
+  // （`toc.test.ts` の「区切り線の往復」で見ている）
+  it('引用・HTML・画像は文字として残る(元の文字列がそのまま残る)', () => {
+    for (const line of ['> 引用', '<div>html</div>', '![alt](img.png)']) {
       const blocks = parseMinutesMarkdown(line)
       expect(blocks[0].type).toBe('paragraph')
       const text = (blocks[0].content as Array<{ text: string }>)[0]?.text ?? ''

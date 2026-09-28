@@ -78,7 +78,7 @@ export function QuickStart() {
           className="max-w-3xl mx-auto grid md:grid-cols-2 gap-6"
         >
           <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
-            <h3 className="font-bold text-slate-900 mb-3">Backlogからの移行</h3>
+            <h3 className="font-bold text-slate-900 mb-3">いまお使いのツールからの移行</h3>
             <ul className="space-y-2 text-sm text-slate-600">
               <li className="flex items-start gap-2">
                 <span className="text-green-600 shrink-0 mt-0.5">&#10003;</span>

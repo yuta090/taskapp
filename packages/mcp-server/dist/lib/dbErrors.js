@@ -7,15 +7,18 @@ import { ToolUserError } from '../errors.js';
 /**
  * `.single()` が0件（PGRST116）で断ったときだけ、見つからない旨のToolUserError(404)にする。
  * それ以外の理由は、中身をサーバーの記録にだけ残し、一般のエラーのまま返す。
+ *
+ * どちらも元の DB エラーを cause として持たせる。呼んだ人（CLI/AI）には返らないが、
+ * /api/tools・/api/mcp の利用記録（運営画面 /admin/cli-usage 専用）で原因を追えるようにする。
  */
 export function notFoundOr(error, context, notFoundMessage, fallbackMessage) {
     if (error.code === 'PGRST116')
-        return new ToolUserError(notFoundMessage, 404);
+        return new ToolUserError(notFoundMessage, 404, { cause: error });
     return hideDbError(error, context, fallbackMessage);
 }
 /** DBの理由の中身をサーバーの記録にだけ残し、一般のエラーのまま返す。 */
 export function hideDbError(error, context, fallbackMessage) {
     console.error(`${context} failed:`, error.code, error.message);
-    return new Error(fallbackMessage);
+    return new Error(fallbackMessage, { cause: error });
 }
 //# sourceMappingURL=dbErrors.js.map

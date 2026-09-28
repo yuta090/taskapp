@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useSyncExternalStore } from 'react'
 import {
   ChartBar,
+  ListMagnifyingGlass,
   Table,
   Users,
   Buildings,
@@ -60,6 +61,7 @@ const NAV_GROUPS: {
       { label: 'レビュー', icon: CheckCircle, href: '/admin/reviews' },
       { label: '通知', icon: Bell, href: '/admin/notifications' },
       { label: 'ログ', icon: ClockCounterClockwise, href: '/admin/logs' },
+      { label: '変更履歴', icon: ListMagnifyingGlass, href: '/admin/change-log' },
     ],
   },
   {

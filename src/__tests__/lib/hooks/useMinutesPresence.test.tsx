@@ -26,7 +26,10 @@ interface FakeChannel {
   subscribe: ReturnType<typeof vi.fn>
   track: ReturnType<typeof vi.fn>
   untrack: ReturnType<typeof vi.fn>
+  send: ReturnType<typeof vi.fn>
   presenceState: ReturnType<typeof vi.fn>
+  /** supabase-js のチャネルの状態。部屋に入っているあいだだけ 'joined' */
+  state: string
   emitStatus: (status: string) => void
   emit: (key: string) => void
 }
@@ -50,8 +53,13 @@ function createFakeChannel(topic: string, options: unknown): FakeChannel {
     }),
     track: vi.fn(async () => 'ok'),
     untrack: vi.fn(async () => 'ok'),
+    send: vi.fn(async () => 'ok'),
     presenceState: vi.fn(() => presenceState),
-    emitStatus: (status: string) => statusCb?.(status),
+    state: 'joining',
+    emitStatus: (status: string) => {
+      channel.state = status === 'SUBSCRIBED' ? 'joined' : status === 'CLOSED' ? 'closed' : 'errored'
+      statusCb?.(status)
+    },
     emit: (key: string) => (handlers.get(key) ?? []).forEach((h) => h()),
   }
   return channel
@@ -62,7 +70,20 @@ const mockChannel = vi.fn((topic: string, options: unknown) => {
   channels.push(channel)
   return channel
 })
-const mockRemoveChannel = vi.fn()
+/** 片付けたチャネル。supabase-js は同じ名前の部屋が残っていると、新しく作らずにそれを返す */
+let removed = new Set<unknown>()
+const mockRemoveChannel = vi.fn(async (channel: unknown) => {
+  removed.add(channel)
+  return 'ok'
+})
+/** まだ片付いていないチャネル（本物の getChannels） */
+const mockGetChannels = vi.fn(() => channels.filter((c) => !removed.has(c)))
+/** ログインの鍵が更新されたときの知らせ（本物の onAuthStateChange） */
+let authListener: ((event: string, session: { access_token: string } | null) => void) | null = null
+const mockOnAuthStateChange = vi.fn((cb: (event: string, session: { access_token: string } | null) => void) => {
+  authListener = cb
+  return { data: { subscription: { unsubscribe: vi.fn() } } }
+})
 const mockSetAuth = vi.fn(async (token?: string | null) => {
   order.push('setAuth')
   return token
@@ -80,7 +101,12 @@ vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     channel: (topic: string, options: unknown) => mockChannel(topic, options),
     removeChannel: (channel: unknown) => mockRemoveChannel(channel),
-    auth: { getSession: () => mockGetSession() },
+    getChannels: () => mockGetChannels(),
+    auth: {
+      getSession: () => mockGetSession(),
+      onAuthStateChange: (cb: (event: string, session: { access_token: string } | null) => void) =>
+        mockOnAuthStateChange(cb),
+    },
     realtime: { setAuth: (token?: string | null) => mockSetAuth(token) },
   }),
 }))
@@ -89,14 +115,14 @@ const SELF = { userId: 'u-self', name: '自分' }
 
 function renderPresence(overrides: Partial<Parameters<typeof useMinutesPresence>[0]> = {}) {
   return renderHook(() =>
-    useMinutesPresence({ meetingId: 'm1', enabled: true, self: SELF, ...overrides })
+    useMinutesPresence({ meetingId: 'm1', enabled: true, self: SELF, tabId: 'tab-self', ...overrides })
   )
 }
 
 /** 鍵の取得 → setAuth → subscribe まで（await の連鎖）を進める */
 async function flush(): Promise<void> {
   await act(async () => {
-    for (let i = 0; i < 6; i += 1) await Promise.resolve()
+    for (let i = 0; i < 12; i += 1) await Promise.resolve()
   })
 }
 
@@ -124,6 +150,8 @@ beforeEach(() => {
   order = []
   presenceState = {}
   channels = []
+  removed = new Set()
+  authListener = null
   setVisibility('visible')
 })
 
@@ -156,18 +184,25 @@ describe('useMinutesPresence 購読するかどうか', () => {
     expect(order).toEqual(['setAuth', 'subscribe'])
   })
 
-  it('private: true と presence の key（自分のユーザーID）を渡す', async () => {
+  it('private: true と presence の key（このタブの見分け札）を渡す', async () => {
     renderPresence()
     await subscribed()
     expect(mockChannel).toHaveBeenCalledWith('meeting-minutes:m1', {
       config: {
         private: true,
-        presence: { key: 'u-self' },
+        // 鍵はタブごと。人ごとにすると、同じ人の2つ目のタブが1つ目を上書きして消える
+        presence: { key: 'tab-self' },
         // 同時編集はこのチャネルに相乗りする（同じ名前のチャネルに2回は入れない）。
         // 自分が送ったものは受け取らない・受領確認は待たない
         broadcast: { self: false, ack: false },
       },
     })
+  })
+
+  it('Wiki のページでは wiki-page:<ページID> のチャネルに入る（部屋の名前を切り替えられる）', async () => {
+    renderPresence({ meetingId: 'p1', topicPrefix: 'wiki-page:' })
+    await subscribed()
+    expect(mockChannel).toHaveBeenCalledWith('wiki-page:p1', expect.anything())
   })
 })
 
@@ -419,7 +454,8 @@ describe('useMinutesPresence 書くのをやめたと見なす条件', () => {
       await Promise.resolve()
     })
     expect(channel.track).toHaveBeenCalledTimes(3)
-    expect(channel.track.mock.calls[2][0]).toMatchObject({ editing: false })
+    // 隠れたことも同じ1通で伝える（裏のタブを書記に選ばせないため）
+    expect(channel.track.mock.calls[2][0]).toMatchObject({ editing: false, visible: false })
   })
 })
 
@@ -453,7 +489,7 @@ describe('useMinutesPresence 後始末', () => {
   it('enabled が false に変わったら後始末する', async () => {
     const { rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
-        useMinutesPresence({ meetingId: 'm1', enabled, self: SELF }),
+        useMinutesPresence({ meetingId: 'm1', enabled, self: SELF, tabId: 'tab-self' }),
       { initialProps: { enabled: true } }
     )
     const channel = await subscribed()
@@ -603,3 +639,336 @@ describe('useMinutesPresence 在席の一覧', () => {
     expect(result.current.others).toBe(first)
   })
 })
+
+
+describe('useMinutesPresence 同じ人の別のタブ', () => {
+  /**
+   * 同じ人がタブを2つ並べて開くのは普通の使い方。
+   * 帯（「〇〇さんが書いています」）では1人にまとめるが、同時編集では**別々の
+   * 参加者**として扱う。1人にまとめてしまうと、自分の2つのタブが互いを相手と
+   * 見なさず、どちらも保存しに行って弾き合う（＝競合の帯が出続ける）。
+   */
+  function collabWiring() {
+    return { onMessage: vi.fn(), onPeers: vi.fn(), onStatus: vi.fn() }
+  }
+
+  it('帯には1人、同時編集の顔ぶれにはタブごとに渡す', async () => {
+    const collab = collabWiring()
+    const { result } = renderPresence({ collab })
+    const channel = await subscribed()
+
+    presenceState = {
+      'tab-a': [
+        { presence_ref: 'r1', user_id: 'u-a', client_id: 'tab-a', name: '佐藤', editing: false, joined_at: 100, collab: true },
+      ],
+      'tab-b': [
+        { presence_ref: 'r2', user_id: 'u-a', client_id: 'tab-b', name: '佐藤', editing: true, joined_at: 200, collab: true },
+      ],
+    }
+    await act(async () => {
+      channel.emit('presence:sync')
+      await Promise.resolve()
+    })
+
+    // 帯は1人ぶん。どちらかのタブで書いていれば「書いています」にする
+    expect(result.current.others).toHaveLength(1)
+    expect(result.current.others[0]).toMatchObject({ userId: 'u-a', name: '佐藤', editing: true })
+
+    // 同時編集はタブごと。自分のタブも顔ぶれに入る（書記を決めるため）
+    const peers = collab.onPeers.mock.calls.at(-1)?.[0] as { id: string }[]
+    expect(peers.map((p) => p.id).sort()).toEqual(['tab-a', 'tab-b', 'tab-self'])
+  })
+
+  it('「入った」は一覧の更新（sync）で知らせる。先に届く join の時点ではまだ一覧に先客が載っていない', async () => {
+    // Supabase は、入ったときの一覧（presence_state）を受け取ると、先客ごとに join を
+    // **一覧を更新する前に**出し、そのあとで sync を出す。join の時点で「入った」と
+    // 知らせると、先客が見えないまま「自分ひとりだ」と判断して本文を作ってしまう
+    // （2026-09-26 に実ブラウザで確認。Wiki では本文が食い違い、打った文字が相手に届かなかった）
+    const collab = collabWiring()
+    renderPresence({ collab })
+    const channel = await subscribed()
+
+    // join の時点: 一覧はまだ空
+    presenceState = {}
+    await act(async () => {
+      channel.emit('presence:join')
+      await Promise.resolve()
+    })
+    expect(collab.onStatus).not.toHaveBeenCalledWith('joined')
+
+    // sync の時点: 先客が載っている
+    presenceState = {
+      'tab-a': [
+        { presence_ref: 'r1', user_id: 'u-a', client_id: 'tab-a', name: '佐藤', editing: false, joined_at: 100, collab: true },
+      ],
+    }
+    await act(async () => {
+      channel.emit('presence:sync')
+      await Promise.resolve()
+    })
+    expect(collab.onStatus).toHaveBeenCalledWith('joined')
+    // 「入った」を知らせる前に渡した顔ぶれには、先客が入っている
+    const statusOrder = collab.onStatus.mock.invocationCallOrder[0]
+    const peersBefore = collab.onPeers.mock.calls.filter(
+      (_, i) => collab.onPeers.mock.invocationCallOrder[i] < statusOrder
+    )
+    expect((peersBefore.at(-1)?.[0] as { id: string }[]).map((p) => p.id)).toContain('tab-a')
+  })
+
+  it('見分け札を持たない相手（1つ前の版の画面）には、印を付けて渡す', async () => {
+    // **輪から外さない**のが要点。外すと「自分ひとりだ」と見えて目録合わせをせずに
+    // 種をまき、相手の器と食い違って本文が二重になる。印を見た側が自分で降りる
+    const collab = collabWiring()
+    renderPresence({ collab })
+    const channel = await subscribed()
+
+    presenceState = {
+      'u-old': [
+        { presence_ref: 'r1', user_id: 'u-old', name: '旧', editing: false, joined_at: 100, collab: true },
+      ],
+    }
+    await act(async () => {
+      channel.emit('presence:sync')
+      await Promise.resolve()
+    })
+
+    const peers = collab.onPeers.mock.calls.at(-1)?.[0] as {
+      id: string
+      collab: boolean
+      outdated?: boolean
+    }[]
+    const old = peers.find((p) => p.id === 'u-old')
+    expect(old?.outdated).toBe(true)
+    expect(old?.collab).toBe(true)
+    // 自分のタブには印が付かない
+    expect(peers.find((p) => p.id === 'tab-self')?.outdated).toBe(false)
+  })
+
+  it('「いま開いている」の名乗りを、そのまま顔ぶれに載せる', async () => {
+    // この印で「誰が本文を用意するか」が決まる。載せ忘れると、開いている相手が
+    // 見えないまま各自が本文を作り、中身が二重になる
+    const collab = collabWiring()
+    renderPresence({ collab })
+    const channel = await subscribed()
+
+    presenceState = {
+      'tab-open': [
+        { presence_ref: 'r1', user_id: 'u-a', client_id: 'tab-open', joined_at: 100, collab: false, present: true },
+      ],
+      'tab-phone': [
+        { presence_ref: 'r2', user_id: 'u-b', client_id: 'tab-phone', joined_at: 200, collab: false, present: false },
+      ],
+    }
+    await act(async () => {
+      channel.emit('presence:sync')
+      await Promise.resolve()
+    })
+
+    const peers = collab.onPeers.mock.calls.at(-1)?.[0] as { id: string; present?: boolean }[]
+    expect(peers.find((p) => p.id === 'tab-open')?.present).toBe(true)
+    // 名乗らない相手（スマホなど）は、待たずに済むよう false のまま
+    expect(peers.find((p) => p.id === 'tab-phone')?.present).toBe(false)
+  })
+
+  it('自分は帯に出さない（別のタブで開いていても自分は自分）', async () => {
+    const collab = collabWiring()
+    const { result } = renderPresence({ collab })
+    const channel = await subscribed()
+
+    presenceState = {
+      'tab-self': [
+        { presence_ref: 'r1', user_id: 'u-self', client_id: 'tab-self', name: '自分', editing: true, joined_at: 100, collab: true },
+      ],
+      'tab-other': [
+        { presence_ref: 'r2', user_id: 'u-self', client_id: 'tab-other', name: '自分', editing: true, joined_at: 200, collab: true },
+      ],
+    }
+    await act(async () => {
+      channel.emit('presence:sync')
+      await Promise.resolve()
+    })
+
+    expect(result.current.others).toEqual([])
+    // でも同時編集では、自分のもう1つのタブも相手として扱う
+    const peers = collab.onPeers.mock.calls.at(-1)?.[0] as { id: string }[]
+    expect(peers.map((p) => p.id).sort()).toEqual(['tab-other', 'tab-self'])
+  })
+
+  it('presence の鍵はタブごとにする（人ごとだと2つ目のタブが消える）', async () => {
+    renderPresence()
+    await subscribed()
+    expect(mockChannel).toHaveBeenCalledWith(
+      'meeting-minutes:m1',
+      expect.objectContaining({ config: expect.objectContaining({ presence: { key: 'tab-self' } }) })
+    )
+  })
+})
+
+
+describe('useMinutesPresence 同時編集の送り主の名札', () => {
+  /**
+   * 送り主の名札（`from`）は、**在席の鍵と同じ値**でなければならない。
+   * 合流の本体は「自分の見分け札」と突き合わせて宛先付きの返事を読むので、
+   * ここがずれると `y-sync2` も返事の目録も**全員に捨てられる**。
+   * その結果、後から開いたタブが4秒待って自分で種をまき、本文が二重になる。
+   */
+  it('送り主の名札は、在席の鍵（このタブの見分け札）と同じ', async () => {
+    const { result } = renderPresence({
+      collab: { onMessage: vi.fn(), onPeers: vi.fn(), onStatus: vi.fn() },
+    })
+    const channel = await subscribed()
+
+    await act(async () => {
+      result.current.sendCollab('y-update', new Uint8Array([1, 2, 3]))
+      await Promise.resolve()
+    })
+
+    const sent = channel.send.mock.calls.at(-1)?.[0] as {
+      payload: { from: string }
+    }
+    const key = (channel.options as { config: { presence: { key: string } } }).config.presence.key
+    expect(sent.payload.from).toBe(key)
+    expect(sent.payload.from).toBe('tab-self')
+  })
+
+  it('宛先を渡すと、そのまま載せて配る', async () => {
+    const { result } = renderPresence({
+      collab: { onMessage: vi.fn(), onPeers: vi.fn(), onStatus: vi.fn() },
+    })
+    const channel = await subscribed()
+
+    await act(async () => {
+      result.current.sendCollab('y-sync2', new Uint8Array([9]), 'tab-other')
+      await Promise.resolve()
+    })
+
+    const sent = channel.send.mock.calls.at(-1)?.[0] as {
+      payload: { from: string; to?: string }
+    }
+    expect(sent.payload).toMatchObject({ from: 'tab-self', to: 'tab-other' })
+  })
+})
+
+describe('useMinutesPresence 部屋から外れたとき（2026-09-28 本番で確認）', () => {
+  // 本番の実ブラウザで、タブが部屋から外れたまま戻らず、送る通がすべて「部屋の外からの
+  // 代替経路（REST）」に回っていた。相手には届かず、帯も出ないまま、ずっとずれる
+  async function waitRetry(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+    await flush()
+  }
+
+  it('つながったあとで外されたら（CLOSED）、入り直す', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderPresence()
+    await subscribed()
+    await act(async () => {
+      channels[0].emitStatus('CLOSED')
+      await Promise.resolve()
+    })
+    await waitRetry(2_000)
+    expect(mockRemoveChannel).toHaveBeenCalledWith(channels[0])
+    expect(mockChannel).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it('一度つながったあとの外れは、やり直しの回数を数え直す（前の失敗で諦めない）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const collab = { onMessage: vi.fn(), onPeers: vi.fn(), onStatus: vi.fn() }
+    renderPresence({ collab })
+    await flush()
+    // 1回目は失敗、2回目でつながる
+    await act(async () => {
+      channels[0].emitStatus('CHANNEL_ERROR')
+      await Promise.resolve()
+    })
+    await waitRetry(2_000)
+    await act(async () => {
+      channels[1].emitStatus('SUBSCRIBED')
+      await Promise.resolve()
+    })
+    // そのあと2回外れても、諦めずに入り直す
+    for (const [index, delay] of [[1, 2_000], [2, 2_000]] as const) {
+      await act(async () => {
+        channels[index].emitStatus('CLOSED')
+        await Promise.resolve()
+      })
+      await waitRetry(delay)
+      await act(async () => {
+        channels[index + 1].emitStatus('SUBSCRIBED')
+        await Promise.resolve()
+      })
+    }
+    expect(mockChannel).toHaveBeenCalledTimes(4)
+    expect(collab.onStatus).not.toHaveBeenCalledWith('error')
+    warn.mockRestore()
+  })
+
+  it('同じ名前の古い部屋が残っていれば、片付け終わるのを待ってから作る', async () => {
+    // supabase-js は同じ名前の部屋が残っていると、それを返す。閉じかけの部屋を掴むと外れたままになる
+    const stale = createFakeChannel('realtime:meeting-minutes:m1', {})
+    let finishRemoval: () => void = () => {}
+    channels.push(stale)
+    mockRemoveChannel.mockImplementationOnce(
+      (channel: unknown) =>
+        new Promise((resolve) => {
+          finishRemoval = () => {
+            removed.add(channel)
+            resolve('ok')
+          }
+        })
+    )
+    renderPresence()
+    await flush()
+    expect(mockRemoveChannel).toHaveBeenCalledWith(stale)
+    expect(mockChannel).not.toHaveBeenCalled()
+    await act(async () => {
+      finishRemoval()
+      await Promise.resolve()
+    })
+    await flush()
+    expect(mockChannel).toHaveBeenCalledTimes(1)
+  })
+
+  it('部屋に入っていないときは送らない（代替経路に回さない）。代わりに入り直す', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const collab = { onMessage: vi.fn(), onPeers: vi.fn(), onStatus: vi.fn() }
+    const { result } = renderPresence({ collab })
+    await subscribed()
+    channels[0].state = 'closed'
+    act(() => result.current.sendCollab('y-update', new Uint8Array([1, 2, 3])))
+    expect(channels[0].send).not.toHaveBeenCalled()
+    await waitRetry(2_000)
+    expect(mockChannel).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it('タブが手前に戻ったとき、部屋から外れていれば入り直す', async () => {
+    renderPresence()
+    await subscribed()
+    channels[0].state = 'closed'
+    setVisibility('hidden')
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    setVisibility('visible')
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await flush()
+    expect(mockChannel).toHaveBeenCalledTimes(2)
+  })
+
+  it('ログインの鍵が更新されたら、部屋の鍵も渡し直す（1時間で切れて外されないように）', async () => {
+    renderPresence()
+    await subscribed()
+    expect(authListener).not.toBeNull()
+    await act(async () => {
+      authListener?.('TOKEN_REFRESHED', { access_token: 'jwt-new' })
+      await Promise.resolve()
+    })
+    expect(mockSetAuth).toHaveBeenLastCalledWith('jwt-new')
+  })
+})
+

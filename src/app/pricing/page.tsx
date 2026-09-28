@@ -58,7 +58,7 @@ const plans: Plan[] = [
       '相手先（クライアント）は無制限',
       'チャット連携 3グループ',
       'AIが会話からタスクを拾う（夜間まとめ）',
-      'ポータル（閲覧・承認・起票・見積もり）',
+      'ポータル（閲覧・承認・依頼・見積もり）',
       'ボール管理（次に動く人が一目で分かる）',
       'ツール連携（Google Tasks・Notion 等）',
     ],
@@ -117,14 +117,16 @@ const plans: Plan[] = [
 ]
 
 /* ------------------------------------------------------------------ */
-/*  Backlog comparison rows                                            */
+/*  他社との月額比較（社名は伏せる）                                      */
 /* ------------------------------------------------------------------ */
 
+// 2026-09-17 調べ。すべて税抜・月払い。A社は 2027-01-01 にプラン改定
+// 根拠と出典（実名）は docs/marketing/COMPETITIVE_LANDSCAPE_2026-09.md（社内用）
 const backlogRows = [
-  { team: '5名', agentpm: '¥14,800 (Pro)', backlog: '¥2,970 (Starter)', diff: '+¥11,830', positive: false },
-  { team: '10名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
-  { team: '20名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
-  { team: '30名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
+  { team: '5名 / 3プロジェクト', agentpm: '¥0（Free）', backlog: '¥2,700（最安プラン）', diff: '-¥2,700', positive: true },
+  { team: '10名 / 20プロジェクト', agentpm: '¥14,800（Pro）', backlog: '¥16,000（標準プラン）', diff: '-¥1,200', positive: true },
+  { team: '30名 / 30プロジェクト', agentpm: '¥14,800（Pro）', backlog: '¥16,000（標準プラン）', diff: '-¥1,200', positive: true },
+  { team: '15名（2027年1月〜）', agentpm: '¥14,800（Pro）', backlog: '¥21,000（最安プラン）', diff: '-¥6,200', positive: true },
 ]
 
 /* ------------------------------------------------------------------ */
@@ -496,7 +498,7 @@ export default function PricingPage() {
               チーム規模別の月額比較
             </h2>
             <p className="text-center text-slate-500 text-sm mb-10">
-              ※ Backlog Starterは30名/5PJまで。ガントチャート等はStandard以上が必要です。
+              ※ すべて税抜・月払い。社名は伏せています。A社は2027年1月にプランが変わり、いちばん安いプランが月¥21,000（15名）になります。
             </p>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -510,7 +512,7 @@ export default function PricingPage() {
                       AgentPM
                     </th>
                     <th className="text-left font-semibold text-slate-700 px-6 py-4">
-                      Backlog
+                      A社
                     </th>
                     <th className="text-right font-semibold text-slate-700 px-6 py-4">
                       差額
@@ -720,13 +722,13 @@ export default function PricingPage() {
               稟議・社内検討が必要な方へ
             </h3>
             <p className="text-slate-600 text-sm mb-6">
-              比較表・ROI試算・セキュリティチェックシートをまとめた稟議パックをご用意しています。
+              比較表・費用の試算・セキュリティのチェックシート・移行計画の雛形を用意しています。
             </p>
             <Link
               href="/compare#approval-pack"
               className="inline-flex items-center gap-2 px-6 py-3 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors text-sm"
             >
-              稟議用資料をダウンロード
+              稟議用の資料を見る
               <ArrowRight weight="bold" size={16} />
             </Link>
           </motion.div>

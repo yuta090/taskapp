@@ -39,6 +39,8 @@ function StatusBadge({ status }: { status: MeetingStatus }) {
 export function MeetingRow({ meeting, isSelected, onClick }: MeetingRowProps) {
   return (
     <div
+      // ローカルの E2E から会議を1件開くための目印（Wiki の wiki-page-row-<id> と同じ規則）
+      data-testid={`meeting-row-${meeting.id}`}
       className={`row-h flex items-center gap-3 px-4 border-b border-gray-100 cursor-pointer transition-colors ${
         isSelected
           ? 'bg-blue-50 border-l-2 border-l-blue-500'

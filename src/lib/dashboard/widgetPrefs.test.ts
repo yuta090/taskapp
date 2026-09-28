@@ -31,10 +31,16 @@ describe('parseDashboardWidgetPrefs — 保存した表示設定を読む', () =
 })
 
 describe('DASHBOARD_WIDGETS — 選べる項目', () => {
-  it('新しく足した「期限切れ」と「最近のコメント」を含む', () => {
+  it('新しく足した「期限切れ」「確定事項」「最近のコメント」を含む', () => {
     const labels = DASHBOARD_WIDGETS.map((w) => w.label)
     expect(labels).toContain('期限切れ')
+    expect(labels).toContain('確定事項')
     expect(labels).toContain('最近のコメント')
+  })
+
+  it('確定事項は期限切れのすぐ下に並ぶ（画面の上からの順と同じ）', () => {
+    const ids = DASHBOARD_WIDGETS.map((w) => w.id)
+    expect(ids.indexOf('decisions')).toBe(ids.indexOf('overdue') + 1)
   })
 
   it('項目の id は重ならない', () => {

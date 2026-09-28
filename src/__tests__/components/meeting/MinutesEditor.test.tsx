@@ -125,6 +125,13 @@ describe('会議メモに書いた人の名前を残す', () => {
     })
   })
 
+  // PDFで保存したときに、本文の下の差し込みツールバーが紙に載らないようにする印
+  // （Wiki の WikiEditor と同じ）。印を外すと、押しても何も起きないボタンの列が PDF の末尾に刷られる
+  it('本文の下の差し込みツールバーには「紙に載せない」印が付いている', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByTestId('minutes-insert-meeting-note').closest('[data-print-hide]')).not.toBeNull()
+  })
+
   it('名前が分からないときは名前を空のまま入れる（日時だけが出る）', () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     fireEvent.click(screen.getByTestId('minutes-insert-meeting-note'))
@@ -328,6 +335,7 @@ describe('MinutesEditor の「/」メニュー', () => {
     expect(items.map((item) => item.key)).toEqual([
       'insert_meeting_note',
       'insert_task_line',
+      'insert_toc',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',
@@ -338,14 +346,19 @@ describe('MinutesEditor の「/」メニュー', () => {
       'table',
       'code_block',
       'toggle_list',
+      'divider',
     ])
   })
 
-  it('「会議メモ」と「折りたたみリスト」を出す', async () => {
+  it('「会議メモ」「折りたたみリスト」「区切り」を出す', async () => {
     render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const keys = (await capturedSlashMenuProps!.getItems!('')).map((item) => item.key)
     expect(keys).toContain('insert_meeting_note')
     expect(keys).toContain('toggle_list')
+    // 区切り線は `---` ＋スペースでも作れるが、「/」からも引ける
+    expect(keys).toContain('divider')
+    // 会議メモは先頭のまま（会議中にいちばん使う）
+    expect(keys[0]).toBe('insert_meeting_note')
   })
 
   it('「メモ」で絞り込むと会議メモが出る', async () => {
@@ -490,5 +503,45 @@ describe('MinutesEditor の「/」メニュー', () => {
   it('読み取り専用のときはメニューを出さない', () => {
     render(<MinutesEditor minutesMd="" editable={false} orgId={ORG_ID} spaceId={SPACE_ID} />)
     expect(capturedSlashMenuProps).toBeUndefined()
+  })
+})
+
+// 見出しのリンク。中身は HeadingLinks.test.tsx で確かめるので、ここは「渡したか」だけを見る
+vi.mock('@/components/editor/HeadingLinks', () => ({
+  HeadingLinks: ({ pageTitle, editor }: { pageTitle: string; editor: unknown }) => (
+    <div data-testid="heading-links" data-title={pageTitle} data-same-editor={String(editor === mockEditor)} />
+  ),
+}))
+
+describe('MinutesEditor の見出しリンク', () => {
+  it('会議名を渡すと、見出しのリンクを載せる。閲覧中でも載せる', () => {
+    render(<MinutesEditor minutesMd="" editable={false} orgId={ORG_ID} spaceId={SPACE_ID} headingLinkTitle="9/26定例" />)
+    const el = screen.getByTestId('heading-links')
+    expect(el).toHaveAttribute('data-title', '9/26定例')
+    expect(el).toHaveAttribute('data-same-editor', 'true')
+    expect(screen.getByTestId('minutes-editor')).toHaveClass('relative')
+  })
+
+  it('会議名を渡さなければ載せない', () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.queryByTestId('heading-links')).toBeNull()
+  })
+})
+
+vi.mock('@/components/editor/docPoll/MeetingDocPollHost', () => ({
+  MeetingDocPollHost: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+describe('MinutesEditor の投票', () => {
+  it('会議が分かる画面では「/v」で投票が先頭に出る', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} meetingId="m1" />)
+    const items = await capturedSlashMenuProps!.getItems!('v')
+    expect(items.slice(0, 2).map((i: { key: string }) => i.key)).toEqual(['insert_vote', 'insert_vote_must'])
+  })
+
+  it('会議を渡さない画面では「/」に投票を出さない', async () => {
+    render(<MinutesEditor minutesMd="" editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = await capturedSlashMenuProps!.getItems!('投票')
+    expect(items.map((i: { key: string }) => i.key)).toEqual([])
   })
 })

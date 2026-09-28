@@ -54,3 +54,33 @@ export function isInAppScreenHref(href: string | null | undefined): boolean {
   if (!href) return false
   return href.startsWith('/') && !href.startsWith('//') && !href.startsWith('/api/')
 }
+
+/** その場（右パネル・オーバーレイ）で開ける行き先 */
+export interface InAppLinkTarget {
+  kind: 'task' | 'wiki'
+  id: string
+}
+
+/**
+ * 本文のリンクが「このプロジェクトのタスク / Wiki」なら、その種類と ID を返す。
+ * 上の buildTaskHref / buildWikiPageHref が作った形だけを読む。別のプロジェクト・別の組織は
+ * その場で開けない（一覧を持っていない）ので null にして、これまでどおり画面を移らせる。
+ */
+export function parseInAppLinkTarget(
+  href: string | null | undefined,
+  orgId: string,
+  spaceId: string
+): InAppLinkTarget | null {
+  if (!isInAppScreenHref(href)) return null
+  const url = new URL(href!, 'http://local')
+  const base = buildProjectBasePath(orgId, spaceId)
+  if (url.pathname === base) {
+    const taskId = url.searchParams.get('task')
+    return taskId ? { kind: 'task', id: taskId } : null
+  }
+  if (url.pathname === `${base}/wiki`) {
+    const pageId = url.searchParams.get('page')
+    return pageId ? { kind: 'wiki', id: pageId } : null
+  }
+  return null
+}

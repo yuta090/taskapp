@@ -97,7 +97,7 @@ export async function POST(
     // が全て終わったあとで、実際の書き込みに使うサーバー側(service role)クライアント
     // を作る。書き込む行は確認済みの id・space_id・「変更可能な4状態」の条件で固定する
     // （確認と書き込みの間に他の誰かが状態を変えていたら 0 行になる）。
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'portal', actorUserId: user.id })
 
     const { data: updatedTask, error: updateError } = await (admin as SupabaseClient)
       .from('tasks')

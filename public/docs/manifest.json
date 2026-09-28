@@ -1,0 +1,25 @@
+{
+  "_readme": "build:approval-pack が書き出す。手で編集しない。テストが facts.json と突き合わせる。",
+  "generatedFrom": "src/lib/pricing/facts.json",
+  "asOf": "2026-09",
+  "numbers": {
+    "proMonthlyYen": 14800,
+    "proMaxMembers": 30,
+    "proMaxProjects": 30,
+    "freeMaxMembers": 5,
+    "freeMaxProjects": 3,
+    "aCurrentCheapest": 2700,
+    "aCurrentStandard": 16000,
+    "aNextCheapest": 21000,
+    "aNextStandard": 36300,
+    "tcoHourlyYen": 3000,
+    "tcoProjects": 3,
+    "tcoReductionRate": 0.5
+  },
+  "files": [
+    "agentpm-comparison.pdf",
+    "agentpm-security.pdf",
+    "agentpm-roi.xlsx",
+    "agentpm-migration-plan.xlsx"
+  ]
+}

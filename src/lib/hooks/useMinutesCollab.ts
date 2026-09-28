@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import type { DegradeReason, MinutesCollabSession, MinutesSeeder } from '@/lib/collab/session'
-import { electScribe, rankOf, type CollabPeer } from '@/lib/collab/scribe'
+import { colorIndexOf, electScribe, rankOf, type CollabPeer } from '@/lib/collab/scribe'
 import type { CollabEvent, CollabHandlers, CollabMessage, CollabStatus, CollabTransport } from '@/lib/collab/transport'
 import { useMinutesPresence, type MinutesPresencePeer } from './useMinutesPresence'
 
@@ -29,15 +29,39 @@ export const MAX_COLLAB_LENGTH = 100_000
 /** デスクトップの下限。スマホは今までどおり1人用のエディタにする（UI_RULES と同じ `md`） */
 const DESKTOP_MIN_WIDTH = 768
 
+/**
+ * いま同時編集に加われる画面か。スマホは今までどおり1人用のエディタにする。
+ * **描画の途中では呼ばない**（幅を測るのは描画が終わったあと）。
+ */
+function isDesktopWidth(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.innerWidth >= DESKTOP_MIN_WIDTH
+}
+
+/** このタブの見分け札を作る。同じ端末で並べて開いても必ず別の値になる */
+function newTabId(): string {
+  const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID()
+  return `tab-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+}
+
 export interface UseMinutesCollabOptions {
+  /** 部屋の ID。議事録なら会議の ID、Wiki ならページの ID */
   meetingId: string
+  /** 部屋の名前の頭。省略すると議事録（`meeting-minutes:`）。Wiki は `wiki-page:` */
+  topicPrefix?: string
   /** 在席を共有するか（書ける人だけ）。同時編集の可否とは別 */
   presenceEnabled: boolean
   self: { userId: string; name: string }
   /** この組織で同時編集を開いているか */
   collabAllowed: boolean
-  /** 開いたときの本文。長さの判定に使う */
+  /** 開いたときの本文（Wiki はブロックの JSON）。長さの判定に使う */
   initialMarkdown: string
+  /**
+   * この文字数を超えたら同時編集を使わない（既定は議事録の `MAX_COLLAB_LENGTH`）。
+   * Wiki の本文は JSON で同じ中身でも数倍の長さになるので、呼び出し側で広げる
+   */
+  maxLength?: number
   /** 部屋の誰かがタスク化した。列を読み直す（器の本文と列がずれたため） */
   onRoomReload?: () => void
 }
@@ -71,6 +95,11 @@ export interface UseMinutesCollabResult {
    * （空のまま打つと、あとから届いた本文と混ざる）。同時編集を使わないときは常に true
    */
   synced: boolean
+  /**
+   * 自分のカーソルを何番の色で描くか。部屋の中で重ならないように割り当てる
+   * （人ごとにハッシュで選ぶと、運が悪いと2人が同じ色になる）
+   */
+  colorIndex: number
   /** 1人で書く形へ落ちた理由。落ちていなければ null */
   degradedReason: DegradeReason | null
   /** エディタが載ったら、種をまく係を登録する（null で解除） */
@@ -122,33 +151,83 @@ function createChannelTransport(): ChannelTransport {
 
 export function useMinutesCollab({
   meetingId,
+  topicPrefix,
   presenceEnabled,
   self,
   collabAllowed,
   initialMarkdown,
+  maxLength = MAX_COLLAB_LENGTH,
   onRoomReload,
 }: UseMinutesCollabOptions): UseMinutesCollabResult {
-  // 使うかどうかは開いた時点で決め、途中で変えない（器の作り直しは本文の二重を招く）。
+  // 使うかどうかは、**使うと決めたら途中で変えない**（器の作り直しは本文の二重を招く）。
+  // ただし「使わない」から「使う」へは1回だけ変えてよい。URL から直接開くと「書けるか」の
+  // 判定が読み込み中のまま最初の描画が来るので、そこで決めて固めると、書ける人まで1人用に
+  // 固まり、2つの窓が互いに届かないままになる（2026-09-27 本番で報告）。書けない間は
+  // エディタも読み取り専用なので、ここで載せ替えても打った分は失われない。
   // 画面の幅は描画の途中では見ない（effect で見る）ので、ここには入れない
-  const [wanted] = useState(
-    () => collabAllowed && presenceEnabled && !!self.userId && initialMarkdown.length <= MAX_COLLAB_LENGTH
-  )
+  // 同時編集を始めたあとは、在席も出たり入ったりさせない（下の `enabled: presenceEnabled || wanted`）。
+  // 「書けるか」の判定は組織の一覧を読み直すあいだ一瞬「分からない」に戻ることがあり、そのたびに
+  // 部屋を出入りすると、閉じかけの古い部屋を掴んで外れたままになることがあった（2026-09-28 本番）。
+  // 保存は表の RLS で守られるので、在席を残しても書けるようにはならない
+  const ready = collabAllowed && presenceEnabled && !!self.userId && initialMarkdown.length <= maxLength
+  const [wanted, setWanted] = useState(ready)
+
+  /**
+   * このタブの見分け札。**人ではなくタブで見分ける**のが要点。
+   * 人ごとにすると、同じ人が並べて開いた2つのタブが互いを相手と見なさず、
+   * どちらも保存しに行って弾き合う（＝競合の帯が出続ける）。
+   * 値を作るのは描画のあと（effect）にする。描画の途中で作ると、同じ描画が
+   * 2回走ったときに別の値になる。
+   */
+  const [tabId, setTabId] = useState('')
+  const tabIdRef = useRef('')
+  useEffect(() => {
+    if (tabIdRef.current) return
+    tabIdRef.current = newTabId()
+    setTabId(tabIdRef.current)
+  }, [])
 
   const [session, setSession] = useState<MinutesCollabSession | null>(null)
   /** 器を用意している途中か。用意しないと決めたら false になる */
   const [preparing, setPreparing] = useState(wanted)
+  useEffect(() => {
+    if (!ready || wanted) return
+    setWanted(true)
+    setPreparing(true)
+  }, [ready, wanted])
   const [degradedReason, setDegradedReason] = useState<DegradeReason | null>(null)
   const [scribeId, setScribeId] = useState<string | null>(null)
   const [synced, setSynced] = useState(false)
+  const [colorIndex, setColorIndex] = useState(0)
+  /**
+   * 色の番号は**一度決めたら変えない**。カーソルを描く部品は相手ごとに札を1回だけ
+   * 作って使い回すので、あとから変えても相手の画面には届かない（`cursorColors.ts`）。
+   */
+  const colorIndexRef = useRef<number | null>(null)
   /** 落ちた時点で本文が入っていたか。入る前に落ちたら1人用のエディタへ載せ替える */
   const [soloFallback, setSoloFallback] = useState(false)
 
   const syncedRef = useRef(false)
-  const selfIdRef = useRef(self.userId)
+  const selfUserIdRef = useRef(self.userId)
+  /**
+   * 1つ前の版の画面が部屋に居ると分かったか。
+   * 器は使うときだけ読み込むので、**できる前に在席が届くことがある**。覚えておかないと、
+   * あとからできた器が縮退しておらず、「自分ひとりだ」と見えて種をまいてしまう。
+   */
+  const peerOutdatedRef = useRef(false)
+  /**
+   * 最後に届いた部屋の顔ぶれ。器は使うときだけ読み込むので、**できる前に在席が
+   * 届くことがある**。覚えておかないと、その顔ぶれが捨てられて器が「自分ひとりだ」と
+   * 見え、先客が居るのに本文を作ってしまう（＝二重になる）。
+   */
+  const lastPeersRef = useRef<CollabPeer[]>([])
   const seederRef = useRef<MinutesSeeder | null>(null)
   const sessionRef = useRef<MinutesCollabSession | null>(null)
   const onRoomReloadRef = useRef(onRoomReload)
   const setCollabActiveRef = useRef<(active: boolean) => void>(() => {})
+  const setCollabPresentRef = useRef<(present: boolean) => void>(() => {})
+  const setCollabStateRef = useRef<(next: { active?: boolean; present?: boolean }) => void>(() => {})
+  const setColorIndexRef = useRef<(index: number) => void>(() => {})
 
   const [transport] = useState(() => createChannelTransport())
 
@@ -162,8 +241,8 @@ export function useMinutesCollab({
     // そのまま器につないでおくと、**空のエディタに打った1文字で議事録が丸ごと消える**
     if (!syncedRef.current) setSoloFallback(true)
     // 落ちたことを在席で伝える。伝えないと、落ちた自分が書記に選ばれ続け、
-    // 誰の書いた内容も列に残らなくなる
-    setCollabActiveRef.current(false)
+    // 誰の書いた内容も列に残らなくなる（1通にまとめて送る）
+    setCollabStateRef.current({ active: false, present: false })
   }, [])
 
   /**
@@ -172,9 +251,9 @@ export function useMinutesCollab({
    * エディタが空の読み取り専用のまま固まる。
    */
   useEffect(() => {
-    if (!wanted) return
+    if (!wanted || !tabId) return
     // スマホは今までどおり1人用のエディタ（UI_RULES の `md` に合わせる）
-    if (typeof window !== 'undefined' && window.innerWidth < DESKTOP_MIN_WIDTH) {
+    if (!isDesktopWidth()) {
       setPreparing(false)
       return
     }
@@ -185,7 +264,7 @@ export function useMinutesCollab({
       .then((module) => {
         if (cancelled) return
         created = new module.MinutesCollabSession({
-          selfId: selfIdRef.current,
+          selfId: tabId,
           transport,
           onDegrade: handleDegrade,
           onSynced: () => {
@@ -198,17 +277,24 @@ export function useMinutesCollab({
           },
           onRoomReload: () => onRoomReloadRef.current?.(),
         })
-        if (seederRef.current) {
+        sessionRef.current = created
+        // 器ができる前に受け取っていたものを、ここで当てる。当てないと、
+        // 縮退していない器が「自分ひとりだ」と見えて種をまく
+        created.setPeers(lastPeersRef.current)
+        if (peerOutdatedRef.current) created.degrade('peer-outdated')
+        // 顔ぶれを渡したあとに始める。逆にすると、始まった時点の顔ぶれが空になる
+        if (seederRef.current && !created.isDegraded) {
           created.setSeeder(seederRef.current)
           created.start()
         }
-        sessionRef.current = created
         setSession(created)
         setPreparing(false)
       })
       .catch(() => {
         if (cancelled) return
-        // 読み込めなければ同時編集は使わない（画面はこれまでどおり1人用で動く）
+        // 読み込めなければ同時編集は使わない（画面はこれまでどおり1人用で動く）。
+        // 名乗りは下ろす。名乗ったままだと、ほかの人がこちらの返事を待って止まる
+        setCollabPresentRef.current(false)
         setPreparing(false)
       })
 
@@ -218,7 +304,7 @@ export function useMinutesCollab({
       if (sessionRef.current === created) sessionRef.current = null
       setSession(null)
     }
-  }, [wanted, transport, handleDegrade])
+  }, [wanted, tabId, transport, handleDegrade])
 
   const collabWiring = useMemo(
     () =>
@@ -226,11 +312,33 @@ export function useMinutesCollab({
         ? {
             onMessage: (message: CollabMessage) => transport.deliver(message),
             onPeers: (peers: CollabPeer[]) => {
+              // 顔ぶれは先に渡しておく。降りる判断で先に返すと、取りこぼしたときに
+              // 顔ぶれが空のまま＝「自分ひとりだ」と見えてしまう。
+              // 器がまだできていないこともあるので、覚えておいて器ができたときに渡し直す
+              lastPeersRef.current = peers
               sessionRef.current?.setPeers(peers)
+              // 1つ前の版の画面が混ざっている間は、こちらが輪から降りる。
+              // 相手は人ごとに数えているので、こちらが指した返事役に応えられず、
+              // 待ちぼうけの末に各自が種をまいて本文が二重になる
+              if (peers.some((peer) => peer.outdated && peer.id !== tabIdRef.current)) {
+                peerOutdatedRef.current = true
+                sessionRef.current?.degrade('peer-outdated')
+                // 器がまだ無いと上の縮退が走らないので、名乗りはここでも下ろす。
+                // 名乗ったまま輪に入らない人が残ると、ほかの人が猶予切れまで待たされる
+                setCollabPresentRef.current(false)
+                setDegradedReason((prev) => prev ?? 'peer-outdated')
+                return
+              }
               setScribeId(electScribe(peers))
-              // 人数が多い部屋では、**あとから入った人から**輪に入らない形に落とす
+              if (colorIndexRef.current === null) {
+                colorIndexRef.current = colorIndexOf(peers, selfUserIdRef.current)
+                setColorIndex(colorIndexRef.current)
+                // 取った番号を在席で配る。配らないと、あとから入った人が同じ番号を取る
+                setColorIndexRef.current(colorIndexRef.current)
+              }
+              // 人数が多い部屋では、**あとから入ったタブから**輪に入らない形に落とす
               // （全員で落とすと、先に書いていた人まで巻き込む）
-              if (rankOf(peers, selfIdRef.current) >= MAX_COLLAB_PEERS) {
+              if (tabIdRef.current && rankOf(peers, tabIdRef.current) >= MAX_COLLAB_PEERS) {
                 sessionRef.current?.degrade('too-many-peers')
               }
             },
@@ -242,25 +350,63 @@ export function useMinutesCollab({
 
   // 顔ぶれは `onPeers` で直に受け取る（React の状態より早く、取りこぼしが無い）。
   // ここで受ける `others` は「〇〇さんが書いています」の表示にだけ使う
-  const { others, setEditing, sendCollab, setCollabActive } = useMinutesPresence({
+  const {
+    others,
+    setEditing,
+    sendCollab,
+    setCollabActive,
+    setCollabPresent,
+    setCollabState,
+    setColorIndex: publishColorIndex,
+  } = useMinutesPresence({
     meetingId,
-    enabled: presenceEnabled,
+    topicPrefix,
+    enabled: presenceEnabled || wanted,
     self,
+    tabId,
     collab: collabWiring,
   })
 
   useEffect(() => {
-    selfIdRef.current = self.userId
+    selfUserIdRef.current = self.userId
     setCollabActiveRef.current = setCollabActive
+    setCollabPresentRef.current = setCollabPresent
+    setCollabStateRef.current = setCollabState
+    setColorIndexRef.current = publishColorIndex
     transport.setSender(sendCollab)
     return () => transport.setSender(null)
-  }, [transport, sendCollab, setCollabActive, self.userId])
+  }, [
+    transport,
+    sendCollab,
+    setCollabActive,
+    setCollabPresent,
+    setCollabState,
+    publishColorIndex,
+    tabId,
+    self.userId,
+  ])
+
+  /**
+   * 「いまこの議事録を開いて同時編集に加わるつもりだ」を、**器の用意が終わる前から**
+   * 在席で伝える。伝えないと、ほぼ同時に開いた相手がこちらに気づかず、自分で本文を
+   * 作ってしまい、合流したときに中身が二重になる（片方を消してももう片方が残る）。
+   */
+  useEffect(() => {
+    if (!wanted || degradedReason) return
+    // スマホは輪に加われないので名乗らない。名乗ると、加わらないのに相手を
+    // 待たせるだけになる（相手はこちらの返事を待って猶予切れまで書けない）
+    if (!isDesktopWidth()) return
+    setCollabPresent(true)
+  }, [wanted, degradedReason, setCollabPresent])
 
   const registerSeeder = useCallback((seeder: MinutesSeeder | null) => {
     seederRef.current = seeder
     const current = sessionRef.current
     if (!current || current.isDegraded) return
     current.setSeeder(seeder)
+    // 始める前に、いまの顔ぶれを渡し直す。始まった時点の顔ぶれで
+    // 「本文を作るか・相手に聞くか」が決まるため
+    current.setPeers(lastPeersRef.current)
     if (seeder) current.start()
   }, [])
 
@@ -282,12 +428,13 @@ export function useMinutesCollab({
      * 書記として振る舞うのは**本文が入ってから**。入る前に保存へ行くと、
      * 空の器の中身で議事録を上書きしてしまう。
      */
-    isScribe: solo || !!degradedReason || (synced && scribeId === self.userId),
+    isScribe: solo || !!degradedReason || (synced && !!tabId && scribeId === tabId),
     fragment: solo ? null : (session?.fragment ?? null),
     awareness: solo ? null : (session?.awareness ?? null),
     meta: session?.meta ?? null,
     isApplyingRemote,
     synced: solo || synced,
+    colorIndex,
     degradedReason,
     registerSeeder,
     requestRoomReload,

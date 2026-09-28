@@ -15,6 +15,7 @@ Wiki 一覧が「タイトル＋タグ3つ＋『○日前』」の一列表示�
 | PR2 `feat/wiki-structure` | ピン留め（常に一番上）・フォルダ（親子）・マイルストーン紐づけ＋「フォルダ / マイルストーン別」表示切替 | あり（列追加） |
 | PR3 | タスク側から同じマイルストーンの Wiki を引ける導線（TaskInspector） | なし |
 | PR4 `feat/wiki-milestone-chips` | 所属マイルストーンを行にチップ表示・マイルストーン別で重複表示＋印・延べ件数 | なし |
+| PR5 `feat/wiki-folders` | フォルダの作成・名前変更・削除・ドラッグ移動・フォルダ表示の並べ替え | あり（列追加） |
 
 ---
 
@@ -254,3 +255,120 @@ Wiki と議事録のエディタを共通化し、本文からファイル・Wik
 - 個別だった `WikiFileLinkPicker` / `MinutesWikiLinkPicker` は `AppLinkPicker` に統合（削除済み）
 - アプリの中の画面へのリンクは**同じタブ**で開き、ブラウザの「戻る」で書いていたページに戻る
 - CLI/API も同じリンクを `link` で返す
+
+## PR5: フォルダの作成・名前変更・削除・ドラッグ移動・フォルダ表示の並べ替え（2026-09-26）
+
+PR2 で親子関係（`parent_page_id`）は入れたが、フォルダを作る・名前を変える・削除する・
+ドラッグで動かす操作が無く、フォルダ表示でも並べ替えが効かなかった（`sort_order` 固定）。
+「フォルダ＝ページ」（Notion 型・本文も持てる）の方針は維持し、新規テーブルは作らない。
+
+### DB（`wiki_pages` に列追加・RLS 変更なし）
+
+```sql
+alter table public.wiki_pages
+  add column if not exists is_folder boolean not null default false;
+```
+
+- migration: `supabase/migrations/20260926072658_wiki_page_is_folder.sql`
+- 既定 `false`・NOT NULL。既存行の backfill はしない（本番の既存フォルダ運用は別途）。
+- `is_folder = true` のページと、`is_folder = false` でも子ページを持つページの両方を
+  「フォルダ扱い」とみなす（フォルダのアイコン・フォルダ先出しの並べ替え・ドラッグの
+  落とし先の判定はすべてこの2条件のORで揃える）。
+
+### 新しいフォルダ `WikiListToolbar` + `WikiInlineCreateRow`（新規）
+
+- ツールバーに「新しいフォルダ」ボタン（`canEdit` のときだけ・`data-testid="wiki-new-folder"`）。
+- モーダルは禁止のため、押すとフォルダ表示に切り替わり、一覧の先頭にインライン入力行
+  （`WikiInlineCreateRow`）が出る。Enter で確定（空・空白だけは不可）、Escape で取り消す。
+- 作成は既存の `createPage` に `isFolder: true` を渡すだけ（`CreateWikiPageInput.isFolder`
+  / `parentPageId` を追加）。楽観更新は既存の createPage の仕組みに乗る。
+
+### アイコン `WikiPageRow`
+
+- `isFolder` prop（呼び出し側が `page.is_folder === true || 子を持つか` で計算して渡す）。
+  一覧・フォルダ・マイルストーン別のどの表示でも出す。
+- フォルダ表示で展開中（`hasChildren && !collapsed`）は `FolderOpen`、それ以外は `Folder`
+  （`data-testid="wiki-folder-icon"`、`data-open` で開閉を判別可能にしてテストする）。
+- 通常ページ（フォルダでない行）はアイコンを追加しない（従来どおり）。
+
+### 名前変更・削除 `WikiPageRow` + `WikiPageClient`
+
+- タイトルのダブルクリックでその場編集（`canEdit` かつ `onRename` があるときだけ）。
+  Enter で確定・Escape/外側クリックで取り消し・空では確定しない。
+- `isFolder && canEdit` の行だけ「…」メニュー（`DotsThree`）を出し、「名前を変更」
+  （ダブルクリックと同じ編集状態を開く）と「削除」を選べる。
+- 削除は確認をはさむ（#992 と同じ `useConfirmDialog`）。文言:
+  「フォルダを削除します。中のページは1つ上の階層に移ります。この操作は取り消せません。」
+- 削除の手順: `childrenReparentTargets(pages, folderId)`（純粋関数・`listView.ts`）で
+  直下の子の新しい親（削除するフォルダの親。無ければ `null`）を求め、
+  子を1件ずつ `updatePage({ parent_page_id })` → 全部終わってから `deletePage(folderId)`。
+  孫以下は触らない（直下の子だけが1段上がる）。
+
+### ドラッグでの移動（フォルダ表示・デスクトップ`md`以上のみ）
+
+- HTML5 の drag and drop のみ（外部ライブラリなし）。`WikiPageRow` に
+  `isDraggable` / `onDragStartPage` / `onDragOverPage` / `onDropPage` / `onDragEndPage` /
+  `dropHighlight`（`'valid' | 'invalid'`）を追加。
+- 落とせるかどうかは `isValidWikiDropTarget(pages, draggedId, targetId)`（純粋関数）で判定:
+  - `targetId === null`（一覧先頭に出る「一番上の階層へ」の特別な落とし先）は常に許可。
+  - 自分自身の上、自分の子孫（`descendantIds` で判定・循環防止）の中へは不可。
+  - 落とし先は「フォルダ扱い」の行のみ（`is_folder` または子を持つ）。
+- 落とせる先は破線＋`bg-indigo-50`、落とせない先は行を薄くして `cursor-not-allowed`。
+- 移動は `updatePage(draggedId, { parent_page_id: targetId })`（楽観更新は既存の
+  `updatePage` に乗る。失敗時は自動でロールバックされ、追加のエラー表示はしていない）。
+- モバイル（`md` 未満）は今までどおりページ情報パネルの「親ページ」セレクトで移動する
+  （変更なし）。
+
+### フォルダ表示の並べ替え `src/lib/wiki/listView.ts`
+
+- `buildWikiTree(pages, sort = DEFAULT_WIKI_SORT, getAuthorName)` に変更（第2・3引数を追加）。
+  各階層の兄弟ごとに **フォルダ（`is_folder` または子あり）を先、ページを後** にし、
+  それぞれの中を `sort`（ツールバーの並べ替え。既存の `prefs.sort` をそのまま使う）で並べる。
+- 旧来の `sort_order` 列は**もう見ない**（並べ替えは常に選ばれているため）。列自体は
+  残っているが、フォルダ表示の並び順には使わない。
+- ピン留めは今までどおり一番上の階層だけで最優先（`WikiPageClient` 側で根ノードを
+  ピン留め優先に並べ直してから `buildWikiTree` の結果を使う。子の並びはそのまま）。
+- 絞り込み（祖先だけ残す `pruneWikiTreeToMatches`）とは独立に効く（絞り込み後の配列に
+  対して並べ替え＋フォルダ先出しを行う）。
+
+### 純粋ロジック（テスト必須・`src/lib/wiki/listView.ts`）
+
+```ts
+/** フォルダ削除時、直下の子ページの新しい parent_page_id（フォルダの親。無ければ null）。 */
+export function childrenReparentTargets(
+  pages: WikiPage[],
+  folderId: string
+): { id: string; newParentId: string | null }[]
+
+/** ドラッグ移動の可否。target が null なら常に許可（一番上の階層へ）。 */
+export function isValidWikiDropTarget(
+  pages: WikiPage[],
+  draggedId: string,
+  targetId: string | null
+): boolean
+```
+
+### 受け入れ条件（テスト）
+
+- `listView.test.ts`: `buildWikiTree` のフォルダ先出し＋選んだ並べ替えの反映（既存の
+  `sort_order` 前提のテストは新しい挙動に更新）、`childrenReparentTargets`（子あり/根/子なし）、
+  `isValidWikiDropTarget`（root常に可・自分自身不可・子孫不可・非フォルダ不可・存在しないid不可）。
+- `WikiPageRow.test.tsx`: フォルダアイコンの出し分け（`isFolder`・展開/折りたたみ）、
+  ダブルクリックでの編集開始・Enter確定・Escape取消・空は不可、フォルダの「…」メニューから
+  削除、ドラッグの各コールバック・`dropHighlight` の見た目。
+- `WikiListToolbar.test.tsx`: `canEdit` のときだけ「新しいフォルダ」ボタンが出て
+  `onCreateFolder` が呼ばれる。
+- `WikiInlineCreateRow.test.tsx`: Enter確定・空/空白は不可・Escape取消。
+- `WikiPageClient.folders.test.tsx`: ボタン押下→フォルダ表示へ切替＋インライン入力、
+  確定で `createPage({ isFolder: true })`、名前変更で `updatePage`、削除の確認→子の
+  付け替え→`deletePage` の順、ドラッグでの移動・「一番上の階層へ」・子孫への移動不可、
+  一覧表示ではドラッグ不可。
+- migration 回帰: `wikiPageIsFolderMigration.test.ts`（列追加が冪等・RLS/トリガー/GRANT
+  を触らない）。
+
+### やらないこと（PR5）
+
+- フォルダの中にさらに「この中に新しいフォルダ」を作る専用導線（親ページ選択やドラッグで
+  代替可能なため見送り）。
+- 削除時の一括確認（複数フォルダの同時削除）。
+- モバイルでのドラッグ移動（`md` 未満は従来どおり「親ページ」セレクトのみ）。

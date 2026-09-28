@@ -14,6 +14,7 @@ import {
   CircleNotch,
   ArrowSquareOut,
   Trash,
+  FilePdf,
 } from '@phosphor-icons/react'
 import { AmberBadge, useConfirmDialog } from '@/components/shared'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -70,6 +71,13 @@ export function MeetingInspector({
   const { members } = useSpaceMembers(meeting.space_id)
   const resolveParticipantName = (userId: string): string =>
     members.find((m) => m.id === userId)?.displayName || 'メンバー'
+
+  // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
+  // 会議名・日時と本文だけに絞る指定は globals.css の @media print 側にあり、画面に置いた
+  // data-print-root / data-print-hide の印を見ている（MinutesDocumentView.tsx）。
+  const handlePrintPdf = () => {
+    window.print()
+  }
 
   const clientParticipants = participants.filter((p) => p.side === 'client')
   const internalParticipants = participants.filter((p) => p.side === 'internal')
@@ -348,6 +356,20 @@ export function MeetingInspector({
 
             {/* Actions */}
             <div className="pt-4 space-y-2">
+              {/* PDFで保存。読むだけの人にも出す（控えを持ち帰れるように） */}
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={handlePrintPdf}
+                  data-testid="meeting-print-pdf"
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <FilePdf className="text-base" />
+                  PDFで保存
+                </button>
+                <p className="text-[10px] text-gray-400">印刷の画面が開きます。保存先で「PDF」を選んでください</p>
+              </div>
+
               {/* AT-002: plannedの場合のみ開始ボタンを表示 */}
               {meeting.status === 'planned' && (
                 <>

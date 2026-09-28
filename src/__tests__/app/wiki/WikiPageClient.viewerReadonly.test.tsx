@@ -19,6 +19,7 @@ function page(overrides: Partial<WikiPage> = {}): WikiPage {
     milestone_id: null,
     pinned_at: null,
     sort_order: null,
+    is_folder: false,
     created_by: 'user1',
     updated_by: 'user1',
     created_at: '2026-09-01T00:00:00+09:00',
@@ -88,11 +89,19 @@ vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
 vi.mock('@/lib/hooks/useWikiDecisionCounts', () => ({
   useWikiDecisionCounts: () => ({ countsByPageId: new Map(), loading: false }),
 }))
+// 参照しているタスクの取得。毎回同じ配列を返す（新しい配列だとページ情報パネルを毎回作り直す）
+const NO_REFERENCING_TASKS = vi.hoisted(() => [] as never[])
+// 本文の投票ブロックの先読み（中身はエディタ側で確かめる。ここでは画面の配線だけを見る）
+vi.mock('@/lib/hooks/useDocPolls', () => ({ usePrefetchDocPolls: () => {} }))
+
+vi.mock('@/lib/hooks/useWikiPageReferencingTasks', () => ({
+  useWikiPageReferencingTasks: () => ({ tasks: NO_REFERENCING_TASKS, loading: false, error: null }),
+}))
 
 // エディタ本体(Tiptap)は重いので、editable の値だけを検証できるように差し替える
 vi.mock('@/components/wiki/WikiEditorDynamic', () => ({
-  WikiEditorDynamic: ({ editable }: { editable: boolean }) => (
-    <div data-testid="wiki-editor" data-editable={String(editable)} />
+  WikiEditorDynamic: ({ editable, headingLinkTitle }: { editable: boolean; headingLinkTitle?: string }) => (
+    <div data-testid="wiki-editor" data-editable={String(editable)} data-heading-link-title={headingLinkTitle} />
   ),
 }))
 
@@ -119,6 +128,12 @@ describe('WikiPageClient — 閲覧者（viewer）には編集操作を出さな
     searchParamsValue = 'page=p1'
     setup()
     await waitFor(() => expect(screen.getByTestId('wiki-editor')).toHaveAttribute('data-editable', 'false'))
+  })
+
+  it('閲覧者にも見出しのリンク（ページ名を添えてコピー）を出す', async () => {
+    searchParamsValue = 'page=p1'
+    setup()
+    await waitFor(() => expect(screen.getByTestId('wiki-editor')).toHaveAttribute('data-heading-link-title', 'ページ1'))
   })
 
   it('ページ情報パネル(WikiPageInspector)には編集用のコールバックを渡さない', async () => {

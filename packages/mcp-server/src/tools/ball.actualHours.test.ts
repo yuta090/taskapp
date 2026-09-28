@@ -44,6 +44,10 @@ vi.mock('../supabase/client.js', () => ({
   }),
 }))
 vi.mock('../auth/helpers.js', () => ({ checkAuth: async () => ({ ctx: {}, role: 'admin' }) }))
+// 認証コンテキストはリクエストごとのストアから来る（本番は無ければ例外で止まる）。
+// このテストはツールの中身だけを見るので、操作者を固定したモックを置く
+vi.mock('../config.js', () => ({ getAuthContext: () => ({ keyId: 'k', userId: 'actor-1', orgId: 'org-1', scope: 'org', allowedSpaceIds: null, allowedActions: ['read', 'write'] }) }))
+
 
 const { ballPass, ballQuery } = await import('./ball.js')
 

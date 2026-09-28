@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
-import { config } from '../config.js';
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js';
-import { assertUsersInSpaceOrg } from '../auth/scope.js';
+import { assertUsersInSpaceOrg, requireActorUserId } from '../auth/scope.js';
 import { ToolUserError } from '../errors.js';
 import { inviteRoleConflictMessage } from '../lib/inviteRoleConflict.js';
 import { notFoundOr, hideDbError } from '../lib/dbErrors.js';
@@ -67,7 +66,7 @@ export async function clientInviteCreate(params) {
     await checkAuth(params.spaceId, 'write', 'client_invite_create', 'invite');
     const supabase = getSupabaseClient();
     const orgId = await getOrgId(params.spaceId);
-    const actorId = config.actorId;
+    const actorId = requireActorUserId();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + params.expiresInDays);
     const email = params.email.toLowerCase();
@@ -144,7 +143,7 @@ export async function clientInviteBulkCreate(params) {
     await checkAuth(params.spaceId, 'bulk', 'client_invite_bulk_create', 'invite');
     const supabase = getSupabaseClient();
     const orgId = await getOrgId(params.spaceId);
-    const actorId = config.actorId;
+    const actorId = requireActorUserId();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + params.expiresInDays);
     // 1件ずつ入れる。DB は「招待の種類はその人の組織の役割と合わせる」決まりを持っているので、

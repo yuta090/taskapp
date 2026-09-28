@@ -42,9 +42,13 @@ vi.mock('@/lib/hooks/useMinutesPresence', () => ({
 
 vi.mock('@/lib/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
+// 保存のあとの「保存された」知らせ（相手先ポータルがその場で読み直す・DOC_VOTE_SPEC §6）
+const mockSendDocSignal = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/hooks/useDocVoteSignal', () => ({ sendDocSignal: mockSendDocSignal }))
+
 let capturedOnChange: ((md: string) => void) | undefined
 let capturedOnBeforeNavigate: (() => Promise<void>) | undefined
-let lastEditorProps: { minutesMd: string; editable: boolean } | null = null
+let lastEditorProps: { minutesMd: string; editable: boolean; headingLinkTitle?: string } | null = null
 let mountCount = 0
 
 vi.mock('@/components/meeting/MinutesEditorDynamic', () => ({
@@ -53,10 +57,11 @@ vi.mock('@/components/meeting/MinutesEditorDynamic', () => ({
     editable: boolean
     onChange?: (md: string) => void
     onBeforeNavigate?: () => Promise<void>
+    headingLinkTitle?: string
   }) => {
     capturedOnChange = props.onChange
     capturedOnBeforeNavigate = props.onBeforeNavigate
-    lastEditorProps = { minutesMd: props.minutesMd, editable: props.editable }
+    lastEditorProps = { minutesMd: props.minutesMd, editable: props.editable, headingLinkTitle: props.headingLinkTitle }
     React.useEffect(() => {
       mountCount += 1
     }, [])
@@ -808,6 +813,24 @@ describe('議事録からタスクやWikiへ移って戻ったとき、見てい
     expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(900)
   })
 
+  it('URL に見出しの # があれば、覚えた場所には戻さない（見出しへの移動を優先する）', async () => {
+    saveMinutesScroll('m1', 900, BODY.length)
+    window.history.replaceState(null, '', '/org1/project/space1/meetings?meeting=m1#' + encodeURIComponent('まとめ'))
+    try {
+      await open()
+      expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(0)
+      // 覚えた場所はこの回で使い切る（次に # 無しで開いたときに古い場所へ飛ばさない）
+      expect(readMinutesScroll('m1', BODY.length)).toBeNull()
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
+
+  it('見出しのリンクに添えるため、会議名をエディタに渡す', async () => {
+    await open()
+    expect(lastEditorProps?.headingLinkTitle).toBe('定例MTG')
+  })
+
   it('覚えていなければ先頭のまま', async () => {
     await open()
     expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(0)
@@ -834,13 +857,182 @@ describe('議事録からタスクやWikiへ移って戻ったとき、見てい
     expect(readMinutesScroll('m1', BODY.length)).toBeNull()
   })
 
-  it('戻すのは一度だけ。画面を組み直しても二度目は動かさない', async () => {
+  it('戻したら、覚えていた場所は消す（古い場所を使い回さない）', async () => {
     saveMinutesScroll('m1', 900, BODY.length)
-    const { unmount } = await open()
+    await open()
     expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(900)
+    expect(readMinutesScroll('m1', BODY.length)).toBeNull()
+  })
+
+  it('左メニューなど本文のリンク以外で画面を離れても、見ていた場所を覚える', async () => {
+    const { unmount } = await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 640
+    fireEvent.scroll(box)
 
     unmount()
+    expect(readMinutesScroll('m1', BODY.length)).toBe(640)
+  })
+
+  it('離れたときの場所を覚えるので、もう一度開くとそこへ戻る', async () => {
+    const { unmount } = await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 640
+    fireEvent.scroll(box)
+    unmount()
+
     await open()
-    expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(0)
+    expect(screen.getByTestId('minutes-scroll-box').scrollTop).toBe(640)
+  })
+
+  it('先頭のまま離れたときは覚えない', async () => {
+    saveMinutesScroll('m1', 900, BODY.length)
+    const { unmount } = await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 0
+    fireEvent.scroll(box)
+
+    unmount()
+    expect(readMinutesScroll('m1', BODY.length)).toBeNull()
+  })
+
+  it('タブを閉じる・再読み込みの直前にも覚える', async () => {
+    await open()
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 520
+    fireEvent.scroll(box)
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'))
+    })
+    expect(readMinutesScroll('m1', BODY.length)).toBe(520)
+  })
+})
+
+describe('戻した場所を、本文が組み上がるまで押さえる', () => {
+  const BODY = '# 定例MTG\n\n本文'
+
+  /** jsdom には ResizeObserver が無いので、呼び出しを手で起こせる差し替えを使う */
+  class FakeResizeObserver {
+    static instances: FakeResizeObserver[] = []
+    observed: Element[] = []
+    disconnected = false
+    constructor(public callback: () => void) {
+      FakeResizeObserver.instances.push(this)
+    }
+    observe(el: Element) {
+      this.observed.push(el)
+    }
+    unobserve() {}
+    disconnect() {
+      this.disconnected = true
+    }
+  }
+
+  const observer = () => FakeResizeObserver.instances[0]
+  /** 本物と同じく、外したあとは呼ばれない */
+  const heightChanged = () => {
+    const o = observer()
+    if (!o.disconnected) o.callback()
+  }
+
+  beforeEach(() => {
+    window.sessionStorage.clear()
+    FakeResizeObserver.instances = []
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function openAt(top: number) {
+    saveMinutesScroll('m1', top, BODY.length)
+    const utils = setup()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    return utils
+  }
+
+  it('本文の高さを見張る', async () => {
+    await openAt(900)
+    expect(observer().observed[0]).toBe(screen.getByTestId('minutes-editor-region'))
+  })
+
+  it('本文が伸びて位置がずれたら、入れ直す', async () => {
+    await openAt(900)
+    const box = screen.getByTestId('minutes-scroll-box')
+    // ブラウザが「見えているもの」を保とうとして位置を動かした状態を作る
+    box.scrollTop = 984
+    act(heightChanged)
+    expect(box.scrollTop).toBe(900)
+  })
+
+  it('利用者が自分で動かしたら、押さえるのをやめる', async () => {
+    await openAt(900)
+    const box = screen.getByTestId('minutes-scroll-box')
+    fireEvent.wheel(box)
+    expect(observer().disconnected).toBe(true)
+
+    box.scrollTop = 1200
+    act(heightChanged)
+    expect(box.scrollTop).toBe(1200)
+  })
+
+  it('決めた時間が過ぎたら、押さえるのをやめる', async () => {
+    await openAt(900)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(observer().disconnected).toBe(true)
+  })
+
+  it('本文が組み上がる前に離れても、戻したかった場所を覚える', async () => {
+    // 枠にまだ高さが無いと位置は 0 に丸められる。そのまま 0 を覚えると
+    // 「先頭にいた」とみなされ、せっかく覚えた場所が消える
+    const { unmount } = await openAt(900)
+    const box = screen.getByTestId('minutes-scroll-box')
+    box.scrollTop = 0
+    fireEvent.scroll(box)
+
+    unmount()
+    expect(readMinutesScroll('m1', BODY.length)).toBe(900)
+  })
+
+  it('画面を離れたら、見張りを外す', async () => {
+    const { unmount } = await openAt(900)
+    unmount()
+    expect(observer().disconnected).toBe(true)
+  })
+})
+
+describe('MinutesDocumentView — 保存のあとの知らせ', () => {
+  it('保存が通ったら、その会議のチャネルに「保存された」と知らせる', async () => {
+    const { updateMinutes } = setup()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    act(() => capturedOnChange?.('# 定例MTG\n\n会議中に足した行'))
+    expect(mockSendDocSignal).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(updateMinutes).toHaveBeenCalled()
+    expect(mockSendDocSignal).toHaveBeenCalledWith('meeting-minutes-view:m1', 'minutes-saved')
+  })
+
+  it('保存に失敗したら知らせない', async () => {
+    const failing = vi.fn().mockRejectedValue(new Error('network'))
+    setup({}, { updateMinutes: failing })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    act(() => capturedOnChange?.('# 定例MTG\n\n会議中に足した行'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(failing).toHaveBeenCalled()
+    expect(mockSendDocSignal).not.toHaveBeenCalled()
   })
 })

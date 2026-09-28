@@ -16,7 +16,11 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-function okBytes(text: string, encoding: 'utf-8' | 'shift_jis' = 'utf-8') {
+function okBytes(
+  text: string,
+  encoding: 'utf-8' | 'shift_jis' = 'utf-8',
+  updatedAt: string | null = '2026-09-17T00:00:00.000Z'
+) {
   const bytes =
     encoding === 'utf-8'
       ? new TextEncoder().encode(text)
@@ -24,6 +28,7 @@ function okBytes(text: string, encoding: 'utf-8' | 'shift_jis' = 'utf-8') {
   return {
     ok: true,
     status: 200,
+    headers: { get: (name: string) => (name.toLowerCase() === 'x-updated-at' ? updatedAt : null) },
     arrayBuffer: () => Promise.resolve(bytes.buffer),
   }
 }
@@ -73,5 +78,40 @@ describe('useFileTable', () => {
 
   it('queryKey は fileTable + fileId', () => {
     expect(fileTableQueryKey('f1')).toEqual(['fileTable', 'f1'])
+  })
+})
+
+describe('useFileTable 保存のための情報', () => {
+  it('いまの版(x-updated-at)を、保存の基準として持ち帰る', async () => {
+    fetchMock.mockResolvedValue(okBytes('a,b\n1,2\n'))
+    const { result } = renderHook(() => useFileTable('f1'), { wrapper })
+
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(result.current.data?.updatedAt).toBe('2026-09-17T00:00:00.000Z')
+  })
+
+  it('版が返ってこないときは null(保存の前に読み直す合図)', async () => {
+    fetchMock.mockResolvedValue(okBytes('a,b\n1,2\n', 'utf-8', null))
+    const { result } = renderHook(() => useFileTable('f1'), { wrapper })
+
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(result.current.data?.updatedAt).toBeNull()
+  })
+
+  it('元の区切り(タブ)を覚えておく。書き戻すときに CSV に変えてしまわないため', async () => {
+    fetchMock.mockResolvedValue(okBytes('会社名\t県\nA社\t広島県\n'))
+    const { result } = renderHook(() => useFileTable('f1'), { wrapper })
+
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(result.current.data?.delimiter).toBe('\t')
+    expect(result.current.data?.table.columns).toEqual(['会社名', '県'])
+  })
+
+  it('ふつうの CSV の区切りはカンマ', async () => {
+    fetchMock.mockResolvedValue(okBytes('a,b\n1,2\n'))
+    const { result } = renderHook(() => useFileTable('f1'), { wrapper })
+
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(result.current.data?.delimiter).toBe(',')
   })
 })

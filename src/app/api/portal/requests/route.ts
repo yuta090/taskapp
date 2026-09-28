@@ -279,7 +279,7 @@ export async function POST(request: NextRequest) {
     // 相手先(client)の操作は、本人の確認(membership)をログイン中のセッションで
     // 行った上で、実際の書き込みはサーバー側(service role)で行う。space_id は
     // 上で確かめた membership の値に固定する。
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'portal', actorUserId: user.id })
 
     const { data: task, error: insertError } = await (admin as SupabaseClient)
       .from('tasks')

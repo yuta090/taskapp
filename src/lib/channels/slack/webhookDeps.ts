@@ -72,7 +72,7 @@ export const slackWebhookDeps: SlackWebhookDeps = {
   hashClaimCode: (canonical) => hashSharedGroupClaimCode(canonical),
   findValidClaimCode: (codeHash, accountId) => findValidSharedGroupClaimCode(codeHash, accountId),
   hasExternalChatChannels: async (orgId) => {
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'webhook' }) as SupabaseClient
     const ent = await resolveOrgEntitlements(admin, orgId)
     return ent.has('external_chat_channels')
   },

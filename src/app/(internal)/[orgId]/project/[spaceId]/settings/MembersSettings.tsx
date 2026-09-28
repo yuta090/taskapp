@@ -34,6 +34,8 @@ interface Member {
   avatarUrl: string | null
   role: string
   joinedAt: string
+  /** ログインに使っているメール。DB が返さない人（見る権限が無いとき）は null */
+  email: string | null
 }
 
 interface MembersSettingsProps {
@@ -109,18 +111,6 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   // 表示するのはメンバーのタブだけなので、招待のタブでは取りに行かない
   const joinedAtByUser = useSpaceMemberJoinedAt(spaceId, activeTab === 'members')
 
-  const members: Member[] = useMemo(
-    () =>
-      sharedMembers.map((m) => ({
-        userId: m.id,
-        displayName: m.displayName,
-        avatarUrl: m.avatarUrl,
-        role: m.role,
-        joinedAt: joinedAtByUser?.[m.id] ?? '',
-      })),
-    [sharedMembers, joinedAtByUser]
-  )
-
   const supabase = useMemo(() => createClient(), [])
 
   const roleKey: 'client' | 'member' = inviteRole === 'client' ? 'client' : 'member'
@@ -161,12 +151,32 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     [userSpaces, spaceId]
   )
 
-  // 役割の選択肢を「その人の組織の役割」で絞る（RC-2, role-consistency-decision）。
+  // 組織メンバー一覧の使い道は2つ。①役割の選択肢を「その人の組織の役割」で絞る
+  // （RC-2, role-consistency-decision）②一覧に出すメールアドレスの出どころ。
   // 役割を変えられる人（管理者）がメンバータブを開いたときだけ、一覧と並行して取りに行く。
-  const { roleByUserId: orgRoleByUserId, isPending: orgMembersPending, isLoadingError: orgMembersLoadingError } =
-    useOrgMembers(orgId, {
-      enabled: (isAdmin || isLikelyAdminFromUserSpaces) && activeTab === 'members',
-    })
+  // メールを返すかどうかは DB が決める（組織のオーナー / 管理者のときだけ・それ以外は null）。
+  const {
+    roleByUserId: orgRoleByUserId,
+    emailByUserId: orgEmailByUserId,
+    isPending: orgMembersPending,
+    isLoadingError: orgMembersLoadingError,
+  } = useOrgMembers(orgId, {
+    enabled: (isAdmin || isLikelyAdminFromUserSpaces) && activeTab === 'members',
+  })
+
+  // 画面に出す一覧。参加日（別の取得）と、組織メンバー一覧から来たメールを合わせる
+  const members: Member[] = useMemo(
+    () =>
+      sharedMembers.map((m) => ({
+        userId: m.id,
+        displayName: m.displayName,
+        avatarUrl: m.avatarUrl,
+        role: m.role,
+        joinedAt: joinedAtByUser?.[m.id] ?? '',
+        email: orgEmailByUserId.get(m.id) ?? null,
+      })),
+    [sharedMembers, joinedAtByUser, orgEmailByUserId]
+  )
 
   /**
    * その人が space で選べる役割。組織の役割がまだ取れていない・取得に失敗した場合は
@@ -494,10 +504,16 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-gray-500">
-                  {member.joinedAt
-                    ? `参加: ${new Date(member.joinedAt).toLocaleDateString('ja-JP')}`
-                    : ''}
+                {/* 招待した人の表示名は、本人が名乗らないとメールの @ より前だけになる。
+                    名前だけでは誰か分からないので、メールも並べて出す（出どころは
+                    組織メンバー一覧。DB が返さない人＝見る権限が無いときは出さない） */}
+                <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-500 min-w-0">
+                  {member.email && <span className="truncate max-w-full">{member.email}</span>}
+                  {member.joinedAt && (
+                    <span className="whitespace-nowrap">
+                      参加: {new Date(member.joinedAt).toLocaleDateString('ja-JP')}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -519,7 +535,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                   <select
                     value={member.role}
                     onChange={(e) => handleRoleChange(member.userId, e.target.value)}
-                    className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="shrink-0 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     {SPACE_ROLE_GUIDE.filter((opt) => options.includes(opt.value)).map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -534,7 +550,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
               {isAdmin && member.userId !== currentUserId && (
                 <button
                   onClick={() => handleRemoveMember(member.userId)}
-                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                  className="shrink-0 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                   title="メンバーを削除"
                 >
                   <Trash className="w-4 h-4" />

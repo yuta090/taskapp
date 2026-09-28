@@ -1,5 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
@@ -43,7 +44,7 @@ beforeEach(() => {
 })
 
 function renderInspector(over: Partial<NotificationWithPayload> = {}) {
-  render(
+  renderWithQuery(
     <NotificationInspector
       notification={makeNotification(over)}
       onClose={noop}
@@ -53,6 +54,14 @@ function renderInspector(over: Partial<NotificationWithPayload> = {}) {
       hasNext={false}
     />,
   )
+}
+
+/**
+ * NotificationInspector は react-query の下で動く（決定を書いたあと、ダッシュボードの
+ * 「確定事項」に出す日付を取り直させる）。本番と同じく Provider の中で描く。
+ */
+function renderWithQuery(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
 }
 
 describe('NotificationInspector — digest approval action', () => {

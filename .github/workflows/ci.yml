@@ -47,3 +47,15 @@ jobs:
         run: |
           npx vitest run --root packages/mcp-server
           npx vitest run --root packages/cli
+      # packages/mcp-server/dist はリポジトリに入っていて、本番の /api/tools がそれを読む
+      # （src/app/api/tools/route.ts の import('agentpm-core/dist/dispatch.js')）。
+      # src だけ直して dist を作り直し忘れると、足したツールが本番で Unknown tool になる。
+      # 2026-09-18 に wiki_toc / minutes_toc がこれで動かず、CLI のコマンド一覧には出るのに
+      # 実行だけ失敗する状態が半日続いた。
+      - name: dist がソースと合っているか
+        run: |
+          npm run build --prefix packages/mcp-server
+          git diff --exit-code -- packages/mcp-server/dist || {
+            echo '::error::packages/mcp-server/dist が古い。`npm run build --prefix packages/mcp-server` を実行して dist をコミットしてください'
+            exit 1
+          }

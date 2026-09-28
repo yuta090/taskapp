@@ -1,0 +1,35 @@
+{
+  "_readme": "料金と上限の正本。ここだけを直せば、料金ページ・比較ページ・稟議パックの資料がそろう。直したら必ず npm run build:approval-pack を実行すること（実行しないと pricing-facts.test.ts が落ちる）。",
+  "asOf": "2026-09",
+  "taxNote": "すべて税抜・月払い",
+  "agentpm": {
+    "free": { "label": "Free", "monthlyYen": 0, "maxProjects": 3, "maxMembers": 5, "maxChatGroups": 3 },
+    "pro": { "label": "Pro", "monthlyYen": 14800, "maxProjects": 30, "maxMembers": 30, "maxChatGroups": 50 },
+    "enterprise": { "label": "Enterprise", "monthlyYen": null, "maxProjects": null, "maxMembers": null, "maxChatGroups": null }
+  },
+  "competitorA": {
+    "_note": "国内の主要ツール。公開ページでは社名を出さず「A社」と表記する。出典は社内資料。",
+    "current": {
+      "cheapest": { "label": "最安プラン", "monthlyYen": 2700, "maxMembers": 30, "maxProjects": 5 },
+      "standard": { "label": "標準プラン", "monthlyYen": 16000, "maxMembers": null, "maxProjects": 100 },
+      "upper": { "label": "上位プラン", "monthlyYen": 27000 }
+    },
+    "from2027": {
+      "effectiveFrom": "2027-01-01",
+      "cheapest": { "label": "最安プラン", "monthlyYen": 21000, "maxMembers": 15, "maxProjects": 30 },
+      "standard": { "label": "標準プラン", "monthlyYen": 36300, "maxMembers": null, "maxProjects": null }
+    }
+  },
+  "tco": {
+    "_note": "費用の試算シートの初期値。お客様から伺った範囲での目安であって実測値ではない。",
+    "hourlyYen": 3000,
+    "projects": 3,
+    "reductionRate": 0.5,
+    "hoursPerProject": [
+      { "label": "進捗報告の作成", "hours": 4, "note": "週1回の報告資料づくり" },
+      { "label": "相手先への転記・共有", "hours": 2, "note": "チャットやメールへの貼り直し" },
+      { "label": "承認待ちの催促・調整", "hours": 2, "note": "「あの件どうなりました？」の往復" },
+      { "label": "仕様変更の手戻り", "hours": 4, "note": "決めたことが残っていないために起きるやり直し" }
+    ]
+  }
+}

@@ -1,5 +1,6 @@
 'use client'
 
+import { sendDocSignal } from '@/lib/hooks/useDocVoteSignal'
 import {
   forwardRef,
   useCallback,
@@ -9,13 +10,14 @@ import {
   useRef,
   useState,
   type FocusEvent as ReactFocusEvent,
+  type UIEvent as ReactUIEvent,
 } from 'react'
 import { ArrowLeft, ArrowsIn, ArrowsOut, Info, Notebook, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { MinutesEditorDynamic } from './MinutesEditorDynamic'
 import { EditorLoadingFallback } from '@/components/editor/EditorLoadingFallback'
 import { useMinutesTaskActions } from '@/lib/hooks/useMinutesTaskActions'
-import { saveMinutesScroll, takeMinutesScroll } from '@/lib/minutes/scrollMemory'
+import { saveMinutesScroll, scrollTopToRemember, takeMinutesScroll } from '@/lib/minutes/scrollMemory'
 import type { MinutesEditorApi } from './MinutesEditor'
 import { parseMinutesMarkdown, serializeMinutesBlocks } from '@/lib/minutes/markdown'
 import { appendOnlyAddition } from '@/lib/minutes/rebase'
@@ -23,11 +25,10 @@ import { appendOnlyAddition } from '@/lib/minutes/rebase'
 // 画面のテストは useMeetings をまるごとモックすることがあり、そこから取ると
 // 型が undefined になって instanceof が壊れる（理由は errors.ts のコメント）。
 import { MinutesConflictError } from '@/lib/minutes/errors'
-import type { DegradeReason } from '@/lib/collab/session'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import type { MinutesPresencePeer } from '@/lib/hooks/useMinutesPresence'
 import { useMinutesCollab } from '@/lib/hooks/useMinutesCollab'
 import { isCollabEnabledForOrg } from '@/lib/collab/flag'
+import { degradeMessage, displayNameOf, formatEditingMessage } from '@/lib/collab/messages'
 import { minutesContentHash, readSavedState, writeSavedState } from '@/lib/collab/scribe'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { ErrorRetry, useConfirmDialog } from '@/components/shared'
@@ -157,39 +158,6 @@ interface Baseline {
   broken: boolean
 }
 
-/** 「〇〇さんが書いています」「〇〇さん、△△さんが書いています」 */
-function formatEditingMessage(peers: MinutesPresencePeer[]): string {
-  return `${peers.map((peer) => `${peer.name}さん`).join('、')}が書いています`
-}
-
-/**
- * 同時編集をやめて1人で書く形に戻ったときの知らせ。
- * 書いた内容が消えるわけではないので、そこを最初に伝える。
- * 本文が二重になった場合（duplicate-seed）はこの帯を出さず、列から読み直す。
- */
-function degradeMessage(reason: DegradeReason): string | null {
-  const tail = '書いた内容はこれまでどおり保存されます'
-  if (reason === 'duplicate-seed') return null
-  if (reason === 'too-many-peers') {
-    return `開いている人が多いので、いまは一人ずつ書く形に戻しました。${tail}`
-  }
-  if (reason === 'too-large') {
-    return `議事録が長くなったので、いまは一人ずつ書く形に戻しました。${tail}`
-  }
-  if (reason === 'apply-failed') {
-    return `ほかの人の書いた内容を取り込めなかったので、いまは一人ずつ書く形に戻しました。${tail}`
-  }
-  return `つながりが切れたので、いまは一人ずつ書く形に戻しました。${tail}`
-}
-
-/** 表示に使う自分の名前。取れなければ「メンバー」（在席の既定と揃える） */
-function displayNameOf(user: { email?: string | null; user_metadata?: Record<string, unknown> } | null): string {
-  const metaName = user?.user_metadata?.name
-  if (typeof metaName === 'string' && metaName.trim()) return metaName.trim()
-  const localPart = user?.email?.split('@')[0]
-  return localPart || 'メンバー'
-}
-
 /** 例外が出ないはずのところへの念のための守り。変換が失敗しても画面を壊さず読み取り専用にする */
 function computeBaseline(minutesMd: string): Baseline {
   try {
@@ -241,7 +209,15 @@ interface MinutesDocumentBodyProps {
   /** 「最新を読み込む」。外側に取り直しを頼み、外側が key を変えて作り直す */
   onRequestReload: () => void
   noteAuthorName?: string
+  /** 見出しのリンクに添える会議名 */
+  meetingTitle: string
 }
+
+/** 利用者が自分で動かしたと分かる操作。これが来たら、戻した位置を押さえるのをやめる */
+const USER_SCROLL_EVENTS = ['wheel', 'touchstart', 'keydown', 'pointerdown', 'mousedown'] as const
+
+/** 本文が組み上がるまで、戻した位置を押さえておく時間の上限 */
+const SCROLL_HOLD_MS = 3000
 
 const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumentBodyProps>(
   function MinutesDocumentBody(
@@ -259,6 +235,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       onSaveStateChange,
       onRequestReload,
       noteAuthorName,
+      meetingTitle,
     },
     ref
   ) {
@@ -282,6 +259,14 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const currentContentRef = useRef(initialBaseline.normalized)
     /** 本文をスクロールする枠。見ていた場所を覚えて戻すために持つ */
     const scrollBoxRef = useRef<HTMLDivElement | null>(null)
+    /**
+     * いま見ている場所の控え。枠から直接読まずにこちらを使う。
+     *
+     * 画面を離れるときの後始末は、React が枠を外したあとに動く。そのときには
+     * `scrollBoxRef` は null になっていて、位置を読み出せない。動かされるたびに
+     * ここへ写しておけば、外れた後でも覚えられる。
+     */
+    const lastScrollTopRef = useRef(0)
     // AI秘書の末尾追記との自動合流のための、生きているエディタへの差し込み口
     // （MinutesEditor が登録する）。本体（このコンポーネント）は作り直さない。
     const editorApiRef = useRef<MinutesEditorApi | null>(null)
@@ -328,6 +313,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       meta: collabMeta,
       isApplyingRemote,
       synced: collabSynced,
+      colorIndex,
       pending: collabPending,
       solo: collabSolo,
       degradedReason,
@@ -366,13 +352,23 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     /**
      * エディタが載ったら、種をまく係も一緒に登録する。器に本文を入れられるのは
      * ProseMirror のスキーマを持っているエディタだけなので、合流はここから始まる。
+     *
+     * 本文と一緒に、それを読んだときの列の更新時刻も渡す。ほぼ同時に開いた2人が
+     * 違う本文から作ってしまったとき、**どちらが新しいか**をこれで決める。
      */
     const registerEditorApi = useCallback(
       (api: MinutesEditorApi | null) => {
         editorApiRef.current = api
-        registerSeeder(api ? (doc) => api.seedCollabDoc(doc, initialMinutesMd) : null)
+        registerSeeder(
+          api
+            ? (doc) => ({
+                seedHash: api.seedCollabDoc(doc, initialMinutesMd),
+                basis: initialUpdatedAt,
+              })
+            : null
+        )
       },
-      [registerSeeder, initialMinutesMd]
+      [registerSeeder, initialMinutesMd, initialUpdatedAt]
     )
 
     /** エディタ領域の外へカーソルが出たときだけ「書いています」を下ろす */
@@ -408,7 +404,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
      *   ここでは合流「後」の本文は組み立てない（呼び出し側がエディタへ挿し込む）。
      * - 'conflict': それ以外（本当の競合・読み直し自体に失敗）。
      */
-    const tryRebaseFromServer = useCallback(async (): Promise<
+    const tryRebaseFromServer = useCallback(async (sending?: string): Promise<
       { kind: 'same' } | { kind: 'appended'; addition: string; serverRaw: string; updatedAt: string } | { kind: 'conflict' }
     > => {
       let fresh: Meeting | null = null
@@ -421,6 +417,13 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       const freshRaw = fresh.minutes_md ?? ''
       if (freshRaw === knownServerRawRef.current) {
         baseUpdatedAtRef.current = fresh.updated_at
+        return { kind: 'same' }
+      }
+      // 誰かが（部屋の別の人・閉じる直前の書記など）いま送ろうとした本文と同じものを先に
+      // 保存していた。競合ではない（末尾の追記と見なして二重に差し込むこともしない）
+      if (sending !== undefined && freshRaw === sending) {
+        baseUpdatedAtRef.current = fresh.updated_at
+        knownServerRawRef.current = freshRaw
         return { kind: 'same' }
       }
       // 同時編集中、部屋の中の人が保存した分は競合ではない。内容は器で既に全員に
@@ -466,6 +469,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
               })
             }
             setSaveState('saved')
+            // 相手先ポータルなど、同じ議事録を読むだけの画面に「保存された」と知らせる（本文は運ばない）。
+            // 投票の合図のチャネルに相乗りする（つながっていなければ何もしない・DOC_VOTE_SPEC §6）
+            sendDocSignal(`meeting-minutes-view:${meetingId}`, 'minutes-saved')
             if (savedBadgeTimerRef.current) clearTimeout(savedBadgeTimerRef.current)
             savedBadgeTimerRef.current = setTimeout(() => setSaveState('idle'), SAVED_BADGE_MS)
             break
@@ -474,7 +480,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
               attempted0Row = true
               // 0行だった。開始/終了など本文以外の更新で updated_at だけが進んだ見せかけの
               // 競合か、AI秘書の末尾追記だけが原因の競合かもしれないので、読み直して確かめる。
-              const outcome = await tryRebaseFromServer()
+              const outcome = await tryRebaseFromServer(content)
               if (outcome.kind === 'same') {
                 base = baseUpdatedAtRef.current
                 continue
@@ -604,16 +610,22 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
      * 1回保存する（前の書記が抜けた瞬間の書きかけを取りこぼさないため）。
      */
     const wasScribeRef = useRef(false)
+    /**
+     * 本文を持ったまま書記でなかったことがあるか。あるなら、書記になったときは部屋の記録が
+     * 無くても必ず読み直す（前の書記が閉じる直前にした保存は、部屋の記録に残らない）
+     */
+    const everFollowerRef = useRef(false)
     useEffect(() => {
       if (!collabActive || !isScribe) {
+        if (collabActive && collabSynced) everFollowerRef.current = true
         wasScribeRef.current = false
         return
       }
       if (wasScribeRef.current) return
       wasScribeRef.current = true
-      // まだ誰も保存していない＝自分が最初の1人。引き継ぎではないので基準はそのまま
+      // まだ誰も保存しておらず、ずっと自分が書記＝自分が最初の1人。引き継ぎではないので基準はそのまま
       const saved = collabMeta ? readSavedState(collabMeta) : { savedAt: null, savedHash: null }
-      if (!saved.savedAt) return
+      if (!saved.savedAt && !everFollowerRef.current) return
 
       let cancelled = false
       void (async () => {
@@ -633,7 +645,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       return () => {
         cancelled = true
       }
-    }, [collabActive, isScribe, collabMeta, fetchMeetingDetail, meetingId])
+    }, [collabActive, isScribe, collabSynced, collabMeta, fetchMeetingDetail, meetingId])
 
     /**
      * 器に種が2つ入った＝本文が二重になっている。その内容は保存せず、列から読み直す。
@@ -704,6 +716,9 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
 
         saveTimerRef.current = setTimeout(() => {
           saveTimerRef.current = null
+          // 待っているあいだに書記を降ろされていることがある（タブを切り替えると
+          // 交代する）。古い基準のまま書きに行くと弾かれるので、ここでもう一度見る
+          if (collabActiveRef.current && !isScribeRef.current) return
           void scheduleSave(trimmed)
         }, AUTO_SAVE_DEBOUNCE_MS)
       },
@@ -739,11 +754,14 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         // 議事録が空で上書きされないように）。「捨てて戻る」が選ばれていた場合も送らない（N4）。
         const isBlank = currentContentRef.current.trim() === ''
         // 同時編集中は、書記がもう同じ内容を保存していれば送らない（送ると、
-        // 古い基準で書きに行って無駄に弾かれる）。逆に**まだ保存されていなければ
-        // 書記でなくても送る** — 最後の1人が閉じた場面を取りこぼさないため
+        // 古い基準で書きに行って無駄に弾かれる）
         const savedHash = collabMetaRef.current ? readSavedState(collabMetaRef.current).savedHash : null
         const alreadySaved =
           savedHash !== null && savedHash === minutesContentHash(currentContentRef.current)
+        // 書記でない人は、閉じるときも自分では保存しない。中身は器で書記に届いていて、書記が
+        // 保存する。ここで送ると、その保存の記録が部屋に届かないまま（閉じたあとなので）残った
+        // 書記の次の保存が弾かれ、偽の競合の帯が出て部屋全体の保存が止まる（2026-09-26）
+        const followerInRoom = collabActiveRef.current && !isScribeRef.current
         if (
           canEditRef.current &&
           !conflictRef.current &&
@@ -751,7 +769,8 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           !discardedRef.current &&
           isDirty &&
           !isBlank &&
-          !alreadySaved
+          !alreadySaved &&
+          !followerInRoom
         ) {
           void scheduleSaveRef.current?.(currentContentRef.current)
         }
@@ -789,6 +808,51 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
    * この画面はタスク化のあとや「最新を読み込む」でも組み直されるので、覚えたままだと
    * そのたびに今読んでいた場所から飛ばされる。
    */
+  /**
+   * 覚えた位置へ戻し、本文が組み上がるまでそこを押さえておく。
+   *
+   * BlockNote は本文を一気には描かない。戻した直後の枠の中身はまだ短く、そこから
+   * 伸びていく。伸びるとブラウザは「いま見えているもの」を保とうとして位置をずらすので、
+   * 一度入れただけでは覚えた場所から離れてしまう（実測: 300 と入れて 384 になった）。
+   * 中身の高さが変わるたびに入れ直し、利用者が自分で動かしたらやめる。
+   */
+  const holdRef = useRef<(() => void) | null>(null)
+  /**
+   * 戻そうとしている位置。押さえているあいだだけ 0 以外。
+   * 本文が組み上がる前に離れたとき、0 ではなくこちらを覚えるために持つ
+   * （0 を覚えると「先頭にいた」とみなされ、覚えた場所が消える）。
+   */
+  const wantedTopRef = useRef(0)
+  const holdScrollTop = useCallback((el: HTMLDivElement, top: number) => {
+    holdRef.current?.()
+    wantedTopRef.current = top
+    el.scrollTop = top
+    lastScrollTopRef.current = el.scrollTop
+
+    const content = el.firstElementChild
+    if (!content || typeof ResizeObserver === 'undefined') {
+      wantedTopRef.current = 0
+      return
+    }
+
+    const observer = new ResizeObserver(() => {
+      if (el.scrollTop !== top) el.scrollTop = top
+      lastScrollTopRef.current = el.scrollTop
+    })
+    observer.observe(content)
+
+    const stop = () => {
+      observer.disconnect()
+      clearTimeout(timer)
+      wantedTopRef.current = 0
+      for (const type of USER_SCROLL_EVENTS) el.removeEventListener(type, stop)
+      if (holdRef.current === stop) holdRef.current = null
+    }
+    const timer = setTimeout(stop, SCROLL_HOLD_MS)
+    for (const type of USER_SCROLL_EVENTS) el.addEventListener(type, stop, { passive: true })
+    holdRef.current = stop
+  }, [])
+
   const restoredForRef = useRef<string | null>(null)
   const restoreScroll = useCallback(
     (el: HTMLDivElement | null) => {
@@ -800,34 +864,30 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       // **届いてから**戻す
       if (!collabSyncedRef.current) return
       const top = takeMinutesScroll(meetingId, currentContentRef.current.length)
-      if (top === null) {
-        restoredForRef.current = meetingId
-        return
-      }
-      el.scrollTop = top
-      // 中身（エディタ）がまだ組み上がっていないと枠に高さが無く、代入は 0 に丸められる。
-      // 効いたときだけ「戻した」ことにして、空振りなら1コマ待ってもう一度だけ試す
-      if (el.scrollTop > 0) {
-        restoredForRef.current = meetingId
-        return
-      }
-      requestAnimationFrame(() => {
-        const box = scrollBoxRef.current
-        if (!box || restoredForRef.current === meetingId) return
-        box.scrollTop = top
-        restoredForRef.current = meetingId
-      })
+      // 覚えた位置は取り出した時点で消える。戻せても戻せなくても、この回で使い切る
+      restoredForRef.current = meetingId
+      if (top === null) return
+      // 見出しへのリンク（URL の #）で開いたときは、そちらへの移動（HeadingLinks）を優先する。
+      // ここで位置を押さえると、見出しへ動いた直後に覚えた場所へ引き戻してしまう
+      if (window.location.hash) return
+      holdScrollTop(el, top)
     },
-    [meetingId]
+    [meetingId, holdScrollTop]
   )
 
   const attachScrollBox = useCallback(
     (el: HTMLDivElement | null) => {
+      // 外れる直前に、いま見ている場所を控える（外れた後は枠から読めない）
+      if (!el && scrollBoxRef.current) lastScrollTopRef.current = scrollBoxRef.current.scrollTop
       scrollBoxRef.current = el
       restoreScroll(el)
     },
     [restoreScroll]
   )
+
+  const handleScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
+    lastScrollTopRef.current = event.currentTarget.scrollTop
+  }, [])
 
   // 本文が届いたら、見ていた場所へ戻す（届く前は枠に高さが無くて戻せない）
   useEffect(() => {
@@ -835,11 +895,43 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     restoreScroll(scrollBoxRef.current)
   }, [collabSynced, restoreScroll])
 
+  /**
+   * この画面を離れるときに、見ていた場所を覚える。
+   *
+   * 以前は本文中のリンクを押したときだけ覚えていた。そのため**左メニューから Wiki を見て
+   * ブラウザの「戻る」で帰ってくると先頭に戻ってしまい**、長い議事録では毎回読んでいた
+   * ところを探し直すことになっていた（ユーザー報告・2026-09-18）。離れ方はリンクだけでは
+   * ないので、画面が外れるとき（＝どんな移動でも必ず通る）に覚える。
+   *
+   * タブを閉じる・再読み込みでは後始末が動かないので、pagehide でも覚える。
+   */
+  const rememberScroll = useCallback(() => {
+    const box = scrollBoxRef.current
+    const top = scrollTopToRemember({
+      current: box ? box.scrollTop : lastScrollTopRef.current,
+      wanted: wantedTopRef.current,
+      restored: restoredForRef.current === meetingId,
+    })
+    if (top === null) return
+    saveMinutesScroll(meetingId, top, currentContentRef.current.length)
+  }, [meetingId])
+
+  useEffect(() => {
+    window.addEventListener('pagehide', rememberScroll)
+    return () => {
+      window.removeEventListener('pagehide', rememberScroll)
+      // 覚えるのが先。押さえを止めると「戻したかった位置」を手放すので、
+      // 本文が組み上がる前に離れた場合に覚えるものが無くなる
+      rememberScroll()
+      holdRef.current?.()
+    }
+  }, [rememberScroll])
+
   const handleBeforeNavigate = useCallback(async () => {
       // 見ていた場所を覚える。タスクや Wiki のリンクで移ると議事録は一から組み立て直され、
-      // スクロールが先頭に戻るため（長い議事録では毎回探し直しになる）
-      const box = scrollBoxRef.current
-      if (box) saveMinutesScroll(meetingId, box.scrollTop, currentContentRef.current.length)
+      // スクロールが先頭に戻るため（長い議事録では毎回探し直しになる）。
+      // 移動が止まった場合もこの控えは無害（戻ってきたときに同じ場所なので動かない）
+      rememberScroll()
 
       if (saveTimerRef.current === null) return
       if (!canEdit || parseBrokenRef.current || conflictRef.current) {
@@ -853,7 +945,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
       const scheduleSaveNow = scheduleSaveRef.current
       if (!scheduleSaveNow) throw new Error('保存できていない変更があります')
       await scheduleSaveNow(currentContentRef.current)
-    }, [canEdit, meetingId])
+    }, [canEdit, rememberScroll])
 
     useImperativeHandle(
       ref,
@@ -972,15 +1064,15 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
     const collaboration = useMemo(
       () =>
         fragment && awareness
-          ? { fragment, awareness, userName: selfName, userId: selfUserId }
+          ? { fragment, awareness, userName: selfName, colorIndex }
           : undefined,
-      [fragment, awareness, selfName, selfUserId]
+      [fragment, awareness, selfName, colorIndex]
     )
 
     return (
       <>
         {conflict && (
-          <div data-testid="minutes-conflict-banner" className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
+          <div data-testid="minutes-conflict-banner" data-print-hide className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
             <p className="text-sm text-orange-ink">{CONFLICT_MESSAGE}</p>
             <div className="mt-2 flex items-center gap-3">
               <button
@@ -1002,7 +1094,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         )}
 
         {isEmpty && !conflict && (
-          <div data-testid="minutes-empty-notice" className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0">
+          <div data-testid="minutes-empty-notice" data-print-hide className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0">
             <p className="text-xs text-gray-500">本文が空です。保存されていません</p>
           </div>
         )}
@@ -1011,6 +1103,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         {degradedReason && degradeMessage(degradedReason) && (
           <div
             data-testid="minutes-collab-degraded-notice"
+            data-print-hide
             className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0"
           >
             <p className="text-xs text-gray-500">{degradeMessage(degradedReason)}</p>
@@ -1021,6 +1114,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
         {editingPeers.length > 0 && (
           <div
             data-testid="minutes-presence-banner"
+            data-print-hide
             className="px-6 py-2 bg-indigo-50 border-b border-gray-100 flex-shrink-0"
           >
             <p className="text-xs text-indigo-ink flex items-center gap-1.5">
@@ -1030,7 +1124,12 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
           </div>
         )}
 
-        <div data-testid="minutes-scroll-box" className="flex-1 overflow-y-auto" ref={attachScrollBox}>
+        <div
+          data-testid="minutes-scroll-box"
+          className="flex-1 overflow-y-auto"
+          ref={attachScrollBox}
+          onScroll={handleScroll}
+        >
           <div
             data-testid="minutes-editor-region"
             className={fullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}
@@ -1038,7 +1137,7 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
             onBlur={handleEditorBlur}
           >
             {!initialMinutesMd && (
-              <div className="mb-4 flex items-start gap-2 text-sm text-gray-400">
+              <div data-print-hide className="mb-4 flex items-start gap-2 text-sm text-gray-400">
                 <Notebook className="text-base mt-0.5 flex-shrink-0" />
                 <p>ここに議事録を書きます。会議の前に、決めることや進め方を書いておくこともできます。</p>
               </div>
@@ -1069,6 +1168,10 @@ const MinutesDocumentBody = forwardRef<MinutesDocumentBodyHandle, MinutesDocumen
                 // チェックだけ外れてサーバーには `[x]` が残る（見た目と中身がずれる）
                 onResolveTask={canEdit && !forceReadOnly && !conflict ? taskActions : undefined}
                 noteAuthorName={noteAuthorName}
+                headingLinkTitle={meetingTitle}
+                meetingId={meetingId}
+                // 相手先の差し込みを取り込むのは1つのタブだけ（同時編集中は書記・1人なら編集できる画面）
+                applyInsertions={canEdit && !forceReadOnly && (!collabActive || isScribe)}
                 collaboration={collaboration}
                 isApplyingRemote={isApplyingRemote}
               />
@@ -1215,7 +1318,10 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
     const showFullscreenControls = typeof fullscreen === 'boolean' && !!onToggleFullscreen
 
     return (
-      <div data-testid="minutes-document-view" className="flex-1 flex flex-col min-h-0">
+      // data-print-root: 「PDFで保存」(会議情報パネル)で刷るとき、紙に載せるのはこのかたまり
+      // だけにする。中でも押すためのもの・知らせの帯には data-print-hide を付けて外す。
+      // 実際に隠す指定は globals.css の @media print 側（Wiki と同じ仕組みを使う）。
+      <div data-print-root data-testid="minutes-document-view" className="flex-1 flex flex-col min-h-0">
         {ConfirmDialog}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-surface flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -1223,6 +1329,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
             {!fullscreen && (
               <button
                 onClick={() => void handleBack()}
+                data-print-hide
                 className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
                 aria-label="会議一覧へ戻る"
               >
@@ -1234,7 +1341,8 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
               <p className="text-xs text-gray-400">{heldAtLabel}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          {/* 保存の状態・全画面・会議情報・お知らせベルは画面のためのもの。紙には載せない */}
+          <div data-print-hide className="flex items-center gap-2 flex-shrink-0">
             {saveState === 'saving' && (
               <span className="text-xs text-gray-400 flex items-center gap-1">
                 <span className={`w-1.5 h-1.5 ${SAVING.dot} rounded-full animate-pulse`} />
@@ -1310,6 +1418,7 @@ export const MinutesDocumentView = forwardRef<MinutesDocumentViewHandle, Minutes
             onSaveStateChange={setSaveState}
             onRequestReload={handleReloadLatest}
             noteAuthorName={noteAuthorName}
+            meetingTitle={meeting.title}
           />
         )}
       </div>

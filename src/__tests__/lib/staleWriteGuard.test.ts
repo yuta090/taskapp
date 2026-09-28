@@ -52,8 +52,13 @@ describe('渡す理由が、AI と人が読むところ全部に書いてある'
   it('コマンド一覧（人と AI が読む）に書いてある', () => {
     const manifest = read('src/lib/cli-manifest.ts')
     expect(manifest).toContain('--expected-updated-at <ts>')
-    // minutes と wiki の両方に付いている
-    expect(manifest.match(/--expected-updated-at <ts>/g)?.length).toBe(2)
+    // 本文を差し替えるコマンド全部に付いている。件数で固定すると、
+    // 同じ性質のコマンドを足すたびに落ちるので、対象のコマンド名で見る
+    for (const cmd of ['wiki update', 'minutes update', 'wiki toc', 'minutes toc']) {
+      const i = manifest.indexOf(`'${cmd.split(' ')[1]}'`)
+      expect(i, `${cmd} が一覧に無い`).toBeGreaterThan(-1)
+    }
+    expect(manifest.match(/--expected-updated-at <ts>/g)?.length).toBeGreaterThanOrEqual(4)
     expect(manifest).toContain('渡さないと他の人の更新を黙って消す')
   })
 

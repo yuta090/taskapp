@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { Table } from '@phosphor-icons/react/dist/ssr'
 
 async function getRowCount(tableName: string) {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
   const { count } = await admin.from(tableName).select('*', { count: 'exact', head: true })
   return count ?? 0
 }

@@ -29,6 +29,20 @@ const HTML_HINT = /^\s*<(!doctype|html|body|div|p|h[1-6]|ul|ol|table|section|art
 export const TOGGLE_MARKER = '<!--toggle-->'
 const TOGGLE_TYPE = 'toggleListItem'
 
+/**
+ * ページ内の目次に置き換わる目印。1行で `<!--toc-->` と書く。
+ * Wiki 画面の「/」メニューが挿す目次ブロックと同じ名前（src/lib/minutes/markdown.ts の
+ * TOC_TYPE / TOC_MARKER）。別パッケージなので import できず、一致はテストで見張る。
+ *
+ * これが無かったあいだ、`wiki update --format markdown` で送った `<!--toc-->` は
+ * HTML コメントとして黙って捨てられていた（2026-09-18）。
+ */
+export const TOC_MARKER = '<!--toc-->'
+export const TOC_TYPE = 'tableOfContents'
+
+/** 罫線。`---` `***` `___` と `<hr>` のどれで書いても同じブロックにする */
+const DIVIDER_TYPE = 'divider'
+
 // 本文は API キーを持つ人なら誰でも送れるので、タグを探す正規表現は後戻りで時間が伸びない形にする
 // （属性の長さに上限を付け、閉じは読み進めるだけで探す）。
 /** `<details>` の開き（HTML の塊の先頭にあるときだけ折りたたみとして読む） */
@@ -355,11 +369,22 @@ function blocks(tokens: Token[]): Block[] {
           i = close.token
           break
         }
+        const raw = (tok as Tokens.HTML).text.trim()
+        if (raw === TOC_MARKER) {
+          out.push({ type: TOC_TYPE })
+          break
+        }
+        if (/^<hr\s*\/?>$/i.test(raw)) {
+          out.push({ type: DIVIDER_TYPE })
+          break
+        }
         const s = stripTags((tok as Tokens.HTML).text).trim()
         if (s) out.push({ type: 'paragraph', content: [text(s)] })
         break
       }
       case 'hr':
+        out.push({ type: DIVIDER_TYPE })
+        break
       case 'space':
         break
       default:

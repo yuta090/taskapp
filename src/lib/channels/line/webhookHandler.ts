@@ -1289,7 +1289,7 @@ async function maybeSuggestTaskDone(
   const orgId = group.orgId
   const [remindersEnabled, entitlements] = await Promise.all([
     isOrgDueRemindersEnabled(orgId),
-    resolveOrgEntitlements(createAdminClient(), orgId),
+    resolveOrgEntitlements(createAdminClient({ channel: 'webhook' }), orgId),
   ])
   if (!remindersEnabled) return false
   if (!entitlements.has('line_direct_dm')) return false
@@ -1973,7 +1973,7 @@ function matchInstantTaskKeyword(body: string): { index: number; length: number 
  */
 async function hasDualModeInstantEntitlement(orgId: string): Promise<boolean> {
   try {
-    const entitlements = await resolveOrgEntitlements(createAdminClient(), orgId)
+    const entitlements = await resolveOrgEntitlements(createAdminClient({ channel: 'webhook' }), orgId)
     return entitlements.has('instant_line_notify')
   } catch (error) {
     console.error('hasDualModeInstantEntitlement: resolution failed, defaulting to false', error)

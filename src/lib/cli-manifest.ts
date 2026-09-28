@@ -306,6 +306,45 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     ],
   },
 
+  // ── Vote（Wiki・議事録の投票ブロック） ──
+  {
+    name: 'vote',
+    description: 'Doc poll (vote block on a wiki page or meeting minutes) management',
+    subcommands: [
+      {
+        name: 'list',
+        description: 'List doc polls on a wiki page or meeting. Each item has topic, reason-required, and OK/NG/hold counts',
+        aliases: ['ls'],
+        tool: 'vote_list',
+        options: [
+          spaceOpt,
+          { flags: '--wiki-page-id <uuid>', description: 'Wiki page UUID (exactly one of --wiki-page-id / --meeting-id)', param: 'wikiPageId' },
+          { flags: '--meeting-id <uuid>', description: 'Meeting UUID (exactly one of --wiki-page-id / --meeting-id)', param: 'meetingId' },
+        ],
+      },
+      {
+        name: 'show',
+        description: 'Show a poll: who voted what with memo (name, choice, memo, time) and the history of changes',
+        tool: 'vote_show',
+        options: [
+          spaceOpt,
+          { flags: '--poll-id <uuid>', description: 'Poll UUID', param: 'pollId', required: true },
+        ],
+      },
+      {
+        name: 'cast',
+        description: 'Cast, change, or retract a vote. --choice none retracts. NG/hold on a reason-required poll needs --memo',
+        tool: 'vote_cast',
+        options: [
+          spaceOpt,
+          { flags: '--poll-id <uuid>', description: 'Poll UUID', param: 'pollId', required: true },
+          { flags: '--choice <choice>', description: 'ok|ng|hold|none', param: 'choice', choices: ['ok', 'ng', 'hold', 'none'], required: true },
+          { flags: '--memo <text>', description: 'Reason/memo. Required for ng/hold on a reason-required poll', param: 'memo' },
+        ],
+      },
+    ],
+  },
+
   // ── Spec decision（決定事項のタスクの確定） ──
   {
     name: 'spec',
@@ -501,48 +540,31 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
   // ── Activity ──
   {
     name: 'activity',
-    description: 'Activity log',
+    description: 'Data change history (who changed what, when, via which channel)',
     aliases: ['act'],
     subcommands: [
       {
         name: 'search',
-        description: 'Search activity logs',
+        description: 'Search data change history in a project',
         tool: 'activity_search',
         options: [
           spaceOpt,
-          { flags: '--entity-table <table>', description: 'Filter by table name', param: 'entityTable' },
-          { flags: '--entity-id <uuid>', description: 'Filter by entity ID', param: 'entityId' },
+          { flags: '--entity-table <table>', description: 'Filter by table: tasks, milestones, meetings, wiki_pages, reviews, task_comments, files, scheduling_proposals', param: 'entityTable' },
+          { flags: '--entity-id <uuid>', description: 'Filter by row ID', param: 'entityId' },
           { flags: '--actor-id <uuid>', description: 'Filter by actor ID', param: 'actorId' },
-          { flags: '--action <action>', description: 'Filter by action', param: 'action' },
+          { flags: '--action <action>', description: 'Filter by operation', param: 'action', choices: ['insert', 'update', 'delete'] },
           { flags: '--from <datetime>', description: 'Start datetime (ISO8601)', param: 'from' },
           { flags: '--to <datetime>', description: 'End datetime (ISO8601)', param: 'to' },
-          { flags: '--session-id <uuid>', description: 'Filter by session ID', param: 'sessionId' },
           { flags: '--limit <n>', description: 'Max results', param: 'limit', type: 'int', default: '100' },
         ],
       },
       {
-        name: 'log',
-        description: 'Create an activity log entry',
-        tool: 'activity_log',
-        options: [
-          spaceOpt,
-          { flags: '--entity-table <table>', description: 'Table name. Accepted: tasks, milestones, meetings, wiki_pages, reviews, task_comments, files, scheduling_proposals', param: 'entityTable', required: true },
-          { flags: '--entity-id <uuid>', description: 'Entity ID', param: 'entityId', required: true },
-          { flags: '--action <action>', description: 'Action', param: 'action', required: true },
-          { flags: '--actor-type <type>', description: 'Always recorded as ai regardless of this value', param: 'actorType', choices: ['user', 'system', 'ai', 'service'], default: 'ai' },
-          { flags: '--actor-service <service>', description: 'Service name', param: 'actorService' },
-          { flags: '--entity-display <name>', description: 'Display name', param: 'entityDisplay' },
-          { flags: '--reason <reason>', description: 'Reason', param: 'reason' },
-          { flags: '--status <status>', description: 'ok|error|warning', param: 'status', choices: ['ok', 'error', 'warning'], default: 'ok' },
-        ],
-      },
-      {
         name: 'history',
-        description: 'Get entity change history',
+        description: 'Get change history of one row (task, wiki page, ...)',
         tool: 'activity_entity_history',
         options: [
-          { flags: '--entity-table <table>', description: 'Table name', param: 'entityTable', required: true },
-          { flags: '--entity-id <uuid>', description: 'Entity ID', param: 'entityId', required: true },
+          { flags: '--entity-table <table>', description: 'Table: tasks, milestones, meetings, wiki_pages, reviews, task_comments, files, scheduling_proposals', param: 'entityTable', required: true },
+          { flags: '--entity-id <uuid>', description: 'Row ID', param: 'entityId', required: true },
           { flags: '--limit <n>', description: 'Max results', param: 'limit', type: 'int', default: '50' },
         ],
       },
@@ -824,6 +846,23 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--limit <n>', description: 'Max results', param: 'limit', type: 'int', default: '20' },
         ],
       },
+      {
+        name: 'toc',
+        description: '目次ブロックの追加/削除。追加は見出し1の直後（無ければ先頭）、既にあれば何もしない',
+        tool: 'wiki_toc',
+        examples: ['agentpm wiki toc --page-id <id>', 'agentpm wiki toc --page-id <id> --action remove'],
+        options: [
+          spaceOpt,
+          { flags: '--page-id <id>', description: 'Wiki page ID', param: 'pageId', required: true },
+          { flags: '--action <action>', description: 'add（既定）または remove', param: 'action', choices: ['add', 'remove'], default: 'add' },
+          {
+            flags: '--expected-updated-at <ts>',
+            description:
+              '直前の wiki get で返った updated_at。その版のままのときだけ書き換える（省略すると無条件に上書き）',
+            param: 'expectedUpdatedAt',
+          },
+        ],
+      },
     ],
   },
 
@@ -916,6 +955,23 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           spaceOpt,
           { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
           { flags: '--content <md>', description: 'Content to append (Markdown)', param: 'content', required: true },
+        ],
+      },
+      {
+        name: 'toc',
+        description: '目次(`<!--toc-->`)の追加/削除。追加は見出し1の直後（無ければ先頭）、既にあれば何もしない',
+        tool: 'minutes_toc',
+        examples: ['agentpm minutes toc --meeting-id <id>', 'agentpm minutes toc --meeting-id <id> --action remove'],
+        options: [
+          spaceOpt,
+          { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
+          { flags: '--action <action>', description: 'add（既定）または remove', param: 'action', choices: ['add', 'remove'], default: 'add' },
+          {
+            flags: '--expected-updated-at <ts>',
+            description:
+              '直前の minutes get で返った updated_at。その版のままのときだけ書き換える（省略すると無条件に上書き）',
+            param: 'expectedUpdatedAt',
+          },
         ],
       },
     ],
@@ -1057,6 +1113,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     date: '2026-09-16',
     message: '社内承認の依頼を CLI から取り消せるようになりました: agentpm review cancel --task-id <ID>（画面の「レビューを取り消す」と同じ。承認待ち・差し戻しのものが対象で、取り消したあとは依頼し直せます）',
   },
+  {
+    id: '2026-09-26-vote-cli',
+    date: '2026-09-26',
+    message: 'Wiki・議事録の投票ブロックを CLI から見られるようになりました: agentpm vote list --wiki-page-id <ID>（または --meeting-id）/ agentpm vote show --poll-id <ID> / agentpm vote cast --poll-id <ID> --choice ok|ng|hold|none',
+  },
 ]
 
 function computeChecksum(commands: ManifestCommand[]): string {
@@ -1070,7 +1131,7 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.10.0',
+      version: '1.11.0',
       minCliVersion: '0.2.0',
       generatedAt: '2026-09-10T14:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),

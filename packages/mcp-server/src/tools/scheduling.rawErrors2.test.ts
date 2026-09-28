@@ -49,6 +49,7 @@ vi.mock('../config.js', () => ({
 }))
 vi.mock('../auth/scope.js', () => ({
   assertUsersAreSpaceMembers: async () => {},
+  requireActorUserId: () => 'actor-1',
 }))
 
 const { schedulingCreate, schedulingRespond, schedulingGetResponses, schedulingSendReminder } = await import(

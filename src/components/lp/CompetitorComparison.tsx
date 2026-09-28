@@ -5,7 +5,7 @@ import { ArrowRight } from '@phosphor-icons/react'
 import Link from 'next/link'
 
 const rows = [
-  { feature: 'ポータル（アカウント不要）', agentpm: true, others: false, note: '他ツールは全員アカウント必要' },
+  { feature: '相手先専用のポータル', agentpm: true, others: false, note: '何人招いても無料。社内のやりとりは見えない' },
   { feature: 'ボール管理', agentpm: true, others: false, note: '「誰待ち？」の可視化' },
   { feature: '代理店モード', agentpm: true, others: false, note: '原価/売値の分離管理' },
   { feature: '見積もり・承認連動', agentpm: true, others: false, note: 'ポータルからワンクリック承認' },
@@ -25,7 +25,7 @@ export function CompetitorComparison() {
           <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Only in AgentPM</span>
           <h2 className="text-3xl font-bold text-slate-900 mb-4">他ツールにはない機能</h2>
           <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-            Backlog・Jira・Linear・Redmine——どれにもない機能が、AgentPMにはあります。
+            ほかのプロジェクト管理ツールには見当たらない機能が、AgentPMにはあります。
           </p>
         </motion.div>
 

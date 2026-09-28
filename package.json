@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "seed:test": "npx tsx scripts/seed-test-data.ts",
-    "test:e2e:prod": "BASE_URL=https://agentpm.app playwright test"
+    "test:e2e:prod": "BASE_URL=https://agentpm.app playwright test",
+    "build:approval-pack": "node scripts/approval-pack/build.mjs"
   },
   "dependencies": {
     "@blocknote/core": "^0.46.2",

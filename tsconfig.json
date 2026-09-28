@@ -20,7 +20,8 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "agentpm-core/*": ["./packages/mcp-server/*"]
     }
   },
   "include": [

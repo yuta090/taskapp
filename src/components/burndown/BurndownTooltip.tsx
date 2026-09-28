@@ -1,5 +1,6 @@
 'use client'
 
+import { BURNDOWN_CONFIG } from '@/lib/burndown/constants'
 import type { DailySnapshot } from '@/lib/burndown/computeBurndown'
 
 interface BurndownTooltipProps {
@@ -49,7 +50,7 @@ export function BurndownTooltip({
         width={tooltipWidth}
         height={tooltipHeight}
         rx={6}
-        fill="#1E293B"
+        fill={BURNDOWN_CONFIG.COLORS.TOOLTIP_BG}
         opacity={0.95}
       />
 
@@ -59,7 +60,7 @@ export function BurndownTooltip({
         y={tooltipY + 18}
         fontSize={12}
         fontWeight={600}
-        fill="white"
+        fill={BURNDOWN_CONFIG.COLORS.TOOLTIP_FG}
       >
         {formatDateLabel(snapshot.date)}
       </text>
@@ -69,7 +70,7 @@ export function BurndownTooltip({
         x={tooltipX + 10}
         y={tooltipY + 36}
         fontSize={11}
-        fill="#94A3B8"
+        fill={BURNDOWN_CONFIG.COLORS.TOOLTIP_FG_MUTED}
       >
         残: {snapshot.remaining}タスク
       </text>
@@ -80,7 +81,7 @@ export function BurndownTooltip({
           x={tooltipX + 10}
           y={tooltipY + 52}
           fontSize={11}
-          fill="#94A3B8"
+          fill={BURNDOWN_CONFIG.COLORS.TOOLTIP_FG_MUTED}
         >
           完了: +{snapshot.completed}
         </text>
@@ -92,7 +93,7 @@ export function BurndownTooltip({
           x={tooltipX + 10}
           y={tooltipY + 68}
           fontSize={11}
-          fill="#FCD34D"
+          fill={BURNDOWN_CONFIG.COLORS.TOOLTIP_ADDED}
         >
           追加: +{snapshot.added}
         </text>
@@ -104,7 +105,7 @@ export function BurndownTooltip({
           x={tooltipX + 10}
           y={snapshot.added > 0 ? tooltipY + 84 : tooltipY + 68}
           fontSize={11}
-          fill="#F87171"
+          fill={BURNDOWN_CONFIG.COLORS.TOOLTIP_REOPENED}
         >
           再開: +{snapshot.reopened}
         </text>

@@ -5,15 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Output Language (厳守)
 
 - **アウトプット（説明・要約・レビュー結果など、ユーザーに見せる文章）は必ず日本語で書く。**
-- **専門用語はなるべく使わない。** 使う場合は、初出時に一言でかみくだいた説明を添える（例: 「RLS（データベース側でユーザーごとに見える行を制限する仕組み）」）。
+- **IT業界の新卒が分かる程度の用語（ページ内リンク、アンカー、URL、コンポーネント、トークン 等）は、そのまま使う。** 無理にやさしい日本語へ言い換えない（例: ×「節ごとに紐付ける」→ ○「ページ内リンクで見出しに飛ばす」）。それより専門的な用語だけ、初出時に一言説明を添える（例: 「RLS（データベース側でユーザーごとに見える行を制限する仕組み）」）。
 - コード・コマンド・ファイル名などはそのまま英語でよい。説明の本文だけ日本語にする。
 
 ### 結果報告のしかた（厳守）
 
 - **作業の結果・進捗・レビュー結果は「箇条書き」で出す。** 長い文章のかたまりにしない。
-- **非技術者が読んで分かる言葉で書く。** 相手はエンジニアではない前提。「何をしたか」「なぜ必要か」「次どうなるか」が一目で分かるように。
-- 各項目は「一行で結論 → 必要なら一言補足」の形にする。技術用語は避け、使うなら日常語に言い換える（例:「トークン」→「合鍵」、「RLS」→「持ち主だけが開ける鍵」、「一時障害」→「一瞬つながらなかっただけ」）。
-- **たとえ話や身近な例**を使ってよい。正確さより「まず伝わること」を優先する（詳細が要るときは後から足す）。
+- 「何をしたか」「なぜ必要か」「次どうなるか」が一目で分かるように書く。
+- 各項目は「一行で結論 → 必要なら一言補足」の形にする。
+- たとえ話は使わない。用語の言い換えより、具体（ファイル名・画面名・件数）で伝える。
 - 冒頭に「いま何がどこまで進んだか」を1〜2行で要約してから、箇条書きに入る。
 
 ## Project Overview
@@ -43,12 +43,37 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   作業ブランチ（PR）と develop のプレビューは無いので、**画面の確認と E2E はローカルで回す**
   （ユーザー方針「ローカルでできることはローカルで」）。ビルドが増える設定（プレビューを戻す・
   ビルドマシンを Turbo に戻す）は**ユーザーの了承なしに戻さない**。
+- **develop にマージしたら、本番に出さずに確認できる URL を必ず報告に載せる**（2026-09-26 ユーザー指定）。
+  develop にはプレビューが無いので、develop の先頭に**空のコミットを1つ足して** `release/develop-<sha8>` に push し、
+  Vercel に作らせる。develop と同じコミットのまま push しても、Vercel は develop で一度「ビルド対象外」にした
+  コミットを作り直さない（2026-09-26 に実測）。ビルドは数分かかる。URL が出る前に「終わりました」と報告しない
+
+  ```bash
+  R=/Volumes/WIN-MAC2/scripts/taskapp
+  git -C $R fetch origin develop
+  D=$(git -C $R rev-parse origin/develop); SHORT=${D[1,8]}
+  T=$(git -C $R commit-tree "${D}^{tree}" -p $D -m "chore: develop のプレビューを作る（release/develop-$SHORT）")
+  git -C $R push origin "${T}:refs/heads/release/develop-${SHORT}"   # zsh では ${T} と波括弧で囲む（$T:r が修飾子になる）
+  # プレビューの URL。デプロイ記録はブランチ名ではなくコミットの SHA で引く（ビルドが終わると environment_url が入る）
+  gh api "repos/yuta090/taskapp/deployments?sha=$T" --jq '.[0].statuses_url' \
+    | xargs -I{} gh api {} --jq '[.[]|select(.state=="success")][0].environment_url'
+  ```
+
+  報告には、プレビューの URL・中身のコミット（`origin/main..origin/develop` の一覧）・画面で見てほしい点を書く。
+  develop には他のセッションのマージも入っているので、**昇格すると一緒に本番に出るものを並べる**
 - **ローカルの起動は webpack**。この Mac の exFAT ボリュームでは Turbopack が `Permission denied`
   で落ちるため。worktree でも `node_modules` と `.env.local` をメイン checkout へのシンボリック
   リンクにすれば動く。
   - **E2E・通しの確認は本番ビルドで**: `npm run build:local`（約3分）→ `npm run start:local`（:4000）。
-    `npm run test:e2e` はサーバーが無ければこれを自動で行う。本番ビルドなら全41件が約20秒で回り、
-    結果は本番と同じ（34 passed / 7 skipped・2026-09-12）。
+    `npm run test:e2e` はサーバーが無ければこれを自動で行う。本番ビルドなら約20秒で回り、
+    **正常は 40 passed / 7 skipped（計47・2026-09-20）**。数が足りなければ失敗が無くても回し直す。
+  - **⚠ worktree から回すときは `npm run test:e2e` を使わない。** playwright の webServer は :4000 が
+    応答すればそれを再利用するので、**メイン checkout（他セッションの別ブランチ）のサーバーが
+    残っていると、そちらを検証して「通った」ことになる**（2026-09-18 に実際に踏み、自分の変更を
+    一度も検証しないまま 1 failed の原因をデータ側に探して遠回りした）。自分で
+    `npx next start -p <空きポート>` を立て、`BASE_URL=http://localhost:<port> npx playwright test` を渡す。
+    落ちたテストが自分の変更と無関係なときは、まず `lsof -nP -iTCP:<port> -sTCP:LISTEN -t` の PID の
+    cwd（`lsof -a -p <pid> -d cwd`）が自分の作業ツリーかを確かめる。
   - **ページの見た目をさっと見るだけなら** `npm run dev`（`next dev --webpack`）。ただしページごとの
     初回表示はコンパイルで 30 秒ほどかかり、**受信トレイ・マイタスクなど一部のページは初回
     コンパイルが止まって開けない**ことがある（2026-09-12 に実測）。そのときは本番ビルドで見る。
@@ -58,6 +83,10 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   `data-testid`・ボタンの表示名を変えたときも1回。
 - `E2E_EMAIL` / `E2E_PASSWORD` / `E2E_CLIENT_EMAIL` / `E2E_CLIENT_PASSWORD` は `.env.local` に置く。
   未設定だとテスト側の弱い既定値（`client1234` 等）が使われ、認証エラーで落ちる。
+- **社内承認の E2E（`review-approval.spec.ts`）は承認者役でも入り直す**。自分は自分の承認者に
+  なれないため、テスト組織の佐藤花子（`staff1@example.com`・パスワードは `DEMO_SEED_PASSWORD`）を使う。
+  依頼はサーバー側（`rpc_review_open_as`）で用意し、画面で確かめるのは「受信箱で承認を押す」ところだけ
+  （画面から2人分のログインと十数回の遷移を通すと6分の上限を超える）。作ったタスクは `afterAll` で消す。
 - ログイン処理は `tests/e2e/login.ts` に集約している。hydration 前に入力すると値が消えて
   **送信自体が起きず無言で落ちる**ため、必ずこのヘルパー経由で書く。
 
@@ -76,6 +105,20 @@ BASE_URL=<release/* のプレビューURL> npm run test:e2e   # 昇格前に rel
   printf '%s' "$HOME/agentpm-publish.sh /Volumes/WIN-MAC2/scripts/taskapp" | pbcopy   # →「ターミナルに貼って Enter」
   ```
   終わったら `~/agentpm-publish.sh` を消す。
+
+## 料金の数字は1か所だけ（厳守）
+
+料金・上限・他社の価格は **`src/lib/pricing/facts.json` が正本**。料金ページ・比較ページ・
+稟議パックの資料（`public/docs/`）が、すべてここを読む。
+
+- **数字を直すのは facts.json だけ。** 画面や資料に直接書かない
+- **直したら `npm run build:approval-pack` を実行**して資料（PDF 2点・Excel 2点）を作り直し、
+  生成物も一緒にコミットする
+- 作り直しを忘れると `src/__tests__/lib/pricing/pricing-facts.test.ts` が落ちる。
+  正本だけ直して資料が古いまま本番へ出るのを、ここで止めている
+- 資料の文章（セキュリティの項目など）は `scripts/approval-pack/security.json`。
+  **「対応」と書けるのはコード・インフラで裏が取れているものだけ**（リージョンのように
+  確認できないものは書かない）
 
 ## Specifications
 
@@ -137,7 +180,7 @@ type = 'task' | 'spec'           # spec requires spec_path + decision_state
 - **UIの言葉（厳守）**: 「顧問先」ではなく **「相手先」**、「共有Bot/専用Bot」ではなく **「共通LINE/自社LINE」**。グループを社内/社外に分類させない（見せ分けはタスク単位の `client_scope`）。
 - **機能ゲート**: `src/lib/billing/entitlements.ts` の `PLAN_FEATURES`（own_line_account / line_direct_dm / instant_line_notify は Pro 専有）＋ `PLAN_LIMITS`（maxLineGroups / monthlySharedPushQuota）。gate は**確立/送信境界のみ・新規紐付けの拒否のみ（既存は切らない）**。
 - **⚠ 共通LINE送信クォータ**: LINE無料枠200通/月は**アカウント単位（共有bot全org相乗り）**。org別capだけでは持ち出しが非有界 → **グローバル予算＋org別capの二層制**が必要（`monthlySharedPushQuota` の仮値は安全側、実装は別PR）。
-- **価格は未確定**（LLM抽出原価の実測とLINE規約の複数アカウント可否が前提）。方向＝**定額＋グループ追加パック**、Pro は粗利70-80%・LINE側費用込みで月10万円未満。訴求は時短でなく**クオリティ（拾い漏れゼロ）**。
+- **価格は未確定**（LLM抽出原価の実測とLINE規約の複数アカウント可否が前提）。方向＝**定額＋グループ追加パック**。採算の目標値は社内資料で管理する（PUBLIC リポジトリなのでここには書かない）。訴求は時短でなく**クオリティ（拾い漏れゼロ）**。
 
 ## Key Files
 
@@ -216,10 +259,27 @@ feature branch → (push/PR) → develop → (PR) → main
   - 連番方式（`YYYYMMDD_000_`, `_001_` …）は**使わない**。番号は別ストリームと必ず衝突する。
   - 秒まで含めれば適用順序も一意に定まる。作成時は現在時刻を実際に確認して埋める（`date +%Y%m%d%H%M%S`）。
   - 万一同秒で衝突したら末尾に `_a` `_b` を付す。
-- **ブランチ名は作成前に一意性を確認する**:
+- **始める前に、他のセッションが動いていないかを見る（厳守）**。
+  このリポジトリは**複数のAIセッションが同時に開いている**。メインの checkout に
+  自分の覚えのない変更があれば、**誰かが作業の途中**。そこでブランチを切ってはいけない。
+  ```bash
+  git worktree list                 # どの作業ツリーがどのブランチを持っているか
+  git -C <メインのパス> status --short   # 覚えのない変更があれば、誰かが作業中
+  ```
+  **1行でも出たらメインでは作業しない。** `git worktree add` で自分の場所を作る。
+  メインで `git checkout -b` しない。`git add -A` もしない（相手の途中の変更を巻き込む）。
+
+  実例（2026-09-18）: メインの checkout に他セッションの未コミット変更があるまま
+  `git checkout -b feat/wiki-toc` で作業を始めた。相手が同じツリーで作業を続けた結果、
+  **こちらの未コミットの変更3ファイルが消え**、LPの作業が `feat/wiki-toc` という
+  名前のブランチに乗った（中身と名前が食い違うブランチが残った）。
+
+- **ブランチ名は作成前に一意性を確認する**。リモートだけでなく**ローカルも見る**
+  （上の実例はローカルにもリモートにも無い名前で、リモートの確認だけでは防げなかった）:
   ```bash
   # 既存なら別名にする。空きならそのまま作成
-  git ls-remote --exit-code origin "refs/heads/<name>" >/dev/null 2>&1 \
+  git show-ref --verify --quiet "refs/heads/<name>" \
+    || git ls-remote --exit-code origin "refs/heads/<name>" >/dev/null 2>&1 \
     && echo "既存: 別名にする" || git worktree add -b <name> ../wt/taskapp-<topic> origin/develop
   ```
   - 命名は `feat/*` `security/*` `fix/*` `docs/*` を基本とし、汎用語（`feat/fix` 等）は避け**topic＋必要なら時刻**（`feat/<topic>-YYYYMMDDHHMM`）で一意化する。

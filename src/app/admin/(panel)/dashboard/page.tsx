@@ -6,7 +6,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
 
 async function fetchStats() {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
   const nowMs = Date.now()
   const thirtyDaysAgo = new Date(nowMs - 30 * 86400000).toISOString()
   const sixtyDaysAgo = new Date(nowMs - 60 * 86400000).toISOString()

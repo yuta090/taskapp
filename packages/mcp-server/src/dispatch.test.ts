@@ -6,11 +6,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  */
 
 let authCtx = { keyId: 'key-1', userId: 'user-1', orgId: 'org-1', scope: 'org' as const, allowedSpaceIds: null, allowedActions: ['read', 'write'] as const }
+let current = authCtx
 let handlerImpl: (params: unknown) => Promise<unknown> = async () => ({ ok: true })
 
 vi.mock('./config.js', () => ({
-  initializeAuthWithApiKey: vi.fn(async () => {}),
-  getAuthContext: () => authCtx,
+  resolveAuthContext: vi.fn(async () => authCtx),
+  // 本物と同じく「この呼び出しのあいだだけ ctx を有効にする」形。ここを素通し実装にすると
+  // 分離が効いていなくてもテストが通ってしまうので、ストアを持たせる
+  runWithAuthContext: <T,>(ctx: typeof authCtx, fn: () => Promise<T>) => {
+    current = ctx
+    return fn()
+  },
+  getAuthContext: () => current,
 }))
 
 vi.mock('./tools/index.js', () => ({
@@ -27,6 +34,7 @@ const { dispatchTool } = await import('./dispatch.js')
 
 beforeEach(() => {
   authCtx = { keyId: 'key-1', userId: 'user-1', orgId: 'org-1', scope: 'org', allowedSpaceIds: null, allowedActions: ['read', 'write'] }
+  current = authCtx
   handlerImpl = async () => ({ ok: true })
 })
 

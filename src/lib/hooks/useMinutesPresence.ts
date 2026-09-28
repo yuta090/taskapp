@@ -9,6 +9,7 @@ import {
   type CollabMessage,
   type CollabStatus,
 } from '@/lib/collab/transport'
+import type { CollabPeer } from '@/lib/collab/scribe'
 
 /**
  * 議事録の「いま誰が書いているか」を、同じ会議を開いている人どうしで見せ合う。
@@ -35,7 +36,10 @@ const IDLE_MS = 60_000
  */
 const RETRY_DELAYS_MS = [2_000, 6_000]
 
-const TOPIC_PREFIX = 'meeting-minutes:'
+/** 議事録の部屋の名前の頭。DB の判定関数 `app_can_track_meeting_minutes` と揃える */
+export const MINUTES_TOPIC_PREFIX = 'meeting-minutes:'
+/** Wiki のページの部屋の名前の頭。DB の判定関数 `app_can_track_wiki_page` と揃える */
+export const WIKI_TOPIC_PREFIX = 'wiki-page:'
 
 /** 名前が取れなかった人の呼び方 */
 const FALLBACK_NAME = 'メンバー'
@@ -45,9 +49,12 @@ export interface MinutesPresencePeer {
   name: string
   /** いま書いている最中か */
   editing: boolean
-  /** その人が部屋に入った時刻（epoch ミリ秒）。書記を決めるのに使う */
+  /**
+   * その人がいちばん早く入った時刻（epoch ミリ秒）。
+   * 書記を決めるのに使うのは**タブごとの一覧のほう**（`CollabPeer`）で、これは表示用。
+   */
   joinedAt: number
-  /** いま同時編集の輪に入っているか。落ちた人は書記の候補から外す */
+  /** その人のどれかのタブが同時編集の輪に入っているか。表示用 */
   collab: boolean
 }
 
@@ -71,7 +78,7 @@ export interface MinutesCollabWiring {
    * そこで書記を決めると、入ったばかりの人が「自分しか居ない」と思い込んで書記になり、
    * 自分の持っている本文で種をまいてしまう（＝本文が二重になる）。
    */
-  onPeers: (peers: { userId: string; joinedAt: number; collab: boolean }[]) => void
+  onPeers: (peers: CollabPeer[]) => void
   /**
    * `joined` は**在席の一覧が届いてから**呼ぶ（参加の返事の時点では呼ばない）。
    * 一定時間届かなければ `error` を呼ぶ。
@@ -80,10 +87,21 @@ export interface MinutesCollabWiring {
 }
 
 interface UseMinutesPresenceOptions {
+  /** 部屋の ID。議事録なら会議の ID、Wiki ならページの ID */
   meetingId: string
+  /**
+   * 部屋の名前の頭（既定は議事録の `meeting-minutes:`）。Wiki は `wiki-page:`。
+   * 入れる人の判定は DB 側で名前の頭ごとに分かれている
+   */
+  topicPrefix?: string
   /** 書ける人が、詳細を読み込み終えて開いている間だけ true。閲覧だけの人は購読しない */
   enabled: boolean
   self: MinutesPresenceSelf
+  /**
+   * このタブの見分け札。**在席の鍵にもこれを使う**（人ごとにすると、同じ人の
+   * 2つ目のタブが1つ目に上書きされて消える）。空のあいだは購読を始めない。
+   */
+  tabId: string
   /** 同時編集を使うときだけ渡す。渡すと broadcast も受け取る */
   collab?: MinutesCollabWiring
 }
@@ -100,6 +118,22 @@ interface UseMinutesPresenceResult {
    * 伝えないと、落ちた自分が書記に選ばれ続け、**誰の書いた内容も列に残らなくなる**。
    */
   setCollabActive: (active: boolean) => void
+  /**
+   * いまこの議事録を開いて同時編集に加わるつもりだ、と在席で伝える。
+   * 本文を持つより**先に**伝えるのが要点（伝えないと、ほぼ同時に開いた相手が
+   * こちらに気づかず、自分で本文を作って中身が二重になる）。
+   */
+  setCollabPresent: (present: boolean) => void
+  /**
+   * 上の2つを**まとめて1回で**伝える。1人で書く形へ落ちるときのように、
+   * 両方いっぺんに変わる場面で使う（別々に呼ぶと在席を2回送ることになる）。
+   */
+  setCollabState: (next: { active?: boolean; present?: boolean }) => void
+  /**
+   * カーソルの色の番号を在席で伝える。
+   * 伝えないと、あとから入った人が同じ番号を取ってしまう。
+   */
+  setColorIndex: (index: number) => void
 }
 
 /**
@@ -109,6 +143,8 @@ interface UseMinutesPresenceResult {
  */
 type PresencePayload = {
   user_id: string
+  /** このタブの見分け札。同じ人の別タブを別々の参加者として扱うために載せる */
+  client_id: string
   name: string
   editing: boolean
   since: number
@@ -116,6 +152,15 @@ type PresencePayload = {
   joined_at: number
   /** 同時編集の輪に入っているか。落ちた人を書記にすると誰の内容も保存されなくなる */
   collab: boolean
+  /**
+   * いまこの議事録を開いていて、同時編集に加わるつもりか。`collab` より早く立つ。
+   * ほぼ同時に2人が開いたときに、互いに気づけるようにするための印
+   */
+  present: boolean
+  /** このタブが手前に出ているか。裏のタブを書記にすると保存が何分も遅れる */
+  visible: boolean
+  /** カーソルの色の番号。まだ決まっていなければ null。空いている番号を配るために載せる */
+  color_index: number | null
 }
 
 /** 同時編集でやり取りする4種類（broadcast のイベント名） */
@@ -152,8 +197,10 @@ function warnPresence(message: string, err?: unknown): void {
 
 export function useMinutesPresence({
   meetingId,
+  topicPrefix = MINUTES_TOPIC_PREFIX,
   enabled,
   self,
+  tabId,
   collab,
 }: UseMinutesPresenceOptions): UseMinutesPresenceResult {
   // クライアントは1回だけ作って使い回す
@@ -165,10 +212,12 @@ export function useMinutesPresence({
   // 購読し直さずに最新の値を読めるようにする（名前の取得が後から届いても送り直さない）
   const userIdRef = useRef(userId)
   const nameRef = useRef(name)
+  const tabIdRef = useRef(tabId)
   useEffect(() => {
     userIdRef.current = userId
     nameRef.current = name
-  }, [userId, name])
+    tabIdRef.current = tabId
+  }, [userId, name, tabId])
 
   // 同時編集の口は、購読をやり直さずに最新の関数を読めるよう ref に詰め替える
   // （毎レンダーで新しい関数が来ても、チャネルを作り直さない）
@@ -178,6 +227,8 @@ export function useMinutesPresence({
   }, [collab])
 
   const channelRef = useRef<RealtimeChannel | null>(null)
+  /** 部屋から外れていたら入り直す口（購読の effect の中で作る） */
+  const ensureJoinedRef = useRef<(() => void) | null>(null)
   /**
    * 自分が部屋に入った時刻（座席）。チャネルに入るたびに取り直す。
    * 顔ぶれは `onPeers` で直に渡すので、描画のための状態にはしない
@@ -193,6 +244,16 @@ export function useMinutesPresence({
    * 書記（列へ保存する1人）に選ばれ、**部屋の誰の書いた内容も列に残らなくなる**。
    */
   const collabActiveRef = useRef(false)
+  /**
+   * いまこの議事録を開いていて、同時編集に加わるつもりか。
+   * 器の用意が終わる前から立てるのが要点（`collabActiveRef` より早い）。
+   * 立てないと、ほぼ同時に開いた相手がこちらに気づかず、自分で本文を作ってしまう。
+   */
+  const collabPresentRef = useRef(false)
+  /** このタブが手前に出ているか。裏に回ると書記の候補から後ろへ下がる */
+  const visibleRef = useRef(true)
+  /** カーソルの色の番号。決まったら在席に載せて、ほかの人が同じ番号を取らないようにする */
+  const colorIndexRef = useRef<number | null>(null)
   /** 最後にチャネルへ送った editing。まだ送っていなければ null */
   const trackedRef = useRef<boolean | null>(null)
   const sinceRef = useRef(0)
@@ -206,11 +267,15 @@ export function useMinutesPresence({
     trackedRef.current = editingRef.current
     const payload: PresencePayload = {
       user_id: userIdRef.current,
+      client_id: tabIdRef.current,
       name: nameRef.current || FALLBACK_NAME,
       editing: editingRef.current,
       since: sinceRef.current,
       joined_at: joinedAtRef.current,
       collab: collabActiveRef.current,
+      present: collabPresentRef.current,
+      visible: visibleRef.current,
+      color_index: colorIndexRef.current,
     }
     try {
       void Promise.resolve(channel.track(payload)).catch((err) => {
@@ -254,10 +319,16 @@ export function useMinutesPresence({
   )
 
   useEffect(() => {
-    if (!enabled || !meetingId || !userId) return
+    if (!enabled || !meetingId || !userId || !tabId) return
 
     let disposed = false
     let channel: RealtimeChannel | null = null
+    /**
+     * 片付け中のチャネル。**片付け終わるのを待ってから次を作る。** supabase-js は同じ名前の
+     * 部屋が残っていると新しく作らずにそれを返すので、閉じかけの部屋を掴むと外れたままになる
+     * （2026-09-28 本番で、送る通がすべて部屋の外からの代替経路に回っていた）
+     */
+    let removing: Promise<unknown> | null = null
     /** 何回目の購読か（1 が最初。RETRY_DELAYS_MS の数だけやり直す） */
     let attempt = 0
     let retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -265,35 +336,74 @@ export function useMinutesPresence({
     let presenceArrived = false
     let presenceWaitTimer: ReturnType<typeof setTimeout> | null = null
 
-    /** いま部屋に居る自分以外の人。読み取れなければ null（＝分からない） */
-    const syncOthers = (): MinutesPresencePeer[] | null => {
+    /**
+     * 在席を読み直す。**2つの一覧を作る**のが要点。
+     *  - 帯用（`others`）: 人ごと。自分は出さず、同じ人の別タブは1人にまとめる
+     *  - 同時編集用（`room`）: タブごと。自分のタブも入れる（書記を決めるため）
+     * 読み取れなければ null（＝分からない）。
+     */
+    const syncOthers = (): { others: MinutesPresencePeer[]; room: CollabPeer[] } | null => {
       const current = channel
       if (!current) return null
       try {
         const state = current.presenceState<Partial<PresencePayload>>()
         const next: MinutesPresencePeer[] = []
+        const room: CollabPeer[] = []
         for (const [key, metas] of Object.entries(state)) {
           const meta = metas[metas.length - 1]
           if (!meta) continue
+          const tab = typeof meta.client_id === 'string' && meta.client_id ? meta.client_id : key
           const peerId = typeof meta.user_id === 'string' && meta.user_id ? meta.user_id : key
-          // 自分は出さない（別のタブで開いていても自分は自分）
+          // 入った時刻が読めない相手は「ついさっき入った」扱いにする。書記を
+          // 取り合わないよう、いちばん新しい側へ倒す
+          const joinedAt = typeof meta.joined_at === 'number' ? meta.joined_at : Number.MAX_SAFE_INTEGER
+          // 印が無い相手は、同時編集を持たない版の画面を開いている人。輪には
+          // 入れない（その人はこれまでどおり自分で保存する）
+          // 見分け札を持たない相手は、同時編集がタブ単位になる前の版の画面。
+          // **輪から外すのではなく印を付けて渡す**。外すと「自分ひとりだ」と見えて
+          // 目録合わせをせずに種をまいてしまい、相手の器と食い違って本文が二重になる。
+          // 混ざっている間は、こちら（新しい版）が輪から降りる（useMinutesCollab）
+          const hasTabId = typeof meta.client_id === 'string' && !!meta.client_id
+          room.push({
+            id: tab,
+            userId: peerId,
+            joinedAt,
+            collab: meta.collab === true,
+            // 「いま開いていて加わるつもり」を自分から名乗った人だけ true。
+            // スマホ・器の読み込みに失敗した人は名乗らない（加われないのに相手を
+            // 待たせるだけになる）。1つ前の版の画面はそもそも名乗る仕組みを持たないが、
+            // そちらは下の `outdated` で見分けて、こちらが輪から降りる
+            present: meta.present === true,
+            // 印が読めない相手は手前に出ている扱い（今までと同じ順番になる）
+            visible: meta.visible !== false,
+            outdated: !hasTabId,
+            colorIndex: typeof meta.color_index === 'number' ? meta.color_index : null,
+          })
+
+          // ここから帯用。自分は出さない（別のタブで開いていても自分は自分）
           if (peerId === userId) continue
-          if (next.some((peer) => peer.userId === peerId)) continue
+          const editing = meta.editing === true
+          const already = next.find((peer) => peer.userId === peerId)
           const peerName = typeof meta.name === 'string' ? meta.name.trim() : ''
+          if (already) {
+            // 同じ人の別タブ。どれか1つでも書いていれば「書いています」にする
+            if (editing) already.editing = true
+            if (joinedAt < already.joinedAt) already.joinedAt = joinedAt
+            if (meta.collab === true) already.collab = true
+            // 名前が読めないタブを先に拾っていたら、読めるほうで上書きする
+            if (already.name === FALLBACK_NAME && peerName) already.name = peerName
+            continue
+          }
           next.push({
             userId: peerId,
             name: peerName || FALLBACK_NAME,
-            editing: meta.editing === true,
-            // 入った時刻が読めない相手は「ついさっき入った」扱いにする。書記を
-            // 取り合わないよう、いちばん新しい側へ倒す
-            joinedAt: typeof meta.joined_at === 'number' ? meta.joined_at : Number.MAX_SAFE_INTEGER,
-            // 印が無い相手は、同時編集を持たない版の画面を開いている人。輪には
-            // 入れない（その人はこれまでどおり自分で保存する）
+            editing,
+            joinedAt,
             collab: meta.collab === true,
           })
         }
         setOthers((prev) => (samePeers(prev, next) ? prev : next))
-        return next
+        return { others: next, room }
       } catch (err) {
         warnPresence('在席を読み取れませんでした', err)
         return null
@@ -305,16 +415,32 @@ export function useMinutesPresence({
      * 参加の返事（SUBSCRIBED）の時点では一覧がまだ届いておらず、必ず「自分ひとり」に
      * 見えるので、そこで始めると入った人が毎回自分の本文で器を作り直してしまう。
      */
-    const handlePresence = () => {
-      const peers = syncOthers()
-      if (peers === null) return
+    const handlePresence = (fromSync: boolean) => {
+      const read = syncOthers()
+      if (read === null) return
       const wiring = collabRef.current
       if (!wiring) return
-      wiring.onPeers([
-        { userId: userIdRef.current, joinedAt: joinedAtRef.current, collab: collabActiveRef.current },
-        ...peers.map((peer) => ({ userId: peer.userId, joinedAt: peer.joinedAt, collab: peer.collab })),
-      ])
+      // 自分のタブは、在席が配られる前でも顔ぶれに入れる（自分の印は自分がいちばん新しい）
+      const self: CollabPeer = {
+        id: tabIdRef.current,
+        userId: userIdRef.current,
+        joinedAt: joinedAtRef.current,
+        collab: collabActiveRef.current,
+        present: collabPresentRef.current,
+        visible: visibleRef.current,
+        outdated: false,
+        colorIndex: colorIndexRef.current,
+      }
+      const room = read.room.some((peer) => peer.id === self.id)
+        ? read.room.map((peer) => (peer.id === self.id ? { ...peer, ...self } : peer))
+        : [self, ...read.room]
+      wiring.onPeers(room)
       if (presenceArrived) return
+      // 「入った」は一覧の更新（sync）でだけ知らせる。Supabase は入ったときの一覧を受け取ると、
+      // 先客ごとの join を**一覧を更新する前に**出す（そのあとで sync）。join の時点で知らせると、
+      // 先客が見えないまま「自分ひとりだ」と判断して本文を作り、先客と一度も合わせ込まない
+      // （2026-09-26 に実ブラウザで確認。議事録は本文が同じなので表に出ていなかった）
+      if (!fromSync) return
       presenceArrived = true
       clearPresenceWaitTimer()
       wiring.onStatus('joined')
@@ -354,11 +480,31 @@ export function useMinutesPresence({
         }
       }
       try {
-        supabase.removeChannel(current)
+        removing = Promise.resolve(supabase.removeChannel(current)).catch((err) => {
+          warnPresence('チャネルを閉じられませんでした', err)
+        })
       } catch (err) {
         warnPresence('チャネルを閉じられませんでした', err)
       }
     }
+
+    /**
+     * 部屋から外れていたら入り直す（送ろうとしたとき・タブが手前に戻ったとき・ネットがつながり直したとき）。
+     * 外れたことを知らせる合図（CLOSED など）が来ないまま外れていることがある
+     */
+    const ensureJoined = (immediately: boolean) => {
+      if (disposed || retryTimer) return
+      const current = channel
+      if (!current || (current as unknown as { state?: string }).state === 'joined') return
+      channelRef.current = null
+      if (immediately) {
+        closeChannel()
+        void start()
+        return
+      }
+      scheduleRetry('CLOSED')
+    }
+    ensureJoinedRef.current = () => ensureJoined(false)
 
     const teardown = () => {
       clearIdleTimer()
@@ -388,8 +534,20 @@ export function useMinutesPresence({
     }
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') setEditing(false)
+      const hidden = document.visibilityState === 'hidden'
+      const visibleChanged = visibleRef.current !== !hidden
+      // 手前かどうかを在席で伝える。裏のタブが書記だと、ブラウザが時間の進みを
+      // 間引くので、手前で打っているのに保存だけが何分も遅れる。
+      // 先に印を入れ替えてから「書くのをやめた」を送れば、1通にまとまる
+      visibleRef.current = !hidden
+      const sentByEditing = hidden && editingRef.current
+      if (hidden) setEditing(false)
+      if (visibleChanged && !sentByEditing) pushTrack(true)
+      // 裏に回っていたあいだに外れていることがある（ブラウザが通信の見張りを間引くため）
+      if (!hidden) ensureJoined(true)
     }
+
+    const handleOnline = () => ensureJoined(true)
 
     const handlePageHide = () => {
       disposed = true
@@ -400,6 +558,9 @@ export function useMinutesPresence({
       attempt += 1
       // 書記を決めるのに使うので、つなぎに行く前に必ず入っている状態にする
       if (joinedAtRef.current === 0) joinedAtRef.current = Date.now()
+      // 新しいタブで開いてそのまま別の作業をすると、このタブでは
+      // `visibilitychange` が鳴らない。最初に一度、いまの状態を読む
+      visibleRef.current = document.visibilityState !== 'hidden'
 
       // private チャネルのポリシーは本人（authenticated）にしか効かない。
       // 生成時の anon キーのままつなぎに行かないよう、鍵を取って明示的に渡す
@@ -425,11 +586,29 @@ export function useMinutesPresence({
       }
       if (disposed) return
 
+      // 前のチャネルの片付けを待つ。同じ名前の部屋が残っていれば、それも片付けてから作る
+      if (removing) {
+        await removing
+        removing = null
+      }
+      const topic = `realtime:${topicPrefix}${meetingId}`
+      const stale = supabase.getChannels?.().find((c) => c.topic === topic) ?? null
+      if (stale) {
+        try {
+          await supabase.removeChannel(stale)
+        } catch (err) {
+          warnPresence('残っていたチャネルを閉じられませんでした', err)
+        }
+      }
+      if (disposed) return
+
       try {
-        const created = supabase.channel(`${TOPIC_PREFIX}${meetingId}`, {
+        const created = supabase.channel(`${topicPrefix}${meetingId}`, {
           config: {
             private: true,
-            presence: { key: userId },
+            // 鍵はタブごと。人ごとにすると、同じ人の2つ目のタブが1つ目を
+            // 上書きして、部屋から消えてしまう
+            presence: { key: tabId },
             // 自分が送ったものは受け取らない（器へ二重に取り込まないため）。
             // 受領確認は待たない（1秒に何通も流れるので待つと詰まる）
             broadcast: { self: false, ack: false },
@@ -437,9 +616,9 @@ export function useMinutesPresence({
         })
         channel = created
         created
-          .on('presence', { event: 'sync' }, handlePresence)
-          .on('presence', { event: 'join' }, handlePresence)
-          .on('presence', { event: 'leave' }, handlePresence)
+          .on('presence', { event: 'sync' }, () => handlePresence(true))
+          .on('presence', { event: 'join' }, () => handlePresence(false))
+          .on('presence', { event: 'leave' }, () => handlePresence(false))
         // 同時編集の更新。購読の前に登録する（あとから足すと最初の数通を取りこぼす）
         for (const event of COLLAB_EVENTS) {
           created.on('broadcast', { event }, (raw: { payload?: unknown }) => {
@@ -458,6 +637,8 @@ export function useMinutesPresence({
             if (disposed || channel !== created) return
             if (status === 'SUBSCRIBED') {
               clearRetryTimer()
+              // つながったら、やり直しの回数は数え直す（あとで外れたときに、前の失敗で諦めない）
+              attempt = 1
               channelRef.current = created
               trackedRef.current = null
               // 座席は「チャネルに入るたび」に取り直す。切れて入り直した人は
@@ -475,7 +656,9 @@ export function useMinutesPresence({
               }, PRESENCE_WAIT_MS)
               return
             }
-            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            // CLOSED: つながったあとで外された（鍵の期限切れ・サーバー側の都合）。
+            // 何もしないと、外れたまま送る通がすべて届かず、帯も出ないまま、ずっとずれる
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
               // つながらなくても編集は止めない。帯を出さないだけ
               channelRef.current = null
               trackedRef.current = null
@@ -490,16 +673,34 @@ export function useMinutesPresence({
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('online', handleOnline)
+    // ログインの鍵が更新されたら、部屋の鍵も渡し直す。最初に引数で渡した鍵は supabase-js が
+    // 更新しないので、1時間ほどで期限が切れて部屋から外される
+    let authSubscription: { unsubscribe: () => void } | null = null
+    try {
+      const listener = supabase.auth.onAuthStateChange?.((event, session) => {
+        if (disposed || event !== 'TOKEN_REFRESHED' || !session?.access_token) return
+        void Promise.resolve(supabase.realtime.setAuth(session.access_token)).catch((err) => {
+          warnPresence('新しい鍵を渡せませんでした', err)
+        })
+      })
+      authSubscription = listener?.data?.subscription ?? null
+    } catch (err) {
+      warnPresence('鍵の更新を見張れませんでした', err)
+    }
     void start()
 
     return () => {
       disposed = true
+      ensureJoinedRef.current = null
+      authSubscription?.unsubscribe()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('online', handleOnline)
       teardown()
       setOthers((prev) => (prev.length === 0 ? prev : EMPTY_PEERS))
     }
-  }, [enabled, meetingId, userId, supabase, pushTrack, setEditing, clearIdleTimer])
+  }, [enabled, meetingId, topicPrefix, userId, tabId, supabase, pushTrack, setEditing, clearIdleTimer])
 
   /**
    * 同時編集の更新を配る。つながっていなければ黙って捨てる（打つ手は止めない。
@@ -508,13 +709,21 @@ export function useMinutesPresence({
   const sendCollab = useCallback((event: CollabEvent, bytes: Uint8Array, to?: string) => {
     const channel = channelRef.current
     if (!channel) return
+    // 部屋から外れていたら送らない。supabase-js は外れたチャネルの send を黙って部屋の外からの
+    // 代替経路（REST）に回すが、それでは相手に届かない。入り直せば目録合わせで埋まる
+    if ((channel as unknown as { state?: string }).state !== 'joined') {
+      ensureJoinedRef.current?.()
+      return
+    }
     try {
       void Promise.resolve(
         channel.send({
           type: 'broadcast',
           event,
           payload: {
-            from: userIdRef.current,
+            // **在席の鍵と同じ値**を載せる。人のIDを載せると、受け取る側が
+            // 自分の見分け札と突き合わせられず、宛先付きの返事が全部捨てられる
+            from: tabIdRef.current,
             ...(to ? { to } : {}),
             data: bytes.length === 0 ? '' : bytesToBase64(bytes),
           },
@@ -525,15 +734,46 @@ export function useMinutesPresence({
     }
   }, [])
 
-  const setCollabActive = useCallback(
-    (active: boolean) => {
-      if (collabActiveRef.current === active) return
-      collabActiveRef.current = active
+  /**
+   * 輪に入っているか・開いているつもりかを、**まとめて1回で**伝える。
+   * 別々に伝えると、輪から降りるたびに在席を2回送ることになる。
+   */
+  const setCollabState = useCallback(
+    (next: { active?: boolean; present?: boolean }) => {
+      let changed = false
+      if (next.active !== undefined && collabActiveRef.current !== next.active) {
+        collabActiveRef.current = next.active
+        changed = true
+      }
+      if (next.present !== undefined && collabPresentRef.current !== next.present) {
+        collabPresentRef.current = next.present
+        changed = true
+      }
       // editing が変わっていなくても送り直す（輪から抜けたことを伝えるため）
+      if (changed) pushTrack(true)
+    },
+    [pushTrack]
+  )
+
+  const setCollabActive = useCallback(
+    (active: boolean) => setCollabState({ active }),
+    [setCollabState]
+  )
+
+  const setColorIndex = useCallback(
+    (index: number) => {
+      if (colorIndexRef.current === index) return
+      colorIndexRef.current = index
+      // editing が変わっていなくても送り直す（番号を配るため）
       pushTrack(true)
     },
     [pushTrack]
   )
 
-  return { others, setEditing, sendCollab, setCollabActive }
+  const setCollabPresent = useCallback(
+    (present: boolean) => setCollabState({ present }),
+    [setCollabState]
+  )
+
+  return { others, setEditing, sendCollab, setCollabActive, setCollabPresent, setCollabState, setColorIndex }
 }

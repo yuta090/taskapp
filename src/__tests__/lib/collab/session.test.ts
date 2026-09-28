@@ -17,10 +17,13 @@ import {
   SYNC_WAIT_MS,
   UPDATE_FLUSH_MS,
   AWARENESS_FLUSH_MS,
+  PERIODIC_SYNC_MS,
 } from '@/lib/collab/session'
 import type { DegradeReason } from '@/lib/collab/session'
+import { minutesSeedHash, seedClientId } from '@/lib/collab/hash'
+import { readSavedState } from '@/lib/collab/scribe'
 import { createFakeHub } from './fakeTransport'
-import { applyMarkdown, readBackMarkdown, seedWith } from './minutesTestSchema'
+import { applyMarkdown, blockGroupCount, readBackMarkdown, seedWith } from './minutesTestSchema'
 
 const BASE = ['# 会議', '', '- 決めたこと'].join('\n')
 
@@ -30,8 +33,11 @@ interface Member {
   reloads: number
 }
 
-/** 部屋の顔ぶれ。`joinedAt` が小さいほど古株。`collab` は本文の入った器を持っているか */
-type Room = { userId: string; joinedAt: number; collab?: boolean }[]
+/**
+ * 部屋の顔ぶれ。`id` は**タブごと**の見分け札（人ごとではない）。
+ * `joinedAt` が小さいほど古株。`collab` は本文の入った器を持っているか。
+ */
+type Room = { id: string; userId?: string; joinedAt: number; collab?: boolean; present?: boolean }[]
 
 const members: Member[] = []
 
@@ -41,29 +47,30 @@ const members: Member[] = []
  */
 function join(
   hub: ReturnType<typeof createFakeHub>,
-  userId: string,
+  tabId: string,
   room: Room,
-  markdown = BASE
+  markdown = BASE,
+  basis: string | null = null
 ): Member {
   const degraded: DegradeReason[] = []
   const member: Member = {
     degraded,
     reloads: 0,
     session: new MinutesCollabSession({
-      selfId: userId,
-      transport: hub.transportFor(userId),
+      selfId: tabId,
+      transport: hub.transportFor(tabId),
       onDegrade: (reason) => degraded.push(reason),
       onRoomReload: () => {
         member.reloads += 1
       },
     }),
   }
-  member.session.setSeeder(seedWith(markdown))
+  member.session.setSeeder(seedWith(markdown, basis))
   members.push(member)
   // 在席は全員に配られる。入る前から居た人にも新しい顔ぶれが届く。
   // ここでは「居る人はみな器を持っている」ことにする（持っていない人の扱いは
   // scribe.test.ts で見ている）
-  const announced = room.map((peer) => ({ collab: true, ...peer }))
+  const announced = room.map((peer) => ({ collab: true, userId: peer.id, ...peer }))
   for (const existing of members) existing.session.setPeers(announced)
   member.session.start()
   return member
@@ -80,17 +87,17 @@ afterEach(() => {
 describe('部屋に入ったとき', () => {
   it('自分しか居なければ、列の本文で器を満たす', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     expect(readBackMarkdown(tanaka.session.doc)).toBe(BASE)
     expect(tanaka.session.isSynced).toBe(true)
   })
 
   it('先客が居れば、その人から本文を受け取って同じ内容になる', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', [
-      { userId: 'tanaka', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+      { id: 'yamada', userId: 'yamada', joinedAt: 200 },
     ])
 
     expect(yamada.session.isSynced).toBe(true)
@@ -102,13 +109,13 @@ describe('部屋に入ったとき', () => {
     // 田中が開いたあとに外から1行足された、という場面。山田の列は新しいが、
     // 部屋の器（田中が作ったもの）に合わせる。作り直すと本文が二重になる
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(
       hub,
       'yamada',
       [
-        { userId: 'tanaka', joinedAt: 100 },
-        { userId: 'yamada', joinedAt: 200 },
+        { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+        { id: 'yamada', userId: 'yamada', joinedAt: 200 },
       ],
       `${BASE}\n- あとから足された行`
     )
@@ -121,14 +128,14 @@ describe('部屋に入ったとき', () => {
   it('返事を返すのは、尋ねた人を除いたいちばん古い1人だけ', () => {
     const hub = createFakeHub()
     const room2: Room = [
-      { userId: 'tanaka', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+      { id: 'yamada', userId: 'yamada', joinedAt: 200 },
     ]
-    join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     join(hub, 'yamada', room2)
     hub.sent.length = 0
 
-    join(hub, 'suzuki', [...room2, { userId: 'suzuki', joinedAt: 300 }])
+    join(hub, 'suzuki', [...room2, { id: 'suzuki', userId: 'suzuki', joinedAt: 300 }])
 
     const answers = hub.sent.filter((s) => s.event === 'y-sync2')
     expect(answers).toHaveLength(1)
@@ -139,8 +146,8 @@ describe('部屋に入ったとき', () => {
     const hub = createFakeHub()
     // 部屋には先客が居ることになっているが、実際には返事が返らない
     const yamada = join(hub, 'yamada', [
-      { userId: 'ghost', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { id: 'ghost', userId: 'ghost', joinedAt: 100 },
+      { id: 'yamada', userId: 'yamada', joinedAt: 200 },
     ])
 
     expect(yamada.session.isSynced).toBe(false)
@@ -153,16 +160,83 @@ describe('部屋に入ったとき', () => {
     expect(hub.sent.filter((s) => s.event === 'y-sync1' && !s.to)).toHaveLength(2)
   })
 
+  it('先客が本文をまだ持っていなくても、自分で本文を作らずに待つ', () => {
+    // 2人がほぼ同時に開いたときの再現。先に開いた人が本文を持って保存したあとに
+    // 2人目が開くと、「本文を持っている人」だけを見ていては相手に気づけず、
+    // 自分で作ってしまう。作った本文と相手の本文が合流すると**中身が二重になり**、
+    // 片方を消してももう片方が残る（＝書いた文字が消えない）
+    const hub = createFakeHub()
+    const yamada = join(hub, 'tab-yamada', [
+      // 田中は開いているが、まだ本文を受け取っていない（collab: false）
+      { id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100, collab: false, present: true },
+      { id: 'tab-yamada', userId: 'u-yamada', joinedAt: 200, collab: false, present: true },
+    ])
+
+    // 自分で作らず、目録合わせを送って待つ
+    expect(yamada.session.isSynced).toBe(false)
+    expect(readBackMarkdown(yamada.session.doc)).toBe('')
+    expect(hub.sent.filter((s) => s.event === 'y-sync1')).toHaveLength(1)
+  })
+
+  it('誰も本文を持っていなければ、いちばん古い1人だけが作る', () => {
+    // 2人がほぼ同時に開いた場面。どちらも本文をまだ持っていないので、
+    // 互いに尋ねても誰も答えられない。猶予切れまで待つと**両方が作って二重になる**ので、
+    // 顔ぶれから種まき係を1人決め、その人だけが待たずに作る
+    const hub = createFakeHub()
+    const room: Room = [
+      { id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100, collab: false, present: true },
+      { id: 'tab-yamada', userId: 'u-yamada', joinedAt: 200, collab: false, present: true },
+    ]
+    const tanaka = join(hub, 'tab-tanaka', room)
+    const yamada = join(hub, 'tab-yamada', room)
+
+    // 古いほうは待たずに作る
+    expect(tanaka.session.isSynced).toBe(true)
+    // 新しいほうは作らず、配られた本文を受け取る
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    expect(yamada.session.isSynced).toBe(true)
+    expect(readBackMarkdown(yamada.session.doc)).toBe(BASE)
+    expect(blockGroupCount(yamada.session.doc)).toBe(1)
+    expect([...tanaka.degraded, ...yamada.degraded]).toEqual([])
+  })
+
+  it('本文を持った直後、在席の一覧がまだ古くても返事をする', () => {
+    // 在席が配り直されるまでの間、自分は一覧の上では「持っていない」ままになる。
+    // 一覧をそのまま信じると、持っているのに返事役から外れて相手が待ちぼうけになる
+    const hub = createFakeHub()
+    const alone: Room = [{ id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100, collab: false, present: true }]
+    const tanaka = join(hub, 'tab-tanaka', alone)
+    expect(tanaka.session.isSynced).toBe(true)
+    hub.sent.length = 0
+
+    const yamada = join(hub, 'tab-yamada', [
+      ...alone,
+      { id: 'tab-yamada', userId: 'u-yamada', joinedAt: 200, collab: false, present: true },
+    ])
+
+    expect(hub.sent.filter((s) => s.event === 'y-sync2' && s.from === 'tab-tanaka')).toHaveLength(1)
+    expect(readBackMarkdown(yamada.session.doc)).toBe(BASE)
+  })
+
+  it('誰も開いていなければ、これまでどおり自分で本文を作る', () => {
+    const hub = createFakeHub()
+    const tanaka = join(hub, 'tab-tanaka', [
+      { id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100, collab: false, present: true },
+    ])
+    expect(tanaka.session.isSynced).toBe(true)
+    expect(readBackMarkdown(tanaka.session.doc)).toBe(BASE)
+  })
+
   it('本文を持っていない人は返事をしない（空の器を配らない）', () => {
     const hub = createFakeHub()
     const room: Room = [
-      { userId: 'a', joinedAt: 100 },
-      { userId: 'b', joinedAt: 200 },
+      { id: 'a', userId: 'a', joinedAt: 100 },
+      { id: 'b', userId: 'b', joinedAt: 200 },
     ]
     // a も b も先客が居ることになっていて、どちらも本文を持っていない
-    const a = join(hub, 'a', [{ userId: 'ghost', joinedAt: 50 }, ...room])
+    const a = join(hub, 'a', [{ id: 'ghost', userId: 'ghost', joinedAt: 50 }, ...room])
     hub.sent.length = 0
-    join(hub, 'b', [{ userId: 'ghost', joinedAt: 50 }, ...room])
+    join(hub, 'b', [{ id: 'ghost', userId: 'ghost', joinedAt: 50 }, ...room])
 
     expect(hub.sent.filter((s) => s.event === 'y-sync2')).toHaveLength(0)
     expect(a.session.isSynced).toBe(false)
@@ -170,17 +244,35 @@ describe('部屋に入ったとき', () => {
 })
 
 describe('切れて入り直したとき', () => {
+  it('既に本文を持っていれば、種は作らず握手をやり直す', () => {
+    // 作らずに黙って帰ると、留守の間に部屋で増えた分をもらい損ねる
+    const hub = createFakeHub()
+    const a = join(hub, 'tab-a', [{ id: 'tab-a', userId: 'u-a', joinedAt: 100, collab: false, present: true }])
+    expect(a.session.isSynced).toBe(true)
+    // 在席の上ではまだ誰も本文を持っておらず、自分がいちばん古い
+    a.session.setPeers([
+      { id: 'tab-a', userId: 'u-a', joinedAt: 100, collab: false, present: true },
+      { id: 'tab-b', userId: 'u-b', joinedAt: 200, collab: false, present: true },
+    ])
+    hub.sent.length = 0
+
+    hub.disconnect('tab-a')
+    hub.reconnect('tab-a')
+
+    expect(hub.sent.filter((s) => s.from === 'tab-a' && s.event === 'y-sync1')).toHaveLength(1)
+  })
+
   it('入り直した人が切れている間に打った分も、部屋へ届く', () => {
     const hub = createFakeHub()
     const room: Room = [
-      { userId: 'tanaka', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+      { id: 'yamada', userId: 'yamada', joinedAt: 200 },
     ]
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
 
     // 山田が切れる（運び役から外れる）。その間に双方が別の場所を打つ
-    yamada.session.setPeers(room.map((peer) => ({ collab: true, ...peer })))
+    yamada.session.setPeers(room.map((peer) => ({ collab: true, userId: peer.id, ...peer })))
     hub.disconnect('yamada')
     applyMarkdown(yamada.session.doc, `${BASE}\n- 山田が切れている間に書いた`)
     applyMarkdown(tanaka.session.doc, `# 会議（田中が直した）\n\n- 決めたこと`)
@@ -200,13 +292,13 @@ describe('切れて入り直したとき', () => {
 
 describe('打った内容の配り方', () => {
   const room: Room = [
-    { userId: 'tanaka', joinedAt: 100 },
-    { userId: 'yamada', joinedAt: 200 },
+    { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+    { id: 'yamada', userId: 'yamada', joinedAt: 200 },
   ]
 
   it('まとめて相手へ届く', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
 
     const typed = `${BASE}\n- 山田が足した行`
@@ -219,7 +311,7 @@ describe('打った内容の配り方', () => {
 
   it('打ち続けても、まとめる幅ごとに1通だけ送る', () => {
     const hub = createFakeHub()
-    join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
     hub.sent.length = 0
 
@@ -234,7 +326,7 @@ describe('打った内容の配り方', () => {
 
   it('二人が別の場所を同時に打っても、どちらの内容も残って同じになる', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
 
     applyMarkdown(tanaka.session.doc, `# 会議（田中が直した）\n\n- 決めたこと`)
@@ -249,7 +341,7 @@ describe('打った内容の配り方', () => {
 
   it('受け取った内容を、そのまま送り返さない', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
 
     applyMarkdown(yamada.session.doc, `${BASE}\n- 山田`)
@@ -263,7 +355,7 @@ describe('打った内容の配り方', () => {
 
   it('離れる直前にためていた分も配る', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
 
     applyMarkdown(yamada.session.doc, `${BASE}\n- 閉じる直前に書いた`)
@@ -276,13 +368,13 @@ describe('打った内容の配り方', () => {
 
 describe('カーソル', () => {
   const room: Room = [
-    { userId: 'tanaka', joinedAt: 100 },
-    { userId: 'yamada', joinedAt: 200 },
+    { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+    { id: 'yamada', userId: 'yamada', joinedAt: 200 },
   ]
 
   it('1秒に1回までしか送らない', () => {
     const hub = createFakeHub()
-    join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
     hub.sent.length = 0
 
@@ -297,7 +389,7 @@ describe('カーソル', () => {
 
   it('相手のカーソルが届く', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
 
     yamada.session.awareness.setLocalStateField('user', { name: '山田' })
@@ -311,7 +403,7 @@ describe('カーソル', () => {
 
   it('離れたら、自分のカーソルを消す知らせを配る', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', room)
     yamada.session.awareness.setLocalStateField('user', { name: '山田' })
     vi.advanceTimersByTime(AWARENESS_FLUSH_MS)
@@ -327,25 +419,14 @@ describe('カーソル', () => {
 
 describe('1人で書く形へ落とすとき', () => {
   const room: Room = [
-    { userId: 'a', joinedAt: 100 },
-    { userId: 'b', joinedAt: 200 },
+    { id: 'a', userId: 'a', joinedAt: 100 },
+    { id: 'b', userId: 'b', joinedAt: 200 },
   ]
-
-  it('違う本文から種が2つ入ったら落とす', () => {
-    const hub = createFakeHub()
-    // どちらも「先客が居る」と思っているが返事は来ない。猶予切れで各自がまく
-    const a = join(hub, 'a', [{ userId: 'ghost', joinedAt: 50 }, ...room], BASE)
-    const b = join(hub, 'b', [{ userId: 'ghost', joinedAt: 50 }, ...room], `${BASE}\n- 違う行`)
-    vi.advanceTimersByTime(SYNC_WAIT_MS * 2)
-    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
-
-    expect([...a.degraded, ...b.degraded]).toContain('duplicate-seed')
-  })
 
   it('同じ本文なら、2人同時にまいても二重にならない', () => {
     const hub = createFakeHub()
-    const a = join(hub, 'a', [{ userId: 'ghost', joinedAt: 50 }, ...room])
-    const b = join(hub, 'b', [{ userId: 'ghost', joinedAt: 50 }, ...room])
+    const a = join(hub, 'a', [{ id: 'ghost', userId: 'ghost', joinedAt: 50 }, ...room])
+    const b = join(hub, 'b', [{ id: 'ghost', userId: 'ghost', joinedAt: 50 }, ...room])
     vi.advanceTimersByTime(SYNC_WAIT_MS * 2)
     vi.advanceTimersByTime(UPDATE_FLUSH_MS)
 
@@ -366,7 +447,7 @@ describe('1人で書く形へ落とすとき', () => {
       onDegrade: (reason) => degraded.push(reason),
     })
     session.setSeeder(seedWith(BASE))
-    session.setPeers([{ userId: 'tanaka', joinedAt: 100, collab: true }])
+    session.setPeers([{ id: 'tanaka', userId: 'tanaka', joinedAt: 100, collab: true }])
     session.start()
 
     expect(degraded).toEqual(['transport-error'])
@@ -375,7 +456,7 @@ describe('1人で書く形へ落とすとき', () => {
 
   it('送れなくなったら落とし、以後は送らない', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     hub.breakSending()
 
     applyMarkdown(tanaka.session.doc, `${BASE}\n- 田中`)
@@ -389,6 +470,343 @@ describe('1人で書く形へ落とすとき', () => {
   })
 })
 
+describe('本文が二重になったとき', () => {
+  /** 返事をしない先客。これが居ると全員が猶予切れまで待ち、そのあと各自がまく */
+  const ghost: Room = [{ id: 'ghost', userId: 'ghost', joinedAt: 50 }]
+  const room: Room = [
+    { id: 'a', userId: 'a', joinedAt: 100 },
+    { id: 'b', userId: 'b', joinedAt: 200 },
+  ]
+  const OLDER = '2026-09-17T10:00:00+09:00'
+  const NEWER = '2026-09-17T10:05:00+09:00'
+  const EXTRA = `${BASE}\n- あとから足された行`
+
+  /** 違う本文から2人が同時にまいた状態を作る */
+  function collide() {
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [...ghost, ...room], BASE, OLDER)
+    const b = join(hub, 'b', [...ghost, ...room], EXTRA, NEWER)
+    vi.advanceTimersByTime(SYNC_WAIT_MS * 2)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    return { a, b }
+  }
+
+  it('部屋に先に居た人の本文に揃えて、1つに戻す（列の更新時刻には左右されない）', () => {
+    // 選び方を工夫しても、在席が行き渡るより短い間に2人が開けば衝突は残る。
+    // 起きないようにするのではなく、起きても全員が同じ規則で1つに戻す。
+    // 残すのは先に居た人（a）の本文。本文を持つ人の器は列と同じかそれより進んでいるので、
+    // 後から列を読んだ種（b・NEWER）が勝つ理由はない（2026-09-26 の Fable 裁定）
+    const { a, b } = collide()
+
+    expect(readBackMarkdown(a.session.doc)).toBe(BASE)
+    expect(readBackMarkdown(b.session.doc)).toBe(BASE)
+    expect(blockGroupCount(a.session.doc)).toBe(1)
+    expect(blockGroupCount(b.session.doc)).toBe(1)
+    expect([...a.degraded, ...b.degraded]).toEqual([])
+  })
+
+  it('保存の基準も、残したほうに合わせる', () => {
+    // 合わせないと、負けた本文を読んでいた書記が古い基準で保存しに行き、
+    // 「ほかの人が先に書き換えました」の帯が出続ける
+    const { a, b } = collide()
+
+    expect(readSavedState(a.session.meta).savedAt).toBe(OLDER)
+    expect(readSavedState(b.session.meta).savedAt).toBe(OLDER)
+  })
+
+  it('入った時刻が同じなら、列の更新時刻が新しいほうを残す', () => {
+    const hub = createFakeHub()
+    const same: Room = [...ghost, { id: 'a', userId: 'a', joinedAt: 100 }, { id: 'b', userId: 'b', joinedAt: 100 }]
+    const a = join(hub, 'a', same, BASE, OLDER)
+    const b = join(hub, 'b', same, EXTRA, NEWER)
+    vi.advanceTimersByTime(SYNC_WAIT_MS * 2)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+
+    expect(readBackMarkdown(a.session.doc)).toBe(EXTRA)
+    expect(readBackMarkdown(b.session.doc)).toBe(EXTRA)
+  })
+
+  it('1つ前の版が入れた印（入った時刻を持たない）は、部屋にいちばん先に居た扱いにする', () => {
+    // 旧版の画面は印に基準の文字列だけを入れる。旧版の画面は印を文字列で比べるので、
+    // こちらの印（入った時刻つき）を読めず、自分の種を残す。こちらも旧版の種を残せば、
+    // 混在していても両側で同じ答えになる
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], BASE, NEWER)
+    const legacy = new Y.Doc()
+    const { seedHash } = seedWith(EXTRA)(legacy)
+    legacy.getMap('seeds').set(seedHash, OLDER)
+    hub.sendAs('old-tab', 'y-update', Y.encodeStateAsUpdate(legacy))
+
+    expect(readBackMarkdown(a.session.doc)).toBe(EXTRA)
+    expect(blockGroupCount(a.session.doc)).toBe(1)
+    expect(a.degraded).toEqual([])
+  })
+
+  it('残すはずの本文を自分が持っていないときは、何も消さない', () => {
+    // いちばん危ない道すじ。相手の本文の通を1通取りこぼした人が「消す」判断だけ
+    // すると、自分の本文が消えて**中身がゼロ**になる。議事録には版の控えが無く、
+    // そのまま1行打つと空の本文で列を上書きしてしまう
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], BASE, OLDER)
+    // 種の印だけが届き、本文そのものは届かなかった状態
+    const announce = new Y.Doc()
+    announce.getMap('seeds').set(minutesSeedHash(EXTRA), NEWER)
+    hub.sendAs('b', 'y-update', Y.encodeStateAsUpdate(announce))
+
+    expect(blockGroupCount(a.session.doc)).toBe(1)
+    expect(readBackMarkdown(a.session.doc)).toBe(BASE)
+    // 消せないので、これまでどおり列から読み直す形へ落ちる
+    expect(a.degraded).toContain('duplicate-seed')
+  })
+
+  it('先客の本文を受け取れないまま自分で作った人も、白紙にならない', () => {
+    // 幽霊在席で待たされた人が自分で本文を作る道すじ。先客は二重に気づいて直すが、
+    // こちらは先客の本文を持っていないので、届くのは「消す」通だけになる
+    const hub = createFakeHub()
+    const tanaka = join(hub, 'tab-tanaka', [{ id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100 }], BASE, NEWER)
+    // 田中の本文の通が流れ終わってから、山田が入る（山田には届かない）
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+
+    const yamada = join(
+      hub,
+      'tab-yamada',
+      [
+        // 幽霊がいちばん古いので、返事役に指されたまま誰も答えない
+        { id: 'ghost', userId: 'u-ghost', joinedAt: 50 },
+        { id: 'tab-tanaka', userId: 'u-tanaka', joinedAt: 100 },
+        { id: 'tab-yamada', userId: 'u-yamada', joinedAt: 200 },
+      ],
+      EXTRA,
+      OLDER
+    )
+    vi.advanceTimersByTime(SYNC_WAIT_MS * 2)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+
+    // 田中側は先に居た自分の本文を残して1つに戻る
+    expect(blockGroupCount(tanaka.session.doc)).toBe(1)
+    expect(readBackMarkdown(tanaka.session.doc)).toBe(BASE)
+    // 山田側も白紙にならない。本文を持ったあと田中が見えた時点で握手するので、
+    // 田中の本文を受け取り、同じ規則で田中の本文に揃う
+    expect(blockGroupCount(yamada.session.doc)).toBe(1)
+    expect(readBackMarkdown(yamada.session.doc)).toBe(BASE)
+  })
+
+  it('相手が直した結果だけが届いても、本文を空にしない', () => {
+    // いちばん危ない道すじ。相手の本文をまだ受け取っていない人に「消す」通だけが
+    // 届くと、手元のかたまりが消えて**中身がゼロ**になる。自分の種の一覧は1つの
+    // ままなので直しの処理も走らず、白紙のまま書けてしまう
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], EXTRA, OLDER)
+    expect(blockGroupCount(a.session.doc)).toBe(1)
+
+    // 相手の器では、両方の種が揃っていて、新しいほうが勝っている
+    const peer = new Y.Doc()
+    const mine = seedWith(EXTRA, OLDER)(peer)
+    const theirs = seedWith(BASE, NEWER)(peer)
+    peer.getMap('seeds').set(mine.seedHash, OLDER)
+    peer.getMap('seeds').set(theirs.seedHash, NEWER)
+    const beforeRepair = Y.encodeStateVector(peer)
+    // 相手が直して、負けた（＝こちらが持っている）かたまりを消す
+    const peerFragment = peer.getXmlFragment('minutes')
+    peer.transact(() => {
+      for (let i = peerFragment.length - 1; i >= 0; i--) {
+        const child = peerFragment.get(i) as { _item?: { id?: { client?: number } } }
+        if (child._item?.id?.client === seedClientId(mine.seedHash)) peerFragment.delete(i, 1)
+      }
+    })
+    // 配られるのは「消した」という差分だけ。相手の本文は届かない
+    hub.sendAs('b', 'y-update', Y.encodeStateAsUpdate(peer, beforeRepair))
+
+    // 空のまま書かせない。列から読み直す形へ落ちる
+    expect(a.degraded).toContain('duplicate-seed')
+  })
+
+  it('どちらが先か分からないときは、勝手に選ばない', () => {
+    // 入った時刻も基準も比べられない種どうし。判断材料が無いのに片方を消すと、消えた側は戻せない
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], BASE, null)
+    const other = new Y.Doc()
+    const { seedHash } = seedWith(EXTRA)(other)
+    other.getMap('seeds').set(seedHash, { basis: '', joinedAt: 100 })
+    hub.sendAs('b', 'y-update', Y.encodeStateAsUpdate(other))
+
+    // どちらも消さずに残し、列から読み直す形へ落ちる
+    expect(a.degraded).toContain('duplicate-seed')
+    expect(blockGroupCount(a.session.doc)).toBe(2)
+  })
+
+  it('本文のかたまりの持ち主は、種の合言葉から決まる番号で分かる', () => {
+    // Yjs の中の作りに頼っているので、上げたときに気づけるよう固定しておく。
+    // 読めなくなると、直しが静かに空振りして毎回読み直しに落ちる
+    const doc = new Y.Doc()
+    const { seedHash } = seedWith(BASE)(doc)
+    const first = doc.getXmlFragment('minutes').get(0) as { _item?: { id?: { client?: number } } }
+    expect(first._item?.id?.client).toBe(seedClientId(seedHash))
+  })
+
+  it('直しきれなければ、これまでどおり列から読み直す形へ落とす', () => {
+    // 消すべき本文の持ち主が分からないとき。二重のまま書かせない
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], BASE, NEWER)
+    const rogue = new Y.Doc()
+    applyMarkdown(rogue, EXTRA)
+    rogue.getMap('seeds').set('ffffffffffffffff', '')
+    hub.sendAs('rogue-tab', 'y-update', Y.encodeStateAsUpdate(rogue))
+
+    expect(a.degraded).toContain('duplicate-seed')
+  })
+})
+
+describe('在席が遅れて届いたとき（2026-09-26 に実ブラウザで確認）', () => {
+  // Supabase の在席はサーバー間で遅れて伝わる。後から入った人の最初の一覧に先客が
+  // 載っておらず、自分ひとりだと思って本文を作ることがある
+  const OLDER = '2026-09-26T10:00:00+09:00'
+  const NEWER = '2026-09-26T10:05:00+09:00'
+
+  it('あとから本文を持つ相手が見えたら、その人と1回だけ握手する', () => {
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], BASE, OLDER)
+    // b の最初の一覧には a が居ない
+    const b = join(hub, 'b', [{ id: 'b', userId: 'b', joinedAt: 200 }], `${BASE}\n- 列の新しい本文`, NEWER)
+    const before = hub.sent.filter((m) => m.from === 'b' && m.event === 'y-sync1').length
+
+    const full = [
+      { id: 'a', userId: 'a', joinedAt: 100, collab: true },
+      { id: 'b', userId: 'b', joinedAt: 200, collab: true },
+    ]
+    b.session.setPeers(full)
+    b.session.setPeers(full)
+    const sync1 = hub.sent.filter((m) => m.from === 'b' && m.event === 'y-sync1')
+    expect(sync1.length - before).toBe(1)
+    expect(sync1.at(-1)?.to).toBe('a')
+    void a
+  })
+
+  it('先客が打ったばかりの文字を消さず、両方とも先客の本文に揃う', () => {
+    const hub = createFakeHub()
+    const a = join(hub, 'a', [{ id: 'a', userId: 'a', joinedAt: 100 }], BASE, OLDER)
+    // 先客が打った（まだ列には保存されていない）
+    applyMarkdown(a.session.doc, `${BASE}\n- 先客が打ったばかり`)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    // 後から来た人は先客が見えないまま、列の新しい本文で種をまく
+    const b = join(hub, 'b', [{ id: 'b', userId: 'b', joinedAt: 200 }], `${BASE}\n- 列の新しい本文`, NEWER)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    // 在席が届く
+    const full = [
+      { id: 'a', userId: 'a', joinedAt: 100, collab: true },
+      { id: 'b', userId: 'b', joinedAt: 200, collab: true },
+    ]
+    a.session.setPeers(full)
+    b.session.setPeers(full)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+
+    expect(readBackMarkdown(a.session.doc)).toBe(`${BASE}\n- 先客が打ったばかり`)
+    expect(readBackMarkdown(b.session.doc)).toBe(`${BASE}\n- 先客が打ったばかり`)
+    expect(blockGroupCount(a.session.doc)).toBe(1)
+    expect(blockGroupCount(b.session.doc)).toBe(1)
+    expect([...a.degraded, ...b.degraded]).toEqual([])
+  })
+
+  it('本文を持つ前は、相手が見えても握手を増やさない（入ったときの握手に任せる）', () => {
+    const hub = createFakeHub()
+    const ghost: Room = [{ id: 'ghost', userId: 'ghost', joinedAt: 50 }]
+    const b = join(hub, 'b', [...ghost, { id: 'b', userId: 'b', joinedAt: 200 }], BASE, NEWER)
+    const before = hub.sent.filter((m) => m.from === 'b' && m.event === 'y-sync1').length
+    b.session.setPeers([{ id: 'ghost', userId: 'ghost', joinedAt: 50, collab: true }, { id: 'b', userId: 'b', joinedAt: 200, collab: false }])
+    expect(hub.sent.filter((m) => m.from === 'b' && m.event === 'y-sync1').length).toBe(before)
+  })
+})
+
+describe('相手の本文の元を持たないまま更新だけが届いたとき（2026-09-27 本番で報告）', () => {
+  // 同じページを2つの窓で開き、片方で打ち続けているところへもう片方が入る。在席の遅れで
+  // 後から来た窓は自分で本文を作り、そこへ相手の打鍵の更新だけが先に届く。元（相手の本文の
+  // かたまり）を持たないので保留になり、画面に出ない。ここで「もう合わせ込んだ」と印を付けると、
+  // あとで在席が届いても握手せず、**帯も出ないまま、ずっとずれる**
+  const OLDER = '2026-09-27T15:40:00+09:00'
+  const NEWER = '2026-09-27T15:45:00+09:00'
+  const LATER_BODY = `${BASE}\n- 列の新しい本文`
+
+  it('打鍵の更新を受け取っただけでは握手済みにしない。在席が届いたら握手して揃う', () => {
+    const hub = createFakeHub()
+    const right = join(hub, 'right', [{ id: 'right', userId: 'u', joinedAt: 100 }], BASE, OLDER)
+    // 後から来た窓は、右が見えないまま列の新しい本文で種をまく
+    const left = join(hub, 'left', [{ id: 'left', userId: 'u', joinedAt: 200 }], LATER_BODY, NEWER)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    // 右が打つ（左には「更新」だけが届く）
+    applyMarkdown(right.session.doc, `${BASE}\n- 右が打った`)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    // 在席が届く
+    const full = [
+      { id: 'right', userId: 'u', joinedAt: 100, collab: true },
+      { id: 'left', userId: 'u', joinedAt: 200, collab: true },
+    ]
+    right.session.setPeers(full)
+    left.session.setPeers(full)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+
+    expect(readBackMarkdown(left.session.doc)).toBe(`${BASE}\n- 右が打った`)
+    expect(readBackMarkdown(right.session.doc)).toBe(`${BASE}\n- 右が打った`)
+    expect(blockGroupCount(left.session.doc)).toBe(1)
+  })
+
+  it('届いた更新の元が手元に無ければ、在席を待たずに送り主へ足りない分を頼む', () => {
+    const hub = createFakeHub()
+    const left = join(hub, 'left', [{ id: 'left', userId: 'u', joinedAt: 200 }], LATER_BODY, NEWER)
+    // 右の窓の器（左はこの器の元を持っていない）。右が打った分の差分だけを左へ届ける
+    const rightDoc = new Y.Doc()
+    seedWith(BASE, OLDER)(rightDoc)
+    const beforeTyping = Y.encodeStateVector(rightDoc)
+    applyMarkdown(rightDoc, `${BASE}\n- 右が打った`)
+    hub.sendAs('right', 'y-update', Y.encodeStateAsUpdate(rightDoc, beforeTyping))
+
+    const asked = hub.sent.filter((m) => m.from === 'left' && m.event === 'y-sync1' && m.to === 'right')
+    expect(asked).toHaveLength(1)
+    // 同じ相手へ続けて届いても、頼み直すのは間を置いてから
+    hub.sendAs('right', 'y-update', Y.encodeStateAsUpdate(rightDoc, beforeTyping))
+    expect(hub.sent.filter((m) => m.from === 'left' && m.event === 'y-sync1' && m.to === 'right')).toHaveLength(1)
+    expect(left.degraded).toEqual([])
+  })
+})
+
+describe('1通を取りこぼしたとき', () => {
+  it('入り直さなくても、定期の目録の交換で取り戻す', () => {
+    const hub = createFakeHub()
+    const room: Room = [
+      { id: 'a', userId: 'a', joinedAt: 100 },
+      { id: 'b', userId: 'b', joinedAt: 200 },
+    ]
+    const a = join(hub, 'a', [room[0]])
+    const b = join(hub, 'b', room)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    // b に届かないあいだに a が打つ（入り直しの知らせは出ない）
+    hub.disconnect('b')
+    applyMarkdown(a.session.doc, `${BASE}\n- 取りこぼした行`)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    hub.restore('b')
+    expect(readBackMarkdown(b.session.doc)).toBe(BASE)
+
+    vi.advanceTimersByTime(PERIODIC_SYNC_MS)
+    expect(readBackMarkdown(b.session.doc)).toBe(`${BASE}\n- 取りこぼした行`)
+  })
+
+  it('揃っているあいだは、目録の交換で本文を送らない（空の差分だけ）', () => {
+    const hub = createFakeHub()
+    const room: Room = [
+      { id: 'a', userId: 'a', joinedAt: 100 },
+      { id: 'b', userId: 'b', joinedAt: 200 },
+    ]
+    join(hub, 'a', [room[0]])
+    join(hub, 'b', room)
+    vi.advanceTimersByTime(UPDATE_FLUSH_MS)
+    const before = hub.sent.length
+    vi.advanceTimersByTime(PERIODIC_SYNC_MS)
+    const since = hub.sent.slice(before)
+    expect(since.filter((m) => m.event === 'y-update')).toHaveLength(0)
+    expect(since.every((m) => m.payload.length < 100)).toBe(true)
+  })
+})
+
 describe('大きすぎるとき', () => {
   /** 1通の上限を超える大きさにする（本文とは別の場所を膨らませる） */
   function bloat(doc: Y.Doc): void {
@@ -397,14 +815,14 @@ describe('大きすぎるとき', () => {
 
   it('渡せないほど大きいときは、空で返して相手に知らせる', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     bloat(tanaka.session.doc)
     // まとめる幅は進めない（進めると、この大きさを配れずに田中自身が先に落ちる）
     hub.sent.length = 0
 
     const yamada = join(hub, 'yamada', [
-      { userId: 'tanaka', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+      { id: 'yamada', userId: 'yamada', joinedAt: 200 },
     ])
 
     const answers = hub.sent.filter((s) => s.event === 'y-sync2')
@@ -417,10 +835,10 @@ describe('大きすぎるとき', () => {
 
   it('打った分が大きすぎるときは、打った本人が落ちる（黙って消さない）', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     join(hub, 'yamada', [
-      { userId: 'tanaka', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+      { id: 'yamada', userId: 'yamada', joinedAt: 200 },
     ])
 
     bloat(tanaka.session.doc)
@@ -433,10 +851,10 @@ describe('大きすぎるとき', () => {
 describe('タスク化のあとの読み直し', () => {
   it('部屋のみんなに伝わる', () => {
     const hub = createFakeHub()
-    const tanaka = join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    const tanaka = join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', [
-      { userId: 'tanaka', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+      { id: 'yamada', userId: 'yamada', joinedAt: 200 },
     ])
 
     tanaka.session.requestRoomReload()
@@ -450,10 +868,10 @@ describe('タスク化のあとの読み直し', () => {
 describe('宛先', () => {
   it('自分宛でない通は読まない', () => {
     const hub = createFakeHub()
-    join(hub, 'tanaka', [{ userId: 'tanaka', joinedAt: 100 }])
+    join(hub, 'tanaka', [{ id: 'tanaka', userId: 'tanaka', joinedAt: 100 }])
     const yamada = join(hub, 'yamada', [
-      { userId: 'tanaka', joinedAt: 100 },
-      { userId: 'yamada', joinedAt: 200 },
+      { id: 'tanaka', userId: 'tanaka', joinedAt: 100 },
+      { id: 'yamada', userId: 'yamada', joinedAt: 200 },
     ])
     const before = readBackMarkdown(yamada.session.doc)
 

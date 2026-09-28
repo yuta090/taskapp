@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
-import { config, getAuthContext } from '../config.js';
+import { getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
 import { hideDbError } from '../lib/dbErrors.js';
 import { parseTaskImportCsv, planTaskImport, } from '../lib/taskImportPlan.js';
 import { hideDbErrorWithHint } from '../lib/dbErrorHints.js';
+import { requireActorUserId } from '../auth/scope.js';
 /**
  * task_import — CSV からタスクを一括作成する（`agentpm task import` の実体）。
  *
@@ -257,7 +258,7 @@ export async function taskImport(params) {
             // （null を明示すると not-null 違反で全体が失敗する。本番で踏んだ）
             ...(t.priority !== null ? { priority: t.priority } : {}),
             milestone_id: t.milestoneId,
-            created_by: config.actorId,
+            created_by: requireActorUserId(),
         }));
         const { error } = await supabase.from('tasks').insert(rows).select('id');
         if (error) {

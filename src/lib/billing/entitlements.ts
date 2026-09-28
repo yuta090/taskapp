@@ -23,6 +23,7 @@ export type Feature =
   | 'instant_line_notify' // 即時通知（Freeは日次digest統合のみ）
   | 'external_chat_channels' // LINE以外の他チャット連携（Discord等の共有Bot受信の新規紐付け）＝Proの売り。channel非依存
   | 'pooled_ai_key' // 当社提供のプールAI鍵を使える（BYO鍵の崖を撤去）。Pro専有。原価は当社持ち→org別月次上限で執行
+  | 'remote_mcp' // 外部チャット(ChatGPT等)からのリモートMCP接続。**全プラン**。差は接続数(maxMcpConnections)で付ける
 
 const PLAN_IDS: ReadonlySet<string> = new Set<PlanId>(['free', 'pro', 'enterprise'])
 
@@ -31,9 +32,10 @@ const PLAN_IDS: ReadonlySet<string> = new Set<PlanId>(['free', 'pro', 'enterpris
 //   ただし差別化として Free は日次digestまとめのみ・即時通知(instant_line_notify)は Pro 専有とする
 //   （＝「拾い」ではなく「即時性」で課金差をつける）。
 export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
-  free: new Set(['line_pickup_dual_mode']),
+  free: new Set(['line_pickup_dual_mode', 'remote_mcp']),
   pro: new Set([
     'line_pickup_dual_mode',
+    'remote_mcp',
     'timed_line_reminders',
     'own_line_account',
     'line_direct_dm',
@@ -43,6 +45,7 @@ export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
   ]),
   enterprise: new Set([
     'line_pickup_dual_mode',
+    'remote_mcp',
     'timed_line_reminders',
     'own_line_account',
     'line_direct_dm',
@@ -115,6 +118,19 @@ export interface PlanLimits {
    * 相手先側の量は「接続グループ数」(maxLineGroups) で既に有界。
    */
   maxClientUsers: number | null
+  /**
+   * 外部チャット(ChatGPT等)からのリモートMCP接続の数の上限。org 単位。null=無制限。
+   *
+   * リモートMCPは **Pro 専有にしない**（2026-09-17 決定）。APIキーと同じ「本人の権限を本人のAIが
+   * 使う」経路であり、Pro の売り（自社名義・即時・個別DM・他ツールへの同期）とは別物。ここを
+   * 閉じると ChatGPT からの試用が消える。CLAUDE.md の「外部連携は原則Pro専有」の例外として明記する。
+   *
+   * 数え方と執行（正本は mcpConnectionCapacity.ts）:
+   *   - api_keys の issued_via='oauth' かつ is_active=true の行数（org 単位）
+   *   - **同意が確定する瞬間の1箇所でだけ見る**。ツール呼び出しごと・合鍵の付け替え時には見ない
+   *   - **新規の拒否のみ**。プランが下がっても既存の接続は切らない（チャネル連携と同じ作法）
+   */
+  maxMcpConnections: number | null
 }
 
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
@@ -125,6 +141,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     maxProjects: 3,
     maxMembers: 5,
     maxClientUsers: null,
+    maxMcpConnections: 2,
   },
   pro: {
     maxLineGroups: 50,
@@ -133,6 +150,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     maxProjects: 30,
     maxMembers: 30,
     maxClientUsers: null,
+    maxMcpConnections: null,
   },
   enterprise: {
     maxLineGroups: null,
@@ -141,6 +159,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     maxProjects: null,
     maxMembers: null,
     maxClientUsers: null,
+    maxMcpConnections: null,
   },
 }
 

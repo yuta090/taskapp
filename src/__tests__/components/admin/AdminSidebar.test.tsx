@@ -49,6 +49,8 @@ const EXPECTED_HREFS = [
   '/admin/design-system',
   // メール文面（2026-09-07 追加）。招待メールの文面を運営が編集する。
   '/admin/email-templates',
+  // 変更履歴（2026-09-26 追加）。データの変更の控え change_log を探す。
+  '/admin/change-log',
 ]
 
 function hrefsInOrder(): string[] {

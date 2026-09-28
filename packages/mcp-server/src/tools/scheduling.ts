@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
-import { config, getAuthContext } from '../config.js'
+import { getAuthContext } from '../config.js'
 import { authorizeAndLog, type ActionType } from '../auth/index.js'
 import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js'
 import { mapRaiseExceptionError, mapConfirmProposalError } from '../lib/rpcErrors.js'
@@ -161,7 +161,7 @@ export async function schedulingCreate(params: z.infer<typeof schedulingCreateSc
       status: 'open',
       expires_at: params.expiresAt || null,
       video_provider: params.videoProvider || null,
-      created_by: config.actorId,
+      created_by: requireActorUserId(),
     })
     .select('*')
     .single()
@@ -222,7 +222,7 @@ export async function schedulingRespond(params: z.infer<typeof schedulingRespond
   }
 
   // Find respondent_id for current user
-  const userId = ctx.userId || config.actorId
+  const userId = ctx.userId || requireActorUserId()
   const { data: respondent, error: respondentError } = await supabase
     .from('proposal_respondents')
     .select('id')

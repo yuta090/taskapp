@@ -4,7 +4,7 @@ import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import OrganizationsPageClient, { type OrgRow } from './OrganizationsPageClient'
 
 async function fetchOrganizationsData(): Promise<OrgRow[]> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
 
   const [orgsResult, membershipsResult, spacesResult, billingsResult] = await Promise.all([
     admin.from('organizations').select('id, name, created_at').order('created_at', { ascending: false }),

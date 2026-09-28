@@ -12,7 +12,7 @@ export default async function AdminBlogCtaPage() {
   const currentUserId = await verifySuperadmin()
   if (!currentUserId) redirect('/admin/login')
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: currentUserId })
   const { data } = await (admin as SupabaseClient)
     .from('cta_blocks')
     .select('id, key, name, heading, body, button_label, button_url, variant, enabled, updated_at')

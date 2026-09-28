@@ -148,7 +148,7 @@ function FileRowInner({
           <Link
             href={tableHref}
             data-testid={`file-open-table-${file.id}`}
-            title="表で見る"
+            title="表で開く（社内メンバーはそのまま直せます）"
             className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             <Table className="text-sm" />

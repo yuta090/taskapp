@@ -22,6 +22,20 @@ describe('notFoundOr', () => {
     expect(err.message).not.toContain('permission denied')
     spy.mockRestore()
   })
+
+  // 呼んだ人には返らないが、利用記録(cli_usage_logs.error_detail・運営画面専用)で原因を追えるように、
+  // 元のDBエラーを cause として持たせる（2026-09-26）
+  it('元のDBエラーを cause として持たせる（利用記録から原因を追えるように）', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const dbError = { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' }
+    const notFound = notFoundOr(dbError, 'x', '見つかりません', '失敗しました')
+    expect(notFound.cause).toEqual(dbError)
+
+    const other = { code: '42501', message: 'permission denied' }
+    const generic = notFoundOr(other, 'x', '見つかりません', '失敗しました')
+    expect(generic.cause).toEqual(other)
+    spy.mockRestore()
+  })
 })
 
 describe('hideDbError', () => {
@@ -30,6 +44,14 @@ describe('hideDbError', () => {
     const err = hideDbError({ code: '42501', message: 'permission denied' }, 'x', '失敗しました')
     expect(err).not.toMatchObject({ name: 'ToolUserError' })
     expect(err.message).toBe('失敗しました')
+    spy.mockRestore()
+  })
+
+  it('元のDBエラーを cause として持たせる', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const dbError = { code: '42501', message: 'permission denied' }
+    const err = hideDbError(dbError, 'x', '失敗しました')
+    expect(err.cause).toEqual(dbError)
     spy.mockRestore()
   })
 })

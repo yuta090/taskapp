@@ -9,6 +9,12 @@ export interface OrgMemberRole {
   userId: string
   /** org_memberships.role の値（owner | member | client） */
   role: string
+  /**
+   * ログインに使っているメールアドレス。
+   * DB（rpc_get_org_members）が「組織のオーナー / 管理者が呼んだときだけ」返し、
+   * それ以外の人には null を返す（member-directory の裁定）。画面はそのまま従う。
+   */
+  email: string | null
 }
 
 interface UseOrgMembersOptions {
@@ -23,6 +29,8 @@ interface UseOrgMembersResult {
   members: OrgMemberRole[]
   /** user_id → 組織の役割。allowedSpaceRolesFor の入力に使う */
   roleByUserId: Map<string, string>
+  /** user_id → メールアドレス。DB がメールを返さなかった人は入らない */
+  emailByUserId: Map<string, string>
   /** まだ一度も取得できていない状態 */
   isPending: boolean
   /** 一度も取得できないまま失敗した（前回分は無い） */
@@ -32,6 +40,7 @@ interface UseOrgMembersResult {
 
 const EMPTY_ORG_MEMBERS: OrgMemberRole[] = []
 const EMPTY_ROLE_MAP = new Map<string, string>()
+const EMPTY_EMAIL_MAP = new Map<string, string>()
 
 /**
  * 組織メンバー一人ひとりの「組織の役割」（space の役割とは別）。
@@ -41,6 +50,10 @@ const EMPTY_ROLE_MAP = new Map<string, string>()
  * （allowedSpaceRolesFor の入力。その人の組織の役割で、選べる役割を絞り込む）。
  *
  * space の管理者は組織の社内メンバーなので rpc_get_org_members を呼べる。
+ *
+ * 同じ取得から、メンバー一覧に出すメールアドレスも受け取る（`emailByUserId`）。
+ * メールを返すかどうかは DB が決める（組織のオーナー / 管理者のときだけ）。
+ * 個人情報なのでディスク（IndexedDB）には残さない（QueryProvider の shouldDehydrateQuery）。
  */
 export function useOrgMembers(
   orgId: string | null,
@@ -63,9 +76,10 @@ export function useOrgMembers(
       )
       if (fetchError) throw fetchError
 
-      return ((data ?? []) as Array<{ user_id: string; role: string }>).map((m) => ({
+      return ((data ?? []) as Array<{ user_id: string; role: string; email: string | null }>).map((m) => ({
         userId: m.user_id,
         role: m.role,
+        email: m.email ?? null,
       }))
     },
     enabled: queryEnabled,
@@ -81,9 +95,16 @@ export function useOrgMembers(
     return new Map(members.map((m) => [m.userId, m.role]))
   }, [members])
 
+  const emailByUserId = useMemo(() => {
+    const withEmail = members.filter((m) => !!m.email)
+    if (withEmail.length === 0) return EMPTY_EMAIL_MAP
+    return new Map(withEmail.map((m) => [m.userId, m.email as string]))
+  }, [members])
+
   return {
     members,
     roleByUserId,
+    emailByUserId,
     isPending: queryEnabled && isPending,
     isLoadingError: queryEnabled && isLoadingError,
     error,

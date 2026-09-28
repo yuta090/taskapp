@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   X,
@@ -25,9 +26,16 @@ import {
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
+import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { getNotificationTypeLabel } from '@/lib/notifications/labels'
+import {
+  COMPLETE_FAILURE_NO_ROWS,
+  STATUS_CHANGE_NO_ROWS,
+  statusChangeFailureMessage,
+} from '@/lib/tasks/completeFailure'
+import { patchTaskRowInProjectCache } from '@/lib/tasks/taskRowCache'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import type { Task, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -129,6 +137,7 @@ export function NotificationInspector({
   hasPrev,
   hasNext,
 }: NotificationInspectorProps) {
+  const queryClient = useQueryClient()
   const payload = notification.payload
   const isUnread = notification.read_at === null
   const isUrgent = payload.urgent === true
@@ -141,6 +150,9 @@ export function NotificationInspector({
   const [taskLoading, setTaskLoading] = useState(false)
   const [statusUpdating, setStatusUpdating] = useState(false)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
+  // ステータスを変えられなかった理由（社内承認が未了・未決の決定事項・権限が無い）。
+  // 出さないと「押しても何も起きない」ようにしか見えない
+  const [statusError, setStatusError] = useState<string | null>(null)
   // Whether the current user has a pending review_approval record for this task
   const [hasReviewRecord, setHasReviewRecord] = useState(false)
 
@@ -171,6 +183,7 @@ export function NotificationInspector({
     setActionCompleted(null)
     setActionLoading(false)
     setActionError(null)
+    setStatusError(null)
     if (advanceTimerRef.current) {
       clearTimeout(advanceTimerRef.current)
       advanceTimerRef.current = null
@@ -272,6 +285,7 @@ export function NotificationInspector({
     const prevStatus = task.status
     setStatusUpdating(true)
     setShowStatusMenu(false)
+    setStatusError(null)
 
     // Optimistic update
     setTask(prev => prev ? { ...prev, status: newStatus } : null)
@@ -283,20 +297,34 @@ export function NotificationInspector({
         .eq('id', task.id)
         .select('id')
 
-      if (error) throw error
+      // 完了できない理由（社内承認が未了・決定事項が未決）は DB のトリガー
+      // enforce_review_gate が**英語で**返す。そのまま出しても読めないので日本語にする
+      if (error) throw new Error(statusChangeFailureMessage(error.message))
+      // RLS で弾かれた更新はエラーではなく 0 行で返る
       if (!updated || updated.length === 0) {
-        throw new Error('タスクが見つかりませんでした')
+        throw new Error(newStatus === 'done' ? COMPLETE_FAILURE_NO_ROWS : STATUS_CHANGE_NO_ROWS)
       }
+      // プロジェクトのタスク一覧のキャッシュも合わせる（合わせないと、一覧では
+      // 元の状態のまま最大2分残る）。ネットワークは出さない
+      patchTaskRowInProjectCache(queryClient, {
+        orgId: task.org_id,
+        spaceId: task.space_id,
+        taskId: task.id,
+        patch: { status: newStatus },
+      })
       return true
     } catch (err) {
       console.error('Failed to update task status:', err)
       // Rollback optimistic update
       setTask(prev => prev ? { ...prev, status: prevStatus } : null)
+      setStatusError(
+        err instanceof Error && err.message ? err.message : 'ステータスを変更できませんでした'
+      )
       return false
     } finally {
       setStatusUpdating(false)
     }
-  }, [task, supabase])
+  }, [task, supabase, queryClient])
 
   // Quick complete task - only proceed if status update succeeds
   const handleQuickComplete = useCallback(async () => {
@@ -328,7 +356,7 @@ export function NotificationInspector({
   const getRpcErrorMessage = (err: unknown, fallback: string): string => {
     if (err instanceof Error && err.message) {
       // Map known RPC error messages to Japanese
-      if (err.message.includes('No review found')) return 'レビューレコードが見つかりません。'
+      if (err.message.includes('No review found')) return 'この承認依頼は取り消されています。'
       if (err.message.includes('not a reviewer')) return 'このタスクのレビュー権限がありません。'
       if (err.message.includes('Task not found')) return 'タスクが見つかりません。'
       if (err.message.includes('Authentication required')) return '認証が必要です。ページをリロードしてください。'
@@ -344,9 +372,23 @@ export function NotificationInspector({
     setActionLoading(true)
     setActionError(null)
     try {
-      await rpc.reviewApprove(supabase, { taskId })
+      // 承認がそろうと DB 側（_review_approve_impl）がタスクを完了にする。
+      // その事実を受けて、ここの表示も完了に合わせる（合わせないと「承認したのに
+      // ステータスが社内承認中のまま」に見える）
+      const approved = await rpc.reviewApprove(supabase, { taskId })
       setHasReviewRecord(false)
-      setActionCompleted('approved')
+      if (approved?.taskCompleted === true) {
+        setTask(prev => (prev ? { ...prev, status: 'done' } : prev))
+        patchTaskRowInProjectCache(queryClient, {
+          orgId: task?.org_id,
+          spaceId: task?.space_id,
+          taskId: taskId,
+          patch: { status: 'done' },
+        })
+        setActionCompleted('approved_completed')
+      } else {
+        setActionCompleted('approved')
+      }
       scheduleAdvance()
     } catch (err: unknown) {
       console.error('Review approve failed:', err)
@@ -354,7 +396,7 @@ export function NotificationInspector({
     } finally {
       setActionLoading(false)
     }
-  }, [taskId, supabase, scheduleAdvance])
+  }, [taskId, supabase, scheduleAdvance, queryClient, task?.org_id, task?.space_id])
 
   // Review: Block (with reason)
   const handleReviewBlock = useCallback(async () => {
@@ -382,9 +424,8 @@ export function NotificationInspector({
     if (success) {
       setActionCompleted('started')
       scheduleAdvance()
-    } else {
-      setActionError('ステータス更新に失敗しました。')
     }
+    // 失敗の理由は handleStatusChange が statusError に入れ、関連タスクの枠に出す
   }, [task, handleStatusChange, scheduleAdvance])
 
   // Spec decision: Mark as decided
@@ -394,6 +435,8 @@ export function NotificationInspector({
     setActionError(null)
     try {
       await rpc.setSpecState(supabase, { taskId, decisionState: 'decided' })
+      // ダッシュボードの「確定事項」に出す「決まった日」を取り直させる
+      invalidateSpecDecisionEvents(queryClient, task?.space_id)
       setActionCompleted('decided')
       scheduleAdvance()
     } catch (err: unknown) {
@@ -402,7 +445,7 @@ export function NotificationInspector({
     } finally {
       setActionLoading(false)
     }
-  }, [taskId, supabase, scheduleAdvance])
+  }, [taskId, supabase, scheduleAdvance, queryClient, task?.space_id])
 
   // Digest approval (Stage 2.7-B §5b): approve -> creates the real task / reject -> drops it.
   // Goes through the same console API (RPC re-checks the approver authorization).
@@ -465,15 +508,23 @@ export function NotificationInspector({
       return null
     }
 
-    // Review request: Approve / Block (only if pending review record exists for current user)
-    if (notification.type === 'review_request' && taskId && hasReviewRecord) {
+    // Review request: Approve / Block（自分の承認待ちが残っているとき、
+    // および返事をした直後（actionCompleted）。直後も出さないと、返事の結果を伝える前に
+    // 欄ごと消えて「レビューレコードが見つかりません」に化けてしまう）
+    if (notification.type === 'review_request' && taskId && (hasReviewRecord || actionCompleted)) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
           <p className="text-xs text-gray-500 mb-2 font-medium">承認アクション</p>
           {actionCompleted ? (
-            <div className="flex items-center gap-2 text-sm text-green-600">
+            <div className="flex items-center gap-2 text-sm text-green-600" data-testid="inbox-review-result">
               <CheckCircle weight="fill" />
-              <span>{actionCompleted === 'approved' ? '承認しました' : '差し戻しました'}</span>
+              <span>
+                {actionCompleted === 'approved_completed'
+                  ? '承認しました。タスクを完了にしました'
+                  : actionCompleted === 'approved'
+                    ? '承認しました'
+                    : '差し戻しました'}
+              </span>
             </div>
           ) : !showBlockForm ? (
             <div className="space-y-2">
@@ -481,6 +532,7 @@ export function NotificationInspector({
                 type="button"
                 onClick={handleReviewApprove}
                 disabled={actionLoading}
+                data-testid="inbox-review-approve"
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
               >
                 {actionLoading ? (
@@ -494,6 +546,7 @@ export function NotificationInspector({
                 type="button"
                 onClick={() => setShowBlockForm(true)}
                 disabled={actionLoading}
+                data-testid="inbox-review-block"
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-gray-300 text-red-600 rounded-md hover:bg-red-50 disabled:opacity-50 transition-colors"
               >
                 <XCircle weight="bold" />
@@ -538,10 +591,12 @@ export function NotificationInspector({
     }
 
     // Review request: no review record found - show fallback
-    if (notification.type === 'review_request' && taskId && !hasReviewRecord && !taskLoading) {
+    if (notification.type === 'review_request' && taskId && !hasReviewRecord && !actionCompleted && !taskLoading) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
-          <p className="text-xs text-gray-500">レビューレコードが見つかりません。「詳細を見る」からタスクを確認してください。</p>
+          <p className="text-xs text-gray-500">
+            あなたの返事はもう済んでいるか、この依頼が取り消されています。「詳細を見る」でタスクの状態を確認できます。
+          </p>
         </div>
       )
     }
@@ -854,6 +909,18 @@ export function NotificationInspector({
                     )}
                   </div>
                 </div>
+
+                {/* ステータスを変えられなかった理由 */}
+                {statusError && (
+                  <button
+                    type="button"
+                    onClick={() => setStatusError(null)}
+                    className="w-full text-left px-2 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                  >
+                    {statusError}
+                    <span className="ml-1 text-red-500">（クリックで閉じる）</span>
+                  </button>
+                )}
 
                 {/* Due date display */}
                 {task.due_date && (

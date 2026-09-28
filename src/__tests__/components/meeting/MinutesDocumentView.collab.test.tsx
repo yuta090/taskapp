@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import { MinutesDocumentView, type MinutesDocumentViewHandle } from '@/components/meeting/MinutesDocumentView'
 import { minutesContentHash } from '@/lib/collab/scribe'
+import { MinutesConflictError } from '@/lib/minutes/errors'
 import type { Meeting } from '@/types/database'
 
 // 同時編集（Google ドキュメント式）を入れたときの、議事録の画面のふるまい。
@@ -62,6 +63,7 @@ vi.mock('@/lib/hooks/useMinutesCollab', () => ({
       meta: collabState.active ? fakeMeta : null,
       isApplyingRemote: () => collabState.applyingRemote,
       synced: collabState.synced,
+      colorIndex: 2,
       pending: false,
       solo: collabState.solo,
       degradedReason: collabState.degradedReason,
@@ -192,6 +194,62 @@ describe('同時編集中の保存', () => {
   })
 })
 
+describe('偽の競合の帯を出さない（2026-09-26 のレビュー）', () => {
+  const MEETING_PROPS = {
+    orgId: 'org1',
+    spaceId: 'space1',
+    canEdit: true,
+    onBack: vi.fn(),
+    onOpenInfo: vi.fn(),
+  }
+
+  it('書記でない人は、閉じるときも自分では保存しない（残った書記の保存が弾かれるため）', async () => {
+    collabState = { active: true, isScribe: false, degradedReason: null, applyingRemote: false, synced: true, solo: false }
+    fakeMeta.set('savedAt', '2026-09-01T00:00:00.111111+00')
+    const { updateMinutes, unmount } = setup()
+    await loaded()
+    await act(async () => {
+      capturedOnChange?.('# 定例MTG\n\n本文\n\n閉じる直前に足した行')
+    })
+    unmount()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    expect(updateMinutes).not.toHaveBeenCalled()
+  })
+
+  it('弾かれて読み直した本文が、送ろうとした本文と同じなら競合にしない', async () => {
+    collabState = { active: true, isScribe: true, degradedReason: null, applyingRemote: false, synced: true, solo: false }
+    const { updateMinutes, fetchMeetingDetail } = setup()
+    await loaded()
+    // 末尾に足した形だと「追記だけ」の道に入るので、途中を直した形にする
+    const next = '# 定例MTG\n\n本文を直した（先に誰かが同じ中身を保存した）'
+    updateMinutes.mockRejectedValueOnce(new MinutesConflictError('conflict'))
+    fetchMeetingDetail.mockResolvedValue(makeMeeting({ minutes_md: next, updated_at: '2026-09-01T00:00:05.000000+00' }))
+    await typeAndWait(next)
+    expect(screen.queryByTestId('minutes-conflict-banner')).toBeNull()
+  })
+
+  it('一度は書記でなかった人が書記になったら、部屋に保存の記録が無くても列を読み直す', async () => {
+    collabState = { active: true, isScribe: false, degradedReason: null, applyingRemote: false, synced: true, solo: false }
+    const { fetchMeetingDetail, viewRef, rerender, updateMinutes } = setup()
+    await loaded()
+    fetchMeetingDetail.mockClear()
+    collabState = { ...collabState, isScribe: true }
+    rerender(
+      <MinutesDocumentView
+        ref={viewRef}
+        {...MEETING_PROPS}
+        meeting={makeMeeting()}
+        updateMinutes={updateMinutes}
+        fetchMeetingDetail={fetchMeetingDetail}
+      />
+    )
+    await loaded()
+    expect(fetchMeetingDetail).toHaveBeenCalled()
+  })
+})
+
 describe('同時編集の「書いています」', () => {
   it('相手の文字が流れ込んだぶんでは立てない', async () => {
     collabState = { active: true, isScribe: true, degradedReason: null, applyingRemote: true, synced: true, solo: false }
@@ -236,7 +294,7 @@ describe('同時編集が止まったとき', () => {
     setup()
     await loaded()
 
-    expect(screen.getByTestId('minutes-collab-degraded-notice')).toHaveTextContent('開いている人が多いので')
+    expect(screen.getByTestId('minutes-collab-degraded-notice')).toHaveTextContent('開いている画面が多いので')
   })
 
   it('本文が二重になったら、その内容は保存せず列から読み直す', async () => {
@@ -308,11 +366,12 @@ describe('エディタへの受け渡し', () => {
     setup()
     await loaded()
 
+    // 色は部屋の中で決めた番号で渡す（人ごとにハッシュで選ぶと、運が悪いと重なる）
     expect(capturedCollaboration).toEqual({
       fragment: fakeFragment,
       awareness: fakeAwareness,
       userName: '自分',
-      userId: 'u-self',
+      colorIndex: 2,
     })
   })
 

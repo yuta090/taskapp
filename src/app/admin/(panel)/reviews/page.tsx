@@ -4,7 +4,7 @@ import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import ReviewsPageClient, { type ReviewRow } from './ReviewsPageClient'
 
 async function fetchReviewsData(): Promise<ReviewRow[]> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
   const now = Date.now()
 
   const [reviewsResult, tasksResult, spacesResult, approvalsResult] = await Promise.all([

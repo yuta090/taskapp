@@ -1,13 +1,13 @@
 import { z } from 'zod'
 import { computeSpecLinkChanges, SPEC_TAG, type SpecLinkChanges } from '../lib/specLink.js'
 import { getSupabaseClient, Task, TaskOwner, TaskStatus } from '../supabase/client.js'
-import { config, getAuthContext } from '../config.js'
+import { getAuthContext } from '../config.js'
 import { authorizeAndLog, type ActionType } from '../auth/index.js'
 import { dryRunDelete, confirmDelete } from '../auth/dryrun.js'
 import { withTaskNumber } from '../lib/taskNumber.js'
 import { ToolUserError } from '../errors.js'
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js'
-import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace } from '../auth/scope.js'
+import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace, requireActorUserId } from '../auth/scope.js'
 import { hideDbError } from '../lib/dbErrors.js'
 import { buildTaskLink, withTrailingLink } from '../lib/appLinks.js'
 
@@ -178,7 +178,7 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
       due_date: params.dueDate || null,
       assignee_id: params.assigneeId || null,
       milestone_id: params.milestoneId || null,
-      created_by: config.actorId,
+      created_by: requireActorUserId(),
     })
     .select('*')
     .single()

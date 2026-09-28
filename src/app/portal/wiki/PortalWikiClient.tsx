@@ -4,6 +4,11 @@ import { useState } from 'react'
 import { BookOpen, ArrowLeft } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useMyDocInsertions } from '@/lib/hooks/useMyDocInsertions'
+import { PortalWikiInsertions } from '@/components/portal/PortalWikiInsertions'
+import { usePrefetchDocPolls } from '@/lib/hooks/useDocPolls'
+import { hasDocPollInWikiBody } from '@/lib/doc-polls/logic'
 
 interface Project {
   id: string
@@ -14,6 +19,8 @@ interface Project {
 
 interface PublishedWikiPage {
   id: string
+  /** 公開した元の Wiki ページ。中の投票はこのページのもの */
+  sourcePageId: string
   title: string
   body: string
   publishedAt: string
@@ -33,6 +40,13 @@ export function PortalWikiClient({
   actionCount = 0,
 }: PortalWikiClientProps) {
   const [selectedPage, setSelectedPage] = useState<PublishedWikiPage | null>(null)
+  const { user } = useCurrentUser()
+  const currentUserId = user?.id ?? null
+  // 投票のあるページだけ。エディタの読み込みを待たずに、選んだ時点で投票を読み始める
+  const pollPageId = selectedPage && hasDocPollInWikiBody(selectedPage.body) ? selectedPage.sourcePageId : null
+  usePrefetchDocPolls(pollPageId ? { wikiPageId: pollPageId } : null)
+  // 相手先は公開された Wiki に行・メモを書き足せる（元のページに入る。DOC_VOTE_SPEC §5）
+  const insertions = useMyDocInsertions(selectedPage ? { wikiPageId: selectedPage.sourcePageId } : null)
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('ja-JP', {
@@ -81,7 +95,14 @@ export function PortalWikiClient({
                 key={selectedPage.id}
                 initialContent={selectedPage.body || undefined}
                 editable={false}
+                // 中の投票を押せるようにする（元のページの投票。名前は投票側で引く）
+                poll={
+                  pollPageId
+                    ? { wikiPageId: pollPageId, currentUserId, closedNote: 'この投票は終了しました' }
+                    : undefined
+                }
               />
+              <PortalWikiInsertions rows={insertions.rows} create={insertions.create} withdraw={insertions.withdraw} />
             </div>
           ) : wikiPages.length === 0 ? (
             <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-8 text-center">

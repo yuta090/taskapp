@@ -29,7 +29,7 @@ export async function resolveAccountingConnection(
   const adapter = getAccountingAdapter(provider)
   if (!adapter) return { status: 'not_connected' }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'connector' })
   const { data: connection } = await (admin as SupabaseClient)
     .from('integration_connections')
     .select('id, metadata, status')

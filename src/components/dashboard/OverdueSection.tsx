@@ -18,6 +18,12 @@ const GROUPS: ReadonlyArray<{ kind: OverdueKind; label: string; labelClass: stri
   { kind: 'task', label: 'タスク', labelClass: 'text-gray-600' },
 ]
 
+/**
+ * タスクの担当者の名前。担当者がいなければ null。名簿がまだ届いていないあいだは undefined を返し、
+ * その間は何も出さない（一瞬「担当なし」と出てから名前に変わるのを避ける）。
+ */
+export type AssigneeNameOf = (task: OverdueItem['task']) => string | null | undefined
+
 /** 見出しごとに最初に出す行数。残りは「すべて表示」で開く */
 const COLLAPSED_ROWS = 5
 
@@ -27,7 +33,18 @@ function formatMonthDay(dueDate: string): string {
   return `${Number(m)}/${Number(d)}`
 }
 
-function OverdueRow({ item, orgId, spaceId }: { item: OverdueItem; orgId: string; spaceId: string }) {
+function OverdueRow({
+  item,
+  orgId,
+  spaceId,
+  assigneeNameOf,
+}: {
+  item: OverdueItem
+  orgId: string
+  spaceId: string
+  assigneeNameOf: AssigneeNameOf
+}) {
+  const assigneeName = assigneeNameOf(item.task)
   return (
     <Link
       href={buildTaskDeepLink(orgId, spaceId, item.task.id)}
@@ -35,6 +52,15 @@ function OverdueRow({ item, orgId, spaceId }: { item: OverdueItem; orgId: string
     >
       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-red-500" />
       <span className="flex-1 min-w-0 truncate text-sm text-gray-700">{item.task.title}</span>
+      {assigneeName !== undefined && (
+        <span
+          data-testid="overdue-assignee"
+          className={`min-w-0 max-w-[6rem] truncate text-[11px] flex-shrink-0 ${assigneeName ? 'text-gray-600' : 'text-gray-400'}`}
+          title={assigneeName ? `担当: ${assigneeName}` : undefined}
+        >
+          {assigneeName ?? '担当なし'}
+        </span>
+      )}
       {/* スマホ幅ではタスク名を読めるよう期限の日付を省き、過ぎた日数だけを出す */}
       <span className="hidden md:inline text-[11px] text-gray-400 flex-shrink-0">
         期限 {formatMonthDay(item.task.due_date!)}
@@ -52,12 +78,14 @@ function OverdueGroup({
   items,
   orgId,
   spaceId,
+  assigneeNameOf,
 }: {
   label: string
   labelClass: string
   items: OverdueItem[]
   orgId: string
   spaceId: string
+  assigneeNameOf: AssigneeNameOf
 }) {
   const [expanded, setExpanded] = useState(false)
   const visible = expanded ? items : items.slice(0, COLLAPSED_ROWS)
@@ -71,7 +99,7 @@ function OverdueGroup({
       </p>
       <div className="space-y-0.5">
         {visible.map((item) => (
-          <OverdueRow key={item.task.id} item={item} orgId={orgId} spaceId={spaceId} />
+          <OverdueRow key={item.task.id} item={item} orgId={orgId} spaceId={spaceId} assigneeNameOf={assigneeNameOf} />
         ))}
       </div>
       {rest > 0 && (
@@ -88,7 +116,17 @@ function OverdueGroup({
   )
 }
 
-export function OverdueSection({ groups, orgId, spaceId }: { groups: OverdueGroups; orgId: string; spaceId: string }) {
+export function OverdueSection({
+  groups,
+  orgId,
+  spaceId,
+  assigneeNameOf,
+}: {
+  groups: OverdueGroups
+  orgId: string
+  spaceId: string
+  assigneeNameOf: AssigneeNameOf
+}) {
   return (
     <section aria-label="期限切れ" className="bg-surface border border-gray-200 rounded-lg p-6">
       <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-1.5">
@@ -108,6 +146,7 @@ export function OverdueSection({ groups, orgId, spaceId }: { groups: OverdueGrou
               items={groups[g.kind]}
               orgId={orgId}
               spaceId={spaceId}
+              assigneeNameOf={assigneeNameOf}
             />
           ))}
         </div>

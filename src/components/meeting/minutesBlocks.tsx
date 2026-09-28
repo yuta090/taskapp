@@ -1,8 +1,9 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { createReactBlockSpec } from '@blocknote/react'
-import { createExtension, defaultBlockSpecs } from '@blocknote/core'
-import { MEETING_NOTE_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
+import { createExtension, defaultBlockSpecs, type Extension } from '@blocknote/core'
+import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStampLabel, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 
 /**
@@ -36,7 +37,9 @@ export function MeetingNoteBlock({
   return (
     <div
       data-testid="minutes-meeting-note"
-      className="flex w-full items-start gap-2 rounded border-l-4 border-blue-200 bg-blue-50 py-1 pl-3 pr-2"
+      // 背景は blue-100。blue-50 はダークで #101F35 になり、面（#191E27）と明度差がほとんど無く
+      // 帯が沈んで分かりづらかった（ユーザー申告・2026-09-17）。左の縦線は明るい水色のまま残す
+      className="flex w-full items-start gap-2 rounded border-l-4 border-blue-200 bg-blue-100 py-1 pl-3 pr-2"
     >
       {/* 文字を持てるのはこの中だけ。書いた人と日時は外に置き、打てないようにする */}
       <div className="min-w-0 flex-1" ref={contentRef} />
@@ -63,12 +66,53 @@ export function MeetingNoteBlock({
   )
 }
 
+/** Enter の扱いに要るものだけに絞ったエディタの形（テストから本物をそのまま渡せる）。 */
+type NoteEnterEditor = {
+  document: NoteEnterBlock[]
+  schema: { blockSchema: Record<string, { content?: string }> }
+  getTextCursorPosition: () => { block: { id: string; type: string } }
+  setTextCursorPosition: (block: never, placement: 'start' | 'end') => void
+  blur: () => void
+}
+type NoteEnterBlock = { id: string; type: string; children?: NoteEnterBlock[] }
+
+/** 本文を上から順に並べる（入れ子の中も、見えている順に拾う）。 */
+function flattenBlocks(blocks: NoteEnterBlock[], out: NoteEnterBlock[] = []): NoteEnterBlock[] {
+  for (const b of blocks) {
+    out.push(b)
+    if (b.children?.length) flattenBlocks(b.children, out)
+  }
+  return out
+}
+
+/**
+ * メモの中で Enter を押したら、行を割らずに**すぐ下の書ける行の先頭へ移る**
+ * （ユーザー指定・2026-09-26）。既定だとメモの下に空の行が1つ増えていた。
+ * 区切り線・目次のように文字を持てない行は飛ばす。書ける行が1つも無ければ、
+ * カーソルを外して編集を終える。メモの中の改行は Shift+Enter のまま。
+ *
+ * 日本語の変換を確定する Enter は ProseMirror がここへ渡さないので、変換中に
+ * 押してもメモを抜けない。
+ */
+export function exitNoteOnEnter(editor: NoteEnterEditor): boolean {
+  const current = editor.getTextCursorPosition().block
+  if (current.type !== MEETING_NOTE_TYPE) return false
+  const ordered = flattenBlocks(editor.document)
+  const index = ordered.findIndex((b) => b.id === current.id)
+  const target = ordered
+    .slice(index + 1)
+    .find((b) => editor.schema.blockSchema[b.type]?.content === 'inline')
+  if (target) editor.setTextCursorPosition(target as never, 'start')
+  else editor.blur()
+  return true
+}
+
 /**
  * 会議メモ。Markdown では行頭の `<!--note-->` で表す（`markdown.ts` 側と対）。
  * 書いた日時と名前を持つときは `<!--note:2026-09-15T14:30 高橋 優太-->` になる。
  * Wiki（本文は BlockNote の JSON）では props の createdAt / author にそのまま入る。
  */
-export const meetingNoteSpec = createReactBlockSpec(
+const meetingNoteBaseSpec = createReactBlockSpec(
   {
     type: MEETING_NOTE_TYPE,
     propSchema: { createdAt: { default: '' }, author: { default: '' } },
@@ -85,13 +129,59 @@ export const meetingNoteSpec = createReactBlockSpec(
   }
 )() // createReactBlockSpec が返すのは「作る関数」。1回呼んで仕様そのものにする
 
+/** 会議メモ。Enter で行を割らずに下の行へ移る（`exitNoteOnEnter`）。 */
+export const meetingNoteSpec = {
+  ...meetingNoteBaseSpec,
+  extensions: [
+    ...(meetingNoteBaseSpec.extensions ?? []),
+    createExtension({
+      key: 'meeting-note-enter-exits',
+      keyboardShortcuts: {
+        Enter: ({ editor }) => exitNoteOnEnter(editor as unknown as NoteEnterEditor),
+      },
+    }),
+  ],
+}
+
+/** 折りたたみの Enter に要るものだけに絞ったエディタの形（テストから本物をそのまま渡せる）。 */
+type ToggleEnterEditor = {
+  getTextCursorPosition: () => { block: ToggleEnterBlock }
+  getSelection: () => unknown
+  transact: <T>(fn: () => T) => T
+  updateBlock: (block: never, update: { children: object[] }) => ToggleEnterBlock
+  insertBlocks: (blocks: object[], ref: never, placement: 'before') => ToggleEnterBlock[]
+  setTextCursorPosition: (block: never, placement: 'start' | 'end') => void
+}
+type ToggleEnterBlock = { id: string; type: string; content?: unknown; children: ToggleEnterBlock[] }
+
 /**
- * 折りたたみ。BlockNote の既定の折りたたみをそのまま使い、**入力ルールだけ足す**。
+ * 折りたたみの題名で Enter を押したら、題名を割らずに**中身の先頭に空の行を足してそこへ移る**
+ * （Notion と同じ。ユーザー指定・2026-09-28）。既定だと題名を割って、下にもう1つ折りたたみを
+ * 作っていた。閉じていても、中身が増えれば BlockNote が自分で開く。
  *
- * 既定では `>` ＋スペースは引用ブロックに変わるが、議事録に引用ブロックは無い
- * （Markdown の往復ができないので入れていない）。そのため今までは `>` を打っても
- * ただの文字として残っていた。Notion と同じ感覚で使えるよう、`>` ＋スペースを
- * 折りたたみに割り当てる。
+ * 題名が空のときと文字を選んでいるときは既定に任せる（空なら普通の行に戻る）。
+ */
+export function enterToggleBody(editor: ToggleEnterEditor): boolean {
+  const block = editor.getTextCursorPosition().block
+  if (block.type !== TOGGLE_TYPE) return false
+  if (editor.getSelection()) return false
+  if (!Array.isArray(block.content) || block.content.length === 0) return false
+  editor.transact(() => {
+    const first = block.children[0]
+    const body = first
+      ? editor.insertBlocks([{ type: 'paragraph' }], first as never, 'before')[0]
+      : editor.updateBlock(block as never, { children: [{ type: 'paragraph' }] }).children[0]
+    editor.setTextCursorPosition(body as never, 'start')
+  })
+  return true
+}
+
+/**
+ * 折りたたみ。BlockNote の既定の折りたたみに、Notion と同じ打ち方を2つ足す。
+ *
+ * - `>` ＋スペースで折りたたみになる。既定では引用ブロックが取る打ち方なので、Wiki では
+ *   引用側から外してある（`quoteSpec`）。議事録には引用ブロック自体が無い
+ * - 題名で Enter を押すと中身を書く行へ移る（`enterToggleBody`）
  */
 export const toggleListItemSpec = {
   ...defaultBlockSpecs.toggleListItem,
@@ -105,6 +195,153 @@ export const toggleListItemSpec = {
           replace: () => ({ type: TOGGLE_TYPE, props: {} }),
         },
       ],
+      keyboardShortcuts: {
+        Enter: ({ editor }) => enterToggleBody(editor as unknown as ToggleEnterEditor),
+      },
     }),
   ],
 }
+
+/**
+ * 引用。既定の引用から **`>` ＋スペースの入力ルールだけ外したもの**。`>` は折りたたみに
+ * 渡す（Notion と同じ）。引用は「/」メニューと Ctrl+Alt+Q で作れる。
+ */
+export const quoteSpec = {
+  ...defaultBlockSpecs.quote,
+  extensions: (defaultBlockSpecs.quote.extensions ?? []).map((factory) => {
+    // 既定の引用の拡張は「作る関数」。中身を取り出し、入力ルールだけ空にして渡し直す
+    const ext = (factory as unknown as () => Extension)()
+    return { ...ext, inputRules: [] } as Extension
+  }),
+}
+
+/**
+ * 区切り線。BlockNote の既定の区切り線をそのまま使い、**入力ルールだけ足す**。
+ * `---` ＋スペースで引けるようにする（Notion と同じ感覚で打てる）。
+ * Markdown でも `---` なので、往復しても形が変わらない。
+ */
+export const dividerSpec = {
+  ...defaultBlockSpecs.divider,
+  extensions: [
+    ...(defaultBlockSpecs.divider.extensions ?? []),
+    createExtension({
+      key: 'minutes-divider-from-dashes',
+      inputRules: [
+        {
+          find: /^-{3}\s$/,
+          replace: () => ({ type: DIVIDER_TYPE, props: {} }),
+        },
+      ],
+    }),
+  ],
+}
+
+/** 目次の1行。`id` は BlockNote のブロックID（画面では `data-id` に出る）。 */
+export type TocItem = { id: string; level: number; text: string }
+
+/**
+ * 目次が要るのはブロックの一覧と変更の通知だけ。エディタの型をまるごと持ち込むと
+ * テストから呼べなくなるので、使う分だけに絞る。
+ */
+export type BlockNoteEditorLike = {
+  document: Array<{ id: string; type: string; props?: Record<string, unknown>; content?: unknown }>
+  onChange?: (cb: () => void) => (() => void) | undefined
+}
+
+/** 見出しの中身から字だけを取り出す（リンクの中の字も拾う）。 */
+function inlineText(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((c) => {
+      if (!c || typeof c !== 'object') return ''
+      const node = c as { type?: string; text?: string; content?: unknown }
+      if (typeof node.text === 'string') return node.text
+      if (node.type === 'link') return inlineText(node.content)
+      return ''
+    })
+    .join('')
+}
+
+/** 本文から見出しだけを拾う。文字を持たない見出しは出さない（押しても意味が無い）。 */
+export function collectHeadings(editor: BlockNoteEditorLike): TocItem[] {
+  const out: TocItem[] = []
+  for (const b of editor.document ?? []) {
+    if (b.type !== 'heading') continue
+    const text = inlineText(b.content).trim()
+    if (!text) continue
+    const level = Math.min(Math.max(Number(b.props?.level) || 1, 1), 6)
+    out.push({ id: b.id, level, text })
+  }
+  return out
+}
+
+/**
+ * 目次。**中身を持たず、開くたびにその時点の見出しから引き直す**ので、見出しを直しても
+ * 目次が古くならない（更新ボタンは要らない）。Markdown では `<!--toc-->` の1行で表す
+ * （`markdown.ts` 側と対）。
+ *
+ * 押すとその見出しまで画面が動く。BlockNote は各ブロックの入れ物に `data-id` を出すので、
+ * それを目印に探す（見出しに id を振る必要が無い）。
+ */
+export function TableOfContentsBlock({ editor }: { editor: BlockNoteEditorLike }) {
+  // 最初の1回は描くときに拾う（効果の中で state を触らないため）
+  const [items, setItems] = useState<TocItem[]>(() => collectHeadings(editor))
+
+  // 以後は中身が変わるたびに引き直す
+  useEffect(() => {
+    return editor.onChange?.(() => setItems(collectHeadings(editor)))
+  }, [editor])
+
+  const jump = (id: string) => {
+    document
+      .querySelector(`[data-id="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return (
+    <div
+      contentEditable={false}
+      data-testid="doc-toc"
+      // 面をわずかに落として「本文ではない」ことを示す。色はトークンで置き、明暗どちらでも
+      // 読めるようにする（アンバー/オレンジは「相手先に見える」印の色なので使わない）。
+      // gray は .dark で段ごと反転するので dark: を重ねない（重ねると二重に反転し、
+      // ダークで明るい灰色の面に暗い文字になる）
+      className="my-2 w-full select-none rounded border border-gray-200 bg-gray-50 px-3 py-2"
+    >
+      <div className="mb-1 text-[10px] font-medium tracking-wide text-gray-500">
+        目次
+      </div>
+      {items.length === 0 ? (
+        <div className="text-xs text-gray-400">見出しがまだありません</div>
+      ) : (
+        <ul className="space-y-0.5">
+          {items.map((it) => (
+            <li key={it.id} style={{ paddingLeft: `${(it.level - 1) * 12}px` }}>
+              <button
+                type="button"
+                onClick={() => jump(it.id)}
+                data-testid="doc-toc-item"
+                // 本文より1段小さく。行の高さを詰めて、20行あっても画面を圧迫しない
+                className="w-full truncate text-left text-xs leading-5 text-gray-600 hover:text-blue-600 hover:underline dark:hover:text-blue-400"
+              >
+                {it.text}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** 目次。Markdown では `<!--toc-->` の1行で表す（`markdown.ts` 側と対）。 */
+export const tableOfContentsSpec = createReactBlockSpec(
+  {
+    type: TOC_TYPE,
+    propSchema: {},
+    content: 'none',
+  } as const,
+  {
+    render: (props) => <TableOfContentsBlock editor={props.editor as unknown as BlockNoteEditorLike} />,
+  }
+)()

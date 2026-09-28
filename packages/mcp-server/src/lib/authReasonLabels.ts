@@ -9,6 +9,8 @@ export const AUTH_REASON_LABELS = {
   spaceNotAllowed: 'このAPIキーで許可されたプロジェクトではありません',
   keyNotBoundToSpace: 'このAPIキーはどのプロジェクトにも紐づいていません',
   keyOwnerNotSet: 'このAPIキーに持ち主が設定されていません',
+  // 認証コンテキストが無いままツールが呼ばれた（＝認証を通っていない）。fail-closed の最後の砦
+  noAuthContext: '認証されていない呼び出しです',
 } as const
 
 /** 例: 「Action "write" not allowed for this API key」に対応する断り文言 */

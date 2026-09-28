@@ -265,6 +265,31 @@ describe('QueryProvider', () => {
       expect(keys.some((k) => k[0] === 'files' && k[3] === 'search')).toBe(false)
     })
 
+    // 組織メンバー一覧(['orgMembers', orgId])は、メンバー一覧画面でメールを出すために
+    // メールアドレスを持つ。currentUser と同じ理由で、ディスク(IDB)には残さない
+    // （取り直しは安い。個人情報がブラウザに居残る場所を増やさない）。
+    it('組織メンバー一覧(メールを含む)は IDB に載せない', async () => {
+      mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+
+      renderProvider()
+      await flushMicrotasks()
+      expect(capturedClient).not.toBeNull()
+
+      act(() => {
+        capturedClient!.setQueryData(['orgMembers', 'org-1'], [
+          { userId: 'u1', role: 'owner', email: 'owner@example.com' },
+        ])
+        capturedClient!.setQueryData(['userSpaces', 'user-A', false], [{ id: 's1' }])
+      })
+      await advance(1000)
+
+      expect(idbSet).toHaveBeenCalled()
+      const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
+      const keys = persisted.clientState.queries.map((q) => q.queryKey)
+
+      expect(keys.some((k) => k[0] === 'orgMembers')).toBe(false)
+    })
+
     // GitHub Issue の紐付け候補検索(useIssueLinkCandidates)は、打鍵の切れ目ごとに
     // 別キーが生まれる検索結果を IDB に載せない。空の検索語(候補の一覧)は載せてよい
     // （表示速度レビューでの是正・ファイル検索と同じ理由・2026-09-11）。

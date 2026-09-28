@@ -63,6 +63,14 @@ vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
 vi.mock('@/lib/hooks/useWikiDecisionCounts', () => ({
   useWikiDecisionCounts: () => ({ countsByPageId: new Map(), loading: false }),
 }))
+// 参照しているタスクの取得。毎回同じ配列を返す（新しい配列だとページ情報パネルを毎回作り直す）
+const NO_REFERENCING_TASKS = vi.hoisted(() => [] as never[])
+// 本文の投票ブロックの先読み（中身はエディタ側で確かめる。ここでは画面の配線だけを見る）
+vi.mock('@/lib/hooks/useDocPolls', () => ({ usePrefetchDocPolls: () => {} }))
+
+vi.mock('@/lib/hooks/useWikiPageReferencingTasks', () => ({
+  useWikiPageReferencingTasks: () => ({ tasks: NO_REFERENCING_TASKS, loading: false, error: null }),
+}))
 
 let mockCanEditMoney = true
 vi.mock('@/lib/hooks/useCanEditSpace', () => ({

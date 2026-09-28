@@ -1,5 +1,5 @@
 /**
- * 同時編集の「種まき」— 列の本文（Markdown）から、同時編集の器（Y.Doc）を作る。
+ * 同時編集の「種まき」— 列の本文（議事録は Markdown・Wiki はブロックの JSON）から、同時編集の器（Y.Doc）を作る。
  *
  * ここがこの機能でいちばん踏みやすい穴（COEDITING_SPEC 5.3）。2人が同時に議事録を
  * 開き、それぞれが列の本文から**別々に**器を作って合流すると、本文が丸ごと二重になる。
@@ -19,15 +19,10 @@ import type { StyleSchema } from '@blocknote/core'
 import { prosemirrorToYXmlFragment } from 'y-prosemirror'
 import type { Schema } from 'prosemirror-model'
 import { parseMinutesMarkdown } from '@/lib/minutes/markdown'
-import { MINUTES_FRAGMENT_NAME, minutesSeedHash } from './hash'
+import { MINUTES_FRAGMENT_NAME, minutesSeedHash, seedClientId } from './hash'
 
-// ハッシュとチャネル内の名前は `hash.ts`（依存ゼロ）に置いてある。ここから再び出すと、
-// 取り込んだ側が BlockNote 一式まで引きずり込むので、**再輸出しない**。
-
-/** 種をまく器の clientID。0 は使わない（Yjs の既定と紛れないように） */
-function seedClientId(seedHash: string): number {
-  return (parseInt(seedHash.slice(0, 8), 16) >>> 0) || 1
-}
+// ハッシュ・チャネル内の名前・持ち主の番号は `hash.ts`（依存ゼロ）に置いてある。
+// ここから再び出すと、取り込んだ側が BlockNote 一式まで引きずり込むので、**再輸出しない**。
 
 /**
  * ブロックに決まった id を振る（入れ子も辿る）。
@@ -63,19 +58,15 @@ function emptyParagraph(seedHash: string): unknown {
 }
 
 /**
- * 本文から種（Y.Doc への更新）を作る。同じ本文からは必ず同じ byte 列になる。
- *
- * @param markdown   列（`meetings.minutes_md`）の本文
- * @param pmSchema   生きているエディタの `editor.pmSchema`
- * @param styleSchema 生きているエディタのスキーマの `styleSchema`
+ * ブロックの並びから種（Y.Doc への更新）を作る。議事録と Wiki の共通部分。
+ * `seedHash` は本文から決めた合言葉で、器の持ち主と id の振り方をこれで固定する。
  */
-export function buildMinutesSeed(
-  markdown: string,
+function buildBlocksSeed(
+  parsed: unknown[],
+  seedHash: string,
   pmSchema: Schema,
   styleSchema: StyleSchema
-): { update: Uint8Array; seedHash: string } {
-  const seedHash = minutesSeedHash(markdown)
-  const parsed = parseMinutesMarkdown(markdown) as unknown[]
+): Uint8Array {
   const blocks = parsed.length > 0 ? assignSeedIds(parsed, seedHash) : [emptyParagraph(seedHash)]
 
   const doc = new Y.Doc()
@@ -94,7 +85,44 @@ export function buildMinutesSeed(
   })
   prosemirrorToYXmlFragment(node, fragment)
 
-  return { update: Y.encodeStateAsUpdate(doc), seedHash }
+  return Y.encodeStateAsUpdate(doc)
+}
+
+/**
+ * 本文から種（Y.Doc への更新）を作る。同じ本文からは必ず同じ byte 列になる。
+ *
+ * @param markdown   列（`meetings.minutes_md`）の本文
+ * @param pmSchema   生きているエディタの `editor.pmSchema`
+ * @param styleSchema 生きているエディタのスキーマの `styleSchema`
+ */
+export function buildMinutesSeed(
+  markdown: string,
+  pmSchema: Schema,
+  styleSchema: StyleSchema
+): { update: Uint8Array; seedHash: string } {
+  const seedHash = minutesSeedHash(markdown)
+  const parsed = parseMinutesMarkdown(markdown) as unknown[]
+  return { update: buildBlocksSeed(parsed, seedHash, pmSchema, styleSchema), seedHash }
+}
+
+/**
+ * Wiki の本文（`wiki_pages.body`。BlockNote のブロック JSON の文字列）から種を作る。
+ *
+ * 保存されている本文はふつう id を持っているのでそのまま使う。DB で組み立てた本文
+ * （確定時の末尾の追記・ひな形）は id が無いことがあり、そこには議事録と同じく
+ * 本文から決まる id を振る。**JSON として読めなければ例外を投げる**（合流の本体が
+ * 受け取って1人で書く形に落とす。勝手に空にすると、白紙のまま保存しかねない）。
+ */
+export function buildWikiSeed(
+  body: string | null,
+  pmSchema: Schema,
+  styleSchema: StyleSchema
+): { update: Uint8Array; seedHash: string } {
+  const raw = body ?? ''
+  const seedHash = minutesSeedHash(raw)
+  const parsed: unknown = raw.trim() === '' ? [] : JSON.parse(raw)
+  if (!Array.isArray(parsed)) throw new Error('Wiki の本文がブロックの並びではありません')
+  return { update: buildBlocksSeed(parsed, seedHash, pmSchema, styleSchema), seedHash }
 }
 
 /**
@@ -108,6 +136,13 @@ export function seedMinutesDoc(
   styleSchema: StyleSchema
 ): string {
   const { update, seedHash } = buildMinutesSeed(markdown, pmSchema, styleSchema)
+  Y.applyUpdate(doc, update)
+  return seedHash
+}
+
+/** Wiki の器に種をまく（`seedMinutesDoc` の Wiki 版） */
+export function seedWikiDoc(doc: Y.Doc, body: string | null, pmSchema: Schema, styleSchema: StyleSchema): string {
+  const { update, seedHash } = buildWikiSeed(body, pmSchema, styleSchema)
   Y.applyUpdate(doc, update)
   return seedHash
 }

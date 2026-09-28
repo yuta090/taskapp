@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       url.searchParams.get('recipientOverride') ||
       (typeof body.recipientOverride === 'string' ? body.recipientOverride : null)
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'cron' }) as SupabaseClient
     const now = new Date()
 
     const { data: rawTasks, error: tasksError } = await admin

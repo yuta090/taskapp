@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, GearSix, Eye, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, CheckSquare, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
+import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useInspector } from '@/components/layout'
@@ -41,6 +42,11 @@ import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
+import { buildChildTaskInput, type ChildTaskDraft } from '@/lib/tasks/childTask'
+import { suggestReviewRequestOnDone, useReviewRequestTarget } from '@/lib/tasks/reviewRequestNudge'
+import { applyQuickFilter, DEFAULT_QUICK_FILTER, parseQuickFilter, type QuickFilterKey } from '@/lib/tasks/quickFilters'
+import { jstNow } from '@/lib/datetime/jstNow'
+import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { BallSide, Task, TaskStatus, Milestone, DecisionState } from '@/types/database'
@@ -50,10 +56,19 @@ interface TasksPageClientProps {
   spaceId: string
 }
 
-type FilterKey = 'all' | 'active' | 'backlog' | 'client_wait' | 'client_origin'
+// 判定は src/lib/tasks/quickFilters.ts（ダッシュボードの数字と同じ数え方）
+type FilterKey = QuickFilterKey
+
+/** パンくずの2つ目。載っていない絞り込みは「タスク」 */
+const FILTER_BREADCRUMB_LABEL: Partial<Record<FilterKey, string>> = {
+  overdue: '期限切れ',
+  in_review: 'レビュー待ち',
+  client_wait: 'クライアント確認待ち',
+  client_origin: 'クライアント起案',
+}
 
 /** 何も指定がないときの絞り込み。既定なので URL には付けない（付けるのは他を選んだときだけ） */
-const DEFAULT_FILTER: FilterKey = 'active'
+const DEFAULT_FILTER: FilterKey = DEFAULT_QUICK_FILTER
 type SortKey = 'milestone' | 'due_date' | 'created_at' | 'assignee' | 'status'
 
 interface TaskGroup {
@@ -186,6 +201,7 @@ function SampleTaskBanner({ count, onDeleteAll }: { count: number; onDeleteAll: 
 
 export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
   const { setInspector } = useInspector()
   const isMobile = useIsMobile()
   const { tasks, owners, reviewStatuses, loading, error, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange } =
@@ -286,12 +302,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const isCreateOpen = searchParams.get('create') !== null
   const selectedTaskId = searchParams.get('task')
   const activeFilter: FilterKey = useMemo(() => {
-    const filterParam = searchParams.get('filter')
-    if (filterParam === 'all' || filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait' || filterParam === 'client_origin') {
-      return filterParam
-    }
     // 既定は「アクティブ」。開いた直後に完了・未着手まで並ぶと、いま動いているタスクが埋もれる
-    return DEFAULT_FILTER
+    return parseQuickFilter(searchParams.get('filter'))
   }, [searchParams])
 
   // useQuery auto-fetches tasks, milestones, and the space row — no manual useEffect needed
@@ -346,28 +358,16 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     )
   }, [advancedFilters])
 
-  const filteredTasks = useMemo(() => {
-    let result: Task[]
+  // 日本時間の今日（期限切れの判定用）と、返事待ちの承認依頼があるタスク（レビュー待ちの判定用）
+  const today = formatDateToLocalString(jstNow())
+  const openReviewTaskIds = useMemo(
+    () => new Set(Object.keys(reviewStatuses).filter((taskId) => reviewStatuses[taskId] === 'open')),
+    [reviewStatuses]
+  )
 
+  const filteredTasks = useMemo(() => {
     // First apply quick filters (tabs)
-    switch (activeFilter) {
-      case 'active':
-        result = tasks.filter(
-          (task) => task.status !== 'backlog' && task.status !== 'done'
-        )
-        break
-      case 'backlog':
-        result = tasks.filter((task) => task.status === 'backlog')
-        break
-      case 'client_wait':
-        result = tasks.filter((task) => task.ball === 'client' && task.status !== 'done')
-        break
-      case 'client_origin':
-        result = tasks.filter((task) => task.origin === 'client')
-        break
-      default:
-        result = tasks
-    }
+    let result: Task[] = applyQuickFilter(tasks, activeFilter, { today, openReviewTaskIds })
 
     // Then apply advanced filters
     if (hasAdvancedFilters) {
@@ -385,7 +385,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     }
 
     return result
-  }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters, searchQuery])
+  }, [tasks, activeFilter, today, openReviewTaskIds, advancedFilters, hasAdvancedFilters, searchQuery])
 
   // タスク自体はあるのに、既定の「アクティブ」だけが理由で0件になっている状態。空のときの案内を出し分ける
   const onlyDefaultFilterHides =
@@ -503,6 +503,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     return tasks.find((task) => task.id === selectedTaskId) ?? null
   }, [tasks, selectedTaskId])
 
+  // 一覧で完了にしたときの案内から詳細を開いたタスク
+  const { reviewRequestTaskId, markReviewRequest } = useReviewRequestTarget(selectedTaskId)
+
   const handlePassBall = useCallback(
     async (taskId: string, ball: BallSide, overrideClientOwnerIds?: string[], overrideInternalOwnerIds?: string[]) => {
       const taskOwners = owners[taskId] || []
@@ -550,6 +553,21 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     [deleteTask, syncUrlWithState, isCreateOpen, activeFilter]
   )
 
+  // 子タスクをタスク詳細から作る。中身の既定（担当の引き継ぎ・ボール）は buildChildTaskInput。
+  // 親は id ではなく行そのものを受け取る（一覧を依存に入れず、識別子の取り違えも起きない）
+  const handleCreateChild = useCallback(
+    async (parent: Task, draft: ChildTaskDraft) => {
+      const created = await createTask(buildChildTaskInput(parent, draft))
+      toast.success('子タスクを作成しました', {
+        action: {
+          label: '開く',
+          onClick: () => syncUrlWithState(false, created.id, activeFilter, { push: true }),
+        },
+      })
+    },
+    [createTask, syncUrlWithState, activeFilter]
+  )
+
   // AT-009: Spec task state transition
   const handleSetSpecState = useCallback(
     async (taskId: string, decisionState: DecisionState) => {
@@ -567,8 +585,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         decisionState,
       })
       await fetchTasks()
+      // ダッシュボードの「確定事項」に出す「決まった日」を取り直させる
+      invalidateSpecDecisionEvents(queryClient, spaceId)
     },
-    [tasks, fetchTasks]
+    [tasks, fetchTasks, queryClient, spaceId]
   )
 
   useEffect(() => {
@@ -598,6 +618,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         // 無ければ表示だけの読み取り専用になる設計（各項目が `onUpdate ? 編集UI : 表示`）
         onPassBall={canEdit ? (ball, clientOwnerIds, internalOwnerIds) => handlePassBall(selectedTask.id, ball, clientOwnerIds, internalOwnerIds) : undefined}
         onUpdate={canEdit ? (updates) => handleUpdateTask(selectedTask.id, updates) : undefined}
+        onCreateChild={canEdit ? (draft) => handleCreateChild(selectedTask, draft) : undefined}
+        openReviewRequest={reviewRequestTaskId === selectedTask.id}
         onDelete={canEdit ? () => handleDeleteTask(selectedTask.id) : undefined}
         onDuplicate={canEdit ? () => {
           setDuplicateSource(selectedTask)
@@ -616,7 +638,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         canEditPricing={canEditMoney}
       />
     )
-  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleCreateChild, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, reviewRequestTaskId, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
@@ -748,12 +770,18 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const syncUrlRef = useRef(syncUrlWithState)
   const isCreateOpenRef = useRef(isCreateOpen)
   const activeFilterRef = useRef(activeFilter)
+  // handleStatusChange が直前の状態を読むのに使う。一覧そのものを依存に足さないため
+  // （マイタスクの updateTaskStatus と同じ考え方）。ただしこの callback は今のところ
+  // updateTask 経由で一覧に繋がっており、行の memo を本当に効かせるには useTasks 側の
+  // updateTask から tasks 依存を外す必要がある（この PR の範囲外）
+  const tasksRef = useRef(tasks)
   useEffect(() => {
     selectedTaskIdRef.current = selectedTaskId
     syncUrlRef.current = syncUrlWithState
     isCreateOpenRef.current = isCreateOpen
     activeFilterRef.current = activeFilter
-  }, [selectedTaskId, syncUrlWithState, isCreateOpen, activeFilter])
+    tasksRef.current = tasks
+  }, [selectedTaskId, syncUrlWithState, isCreateOpen, activeFilter, tasks])
 
   const handleTaskSelect = useCallback((taskId: string) => {
     // Toggle: clicking same task closes inspector
@@ -822,9 +850,28 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     })
   }, [])
 
-  const handleStatusChange = useCallback((taskId: string, status: TaskStatus) => {
-    updateTask(taskId, { status })
-  }, [updateTask])
+  // 一覧のチェックボックス・行の状態メニューから。完了にしたときは、タスク詳細と同じように
+  // 確認依頼を子タスクで出すことを案内する（詳細を開いていないので画面の通知で出す）。
+  // 保存の結果を待ってから案内する — 失敗すると行の表示は巻き戻るので、完了していないのに
+  // 「完了にしました」と出したり、出していない完了の確認依頼を書かせたりしないため
+  const handleStatusChange = useCallback(async (taskId: string, status: TaskStatus) => {
+    const previousStatus = tasksRef.current.find((t) => t.id === taskId)?.status
+    try {
+      await updateTask(taskId, { status })
+    } catch (err) {
+      console.error('Failed to update task status:', err)
+      return
+    }
+    suggestReviewRequestOnDone({
+      previousStatus,
+      nextStatus: status,
+      onAccept: () => {
+        markReviewRequest(taskId)
+        // 履歴に積む＝ブラウザの「戻る」で一覧に戻れる（案内から開いたので、閉じ方が要る）
+        syncUrlRef.current(false, taskId, activeFilterRef.current, { push: true })
+      },
+    })
+  }, [updateTask, markReviewRequest])
 
   // Context menu handlers
   const handleContextMenu = useCallback((taskId: string, x: number, y: number) => {
@@ -968,7 +1015,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Breadcrumb items
   const breadcrumbItems = [
     { label: spaceName || 'プロジェクト', href: projectBasePath },
-    { label: activeFilter === 'client_wait' ? 'クライアント確認待ち' : activeFilter === 'client_origin' ? 'クライアント起案' : 'タスク' },
+    { label: FILTER_BREADCRUMB_LABEL[activeFilter] ?? 'タスク' },
   ]
 
   return (
@@ -1067,6 +1114,30 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               }`}
             >
               未着手
+            </button>
+            <button
+              type="button"
+              data-testid="tasks-filter-overdue"
+              onClick={() => handleFilterChange('overdue')}
+              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                activeFilter === 'overdue'
+                  ? 'text-red-700 bg-red-50 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              期限切れ
+            </button>
+            <button
+              type="button"
+              data-testid="tasks-filter-in-review"
+              onClick={() => handleFilterChange('in_review')}
+              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                activeFilter === 'in_review'
+                  ? 'text-gray-900 bg-surface shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              レビュー待ち
             </button>
             <button
               type="button"

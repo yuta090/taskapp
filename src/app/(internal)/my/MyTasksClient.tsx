@@ -6,6 +6,11 @@ import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus, ChatCircle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import {
+  COMPLETE_FAILURE_NO_ROWS,
+  STATUS_CHANGE_NO_ROWS,
+  statusChangeFailureMessage,
+} from '@/lib/tasks/completeFailure'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { TaskRow } from '@/components/task/TaskRow'
@@ -18,6 +23,8 @@ import { useMyUnreadTaskComments } from '@/lib/hooks/useUnreadTaskComments'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
+import { buildChildTaskInput } from '@/lib/tasks/childTask'
+import { suggestReviewRequestOnDone, useReviewRequestTarget } from '@/lib/tasks/reviewRequestNudge'
 import type { Task, Space, Milestone, TaskStatus, ReviewStatus } from '@/types/database'
 import { splitEmbeddedReviews, type EmbeddedReviews } from '@/lib/tasks/reviewStatus'
 import {
@@ -38,6 +45,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext, PAGE_LOADED_AT } from '@/lib/org/ActiveOrgProvider'
 import { useCanEditSpace, useCanEditSpaces } from '@/lib/hooks/useCanEditSpace'
+import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
@@ -158,6 +166,8 @@ interface MyTaskInspectorProps {
   onOpenTask: (task: Task) => void
   /** このタスクの自分宛ての未読のコメントの数。1以上なら詳細のコメント欄を開いておく */
   unreadCommentCount: number
+  /** 一覧で完了にしたときの案内から開いたときだけ true。確認依頼の入力欄まで開く */
+  openReviewRequest: boolean
 }
 
 /**
@@ -181,8 +191,9 @@ const SHOW_TOLERANCE_MS = DEFAULT_STALE_TIME_MS
  * 子タスクの表示にも要る。useTasks はそのプロジェクトの全タスクを読み込むため、担当者は
  * 自然に揃う。担当者が揃うまでは TaskInspector を出さない。
  */
-function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted, onOpenTask, unreadCommentCount }: MyTaskInspectorProps) {
+function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted, onOpenTask, unreadCommentCount, openReviewRequest }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
+  const inspectorQueryClient = useQueryClient()
 
   // TaskInspector 自体（コード）は、データが揃うのを待たずマウント時点から先読みしておく。
   // 待ってから import すると「データ取得→chunk取得→内部の追加取得」が直列になってしまう。
@@ -190,7 +201,7 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
     void import('@/components/task/TaskInspector')
   }, [])
 
-  const { tasks, owners, reviewStatuses, loading, error, dataUpdatedAt, isFetching, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
+  const { tasks, owners, reviewStatuses, loading, error, dataUpdatedAt, isFetching, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
     orgId: task.org_id,
     spaceId: task.space_id,
   })
@@ -332,6 +343,12 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
           await passBall(current.id, ball, clientOwnerIds, internalOwnerIds)
         } : undefined}
         onUpdate={canEdit ? (updates) => updateTask(current.id, updates) : undefined}
+        // 子タスクは、このタスクと同じプロジェクトに作る（中身の既定は buildChildTaskInput）
+        onCreateChild={canEdit ? async (draft) => {
+          await createTask(buildChildTaskInput(current, draft))
+          toast.success('子タスクを作成しました')
+        } : undefined}
+        openReviewRequest={openReviewRequest}
         onDelete={canEdit ? async () => {
           // 楽観的更新で spaceTask が先に消えるため、削除リクエスト中は notFound 判定・
           // 背景更新の再取得（消えたタスクを復活させかねない）を止める
@@ -355,6 +372,8 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
                 }
                 await rpc.setSpecState(createClient(), { taskId: current.id, decisionState })
                 await fetchTasks()
+                // ダッシュボードの「確定事項」に出す「決まった日」を取り直させる
+                invalidateSpecDecisionEvents(inspectorQueryClient, current.space_id)
               }
             : undefined
         }
@@ -364,7 +383,7 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
         unreadCommentCount={unreadCommentCount}
       />
     )
-  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange, unreadCommentCount])
+  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange, unreadCommentCount, openReviewRequest, inspectorQueryClient])
 
   return null
 }
@@ -569,6 +588,8 @@ export default function MyTasksClient() {
 
   // 選んだタスクは右側に詳細を出す（ページは移動しない）。URL にも残し、再読み込み・共有で同じ表示に戻せるようにする
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => searchParams.get('task'))
+  // 一覧で完了にしたときの案内から詳細を開いたタスク
+  const { reviewRequestTaskId, markReviewRequest } = useReviewRequestTarget(selectedTaskId)
   const selectedTaskIdRef = useRef(selectedTaskId)
   useEffect(() => {
     selectedTaskIdRef.current = selectedTaskId
@@ -861,12 +882,15 @@ export default function MyTasksClient() {
       { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
     )
 
-    const { error } = await (supabase as SupabaseClient)
+    // .select('id') を付ける: RLS で弾かれた更新は**エラーではなく0行**で返るので、
+    // 付けないと「何も起きていないのに完了になったまま」になる（議事録の run と同じ守り）
+    const { data: updated, error } = await (supabase as SupabaseClient)
       .from('tasks')
       .update({ status })
       .eq('id', taskId)
+      .select('id')
 
-    if (error) {
+    if (error || (updated ?? []).length === 0) {
       // Revert on error
       queryClient.setQueryData<MyTasksData>(
         myTasksKey,
@@ -874,6 +898,16 @@ export default function MyTasksClient() {
         { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
       )
       console.error('Failed to update task status:', error)
+      // 断られた理由を出す。出さないと「押しても何も起きない」ようにしか見えない
+      // （2026-09-18 に本番で起きた: 社内承認が終わっていないタスクを完了にできず、
+      //  理由が console にしか出ていなかった）
+      toast.error(
+        error
+          ? statusChangeFailureMessage(error.message)
+          : status === 'done'
+            ? COMPLETE_FAILURE_NO_ROWS
+            : STATUS_CHANGE_NO_ROWS
+      )
       if (wasFetching) void queryClient.invalidateQueries({ queryKey: myTasksKey })
       return
     }
@@ -896,7 +930,19 @@ export default function MyTasksClient() {
         { updatedAt: queryClient.getQueryState(key)?.dataUpdatedAt }
       )
     }
-  }, [supabase, queryClient, myTasksKey])
+
+    // 完了にしたときは、タスク詳細と同じように確認依頼を子タスクで出すことを案内する
+    // （詳細を開いていないので画面の通知で出し、押されたら詳細と入力欄まで開く）
+    suggestReviewRequestOnDone({
+      previousStatus: prevStatus,
+      nextStatus: status,
+      onAccept: () => {
+        markReviewRequest(taskId)
+        // 履歴に積む＝ブラウザの「戻る」で一覧に戻れる（案内から開いたので、閉じ方が要る）
+        selectTask(taskId, { push: true })
+      },
+    })
+  }, [supabase, queryClient, myTasksKey, selectTask, markReviewRequest])
 
   const handleRetry = useCallback(() => {
     if (loginRequired) {
@@ -1266,6 +1312,7 @@ export default function MyTasksClient() {
           onDeleted={handleInspectorDeleted}
           onOpenTask={handleInspectorOpenTask}
           unreadCommentCount={unreadComments[selectedTask.id]?.count ?? 0}
+          openReviewRequest={reviewRequestTaskId === selectedTask.id}
         />
       )}
     </div>

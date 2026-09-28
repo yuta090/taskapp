@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { BookOpen, Plus, ArrowLeft, Sparkle, Info, ArrowsOut, ArrowsIn } from '@phosphor-icons/react'
 import { useInspector, useShellFullscreen } from '@/components/layout'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
@@ -10,9 +10,11 @@ import { WikiPageRow, type WikiRowMember } from '@/components/wiki/WikiPageRow'
 import { WikiListToolbar } from '@/components/wiki/WikiListToolbar'
 import { WikiPageInspector } from '@/components/wiki/WikiPageInspector'
 import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
-import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
+import { WikiInlineCreateRow } from '@/components/wiki/WikiInlineCreateRow'
+import { WikiBodyEditor } from '@/components/wiki/WikiBodyEditor'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { EmptyState } from '@/components/shared'
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useWikiPages, WikiConflictError, type UpdateWikiPageInput, type WikiPageVersionSummary } from '@/lib/hooks/useWikiPages'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -20,6 +22,10 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { noteAuthorNameOf } from '@/lib/minutes/noteStamp'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import { useWikiDecisionCounts } from '@/lib/hooks/useWikiDecisionCounts'
+import { useWikiPageReferencingTasks } from '@/lib/hooks/useWikiPageReferencingTasks'
+import { usePrefetchDocPolls } from '@/lib/hooks/useDocPolls'
+import type { WikiReferencingTask } from '@/lib/wiki/referencingTasks'
+import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import {
   applyWikiListView,
@@ -33,11 +39,14 @@ import {
   pruneWikiTreeToMatches,
   type WikiListFilters,
   EMPTY_MILESTONE_LIST,
+  childrenReparentTargets,
+  isValidWikiDropTarget,
 } from '@/lib/wiki/listView'
 import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
 import type { Milestone, WikiPage } from '@/types/database'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { SAVING } from '@/lib/design/tokens'
+import { useWikiBodySave, WIKI_CONFLICT_MESSAGE, WIKI_PAGE_DELETED_MESSAGE } from '@/lib/wiki/useWikiBodySave'
 
 // 表示モード外では計算せず共有の空配列を返す（毎レンダー新しい [] を作らない）
 const EMPTY_TREE: WikiTreeNode[] = []
@@ -46,50 +55,12 @@ const EMPTY_GROUPS: ReturnType<typeof groupWikiPagesByMilestone> = []
 // resolveWikiMilestones も同じ意図で EMPTY_MILESTONE_LIST を入れるので、通常はそちらが返る。
 const EMPTY_PAGE_MILESTONES: Milestone[] = EMPTY_MILESTONE_LIST
 
-// 議事録の競合帯(MinutesDocumentView.tsx)と同じ文面の作り。Wiki には掲示板のような
-// 自動合流・保存の直列化までは作らない（必要最小限）。
-const WIKI_CONFLICT_MESSAGE =
-  'このページは、ほかの人（またはAI）が先に書き換えました。あなたが書いた分はまだ保存されていません。' +
-  '「書きかけをコピー」で控えてから「最新を読み込む」を押してください（読み込むと、この画面の書きかけは消えます。' +
-  '控えはそのままでは元の見た目には貼り戻せない形式です）。'
-
-// 「最新を読み込む」で読み直したら、対象のページ自体が既に削除されていた場合の文面。
-// 帯は下ろさず（自動保存を止めたまま）、理由だけをこちらに切り替える。
-const WIKI_PAGE_DELETED_MESSAGE =
-  'このページは見つかりませんでした（削除された可能性があります）。自動保存は止まっています。'
-
 /**
- * Wiki 本文(BlockNote の JSON文字列)を「開いただけでは保存しない」比較のために正規化する。
- * DB 側で組み立てられた本文（rpc_set_spec_state の追記は jsonb を ::text にするため
- * キー順・空白が変わる／generateDefaultWikiBody・SPEC_TEMPLATES・プリセット適用で
- * 手組みされた本文）は、クライアントの JSON.stringify(editor.document) とキー順や
- * 空白が一致しないことがある。単純な JSON.parse→JSON.stringify の往復では
- * オブジェクトのキー順は元のまま保たれてしまう（並べ替わらない）ため、それだけでは
- * 足りない。オブジェクトのキーをアルファベット順に並べ替えてから比較用の文字列に
- * する（配列の並びは意味を持つため崩さない）。JSON として壊れている値は、正規化を
- * あきらめて元の文字列のまま返す（＝そのケースは「別物」として保存される安全側に倒れる。
- * 議事録の computeBaseline(MinutesDocumentView.tsx) と同じ「開いたときと同じなら
- * 保存しない」という考え方を、Wiki の JSON 本文向けに実装したもの）。
+ * スマホのページ情報（シート）を開いているかを URL に載せる印。
+ * state で持つと端末の「戻る」でシートではなくページごと閉じてしまうため、URL に出す
+ * （議事録の MeetingsPageClient と同じ作り）。
  */
-function canonicalizeWikiBody(value: string | null): string | null {
-  if (value === null) return null
-  try {
-    const sortKeysDeep = (input: unknown): unknown => {
-      if (Array.isArray(input)) return input.map(sortKeysDeep)
-      if (input !== null && typeof input === 'object') {
-        const sorted: Record<string, unknown> = {}
-        for (const key of Object.keys(input as Record<string, unknown>).sort()) {
-          sorted[key] = sortKeysDeep((input as Record<string, unknown>)[key])
-        }
-        return sorted
-      }
-      return input
-    }
-    return JSON.stringify(sortKeysDeep(JSON.parse(value)))
-  } catch {
-    return value
-  }
-}
+const INFO_QUERY_PARAM = 'info'
 
 interface WikiPageClientProps {
   orgId: string
@@ -97,67 +68,16 @@ interface WikiPageClientProps {
 }
 
 export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
   const isMobile = useIsMobile()
-  // On mobile, opening a page shows the editor directly; the page-info inspector
-  // is opened on demand (info button) instead of auto-overlaying the editor.
-  const [showInfo, setShowInfo] = useState(false)
   // 全画面表示（デスクトップのみ）。状態は画面の枠（AppShell）が持ち、デスクトップの LeftNav を隠す。
   // 重ね表示（fixed）にしないのは、main の z-0 の中からは LeftNav の上に出られず本文の左端が隠れたため。
   // ページ切り替え・Wikiから離脱で必ずOFFに戻す（戻さないとほかの画面で LeftNav が消えたままになる）。
   const { fullscreen: isFullscreen, setFullscreen: setIsFullscreen } = useShellFullscreen()
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false)
   const [activePage, setActivePage] = useState<WikiPage | null>(null)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
-  const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
-  /**
-   * まだ保存していない本文。**どのページのものか**まで覚える。
-   * ページを切り替えたあとに確定させると、前のページの本文で次のページを
-   * 丸ごと上書きしてしまうため（ページIDを持たないと防げない）
-   */
-  const pendingBodyRef = useRef<{ pageId: string; body: string } | null>(null)
-  const savedTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [showPresetApplicator, setShowPresetApplicator] = useState(false)
-
-  // 保存の合言葉（楽観ロック）まわり。基準の updated_at と、サーバーにあると分かっている
-  // 本文を持つ。開いたとき(fetchPage)と、updatePage が成功した後（属性更新・版の復元を
-  // 含むすべての呼び出し）に必ず両方更新する（そうしないと本文保存が偽の競合を出す）。
-  const baseUpdatedAtRef = useRef<string | null>(null)
-  const knownServerBodyRef = useRef<string | null>(null)
-  // 今エディタに表示されている書きかけ（onChange の生値）。「書きかけをコピー」で使う。
-  const currentContentRef = useRef<string>('')
-  const [conflict, setConflict] = useState(false)
-  // conflict(state) と同じ値を常に持つ ref。setConflict は再描画を経てから effect/closure に
-  // 反映されるため、その間に発火する古い closure（タイマー・onChange）が「まだ競合していない」
-  // と誤判定してしまう。同期に読めるこちらを判定に使う。
-  const conflictRef = useRef(false)
-  // 帯を「見つかりません」表示に切り替えるための状態。conflict=true のまま維持し、
-  // 文面だけ変える（削除されたページは何度読み直しても null のままなので、帯を下ろさず
-  // 安定した終端状態にする＝「毎回帯が出ては消える」を防ぐ）。
-  const [pageDeleted, setPageDeleted] = useState(false)
-  // 本文保存が同時に2本走らないようにする。「次に送る内容」は pendingBodyRef が
-  // 一元的に持つ(二重管理を避ける)ので、ここでは「今まさに通信中か」だけを持つ。
-  const savingRef = useRef(false)
-  // savingRef が true の間に新しい編集が来たか。通信が終わったら、これが立っていた
-  // ときだけ続けて送る（保存に失敗して pendingBodyRef を「戻した」だけのケースまで
-  // 拾ってしまうと、同じ内容を無限に送り直しかねないため区別する）。
-  const pendingDuringSaveRef = useRef(false)
-  // ページを切り替えるたびに1つ進む「世代」。保存(savePendingBody)・最新を読み込む・
-  // 版の復元は開始時に世代を掴み、await の後(送信結果が返った後・見せかけの競合の確認後・
-  // 再送の後)ごとに pageEpochRef.current と一致するかを確かめてから共有の ref/state を書く。
-  // 一致しなければ「もう見ていないページの結果」として何も書かずに捨てる
-  // （保存の通信中にページを切り替えると、開いた先に前のページの基準・本文・競合状態が
-  // 書き込まれてしまう事故を防ぐ）。
-  const pageEpochRef = useRef(0)
-  // 「最新を読み込む」で1つ進める。エディタの key に含め、再マウントさせて
-  // initialContent を読み直させる（本体は onChange の度に作り直さない）。ページを
-  // 切り替えても 0 に戻さない: activePage.id が変わればどのみち key は変わるため
-  // リセットは不要で、逆に 0 へ戻すと「まだ前のページ(A)の本文のまま」の瞬間に key が
-  // (新ページB.id-0) に変わって A の本文で B のエディタが作り直され、B を開いた直後に
-  // A の本文で保存が走ってしまう（開いた直後の別ページに偽の競合帯が出る事故の元）。
-  const [editorReloadToken, setEditorReloadToken] = useState(0)
 
   // 閲覧者（viewer）・相手先には編集操作を出さない。組織の役割は URL の orgId で判定する
   const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
@@ -169,12 +89,32 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     fetchPages,
     createPage,
     updatePage,
+    reparentPages,
     deletePage,
     fetchPage,
     fetchVersions,
     fetchVersionBody,
     // 空のWikiの自動作成（ホームページ等）は編集できる人のときだけ行う
   } = useWikiPages({ orgId, spaceId, canEdit })
+  // 本文の自動保存と、同時に書いたときの競合・削除の検知（議事録に重ねた Wiki と同じ正本）
+  const bodySave = useWikiBodySave({ updatePage, fetchPage })
+  const {
+    saveStatus,
+    conflict,
+    pageDeleted,
+    editorReloadToken,
+    setBaseline,
+    leavePage,
+    markConflict,
+    markDeleted,
+    getEpoch,
+    getBaseUpdatedAt,
+    cancelPendingSave,
+    reloadEditor,
+    isCollabActive,
+    replaceEditorContent,
+    reloadLatest,
+  } = bodySave
   const { milestones } = useMilestones({ spaceId })
   // 一覧の「確定 2/5」。一覧の取得と並列に走る軽い1本（select 2列・type='spec' 限定）
   const { countsByPageId } = useWikiDecisionCounts(orgId, spaceId)
@@ -187,6 +127,25 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const { user: currentUser } = useCurrentUser()
   // メモに残す「書いた人」の名前。一覧の作成者表示と同じメンバー一覧から引く（取り直しは起きない）
   const noteAuthorName = useMemo(() => noteAuthorNameOf(members, currentUser?.id), [members, currentUser?.id])
+  // 投票ブロックで「誰が押したか」を出すための名前の引き方。抜けた人は番号でなく言葉で出す
+  const voterNameOf = useMemo(() => {
+    const byId = new Map(members.map((m) => [m.id, m.displayName]))
+    return (userId: string) => byId.get(userId) || '（メンバー外の人）'
+  }, [members])
+  const activePageId = activePage?.id ?? null
+  const pollProps = useMemo(
+    () =>
+      activePageId
+        ? {
+            wikiPageId: activePageId,
+            currentUserId: currentUser?.id ?? null,
+            nameOf: voterNameOf,
+            // 相手先の差し込みを取り込むのは編集できる画面だけ（どのタブが入れるかは DB で1つに絞る）
+            applyInsertions: canEdit,
+          }
+        : undefined,
+    [activePageId, currentUser?.id, voterNameOf, canEdit]
+  )
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照。既存4本と並列で取得する。
   const { linksByPageId } = useWikiMilestoneLinks(orgId, spaceId)
 
@@ -230,7 +189,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const isFiltering = filters.query.trim() !== '' || filters.tags.length > 0 || filters.authorIds.length > 0
 
   // フォルダ表示: 絞り込み中は一致した行とその祖先だけを残してからツリーを組む。
-  // ピン留めは根の並びだけに影響させ、子の並びは崩さない（buildWikiTree の sort_order のまま）。
+  // ピン留めは根の並びだけに影響させ、子の並びは buildWikiTree（選んだ並べ替え＋フォルダ先出し）のまま。
   const folderTree = useMemo(() => {
     if (prefs.view !== 'folder') return EMPTY_TREE
     let sourcePages = pages
@@ -238,19 +197,160 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       const matchedIds = new Set(filterWikiPages(pages, filters, getAuthorName).map(p => p.id))
       sourcePages = pruneWikiTreeToMatches(pages, matchedIds)
     }
-    const tree = buildWikiTree(sourcePages)
+    const tree = buildWikiTree(sourcePages, prefs.sort, getAuthorName)
     const pinnedRoots = [...tree.filter(n => n.page.pinned_at != null)].sort(
       (a, b) => new Date(a.page.pinned_at as string).getTime() - new Date(b.page.pinned_at as string).getTime()
     )
     const restRoots = tree.filter(n => n.page.pinned_at == null)
     return [...pinnedRoots, ...restRoots]
-  }, [pages, filters, getAuthorName, isFiltering, prefs.view])
+  }, [pages, filters, getAuthorName, isFiltering, prefs.view, prefs.sort])
 
   // 絞り込み中は折りたたみを無視する（祖先が閉じたままだと一致した行が画面から消える）
   const flatFolderRows = useMemo(
     () => flattenWikiTree(folderTree, isFiltering ? new Set<string>() : new Set(prefs.collapsedIds)),
     [folderTree, prefs.collapsedIds, isFiltering]
   )
+
+  // ---------------------------------------------------------------------------
+  // PR5: フォルダの作成・名前変更・削除・ドラッグ移動
+  // ---------------------------------------------------------------------------
+
+  // 行のフォルダアイコン（一覧・フォルダ・マイルストーン別のどの表示でも出す）。
+  // is_folder が明示されているページ、または子ページを1つ以上持つページを対象にする。
+  const hasChildrenIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const p of pages) if (p.parent_page_id != null) ids.add(p.parent_page_id)
+    return ids
+  }, [pages])
+  const getIsFolder = useCallback(
+    (p: WikiPage): boolean => p.is_folder === true || hasChildrenIds.has(p.id),
+    [hasChildrenIds]
+  )
+
+  // 「新しいフォルダ」ボタン。モーダルは禁止のため、一覧の先頭にインライン入力を出す。
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
+
+  const handleCreateFolderClick = useCallback(() => {
+    // 作った直後に見えるよう、先にフォルダ表示へ切り替える
+    setPrefs(prev => ({ ...prev, view: 'folder' }))
+    setIsCreatingFolder(true)
+  }, [setPrefs])
+
+  const handleCancelNewFolder = useCallback(() => setIsCreatingFolder(false), [])
+
+  const handleSubmitNewFolder = useCallback(
+    async (title: string) => {
+      // 保存の完了を待たずに閉じる。完了時に閉じると、その間に開いた次の入力行まで閉じてしまう
+      // （一覧には楽観更新ですぐ出るので、待つ必要もない）
+      setIsCreatingFolder(false)
+      try {
+        await createPage({ title, isFolder: true })
+      } catch {
+        toast.error('フォルダを作成できませんでした')
+      }
+    },
+    [createPage]
+  )
+
+  // 名前変更（フォルダ・通常ページの行のダブルクリック / フォルダのメニューから）
+  const handleRenamePage = useCallback(
+    (pageId: string, title: string) => {
+      void updatePage(pageId, { title }).catch(() => toast.error('名前を変更できませんでした'))
+    },
+    [updatePage]
+  )
+
+  // フォルダの削除。確認をはさみ、直下の子ページを1つ上の階層（フォルダの親）へ
+  // 付け替えてから削除する（#992 と同じ確認の型）。
+  const { confirm: confirmFolderDelete, ConfirmDialog: FolderDeleteConfirmDialog } = useConfirmDialog()
+
+  const handleRequestDeleteFolder = useCallback(
+    async (folderPage: WikiPage) => {
+      const ok = await confirmFolderDelete({
+        title: 'フォルダを削除',
+        message: 'フォルダを削除します。中のページは1つ上の階層に移ります。この操作は取り消せません。',
+        confirmLabel: '削除する',
+        variant: 'danger',
+      })
+      if (!ok) return
+      const targets = childrenReparentTargets(pages, folderPage.id)
+      try {
+        // 直下の子は全員同じ新しい親（削除するフォルダの親）を持つため、1回の
+        // reparentPages にまとめる（子の数だけ updatePage を呼ぶと通信が線形に増える）。
+        if (targets.length > 0) {
+          await reparentPages(targets.map(t => t.id), targets[0].newParentId)
+        }
+        await deletePage(folderPage.id)
+      } catch {
+        toast.error('フォルダを削除できませんでした')
+      }
+    },
+    [confirmFolderDelete, pages, reparentPages, deletePage]
+  )
+
+  // ドラッグでの移動（フォルダ表示・デスクトップのみ）。draggingId は今つかんでいるページ、
+  // dragOverId は今その上にあるフォルダ（'root' は「一番上の階層へ」の特別な落とし先）。
+  //
+  // handleDropOnPage/handleDropOnRoot は draggingId・pages を ref（draggingIdRef・pagesRef）
+  // 越しに読む。state を直接 useCallback の依存に入れると、ドラッグ開始・終了のたびに
+  // これらの関数の参照が変わり、全行に渡している onDropPage の参照も変わって
+  // WikiPageRow の memo が効かなくなる（表示速度レビュー指摘）。state はあくまで
+  // 見た目の再描画（枠のハイライト・ドロップ先の表示）だけに使う。
+  const canDragDrop = canEdit && !isMobile && prefs.view === 'folder'
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | 'root' | null>(null)
+  const draggingIdRef = useRef<string | null>(null)
+  const pagesRef = useRef<WikiPage[]>(pages)
+  useEffect(() => {
+    pagesRef.current = pages
+  }, [pages])
+
+  const handleDragStartPage = useCallback((pageId: string) => {
+    draggingIdRef.current = pageId
+    setDraggingId(pageId)
+  }, [])
+
+  const handleDragOverPage = useCallback((pageId: string) => {
+    setDragOverId(prev => (prev === pageId ? prev : pageId))
+  }, [])
+
+  const handleDragOverRoot = useCallback(() => {
+    setDragOverId(prev => (prev === 'root' ? prev : 'root'))
+  }, [])
+
+  const handleDragEnd = useCallback(() => {
+    draggingIdRef.current = null
+    setDraggingId(null)
+    setDragOverId(null)
+  }, [])
+
+  const handleDropOnPage = useCallback(
+    (targetId: string) => {
+      const movingId = draggingIdRef.current
+      if (!movingId) return
+      draggingIdRef.current = null
+      setDraggingId(null)
+      setDragOverId(null)
+      if (!isValidWikiDropTarget(pagesRef.current, movingId, targetId)) return
+      void updatePage(movingId, { parent_page_id: targetId }).catch(() => toast.error('移動できませんでした'))
+    },
+    [updatePage]
+  )
+
+  const handleDropOnRoot = useCallback(() => {
+    const movingId = draggingIdRef.current
+    if (!movingId) return
+    draggingIdRef.current = null
+    setDraggingId(null)
+    setDragOverId(null)
+    void updatePage(movingId, { parent_page_id: null }).catch(() => toast.error('移動できませんでした'))
+  }, [updatePage])
+
+  // 今ホバー中の落とし先が有効かどうか（行の見た目に反映する）。'root' は常に有効。
+  const dragOverValidity = useMemo<'valid' | 'invalid' | null>(() => {
+    if (!draggingId || dragOverId === null || dragOverId === 'root') return null
+    return isValidWikiDropTarget(pages, draggingId, dragOverId) ? 'valid' : 'invalid'
+  }, [draggingId, dragOverId, pages])
 
   // マイルストーン別表示: 絞り込み・並べ替え・ピン留め済みの表示配列をそのままグループ化する。
   // 1ページが複数グループに出てよい（PR4）ため milestonesByPageId を渡す。
@@ -283,9 +383,38 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   const projectBasePath = `/${orgId}/project/${spaceId}/wiki`
   const selectedPageId = searchParams.get('page')
+  // スマホでは、ページを開いてもページ情報（インスペクター）は自動で出さず、情報ボタンで開く
+  // （オーバーレイ禁止のためシート表示）。開いているかは state ではなく URL に載せる —
+  // 端末の「戻る」で ?info= が外れ、ページは開いたままシートだけが閉じる
+  const showInfo = searchParams.get(INFO_QUERY_PARAM) === '1'
 
+  // ページ情報パネルの「このページを参照しているタスク」。本文の取得（fetchPage）を待たず、
+  // URL のページ id で並列に取り始める（待つと1往復ぶん遅れて出る）
+  const {
+    tasks: referencingTaskRows,
+    loading: referencingTasksLoading,
+    error: referencingTasksError,
+  } = useWikiPageReferencingTasks(orgId, spaceId, selectedPageId)
+  // 本文の投票ブロックの票を、本文と並べて先に読み始める
+  usePrefetchDocPolls(selectedPageId ? { wikiPageId: selectedPageId } : null)
+  // 担当者の名前は一覧と同じメンバー一覧から引く（取り直しは起きない）。
+  // 引けない人（抜けた人・権限で名前が読めない人）は空欄にせず「メンバー外」と出す
+  const referencingTasks = useMemo<WikiReferencingTask[]>(
+    () =>
+      referencingTaskRows.map(task => ({
+        ...task,
+        assigneeName: task.assignee_id ? (memberMap.get(task.assignee_id)?.name ?? UNKNOWN_PROFILE_LABEL) : null,
+      })),
+    [referencingTaskRows, memberMap]
+  )
+
+  // 表示速度: サーバーとの往復を避けるため router.replace ではなく history.replaceState で
+  // URL だけを変える（手本: MeetingsPageClient / TasksPageClient）。useSearchParams は追従する。
+  //
+  // 一覧からページを開くときだけ履歴を1つ積む（push）。差し替えるだけだと履歴が増えないので、
+  // ページを開いたあとブラウザの「戻る」を押すと、Wiki 一覧ではなく前に見ていたページが出る。
   const updateQuery = useCallback(
-    (updates: Record<string, string | null>) => {
+    (updates: Record<string, string | null>, options?: { push?: boolean }) => {
       const params = new URLSearchParams(searchParams.toString())
       Object.entries(updates).forEach(([key, value]) => {
         if (value === null) {
@@ -295,17 +424,99 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         }
       })
       const query = params.toString()
-      router.replace(query ? `${projectBasePath}?${query}` : projectBasePath)
+      const newUrl = query ? `${projectBasePath}?${query}` : projectBasePath
+      if (options?.push) {
+        window.history.pushState(null, '', newUrl)
+      } else {
+        window.history.replaceState(null, '', newUrl)
+      }
     },
-    [router, projectBasePath, searchParams]
+    [projectBasePath, searchParams]
   )
+
+  // history.back() は実際に戻り切るまで一拍ある。その間にもう一度押されたら何もしない
+  // （2回目が「差し替え」に回ると、来た履歴を1つ余分に食って意図より手前の画面に着く）。
+  const backInFlightRef = useRef(false)
+  const goBack = useCallback(() => {
+    if (backInFlightRef.current) return
+    backInFlightRef.current = true
+    window.history.back()
+  }, [])
+
+  // URL が実際に変わったら「戻る途中」の印を落とす。
+  // 依存は searchParams そのものではなく文字列にする — 本番は URL が変わったときだけ新しい実体に
+  // なるが、テストの差し替えは毎回新しい実体を返すので、文字列にしないと意味がずれる
+  const searchParamsKey = searchParams.toString()
+  useEffect(() => {
+    backInFlightRef.current = false
+  }, [searchParamsKey])
+
+  // この画面でページを開いて履歴を積んだか。積んでいれば「戻る」は history.back() で1つ戻す
+  // （URL を差し替えると履歴に一覧が2つ並び、戻るをもう1回押さないと前の画面に帰れない）。
+  // リンク・お知らせから直接 ?page= で来たときは積んでいないので差し替える。
+  // 「どのページを開くときに積んだか」まで覚える。真偽値だと、本文のリンクで別のページへ移った
+  // あとも印が立ったままになり、そのページの「戻る」が一覧ではなく前のページに帰ってしまう
+  const pushedPageIdRef = useRef<string | null>(null)
+
+  const openPage = useCallback(
+    (pageId: string) => {
+      // 既に積んでいたら積み増さない（URL の反映は一拍遅れるので、素早く2回押すと履歴が2つ並ぶ）
+      const alreadyPushed = pushedPageIdRef.current !== null
+      pushedPageIdRef.current = pageId
+      // 前のページで開いていたシート（?info=1）は持ち越さない
+      updateQuery({ page: pageId, [INFO_QUERY_PARAM]: null }, { push: !alreadyPushed })
+    },
+    [updateQuery]
+  )
+
+  /**
+   * 画面の「戻る」は、履歴を戻すのではなく必ず一覧の URL に差し替える。
+   *
+   * 実ブラウザで確かめたところ、ブラウザの「戻る」で一覧に帰ったあともう一度ページを開くと、
+   * 「履歴を積んだ」という印と実際の履歴がずれ、history.back() が一覧を飛び越して
+   * その前の画面（ダッシュボード）まで戻った。押したら必ず一覧が出ることを優先する。
+   * ブラウザの「戻る」で一覧に帰れる（本来の目的）は、開くときに履歴を積む側で果たしている。
+   */
+  const closePageView = useCallback(() => {
+    pushedPageIdRef.current = null
+    updateQuery({ page: null, [INFO_QUERY_PARAM]: null })
+  }, [updateQuery])
+
+  // スマホのページ情報（シート）。開くときに履歴を1つ積み、閉じるときは1つ戻す。
+  // こうすると端末の「戻る」でシートだけが閉じる（ページは開いたまま）。
+  const pushedInfoRef = useRef(false)
+
+  const openInfoSheet = useCallback(() => {
+    const alreadyPushed = pushedInfoRef.current
+    pushedInfoRef.current = true
+    updateQuery({ [INFO_QUERY_PARAM]: '1' }, { push: !alreadyPushed })
+  }, [updateQuery])
+
+  const closeInfoSheet = useCallback(() => {
+    // 戻る途中なら何もしない（2回目の押下で履歴を余分に食わないため）
+    if (backInFlightRef.current) return
+    // 履歴を戻すのは「自分で積んだシートを、いま開いている」ときだけ。
+    // URL（showInfo）と突き合わせるので、印だけを信じて一覧を飛び越すことがない
+    if (pushedInfoRef.current && showInfo) {
+      pushedInfoRef.current = false
+      goBack()
+      return
+    }
+    updateQuery({ [INFO_QUERY_PARAM]: null })
+  }, [goBack, showInfo, updateQuery])
+
+  // シートが閉じたら、履歴を積んだ印を落とす（端末の「戻る」で閉じた場合を含む）
+  useEffect(() => {
+    if (!showInfo) pushedInfoRef.current = false
+  }, [showInfo])
 
   // Auto-navigate to default page when it's first created
   const autoNavigatedRef = useRef(false)
   useEffect(() => {
     if (autoCreatedPageId && !selectedPageId && !autoNavigatedRef.current) {
       autoNavigatedRef.current = true
-      updateQuery({ page: autoCreatedPageId })
+      // 自動で開くので履歴は積まない（利用者が押していないため、「戻る」の行き先は一覧のまま）
+      updateQuery({ page: autoCreatedPageId, [INFO_QUERY_PARAM]: null })
     }
   }, [autoCreatedPageId, selectedPageId, updateQuery])
 
@@ -319,144 +530,6 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     }
   }, [setInspector])
 
-  /**
-   * 待っている中身を今すぐ保存する。何も待っていなければ何もしない。
-   * 本文保存は基準(baseUpdatedAtRef)を渡す楽観ロック付き — 渡さないと、画面を移る直前の
-   * 保存(flushPendingSave経由)だけ楽観ロックを素通りしてしまう。0行(WikiConflictError)
-   * なら、まず見せかけの競合(本文は同じ・他の更新でupdated_atだけ進んだ)かどうかを確かめ、
-   * 見せかけなら基準を差し替えて1回だけ内部でやり直す。本当の競合・削除済みは帯を出し、
-   * 例外を投げて呼び出し側を止める。特に flushPendingSave 経由(本文中のリンクでの画面
-   * 移動)では、ここで例外を投げることで移動そのものを止める(useInAppLinkNavigation が
-   * catch して移動しない設計になっている)。移ってしまうと帯を見せられないまま書きかけが
-   * 失われるため、安全側に倒す。
-   * 保存できなかったとき（本当の競合以外の失敗）は中身を戻して例外を投げる。
-   * savingRef で同時に2本走らないようにする（同時に複数箇所から呼ばれても直列化する）。
-   * pageEpochRef で「もう見ていないページ」の結果を書かないようにする。
-   */
-  const savePendingBody = useCallback(async (): Promise<void> => {
-    if (savingRef.current) {
-      // 既に別の保存が通信中。今まさに送るべき新しい書きかけ(pendingBodyRef)が実際に
-      // あるときだけ「通信が終わったら続けて送る」の印を立てる。ページ切り替え時の
-      // 「前のページ宛てに流し切る」呼び出しのように、送るものが無い(pendingBodyRef が
-      // 既に空)状態でここへ来ることもあるため、無条件に印を立てない
-      // （そうしないと、次のページの save が「新しい編集があった」と誤認して、
-      // 前のページの内容や基準を巻き込んだまま再送してしまう）。
-      if (pendingBodyRef.current) pendingDuringSaveRef.current = true
-      return
-    }
-    if (conflictRef.current) return
-    const pending = pendingBodyRef.current
-    if (!pending) return
-    pendingBodyRef.current = null
-    const { pageId, body: content } = pending
-    const epoch = pageEpochRef.current
-    savingRef.current = true
-    setSaveStatus('saving')
-
-    try {
-      const base = baseUpdatedAtRef.current ?? undefined
-      try {
-        const result = await updatePage(pageId, { body: content }, base)
-        if (pageEpochRef.current !== epoch) return
-        if (result.updatedAt === null) {
-          // baseUpdatedAt を渡した保存で null が返ることは無いはずだが、型どおり有り得る
-          // ものとして扱う。基準(baseUpdatedAtRef)を null で壊すと、以後の保存が
-          // 楽観ロックの条件無しで送られてしまう（黙って上書き許可に戻る）ため、
-          // 基準には触れず異常として終える。
-          pendingBodyRef.current = pending
-          setSaveStatus('idle')
-          toast.error('保存できませんでした。通信の状態を確かめてください')
-          throw new Error('保存に失敗しました（基準を確認できませんでした）')
-        }
-        baseUpdatedAtRef.current = result.updatedAt
-        knownServerBodyRef.current = content
-        setSaveStatus('saved')
-        if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-        savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
-        return
-      } catch (err) {
-        if (pageEpochRef.current !== epoch) return
-        if (!(err instanceof WikiConflictError)) {
-          pendingBodyRef.current = pending
-          setSaveStatus('idle')
-          toast.error('保存できませんでした。通信の状態を確かめてください')
-          throw err
-        }
-        // WikiConflictError: 0行だった＝基準の updated_at がズレていた。まず見せかけの
-        // 競合（他の人がタイトル等だけ変え、本文は変わっていない）かどうかを確かめる。
-      }
-
-      const fresh = await fetchPage(pageId)
-      if (pageEpochRef.current !== epoch) return
-      if (fresh === null) {
-        // ページ自体が既に削除されていた（0行の原因は競合とは限らない）
-        conflictRef.current = true
-        setConflict(true)
-        setPageDeleted(true)
-        setSaveStatus('idle')
-        throw new WikiConflictError('このページは見つかりませんでした')
-      }
-      if (fresh.body !== knownServerBodyRef.current) {
-        // 本文が本当に違う（本当の競合）
-        conflictRef.current = true
-        setConflict(true)
-        setSaveStatus('idle')
-        throw new WikiConflictError()
-      }
-      // 本文は同じ → 基準だけ差し替えて1回だけ保存をやり直す
-      baseUpdatedAtRef.current = fresh.updated_at
-      // 読み直している間に競合が確定していないか、送る直前にもう一度確かめる
-      if (conflictRef.current) {
-        setSaveStatus('idle')
-        throw new WikiConflictError()
-      }
-      try {
-        const retryResult = await updatePage(pageId, { body: content }, fresh.updated_at)
-        if (pageEpochRef.current !== epoch) return
-        if (retryResult.updatedAt === null) {
-          pendingBodyRef.current = pending
-          setSaveStatus('idle')
-          toast.error('保存できませんでした。通信の状態を確かめてください')
-          throw new Error('保存に失敗しました（基準を確認できませんでした）')
-        }
-        baseUpdatedAtRef.current = retryResult.updatedAt
-        knownServerBodyRef.current = content
-        setSaveStatus('saved')
-        if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-        savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
-      } catch (retryErr) {
-        if (pageEpochRef.current !== epoch) return
-        if (retryErr instanceof WikiConflictError) {
-          conflictRef.current = true
-          setConflict(true)
-        }
-        setSaveStatus('idle')
-        throw retryErr
-      }
-    } finally {
-      savingRef.current = false
-      const hasNewEdit = pendingDuringSaveRef.current
-      pendingDuringSaveRef.current = false
-      // 通信中に新しい書きかけが来ていたら、その最新の内容で続けて送る（競合が確定して
-      // いなければ）。保存に失敗して pendingBodyRef を「戻した」だけのとき(hasNewEditが
-      // 立っていないとき)は、ここで送り直さない（同じ内容を無限に送り直さないため）。
-      if (hasNewEdit && !conflictRef.current) {
-        pendingBodyRef.current = { pageId, body: currentContentRef.current }
-        void savePendingBody()
-      }
-    }
-  }, [updatePage, fetchPage])
-
-  /**
-   * ページ切り替えの effect から最新の savePendingBody を呼ぶための入れ物。
-   * 依存に直接入れると、updatePage の参照が変わるだけで切り替えの effect が走り直り、
-   * 全画面表示などがリセットされてしまう
-   */
-  const savePendingBodyRef = useRef(savePendingBody)
-  useEffect(() => {
-    savePendingBodyRef.current = savePendingBody
-  }, [savePendingBody])
-
   /** いま開いているページ。切り替わったかどうかの判定に使う */
   const openedPageIdRef = useRef<string | null>(null)
 
@@ -465,13 +538,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     if (!selectedPageId) {
       if (openedPageIdRef.current !== null) {
         openedPageIdRef.current = null
-        if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
-        if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
-        // 捨てると最後の一手が消えるので、前のページ宛てに保存しきる。世代はこの直後に
-        // 進めるので、この呼び出し自体は「まだ現役」の世代のうちに送信され、await の
-        // 先(基準・本文の書き込み)は世代のズレで自然に捨てられる(新しい画面を汚さない)。
-        void savePendingBodyRef.current().catch(() => {})
-        pageEpochRef.current += 1
+        // 捨てると最後の一手が消えるので、前のページ宛てに保存しきる（leavePage の説明）
+        leavePage()
       }
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset state when no page selected
       setActivePage(null)
@@ -485,21 +553,12 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     // この effect は依存の参照が変わっただけでも走るので、毎回やると1.5秒の待ちが台無しになる
     if (openedPageIdRef.current !== selectedPageId) {
       openedPageIdRef.current = selectedPageId
-      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
-      if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
-      // 捨てると最後の一手が消えるので、前のページ宛てに保存しきる（世代を進める前に）
-      void savePendingBodyRef.current().catch(() => {})
-      // ここで世代を進める。競合状態は前のページのものなので必ずリセットする
-      // （前のページの取り違えを防ぐ）
-      pageEpochRef.current += 1
-      setSaveStatus('idle')
-      conflictRef.current = false
-      setConflict(false)
-      setPageDeleted(false)
+      // 前のページ宛てに保存しきり、世代を進めて競合状態をリセットする
+      leavePage()
     }
 
-    setShowInfo(false)
     // ページを切り替えたら全画面表示は必ず解除する
+    // （スマホのシートは URL の ?info= で持つので、ページを開く openPage 側で外す）
     setIsFullscreen(false)
 
     let cancelled = false
@@ -507,14 +566,12 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       const page = await fetchPage(selectedPageId)
       if (!cancelled) {
         setActivePage(page) // null if not found — clears stale state
-        baseUpdatedAtRef.current = page?.updated_at ?? null
-        knownServerBodyRef.current = page?.body ?? null
-        currentContentRef.current = page?.body ?? ''
+        setBaseline(page, { content: true })
       }
     }
     load()
     return () => { cancelled = true }
-  }, [selectedPageId, fetchPage, setInspector, setIsFullscreen])
+  }, [selectedPageId, fetchPage, setInspector, setIsFullscreen, leavePage, setBaseline])
 
   // ページ情報パネルの「タスクからの参照」（読み取り専用）。手動選択(milestone_id)は含めず、
   // タスク参照だけを渡す（手動選択は上のセレクトで既に見えているため）。
@@ -547,71 +604,80 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         // 本文保存の基準もここで必ず差し替える。差し替えないと、この属性更新で
         // 進んだ updated_at を知らないまま次の本文保存が古い基準で送られ、
         // 偽の競合（WikiConflictError）を起こしてしまう。
-        baseUpdatedAtRef.current = fresh.updated_at
-        knownServerBodyRef.current = fresh.body ?? null
+        setBaseline(fresh)
       }
     }
 
     const handleDelete = async () => {
       await deletePage(activePage.id)
-      updateQuery({ page: null })
+      // 消したページの ?page= と、スマホのシートの ?info= を URL に残さない
+      updateQuery({ page: null, [INFO_QUERY_PARAM]: null })
     }
 
     const handleRestoreVersion = (version: WikiPageVersionSummary) => {
       const pageId = activePage.id
       // savePendingBody と同じ世代ガード。updatePage → fetchPage の2往復のあいだにページを
       // 切り替えられても気づけるようにする。切り替え後は書かない。
-      const epoch = pageEpochRef.current
+      const epoch = getEpoch()
       // 保留中の本文の自動保存があれば必ず止める。止めないと、この後で基準を
       // 復元後の値に差し替えたあとにその保存が発火し、復元前の古い書きかけが新しい基準で
       // 保存に成功して「版の復元」自体が黙って取り消される。
-      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
-      if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
-      pendingBodyRef.current = null
+      cancelPendingSave()
 
       // 版の復元も基準(baseUpdatedAt)を渡す。復元は人の明示操作なので、競合したら
       // 本文保存と同じ帯にそのまま乗せてよい（見せかけの競合の確認・自動やり直しまでは行わない）。
-      const base = baseUpdatedAtRef.current ?? undefined
+      const base = getBaseUpdatedAt() ?? undefined
       // 一覧は本文を持っていない（全件の全文を取ると重い）。戻す1件だけここで取る。
       fetchVersionBody(version.id)
-        .then((restored) => {
-          if (pageEpochRef.current !== epoch) return null
+        .then((restored): Promise<{ updatedAt: string | null } | 'collab'> | null => {
+          if (getEpoch() !== epoch) return null
           if (restored === null) {
             toast.error('この版を読み込めませんでした')
             return null
+          }
+          // 同時編集中は、本文を列へ直接書かずにエディタの中身を差し替える。差し替えは
+          // ふつうの編集として部屋の全員に届き、書記がいつもどおり保存する。列へ直接書くと、
+          // まだ古い本文を持っている相手の画面から、次の保存で復元が上書きされる
+          if (isCollabActive() && replaceEditorContent(restored.body)) {
+            return (restored.title !== activePage.title
+              ? updatePage(pageId, { title: restored.title })
+              : Promise.resolve(null)
+            ).then(() => 'collab' as const)
           }
           return updatePage(pageId, { body: restored.body, title: restored.title }, base)
         })
         .then(async (result) => {
           if (result == null) return
+          if (result === 'collab') {
+            if (getEpoch() !== epoch) return
+            const fresh = await fetchPage(pageId)
+            if (getEpoch() !== epoch || fresh === null) return
+            // 題名と属性だけを画面に合わせる。本文の基準は差し替えない（本文は器の中身が正で、書記が保存する）
+            setActivePage(fresh)
+            return
+          }
           // updatePage が返ってくるまでの間にページが切り替わっていたら、この続きの
           // fetchPage も含めて何もしない（読み直した「前のページ」の内容が「今見ている
           // 別のページ」の画面に書き込まれるのを防ぐ）。
-          if (pageEpochRef.current !== epoch) return
+          if (getEpoch() !== epoch) return
           const fresh = await fetchPage(pageId)
           // 読み直している間にも切り替わり得るので、書く直前でもう一度確かめる。
-          if (pageEpochRef.current !== epoch) return
+          if (getEpoch() !== epoch) return
           if (fresh === null) {
             // 復元しようとした直後にページ自体が無くなっていた（削除された）
-            conflictRef.current = true
-            setConflict(true)
-            setPageDeleted(true)
+            markDeleted()
             return
           }
           setActivePage(fresh)
-          baseUpdatedAtRef.current = fresh.updated_at
-          knownServerBodyRef.current = fresh.body ?? null
-          currentContentRef.current = fresh.body ?? ''
+          setBaseline(fresh, { content: true })
           // エディタも作り直す。作り直さないと画面には戻す前の本文が残り、
           // 次に1文字打った時点でその本文が保存されて復元が取り消されてしまう。
-          setEditorReloadToken(t => t + 1)
+          reloadEditor()
         })
         .catch((err) => {
-          if (pageEpochRef.current !== epoch) return
-          if (err instanceof WikiConflictError) {
-            conflictRef.current = true
-            setConflict(true)
-          }
+          if (getEpoch() !== epoch) return
+          if (err instanceof WikiConflictError) markConflict()
+          else toast.error('版を戻せませんでした。通信の状態を確かめてください')
         })
     }
 
@@ -620,7 +686,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         page={activePage}
         // Mobile: close just hides the info sheet (keeps the editor open).
         // Desktop: close navigates back to the page list (unchanged).
-        onClose={() => (isMobile ? setShowInfo(false) : updateQuery({ page: null }))}
+        onClose={() => (isMobile ? closeInfoSheet() : closePageView())}
         // 閲覧者（viewer）・相手先には編集操作を渡さない（onUpdate 等が無ければ表示だけになる設計）
         onUpdate={canEdit ? handleUpdate : undefined}
         onDelete={canEdit ? handleDelete : undefined}
@@ -629,6 +695,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         allPages={pages}
         milestones={milestones}
         taskLinkedMilestones={taskLinkedMilestonesForActivePage}
+        referencingTasks={referencingTasks}
+        referencingTasksLoading={referencingTasksLoading}
+        referencingTasksError={referencingTasksError !== null}
       />,
       { size: 'narrow' }
     )
@@ -644,10 +713,24 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     fetchPage,
     fetchVersions,
     fetchVersionBody,
+    closePageView,
+    closeInfoSheet,
     updateQuery,
     pages,
     milestones,
     taskLinkedMilestonesForActivePage,
+    referencingTasks,
+    referencingTasksLoading,
+    referencingTasksError,
+    getEpoch,
+    getBaseUpdatedAt,
+    cancelPendingSave,
+    reloadEditor,
+    isCollabActive,
+    replaceEditorContent,
+    setBaseline,
+    markConflict,
+    markDeleted,
   ])
 
   // 全画面表示中はEscで抜ける（IME変換確定やエディタ内のメニュー操作は妨げない）
@@ -670,132 +753,47 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   // memo 化した WikiPageRow に渡すため安定参照にする
   const handleSelectPage = useCallback((pageId: string) => {
-    updateQuery({ page: pageId })
-  }, [updateQuery])
+    openPage(pageId)
+  }, [openPage])
 
   const handleCreatePage = async (data: { title: string; tags?: string[] }) => {
     const created = await createPage(data)
-    updateQuery({ page: created.id })
+    // 作ったページも一覧から開いたのと同じ扱いにする（「戻る」で一覧に帰れるように）
+    openPage(created.id)
   }
 
-  const handleEditorChange = useCallback((content: string) => {
-    if (!activePage) return
-    // 「書きかけをコピー」が常に今の内容を返せるよう、保存の成否に関わらず先に控える
-    currentContentRef.current = content
-
-    // 競合中は新しい保存を投げない（編集自体は止めない・帯の「最新を読み込む」を待つ）。
-    // state(conflict) ではなく ref を見る — setConflict は再描画を経て closure に反映される
-    // ため、その間の古い closure から呼ばれた場合に「まだ競合していない」と誤判定する。
-    if (conflictRef.current) return
-
-    // Clear existing timers
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-
-    // 開いたとき（または直前の保存）と同じ内容なら、保存もタイマーも張らない。BlockNote は
-    // 初期表示直後に一度 onChange を呼ぶため、これが無いとページを開くだけで保存が走り、
-    // 版の履歴が無駄に増える（議事録の baselineRef 比較と同じ考え方）。生の文字列そのまま
-    // ではなく正規化(canonicalizeWikiBody)して比べる — DB側で組み立てられた本文は
-    // キー順・空白がクライアントの JSON.stringify と一致しないことがあるため。
-    if (canonicalizeWikiBody(content) === canonicalizeWikiBody(knownServerBodyRef.current)) {
-      pendingBodyRef.current = null
-      // 打った直後に元へ戻すと(Ctrl+Zなど)ここに来るが、直前に setSaveStatus('saving')
-      // 済みのことがあるため、ここで idle に戻さないと「保存中...」の表示が永久に残る。
-      setSaveStatus('idle')
-      return
-    }
-
-    // 待ち時間のあいだに画面を移るときは、この中身を保存しきってから移る（flushPendingSave）
-    pendingBodyRef.current = { pageId: activePage.id, body: content }
-    // 既に別の保存が通信中なら、その保存の finally が拾えるよう印を立てる
-    if (savingRef.current) pendingDuringSaveRef.current = true
-    setSaveStatus('saving')
-
-    saveTimerRef.current = setTimeout(() => {
-      saveTimerRef.current = null
-      // 自動保存の失敗は savePendingBody がトーストで知らせる
-      void savePendingBodyRef.current().catch(() => {})
-    }, 1500)
-  }, [activePage, savePendingBody])
-
-  const handleCopyDraft = useCallback(async () => {
-    try {
-      // 本文はもともと BlockNote の JSON 文字列（WikiEditor の onChange が
-      // JSON.stringify(editor.document) を渡す）。読みやすい Markdown 等へ変換すると
-      // 貼り戻せなくなるため、変換せずそのままクリップボードへ入れる
-      // （帯の文面で「そのままでは貼り戻せない形式」と断っている）。
-      await navigator.clipboard.writeText(currentContentRef.current)
-      toast.success('書きかけをコピーしました')
-    } catch {
-      toast.error('コピーできませんでした')
-    }
-  }, [])
+  const handleCopyDraft = bodySave.copyDraft
 
   const handleReloadLatest = useCallback(async () => {
     if (!activePage) return
-    // savePendingBody と同じ世代ガード。fetchPage の間にページを切り替えられても
-    // 気づけるようにする。切り替え後は、読み直した「前のページ」の内容を「今見ている
-    // 別のページ」の画面(activePage・基準・本文・競合状態・エディタの作り直し)へ書かない。
-    const epoch = pageEpochRef.current
-    // 保留中の（まだ発火していない）自動保存があれば必ず止める。止めないと、
-    // この後で基準を最新に差し替えたあとにこのタイマーが発火し、読み込む前の古い
-    // 書きかけが新しい基準で保存に成功して相手の最新の内容を黙って上書きしてしまう。
-    // （すでに通信中の保存自体は取り消せない。楽観ロックが最後の砦になる）
-    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
-    if (savedTimerRef.current) { clearTimeout(savedTimerRef.current); savedTimerRef.current = null }
-    pendingBodyRef.current = null
-
-    const fresh = await fetchPage(activePage.id)
-    if (pageEpochRef.current !== epoch) return
-    if (fresh === null) {
-      // 読み直した先でページ自体が無くなっていた（削除された）。帯は下ろさず
-      // 文面だけ切り替える。conflict はそのまま true のままにする（安定した終端状態にし、
-      // 「読み直すたびに帯が出ては消える」を防ぐ）。
-      setPageDeleted(true)
-      setSaveStatus('idle')
-      return
-    }
-    setActivePage(fresh)
-    baseUpdatedAtRef.current = fresh.updated_at
-    knownServerBodyRef.current = fresh.body ?? null
-    currentContentRef.current = fresh.body ?? ''
-    conflictRef.current = false
-    setConflict(false)
-    setPageDeleted(false)
-    setSaveStatus('idle')
-    // key に含めてエディタを作り直し、読み直した内容を initialContent として反映する
-    setEditorReloadToken(t => t + 1)
-  }, [activePage, fetchPage])
+    await reloadLatest(activePage.id, setActivePage)
+  }, [activePage, reloadLatest])
 
   /**
    * 本文中のリンクで画面を移る前に呼ばれる。1.5秒の待ちの途中で移ると最後の一手が
-   * 保存されないまま消えるので、ここで確定させる。savePendingBody が例外を投げたら
-   * そのまま伝える（useInAppLinkNavigation 側が catch して画面を移らない）。
+   * 保存されないまま消えるので、ここで確定させる（保存できなければ移らない）。
    */
-  const flushPendingSave = useCallback(async () => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = null
-    }
-    await savePendingBody()
-  }, [savePendingBody])
+  const flushPendingSave = bodySave.flushPendingSave
 
-  // Cleanup timers
+  // ページの画面が閉じたら、履歴を積んだ印を落とす（ブラウザの「戻る」・ページの削除を含む）。
+  // 残したままだと、次にリンクから直接開いたページの「戻る」で history.back() を呼び、
+  // 一覧ではなく前に見ていたページへ飛ぶ。
+  const isPageViewOpen = !!(selectedPageId && activePage)
   useEffect(() => {
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-    }
-  }, [])
+    if (!isPageViewOpen) pushedPageIdRef.current = null
+  }, [isPageViewOpen])
 
   const handleBackToList = () => {
-    updateQuery({ page: null })
+    closePageView()
   }
 
   // Editor view
   if (selectedPageId && activePage) {
     return (
-      <div className="flex-1 flex flex-col min-h-0">
+      // data-print-root: 「PDFで保存」(ページ情報パネル)で刷るとき、紙に載せるのはこのかたまり
+      // だけにする。中でも押すためのもの・警告の帯には data-print-hide を付けて外す。
+      // 実際に隠す指定は globals.css の @media print 側。
+      <div data-print-root className="flex-1 flex flex-col min-h-0">
         {/* Editor Header — 全画面時はページ名＋閉じるボタンだけの簡易バーに切り替える
             （エディタ本体(WikiEditorDynamic)の位置・key はどちらの状態でも変えない = 再マウントしない） */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-surface flex-shrink-0">
@@ -803,6 +801,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             {!isFullscreen && (
               <button
                 onClick={handleBackToList}
+                aria-label="一覧へ戻る"
+                data-print-hide
                 className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <ArrowLeft className="text-lg" />
@@ -810,7 +810,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             )}
             <h1 className="text-lg font-semibold text-gray-900 truncate">{activePage.title}</h1>
           </div>
-          <div className="flex items-center gap-2">
+          {/* 保存の状態・全画面・お知らせベルは画面のためのもの。紙には載せない */}
+          <div data-print-hide className="flex items-center gap-2">
             {/* 保存の状態は全画面でも出す（全画面で書いていても保存されたか分かるように） */}
             {saveStatus === 'saving' && (
               <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -826,7 +827,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 {/* Mobile: open page-info inspector on demand (desktop shows it alongside) */}
                 <button
                   type="button"
-                  onClick={() => setShowInfo(true)}
+                  onClick={openInfoSheet}
                   className="md:hidden p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                   aria-label="ページ情報"
                 >
@@ -871,7 +872,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             出さない（読み直しても null のままなので無意味）。「書きかけをコピー」は
             控えを残せるよう出したままにする。 */}
         {conflict && (
-          <div data-testid="wiki-conflict-banner" className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
+          <div data-testid="wiki-conflict-banner" data-print-hide className="px-6 py-3 bg-orange-50 border-b border-orange-200 flex-shrink-0">
             <p className="text-sm text-orange-ink">{pageDeleted ? WIKI_PAGE_DELETED_MESSAGE : WIKI_CONFLICT_MESSAGE}</p>
             <div className="mt-2 flex items-center gap-3">
               <button
@@ -905,16 +906,21 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         {/* Editor */}
         <div className="flex-1 overflow-y-auto">
           <div className={isFullscreen ? 'max-w-6xl mx-auto py-6 px-4' : 'max-w-4xl mx-auto py-6 px-4'}>
-            <WikiEditorDynamic
+            {/* 同時編集（使う組織だけ）と「〇〇さんが書いています」も、この中で受け持つ */}
+            <WikiBodyEditor
               key={`${activePage.id}-${editorReloadToken}`}
-              initialContent={activePage.body || undefined}
-              onChange={handleEditorChange}
-              onBeforeNavigate={flushPendingSave}
-              editable={canEdit}
               orgId={orgId}
               spaceId={spaceId}
-              currentPageId={activePage.id}
+              pageId={activePage.id}
+              initialBody={activePage.body}
+              basisUpdatedAt={activePage.updated_at}
+              canEdit={canEdit}
+              bodySave={bodySave}
+              onRequestReload={handleReloadLatest}
+              onBeforeNavigate={flushPendingSave}
               noteAuthorName={noteAuthorName}
+              poll={pollProps}
+              headingLinkTitle={activePage.title}
             />
           </div>
         </div>
@@ -965,6 +971,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           totalCount={pages.length}
           filteredCount={displayedPages.length}
           groupedRowCount={groupedRowCount}
+          canEdit={canEdit}
+          onCreateFolder={handleCreateFolderClick}
         />
       )}
 
@@ -1023,6 +1031,37 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           />
         ) : prefs.view === 'folder' ? (
           <div>
+            {isCreatingFolder && (
+              <WikiInlineCreateRow onSubmit={handleSubmitNewFolder} onCancel={handleCancelNewFolder} />
+            )}
+            {/* 「一番上の階層へ」の落とし先（PR5）。要素自体は常に置き、ドラッグ中だけ
+                高さを持たせる（条件付きレンダーだと、ドラッグ開始のたびに一覧全体が
+                その分だけカクッと上下にずれていた＝表示速度レビュー指摘）。 */}
+            <div
+              data-testid="wiki-folder-drop-root"
+              aria-hidden={!draggingId}
+              onDragOver={e => {
+                if (!draggingId) return
+                e.preventDefault()
+                handleDragOverRoot()
+              }}
+              onDrop={e => {
+                if (!draggingId) return
+                e.preventDefault()
+                handleDropOnRoot()
+              }}
+              className={`mx-4 overflow-hidden text-xs text-center rounded-lg border-2 border-dashed transition-all ${
+                draggingId
+                  ? `my-2 px-3 py-2 max-h-12 opacity-100 ${
+                      dragOverId === 'root'
+                        ? 'border-indigo-400 bg-indigo-50 text-indigo-ink'
+                        : 'border-gray-300 text-gray-400'
+                    }`
+                  : 'my-0 px-3 py-0 max-h-0 border-transparent opacity-0 pointer-events-none'
+              }`}
+            >
+              ここに置くと一番上の階層へ
+            </div>
             {flatFolderRows.map(({ page, depth, hasChildren, collapsed }) => (
               <WikiPageRow
                 key={page.id}
@@ -1037,6 +1076,16 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 hasChildren={hasChildren}
                 collapsed={collapsed}
                 onToggleCollapse={handleToggleCollapse}
+                isFolder={getIsFolder(page)}
+                canEdit={canEdit}
+                onRename={handleRenamePage}
+                onRequestDeleteFolder={handleRequestDeleteFolder}
+                isDraggable={canDragDrop}
+                onDragStartPage={handleDragStartPage}
+                onDragOverPage={handleDragOverPage}
+                onDropPage={handleDropOnPage}
+                onDragEndPage={handleDragEnd}
+                dropHighlight={dragOverId === page.id ? dragOverValidity : undefined}
               />
             ))}
           </div>
@@ -1058,6 +1107,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                     milestones={getPageMilestones(page.id)}
                     decisionCount={getPageDecisions(page.id)}
                     duplicatedInOtherGroups={Math.max(0, getPageMilestones(page.id).length - 1)}
+                    isFolder={getIsFolder(page)}
                   />
                 ))}
               </div>
@@ -1075,6 +1125,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 getMember={getMember}
                 milestones={getPageMilestones(page.id)}
                 decisionCount={getPageDecisions(page.id)}
+                isFolder={getIsFolder(page)}
               />
             ))}
           </div>
@@ -1087,6 +1138,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         onClose={() => setIsCreateSheetOpen(false)}
         onSubmit={handleCreatePage}
       />
+
+      {/* フォルダ削除の確認（PR5） */}
+      {FolderDeleteConfirmDialog}
     </div>
   )
 }

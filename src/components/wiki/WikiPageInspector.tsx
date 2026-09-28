@@ -1,11 +1,14 @@
 'use client'
 
 import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
-import { X, Trash, Clock, Tag, PencilSimple, Check } from '@phosphor-icons/react'
+import { X, Trash, Clock, Tag, PencilSimple, Check, FilePdf } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { Milestone, WikiPage } from '@/types/database'
 import type { WikiPageVersionSummary } from '@/lib/hooks/useWikiPages'
+import type { WikiReferencingTask } from '@/lib/wiki/referencingTasks'
+import { WikiReferencingTasks } from './WikiReferencingTasks'
 import { descendantIds } from '@/lib/wiki/listView'
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
   hasChangedSinceDecision,
   latestDecisionVersion,
@@ -35,6 +38,10 @@ interface WikiPageInspectorProps {
   milestones?: Milestone[]
   /** タスクからの参照で付いているマイルストーン（読み取り専用表示・PR4）。空/省略なら出さない。 */
   taskLinkedMilestones?: Milestone[]
+  /** このページを参照しているタスク（仕様書連携・説明文のリンク）。省略時は欄ごと出さない。 */
+  referencingTasks?: WikiReferencingTask[]
+  referencingTasksLoading?: boolean
+  referencingTasksError?: boolean
 }
 
 export function WikiPageInspector({
@@ -47,10 +54,14 @@ export function WikiPageInspector({
   allPages = [],
   milestones = [],
   taskLinkedMilestones = [],
+  referencingTasks,
+  referencingTasksLoading = false,
+  referencingTasksError = false,
 }: WikiPageInspectorProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(page.title)
   const [isDeleting, setIsDeleting] = useState(false)
+  const { confirm, ConfirmDialog, closeConfirm } = useConfirmDialog()
   const [versions, setVersions] = useState<WikiPageVersionSummary[]>([])
   /**
    * 確定した時点の控えと、そのあと本文が変わったか。版を読んだときにしか分からないので、
@@ -86,7 +97,10 @@ export function WikiPageInspector({
     setShowVersions(false)
     setVersions([])
     setOrganizeError(null)
-  }, [page.id, page.title])
+    // 見ている対象が変わったら、出しっぱなしの削除の確認も取り下げる。残すと、
+    // 前のページ名のまま出ている確認で「削除する」を押せてしまう。
+    closeConfirm()
+  }, [page.id, page.title, closeConfirm])
 
   const handleSaveTitle = async () => {
     if (!onUpdate || !editTitle.trim() || editTitle === page.title) {
@@ -104,11 +118,15 @@ export function WikiPageInspector({
   }
 
   const handleDelete = async () => {
-    if (!onDelete) return
-    if (!isDeleting) {
-      setIsDeleting(true)
-      return
-    }
+    if (!onDelete || isDeleting) return
+    const ok = await confirm({
+      title: 'ページを削除',
+      message: `「${page.title}」を削除しますか？この操作は取り消せません。`,
+      confirmLabel: '削除する',
+      variant: 'danger',
+    })
+    if (!ok) return
+    setIsDeleting(true)
     try {
       await onDelete()
     } catch {
@@ -186,6 +204,19 @@ export function WikiPageInspector({
     }
   }
 
+  // PDF はブラウザの印刷を借りて作る（PDF を組み立てる部品は入れていない）。紙に載せるのを
+  // ページ名と本文だけに絞る指定は globals.css の @media print 側にあり、画面に置いた
+  // data-print-root / data-print-hide の印を見ている（WikiPageClient.tsx）。
+  //
+  // 出さないと決めた2か所（2026-09-18・ユーザー判断。増やすならここを更新する）:
+  //  - 全画面表示の間はこのパネルごと閉じるのでボタンも出ない。Ctrl+P / Cmd+P は効き、
+  //    紙に載る中身は同じなので、全画面のバーにはボタンを並べない
+  //  - 相手先ポータル（PortalWikiClient）にはこのパネルが無いので付けていない。
+  //    社内アプリに相手先として入っている人には出る
+  const handlePrintPdf = () => {
+    window.print()
+  }
+
   const handleToggleVersions = async () => {
     if (showVersions) {
       setShowVersions(false)
@@ -221,21 +252,22 @@ export function WikiPageInspector({
 
   return (
     <div className="h-full flex flex-col bg-surface">
+      {ConfirmDialog}
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
         <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">ページ情報</span>
         <div className="flex items-center gap-1">
-          <button
-            onClick={handleDelete}
-            className={`p-1.5 rounded transition-colors ${
-              isDeleting
-                ? 'text-red-700 bg-red-50 hover:bg-red-100'
-                : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
-            }`}
-            title={isDeleting ? 'もう一度クリックで削除' : '削除'}
-          >
-            <Trash className="text-base" />
-          </button>
+          {onDelete && (
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="p-1.5 rounded transition-colors text-gray-400 hover:text-red-500 hover:bg-gray-100 disabled:opacity-50"
+              aria-label="ページを削除"
+              title="削除"
+            >
+              <Trash className="text-base" />
+            </button>
+          )}
           <button
             onClick={onClose}
             className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
@@ -279,6 +311,20 @@ export function WikiPageInspector({
               <PencilSimple className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>
           )}
+        </div>
+
+        {/* PDFで保存。読むだけの人にも出す（控えを持ち帰れるように） */}
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={handlePrintPdf}
+            data-testid="wiki-print-pdf"
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <FilePdf className="text-base" />
+            PDFで保存
+          </button>
+          <p className="text-[10px] text-gray-400">印刷の画面が開きます。保存先で「PDF」を選んでください</p>
         </div>
 
         {/* Spec switch: タグの '仕様書' をトグルで表す */}
@@ -416,6 +462,14 @@ export function WikiPageInspector({
 
           {organizeError && <p className="text-xs text-red-600">{organizeError}</p>}
         </div>
+
+        {referencingTasks && (
+          <WikiReferencingTasks
+            tasks={referencingTasks}
+            loading={referencingTasksLoading}
+            error={referencingTasksError}
+          />
+        )}
 
         {/* Metadata */}
         <div className="space-y-2">

@@ -57,4 +57,12 @@ describe('hideDbErrorWithHint', () => {
     expect(err).not.toMatchObject({ name: 'ToolUserError' })
     spy.mockRestore()
   })
+
+  it('元のDBエラーを cause として持たせる（利用記録から原因を追えるように）', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const dbError = { code: '23505', message: 'duplicate key value violates unique constraint "x"' }
+    const err = hideDbErrorWithHint(dbError, 'ctx', '失敗しました')
+    expect(err.cause).toEqual(dbError)
+    spy.mockRestore()
+  })
 })

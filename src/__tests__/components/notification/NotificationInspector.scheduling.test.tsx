@@ -1,5 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
@@ -38,9 +39,17 @@ function makeNotification(overrides: Partial<NotificationWithPayload> = {}): Not
 
 const noop = () => {}
 
+/**
+ * NotificationInspector は react-query の下で動く（決定を書いたあと、ダッシュボードの
+ * 「確定事項」に出す日付を取り直させる）。本番と同じく Provider の中で描く。
+ */
+function renderWithQuery(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
+}
+
 describe('NotificationInspector — scheduling notification action', () => {
   it('shows a "日程を回答する" action linking to payload.link for scheduling_reminder', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           type: 'scheduling_reminder',
@@ -59,7 +68,7 @@ describe('NotificationInspector — scheduling notification action', () => {
   })
 
   it('shows a "日程を回答する" action linking to payload.link for scheduling_proposal_expired', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           type: 'scheduling_proposal_expired',
@@ -78,7 +87,7 @@ describe('NotificationInspector — scheduling notification action', () => {
   })
 
   it('does not show the scheduling action when payload has no link', () => {
-    render(
+    renderWithQuery(
       <NotificationInspector
         notification={makeNotification({
           type: 'scheduling_reminder',

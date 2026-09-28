@@ -74,6 +74,7 @@ const useOrgMembersMock = vi.fn<
   (orgId: string | null, options?: { enabled?: boolean }) => {
     members: unknown[]
     roleByUserId: Map<string, string>
+    emailByUserId: Map<string, string>
     isPending: boolean
     isLoadingError: boolean
     error: null
@@ -81,6 +82,7 @@ const useOrgMembersMock = vi.fn<
 >(() => ({
   members: [],
   roleByUserId: mockOrgRoleByUserId,
+  emailByUserId: new Map<string, string>(),
   isPending: mockOrgMembersPending,
   isLoadingError: mockOrgMembersLoadingError,
   error: null,

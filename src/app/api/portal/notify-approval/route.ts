@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'taskId required' }, { status: 400 })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'portal', actorUserId: user.id })
 
     // タスク詳細を取得（service_role: 存在確認のみ。認可判定には使わない）
     const { data: task, error: taskError } = await (admin as SupabaseClient)

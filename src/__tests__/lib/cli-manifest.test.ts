@@ -202,35 +202,29 @@ describe('cli-manifest: task list --offset', () => {
 })
 
 /**
- * activity log の案内が、実際のサーバー側の動き（packages/mcp-server/src/tools/activity.ts）と
- * 食い違っていた: --actor-type は選べる体裁だが記録は常に ai・--entity-table は
- * 許可リストの8表以外は400で断られるのに、案内にその一覧が無かった。
+ * activity は、データの変更の控え change_log を読む（packages/mcp-server/src/tools/activity.ts）。
+ * 手書きで記録する activity log は廃止した（変更は DB が自動で記録する）。
+ * --entity-table は見せてよい8表以外は400で断られるので、案内にその一覧を載せる。
  */
-describe('cli-manifest: activity log の案内', () => {
+describe('cli-manifest: activity の案内', () => {
   const manifest = getManifest()
   const activity = manifest.commands.find((c) => c.name === 'activity')!
-  const log = activity.subcommands!.find((s) => s.name === 'log')!
+  const TABLES = ['tasks', 'milestones', 'meetings', 'wiki_pages', 'reviews', 'task_comments', 'files', 'scheduling_proposals']
 
-  it('--actor-type は、選んでも記録は常に ai であることが説明に書かれている', () => {
-    const actorType = log.options.find((o) => o.param === 'actorType')!
-    expect(actorType.description!.toLowerCase()).toContain('always')
-    expect(actorType.description!.toLowerCase()).toContain('ai')
+  it('activity log（手書きの記録）は無い', () => {
+    expect(activity.subcommands!.map((s) => s.name)).not.toContain('log')
+    expect(activity.subcommands!.map((s) => s.tool)).not.toContain('activity_log')
   })
 
-  it('--entity-table の説明に、受け付ける8表が並んでいる', () => {
-    const entityTable = log.options.find((o) => o.param === 'entityTable')!
-    for (const table of [
-      'tasks',
-      'milestones',
-      'meetings',
-      'wiki_pages',
-      'reviews',
-      'task_comments',
-      'files',
-      'scheduling_proposals',
-    ]) {
-      expect(entityTable.description!).toContain(table)
-    }
+  it.each(['search', 'history'])('%s の --entity-table の説明に、見られる8表が並んでいる', (name) => {
+    const sub = activity.subcommands!.find((s) => s.name === name)!
+    const entityTable = sub.options.find((o) => o.param === 'entityTable')!
+    for (const table of TABLES) expect(entityTable.description!).toContain(table)
+  })
+
+  it('search の --action は insert / update / delete から選ぶ', () => {
+    const search = activity.subcommands!.find((s) => s.name === 'search')!
+    expect(search.options.find((o) => o.param === 'action')!.choices).toEqual(['insert', 'update', 'delete'])
   })
 })
 
@@ -252,5 +246,43 @@ describe('cli-manifest: review cancel', () => {
     const flags = cancel.options.map((o) => o.flags)
     expect(flags).toEqual(expect.arrayContaining(['-s, --space-id <uuid>', '--task-id <uuid>']))
     expect(cancel.options.find((o) => o.param === 'taskId')!.required).toBe(true)
+  })
+})
+
+/**
+ * 投票ブロック（Wiki・議事録）の CLI。仕様: docs/spec/DOC_VOTE_SPEC.md §7-7。
+ * API キーは社内メンバー専用なので、投票を読める・押せる範囲（社内）はそのままで問題ない。
+ */
+describe('cli-manifest: vote（投票ブロック）', () => {
+  const manifest = getManifest()
+  const vote = manifest.commands.find((c) => c.name === 'vote')!
+
+  it('list / show / cast が、それぞれ vote_list / vote_show / vote_cast を呼ぶ', () => {
+    expect(vote.subcommands!.map((s) => s.name)).toEqual(['list', 'show', 'cast'])
+    expect(vote.subcommands!.find((s) => s.name === 'list')!.tool).toBe('vote_list')
+    expect(vote.subcommands!.find((s) => s.name === 'show')!.tool).toBe('vote_show')
+    expect(vote.subcommands!.find((s) => s.name === 'cast')!.tool).toBe('vote_cast')
+  })
+
+  it('list は --wiki-page-id / --meeting-id をどちらも任意で持つ（どちらか片方は実行時に確かめる）', () => {
+    const list = vote.subcommands!.find((s) => s.name === 'list')!
+    const wikiPageId = list.options.find((o) => o.param === 'wikiPageId')!
+    const meetingId = list.options.find((o) => o.param === 'meetingId')!
+    expect(wikiPageId.required).toBeFalsy()
+    expect(meetingId.required).toBeFalsy()
+  })
+
+  it('show / cast は --poll-id が必須', () => {
+    const show = vote.subcommands!.find((s) => s.name === 'show')!
+    const cast = vote.subcommands!.find((s) => s.name === 'cast')!
+    expect(show.options.find((o) => o.param === 'pollId')!.required).toBe(true)
+    expect(cast.options.find((o) => o.param === 'pollId')!.required).toBe(true)
+  })
+
+  it('cast の --choice は ok/ng/hold/none から選び、必須', () => {
+    const cast = vote.subcommands!.find((s) => s.name === 'cast')!
+    const choice = cast.options.find((o) => o.param === 'choice')!
+    expect(choice.choices).toEqual(['ok', 'ng', 'hold', 'none'])
+    expect(choice.required).toBe(true)
   })
 })

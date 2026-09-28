@@ -643,66 +643,12 @@ export declare const allTools: ({
     description: string;
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
-        entityTable: import("zod").ZodString;
-        entityId: import("zod").ZodString;
-        action: import("zod").ZodString;
-        actorType: import("zod").ZodDefault<import("zod").ZodEnum<["user", "system", "ai", "service"]>>;
-        actorService: import("zod").ZodOptional<import("zod").ZodString>;
-        requestId: import("zod").ZodOptional<import("zod").ZodString>;
-        sessionId: import("zod").ZodOptional<import("zod").ZodString>;
-        entityDisplay: import("zod").ZodOptional<import("zod").ZodString>;
-        reason: import("zod").ZodOptional<import("zod").ZodString>;
-        status: import("zod").ZodDefault<import("zod").ZodEnum<["ok", "error", "warning"]>>;
-        changedFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString, "many">>;
-        beforeData: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodUnknown>>;
-        afterData: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodUnknown>>;
-        payload: import("zod").ZodOptional<import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodUnknown>>;
-    }, "strip", import("zod").ZodTypeAny, {
-        spaceId: string;
-        action: string;
-        status: "error" | "ok" | "warning";
-        entityTable: string;
-        entityId: string;
-        actorType: "user" | "system" | "ai" | "service";
-        reason?: string | undefined;
-        actorService?: string | undefined;
-        requestId?: string | undefined;
-        sessionId?: string | undefined;
-        entityDisplay?: string | undefined;
-        changedFields?: string[] | undefined;
-        beforeData?: Record<string, unknown> | undefined;
-        afterData?: Record<string, unknown> | undefined;
-        payload?: Record<string, unknown> | undefined;
-    }, {
-        spaceId: string;
-        action: string;
-        entityTable: string;
-        entityId: string;
-        reason?: string | undefined;
-        status?: "error" | "ok" | "warning" | undefined;
-        actorType?: "user" | "system" | "ai" | "service" | undefined;
-        actorService?: string | undefined;
-        requestId?: string | undefined;
-        sessionId?: string | undefined;
-        entityDisplay?: string | undefined;
-        changedFields?: string[] | undefined;
-        beforeData?: Record<string, unknown> | undefined;
-        afterData?: Record<string, unknown> | undefined;
-        payload?: Record<string, unknown> | undefined;
-    }>;
-    handler: typeof import("./activity.js").activityLog;
-} | {
-    name: string;
-    description: string;
-    inputSchema: import("zod").ZodObject<{
-        spaceId: import("zod").ZodString;
         entityTable: import("zod").ZodOptional<import("zod").ZodString>;
         entityId: import("zod").ZodOptional<import("zod").ZodString>;
         actorId: import("zod").ZodOptional<import("zod").ZodString>;
         action: import("zod").ZodOptional<import("zod").ZodString>;
         from: import("zod").ZodOptional<import("zod").ZodString>;
         to: import("zod").ZodOptional<import("zod").ZodString>;
-        sessionId: import("zod").ZodOptional<import("zod").ZodString>;
         limit: import("zod").ZodDefault<import("zod").ZodNumber>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
@@ -710,7 +656,6 @@ export declare const allTools: ({
         action?: string | undefined;
         entityTable?: string | undefined;
         entityId?: string | undefined;
-        sessionId?: string | undefined;
         actorId?: string | undefined;
         from?: string | undefined;
         to?: string | undefined;
@@ -720,7 +665,6 @@ export declare const allTools: ({
         limit?: number | undefined;
         entityTable?: string | undefined;
         entityId?: string | undefined;
-        sessionId?: string | undefined;
         actorId?: string | undefined;
         from?: string | undefined;
         to?: string | undefined;
@@ -995,6 +939,26 @@ export declare const allTools: ({
     description: string;
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
+        pageId: import("zod").ZodString;
+        action: import("zod").ZodDefault<import("zod").ZodEnum<["add", "remove"]>>;
+        expectedUpdatedAt: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        action: "add" | "remove";
+        pageId: string;
+        expectedUpdatedAt?: string | undefined;
+    }, {
+        spaceId: string;
+        pageId: string;
+        action?: "add" | "remove" | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }>;
+    handler: typeof import("./wiki.js").wikiToc;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
         meetingId: import("zod").ZodString;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
@@ -1041,6 +1005,26 @@ export declare const allTools: ({
         content: string;
     }>;
     handler: typeof import("./minutes.js").minutesAppend;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        meetingId: import("zod").ZodString;
+        action: import("zod").ZodDefault<import("zod").ZodEnum<["add", "remove"]>>;
+        expectedUpdatedAt: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        action: "add" | "remove";
+        meetingId: string;
+        expectedUpdatedAt?: string | undefined;
+    }, {
+        spaceId: string;
+        meetingId: string;
+        action?: "add" | "remove" | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }>;
+    handler: typeof import("./minutes.js").minutesToc;
 } | {
     name: string;
     description: string;
@@ -1319,6 +1303,77 @@ export declare const allTools: ({
         description?: string | null | undefined;
     }>;
     handler: typeof import("./files.js").fileUpdate;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        wikiPageId: import("zod").ZodOptional<import("zod").ZodString>;
+        meetingId: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        wikiPageId?: string | undefined;
+        meetingId?: string | undefined;
+    }, {
+        spaceId: string;
+        wikiPageId?: string | undefined;
+        meetingId?: string | undefined;
+    }>;
+    handler: typeof import("./votes.js").voteList;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        pollId: import("zod").ZodString;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        pollId: string;
+    }, {
+        spaceId: string;
+        pollId: string;
+    }>;
+    handler: typeof import("./votes.js").voteShow;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        pollId: import("zod").ZodString;
+        choice: import("zod").ZodEnum<["ok", "ng", "hold", "none"]>;
+        memo: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        pollId: string;
+        choice: "ok" | "none" | "ng" | "hold";
+        memo?: string | undefined;
+    }, {
+        spaceId: string;
+        pollId: string;
+        choice: "ok" | "none" | "ng" | "hold";
+        memo?: string | undefined;
+    }>;
+    handler: typeof import("./votes.js").voteCast;
 })[];
+/** MCP の tools/list が返す1件分の形 */
+export interface ToolListEntry {
+    name: string;
+    description: string;
+    inputSchema: {
+        type: 'object';
+        properties: Record<string, {
+            type: string;
+            description: string;
+        }>;
+        required: string[];
+    };
+}
+/**
+ * tools/list の中身を作る。zod スキーマを JSON Schema に直す唯一の場所。
+ *
+ * isAllowed を渡すと、そのツールだけを返す（リモートMCPは許可リストで絞る）。
+ * 呼び出し側でこの変換を書き直さないこと（形がずれると AI の引数が合わなくなる）。
+ */
+export declare function toolListPayload(isAllowed?: (name: string) => boolean): ToolListEntry[];
 export declare function registerTools(server: Server): void;
 //# sourceMappingURL=index.d.ts.map

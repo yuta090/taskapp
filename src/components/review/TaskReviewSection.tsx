@@ -27,7 +27,7 @@ interface TaskReviewSectionProps {
   orgId: string
   taskStatus?: string
   readOnly?: boolean
-  onReviewChange?: (taskId: string, status: string | null) => void
+  onReviewChange?: (taskId: string, status: string | null, taskCompleted?: boolean) => void
 }
 
 interface ReviewData {
@@ -158,9 +158,11 @@ export function TaskReviewSection({
   const handleApprove = useCallback(async () => {
     setSubmitting(true)
     try {
-      await rpc.reviewApprove(supabase, { taskId })
+      // 承認がそろうと DB 側がタスクを完了にする。その事実（taskCompleted）を親に渡して
+      // 一覧の表示も合わせる（渡さないと「承認したのに社内承認中のまま」に見える）
+      const approved = await rpc.reviewApprove(supabase, { taskId })
       const result = await fetchReview()
-      if (result.ok) onReviewChange?.(taskId, result.status)
+      if (result.ok) onReviewChange?.(taskId, result.status, approved?.taskCompleted === true)
     } catch (err) {
       console.error('Failed to approve:', err)
       toast.error('承認に失敗しました')

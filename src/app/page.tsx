@@ -447,7 +447,7 @@ export default function Home() {
             </span>
             <span className="sh sh2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/top-assets/ui-portal.jpg" alt="クライアントポータル。相手はログイン不要で進捗確認と承認ができる" loading="lazy" />
+              <img src="/top-assets/ui-portal.jpg" alt="クライアントポータル。相手先専用の画面で進捗確認と承認ができる" loading="lazy" />
             </span>
             <span className="cap">実際の画面 ─ ボール管理とクライアントポータル</span>
           </div>
@@ -512,11 +512,15 @@ export default function Home() {
       <footer className="top-foot">
         <div className="pin">
           <span>AgentPM ｜ 運営: skara（クライアントワークのタスク管理＋AI秘書）</span>
+          {/* トップは共通の LPFooter を使わず独自。下層ページを足したらここにも足す */}
           <nav>
+            <Link href="/secretary">AI秘書</Link>
+            <Link href="/screens">画面を見る</Link>
             <Link href="/pricing">料金</Link>
             <Link href="/shindan">タスク滞留診断</Link>
             <Link href="/task6">学びのメディア TASK6</Link>
-            <Link href="/company">会社概要</Link>
+            <Link href="/changelog">更新情報</Link>
+            <Link href="/company">運営会社</Link>
             <Link href="/terms">利用規約</Link>
             <Link href="/privacy">プライバシー</Link>
             <Link href="/tokushoho">特定商取引法</Link>

@@ -95,7 +95,8 @@ export async function GET(
   const { token } = await params
 
   try {
-    const admin = createAdminClient() as SupabaseClient
+    // トークンを検証する前は誰の操作か分からないので actorUserId は無し（channel のみ）
+    const admin = createAdminClient({ channel: 'portal' }) as SupabaseClient
 
     const { tokenRecord, error, status } = await validateToken(admin, token)
     if (!tokenRecord) {
@@ -148,7 +149,8 @@ export async function POST(
   const { token } = await params
 
   try {
-    const admin = createAdminClient() as SupabaseClient
+    // トークンを検証する前は誰の操作か分からないので actorUserId は無し（channel のみ）
+    const admin = createAdminClient({ channel: 'portal' }) as SupabaseClient
 
     const { tokenRecord, error, status } = await validateToken(admin, token)
     if (!tokenRecord) {

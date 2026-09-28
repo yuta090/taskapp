@@ -74,6 +74,9 @@ function shouldDehydrateQuery(query: Query): boolean {
   // ファイル→表ビューの変換済み表(最大4MBのCSV由来)は IDB に載せない。再取得は安いが
   // 永続化すると IDB が肥大し、他クエリの restore まで遅くなる。
   if (query.queryKey[0] === 'fileTable') return false
+  // 議事録に重ねる Wiki の1ページ(useWikiPageDetail)も載せない。本文まるごとで大きく、
+  // 開くたびに読み直してから出すので、手元に残しても表示には使わない
+  if (query.queryKey[0] === 'wikiPageDetail') return false
   // ファイル一覧の「検索結果」も同じ理由で載せない(['files', spaceId, 版数, 'search', 条件])。
   // 打鍵の切れ目ごとに別キーが生まれ、1件あたり最大500件ぶんの本文を含む。
   // 全件一覧(検索なし)はキャッシュ優先で即描画したいので、そちらは永続する。
@@ -90,6 +93,13 @@ function shouldDehydrateQuery(query: Query): boolean {
   // 古い「未接続」を出し続けるより毎回取り直すほうが安全（stripeStatus と同じ判断）。
   if (query.queryKey[0] === 'github-connection-status') return false
   if (query.queryKey[0] === 'github-installation') return false
+  // 組織メンバー一覧(['orgMembers', orgId])はメールアドレスを持つ（メンバー一覧画面で
+  // 名前と並べて出す）。currentUser と同じ理由でディスクには残さない。
+  // 引き換えに、メンバー画面を開くたび1往復ぶん（役割の選択肢が出るまで）遅れる。
+  // 役割だけ別キーに写して永続する案も測ったが、そちらはメールだけ出ない時間が
+  // 最大2分できてしまう（役割が新しいうちは取り直さない）ため、同じ1回の取得で
+  // 名前・メール・役割をそろえるほうを採った。
+  if (query.queryKey[0] === 'orgMembers') return false
   return defaultShouldDehydrateQuery(query)
 }
 

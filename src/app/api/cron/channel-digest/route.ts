@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
   // jstNow()の契約上の注意)ではなく素の now を使う。
   const realNow = new Date()
 
-  const admin = createAdminClient() as SupabaseClient
+  const admin = createAdminClient({ channel: 'cron' }) as SupabaseClient
   // org単位でエンタイトルメントを1回だけ解決してキャッシュ（期限セクション: per-task「担当者に
   // DMで届くか」判定に line_direct_dm entitlement を使う・§9.1。旧版コメントの「timed_line_reminders
   // 非保持orgのみに出す」はv1時点の org 単位判定の名残で、うざくない秘書 再設計後の実装とは

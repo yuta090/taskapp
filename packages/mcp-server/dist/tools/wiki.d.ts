@@ -96,6 +96,22 @@ declare const wikiVersionsSchema: z.ZodObject<{
     pageId: string;
     limit?: number | undefined;
 }>;
+declare const wikiTocSchema: z.ZodObject<{
+    spaceId: z.ZodString;
+    pageId: z.ZodString;
+    action: z.ZodDefault<z.ZodEnum<["add", "remove"]>>;
+    expectedUpdatedAt: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    spaceId: string;
+    action: "add" | "remove";
+    pageId: string;
+    expectedUpdatedAt?: string | undefined;
+}, {
+    spaceId: string;
+    pageId: string;
+    action?: "add" | "remove" | undefined;
+    expectedUpdatedAt?: string | undefined;
+}>;
 export declare function wikiList(params: z.infer<typeof wikiListSchema>): Promise<WikiPage[]>;
 export declare function wikiGet(params: z.infer<typeof wikiGetSchema>): Promise<WikiPage>;
 export declare function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Promise<WikiPage>;
@@ -106,6 +122,7 @@ export declare function wikiDelete(params: z.infer<typeof wikiDeleteSchema>): Pr
     ok: true;
 }>;
 export declare function wikiVersions(params: z.infer<typeof wikiVersionsSchema>): Promise<WikiPageVersion[]>;
+export declare function wikiToc(params: z.infer<typeof wikiTocSchema>): Promise<WikiPage>;
 export declare const wikiTools: ({
     name: string;
     description: string;
@@ -226,6 +243,26 @@ export declare const wikiTools: ({
         limit?: number | undefined;
     }>;
     handler: typeof wikiVersions;
+} | {
+    name: string;
+    description: string;
+    inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
+        pageId: z.ZodString;
+        action: z.ZodDefault<z.ZodEnum<["add", "remove"]>>;
+        expectedUpdatedAt: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        spaceId: string;
+        action: "add" | "remove";
+        pageId: string;
+        expectedUpdatedAt?: string | undefined;
+    }, {
+        spaceId: string;
+        pageId: string;
+        action?: "add" | "remove" | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }>;
+    handler: typeof wikiToc;
 })[];
 export {};
 //# sourceMappingURL=wiki.d.ts.map

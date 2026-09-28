@@ -10,7 +10,7 @@ export default async function AdminApiKeysPage() {
   const currentUserId = await verifySuperadmin()
   if (!currentUserId) redirect('/admin/login')
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: currentUserId })
 
   const [{ data: keys }, { data: orgs }, { data: spaces }] = await Promise.all([
     admin.from('api_keys').select('id, org_id, space_id, name, key_prefix, is_active, last_used_at, expires_at, created_at').order('created_at', { ascending: false }),

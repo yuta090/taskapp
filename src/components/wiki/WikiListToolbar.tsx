@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MagnifyingGlass, Columns, Check, List, TreeStructure, Flag } from '@phosphor-icons/react'
+import { MagnifyingGlass, Columns, Check, List, TreeStructure, Flag, FolderPlus } from '@phosphor-icons/react'
 import type { WikiPage } from '@/types/database'
 import type { SpaceMember } from '@/lib/hooks/useSpaceMembers'
 import {
@@ -52,6 +52,10 @@ interface WikiListToolbarProps {
   filteredCount: number
   /** マイルストーン別表示での延べ行数（1ページが複数グループに出るぶん増える）。他の表示では未使用。 */
   groupedRowCount?: number
+  /** 編集できる人か（既定 false）。true かつ onCreateFolder があるときだけ「新しいフォルダ」を出す（PR5）。 */
+  canEdit?: boolean
+  /** 「新しいフォルダ」を押したとき。呼び出し側でフォルダ表示に切り替え、一覧先頭のインライン入力を開く。 */
+  onCreateFolder?: () => void
 }
 
 export function WikiListToolbar({
@@ -65,6 +69,8 @@ export function WikiListToolbar({
   totalCount,
   filteredCount,
   groupedRowCount,
+  canEdit,
+  onCreateFolder,
 }: WikiListToolbarProps) {
   const [tagsExpanded, setTagsExpanded] = useState(false)
 
@@ -205,6 +211,18 @@ export function WikiListToolbar({
             )
           })}
         </div>
+
+        {canEdit && onCreateFolder && (
+          <button
+            type="button"
+            data-testid="wiki-new-folder"
+            onClick={onCreateFolder}
+            className="hidden md:inline-flex flex-shrink-0 items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-gray-200 hover:border-gray-300 bg-surface text-gray-600 transition-colors"
+          >
+            <FolderPlus className="text-sm" />
+            新しいフォルダ
+          </button>
+        )}
 
         <div className="relative flex-shrink-0 w-40 md:w-56">
           <MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none" />

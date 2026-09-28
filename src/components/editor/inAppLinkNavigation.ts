@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { isInAppScreenHref } from '@/lib/navigation/appLinks'
+import { useInPlaceLinkOpener } from './inPlaceLinkOpener'
 
 /** クリックのうち、行き先を決めるのに要る分だけ */
 interface EditorClick {
@@ -52,6 +53,9 @@ export function resolveInAppLinkTarget(event: EditorClick): string | null {
  * 画面に出ている理由を読んでもらうほうがよい。
  *
  * `enabled` が false のときは何も付けない（相手先ポータルでは社内の画面へ連れて行けないため）。
+ *
+ * 画面が「その場で開く」受け口（InPlaceLinkOpenerProvider）を用意していれば、先にそちらへ渡す。
+ * 引き受けられたら画面を移らないので、保存の確定も待たない（書いている文書はそのまま残る）。
  */
 export function useInAppLinkNavigation(
   onBeforeNavigate?: () => void | Promise<void>,
@@ -60,10 +64,16 @@ export function useInAppLinkNavigation(
   const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
   const beforeNavigateRef = useRef(onBeforeNavigate)
+  const inPlaceOpener = useInPlaceLinkOpener()
+  const inPlaceOpenerRef = useRef(inPlaceOpener)
 
   useEffect(() => {
     beforeNavigateRef.current = onBeforeNavigate
   }, [onBeforeNavigate])
+
+  useEffect(() => {
+    inPlaceOpenerRef.current = inPlaceOpener
+  }, [inPlaceOpener])
 
   useEffect(() => {
     const container = containerRef.current
@@ -74,6 +84,7 @@ export function useInAppLinkNavigation(
       if (!href) return
       event.preventDefault()
       event.stopPropagation()
+      if (inPlaceOpenerRef.current?.(href)) return
       void Promise.resolve()
         .then(() => beforeNavigateRef.current?.())
         .then(() => {

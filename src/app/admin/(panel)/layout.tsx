@@ -12,9 +12,11 @@ export const dynamic = 'force-dynamic'
  * リストア・ブランチ・ロール再設定で黙って消えうる。消えていたら運営画面に赤い帯を出す。
  * 取得に失敗したら null（帯は出さない。ログのみ）
  */
-async function fetchMfaEnforcementStatus(): Promise<{ preRequest: boolean; policyMissing: string[] } | null> {
+async function fetchMfaEnforcementStatus(
+  actorUserId: string,
+): Promise<{ preRequest: boolean; policyMissing: string[] } | null> {
   try {
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'admin', actorUserId })
     const { data, error } = await admin.rpc('mfa_enforcement_status')
     if (error || !data) return null
     const d = data as { pre_request?: boolean; policy_missing?: string[] }
@@ -36,8 +38,8 @@ async function fetchMfaEnforcementStatus(): Promise<{ preRequest: boolean; polic
  * 件数は head:true の count クエリだけで、行本体は取らない（表示を遅くしない）。
  * ポーリング・リアルタイム購読はしない（ページ遷移ごとの再取得で足りる）。
  */
-async function fetchNavBadges(): Promise<Record<string, number>> {
-  const admin = createAdminClient()
+async function fetchNavBadges(actorUserId: string): Promise<Record<string, number>> {
+  const admin = createAdminClient({ channel: 'admin', actorUserId })
   const [unread, requested, openReviews] = await Promise.all([
     admin.from('notifications').select('*', { count: 'exact', head: true }).is('read_at', null),
     admin
@@ -72,7 +74,11 @@ export default async function AdminPanelLayout({
     redirect('/admin/login')
   }
 
-  const [badges, cookieStore, enforcement] = await Promise.all([fetchNavBadges(), cookies(), fetchMfaEnforcementStatus()])
+  const [badges, cookieStore, enforcement] = await Promise.all([
+    fetchNavBadges(verdict.userId),
+    cookies(),
+    fetchMfaEnforcementStatus(verdict.userId),
+  ])
   // サイドバーの折りたたみは cookie から初回描画に反映する（client 側の記憶と二重持ち・ガタつき防止）
   const initialCollapsed = cookieStore.get(COLLAPSED_STORAGE_KEY)?.value === '1'
 

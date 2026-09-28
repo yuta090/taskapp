@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     linksBySpace.set(link.spaceId, list)
   }
 
-  const admin = createAdminClient() as SupabaseClient
+  const admin = createAdminClient({ channel: 'cron' }) as SupabaseClient
   // org単位でエンタイトルメントを1回だけ解決してキャッシュ
   const entitlementByOrg = new Map<string, boolean>()
   async function isOrgEntitled(orgId: string): Promise<boolean> {

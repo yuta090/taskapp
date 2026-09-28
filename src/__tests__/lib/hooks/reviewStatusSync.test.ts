@@ -70,3 +70,36 @@ describe('applyReviewChange: タスクの状態も揃える', () => {
     expect(next.tasks).toBe(before.tasks)
   })
 })
+
+describe('applyReviewChange: 承認がそろって完了になったとき', () => {
+  it('DB 側がタスクを完了にしたら、一覧のタスクも完了にする', () => {
+    const next = applyReviewChange(
+      data([task({ id: 'a', status: 'in_review' })], { a: 'open' }),
+      'a',
+      'approved',
+      true
+    )
+    expect(next.tasks[0].status).toBe('done')
+    expect(next.reviewStatuses['a']).toBe('approved')
+  })
+
+  it('完了になった印が無ければ、タスクの状態は動かさない（承認者がまだ残っている等）', () => {
+    const next = applyReviewChange(
+      data([task({ id: 'a', status: 'in_review' })], { a: 'open' }),
+      'a',
+      'open',
+      false
+    )
+    expect(next.tasks[0].status).toBe('in_review')
+  })
+
+  it('完了にしたときは完了日時も入れる（一覧の並びが崩れないように）', () => {
+    const next = applyReviewChange(
+      data([task({ id: 'a', status: 'in_review', completed_at: null })], { a: 'open' }),
+      'a',
+      'approved',
+      true
+    )
+    expect(next.tasks[0].completed_at).toBeTruthy()
+  })
+})

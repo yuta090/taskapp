@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 
 /**
- * activity_log / activity_search / activity_entity_history は、DBが断った理由を
+ * activity_search / activity_entity_history は、DBが断った理由を
  * そのまま出さず、決まった短い日本語のエラーにする（生のDB文言は出さない）。
  */
 
@@ -16,6 +16,9 @@ function chain() {
     select: () => obj,
     insert: () => obj,
     eq: () => obj,
+    in: () => obj,
+    gte: () => obj,
+    lte: () => obj,
     order: () => obj,
     limit: () => obj,
     single: async () => queryResponse,
@@ -36,25 +39,11 @@ vi.mock('../supabase/client.js', () => ({
 vi.mock('../auth/helpers.js', () => ({ checkAuth: async () => ({ ctx: {} }), checkAuthOrg: async () => ({ ctx: { orgId: ORG } }) }))
 vi.mock('../config.js', () => ({ config: { actorId: 'actor-1' } }))
 
-const { activityLog, activitySearch, activityEntityHistory } = await import('./activity.js')
+const { activitySearch, activityEntityHistory } = await import('./activity.js')
 
-describe('activity_log / activity_search / activity_entity_history — DBの生の文言を出さない', () => {
-  it('activity_log: 記録に失敗したら、生のDB文言を含まない一般のエラー', async () => {
-    queryResponse = { data: null, error: { code: '23503', message: 'insert or update on table "activity_log" violates foreign key constraint' } }
-
-    const err = await activityLog({
-      spaceId: SPACE,
-      entityTable: 'tasks',
-      entityId: TASK,
-      action: 'created',
-      status: 'success',
-    }).catch((e: unknown) => e)
-
-    expect((err as Error).message).not.toContain('foreign key constraint')
-  })
-
+describe('activity_search / activity_entity_history — DBの生の文言を出さない', () => {
   it('activity_search: 検索に失敗したら、生のDB文言を含まない一般のエラー', async () => {
-    queryResponse = { data: null, error: { code: '42501', message: 'permission denied for table activity_log' } }
+    queryResponse = { data: null, error: { code: '42501', message: 'permission denied for table change_log' } }
 
     const err = await activitySearch({ spaceId: SPACE, limit: 20 }).catch((e: unknown) => e)
 
@@ -62,7 +51,7 @@ describe('activity_log / activity_search / activity_entity_history — DBの生�
   })
 
   it('activity_entity_history: 取得に失敗したら、生のDB文言を含まない一般のエラー', async () => {
-    queryResponse = { data: null, error: { code: '42501', message: 'permission denied for table activity_log' } }
+    queryResponse = { data: null, error: { code: '42501', message: 'permission denied for table change_log' } }
 
     const err = await activityEntityHistory({ entityTable: 'tasks', entityId: TASK, limit: 20 }).catch(
       (e: unknown) => e

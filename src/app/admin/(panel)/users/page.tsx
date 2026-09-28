@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import UsersPageClient, { type UserRow } from './UsersPageClient'
 
 async function fetchUsersData(): Promise<UserRow[]> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin' })
 
   const [profilesResult, membershipsResult] = await Promise.all([
     admin.from('profiles').select('id, display_name, is_superadmin, created_at').order('created_at', { ascending: false }),

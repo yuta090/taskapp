@@ -13,18 +13,22 @@ import {
   SuggestionMenuController,
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
+import { HeadingLinks, type HeadingLinksEditor } from '@/components/editor/HeadingLinks'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { CheckCircle, Checks, Flag, NotePencil, User } from '@phosphor-icons/react'
+import { CheckCircle, CheckSquareOffset, Checks, Flag, ListBullets, NotePencil, User } from '@phosphor-icons/react'
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { seedMinutesDoc } from '@/lib/collab/seed'
-import { cursorColorFor } from '@/lib/collab/cursorColors'
+import { cursorColorAt, cursorFallbackAt } from '@/lib/collab/cursorColors'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/appLink'
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
+import { useInPlaceLinkOpener } from '@/components/editor/inPlaceLinkOpener'
+import { useEditorClickBehaviors } from '@/components/editor/editorClickBehaviors'
+import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import { buildTaskHref, type AppLinkKind } from '@/lib/navigation/appLinks'
 import {
   ASSIGNEE_MARKER_TYPE,
@@ -32,7 +36,9 @@ import {
   MILESTONE_MARKER_TYPE,
   parseMinutesMarkdown,
   serializeMinutesBlocks,
+  DIVIDER_TYPE,
   TASK_MARKER_TYPE,
+  TOC_TYPE,
   TOGGLE_TYPE,
 } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
@@ -53,13 +59,20 @@ const MinutesTaskLinePanel = dynamic(
     ),
   }
 )
-import { meetingNoteSpec, toggleListItemSpec } from './minutesBlocks'
+import { dividerSpec, meetingNoteSpec, tableOfContentsSpec, toggleListItemSpec } from './minutesBlocks'
 import { MINUTES_DICTIONARY } from './minutesDictionary'
 import { TaskMarkerActions } from './TaskMarkerActions'
 import type { MinutesTaskAction, MinutesTaskState } from '@/lib/minutes/taskActions'
 import { detectCheckedTaskIds } from '@/lib/minutes/checkboxCompletion'
 import { completeFailureMessage } from '@/lib/minutes/taskActions'
 import { MinutesCompleteError } from '@/lib/hooks/useMinutesTaskActions'
+import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
+import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
+import type { DocPollReasonRequired } from '@/lib/doc-polls/types'
+import { docPollSpec } from '@/components/editor/docPoll/docPollBlock'
+import { MeetingDocPollHost } from '@/components/editor/docPoll/MeetingDocPollHost'
+import { DOC_INSERTION_TYPE } from '@/lib/doc-insertions/logic'
+import { docInsertionSpec } from '@/components/editor/docInsertion/docInsertionBlock'
 
 /**
  * appendMarkdown の結果。「今は無理だが少し待てばできる」一時的な事情と、
@@ -92,7 +105,11 @@ export interface MinutesEditorCollaboration {
   awareness: Awareness
   /** カーソルの脇に出す自分の名前 */
   userName: string
-  userId: string
+  /**
+   * 何番の色でカーソルを描くか。部屋の中で重ならないように呼び出し側が決める
+   * （人ごとにハッシュで選ぶと、運が悪いと2人が同じ色になる）
+   */
+  colorIndex: number
 }
 
 interface MinutesEditorProps {
@@ -128,6 +145,21 @@ interface MinutesEditorProps {
    * する等）を走らせない。全員の画面で一斉に走ってしまうため。
    */
   isApplyingRemote?: () => boolean
+  /**
+   * 見出しのリンクに添える会議名。渡したときだけ、見出しの「リンクをコピー」ボタンと
+   * URL の `#` での移動を載せる
+   */
+  headingLinkTitle?: string
+  /**
+   * この議事録の会議の id。渡すと投票ブロックが押せる（社内の議事録画面だけが渡す）。
+   * 渡さない画面では「/」に投票を出さず、置いてある投票は「この画面では投票できません」と出す。
+   */
+  meetingId?: string
+  /**
+   * 相手先の差し込み（反映待ち）をこの画面で本文に取り込むか。取り込むのは1つのタブだけ
+   * （同時編集中は書記。1人なら編集できる画面）。呼ぶ側（MinutesDocumentView）が決める
+   */
+  applyInsertions?: boolean
 }
 
 /**
@@ -182,10 +214,13 @@ export function TaskMarkerChip({ taskId, orgId, spaceId, resolverRef }: TaskMark
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const goToTask = useCallback(
-    () => router.push(buildTaskHref(orgId, spaceId, encodeURIComponent(taskId))),
-    [router, orgId, spaceId, taskId]
-  )
+  // 議事録画面が「その場で開く」受け口を用意していれば、画面を移らず右パネルで開く
+  const inPlaceOpener = useInPlaceLinkOpener()
+  const goToTask = useCallback(() => {
+    const href = buildTaskHref(orgId, spaceId, encodeURIComponent(taskId))
+    if (inPlaceOpener?.(href)) return
+    router.push(href)
+  }, [router, inPlaceOpener, orgId, spaceId, taskId])
 
   const load = useCallback(async () => {
     const resolver = getResolver()
@@ -346,6 +381,8 @@ const ALLOWED_SLASH_MENU_ITEMS = new Set([
   'emoji',
   // 折りたたみ（`>` ＋スペースでも作れる）
   'toggle_list',
+  // 区切り線（`---` ＋スペースでも作れる）
+  'divider',
 ])
 
 function useMinutesSchema(
@@ -396,6 +433,12 @@ function useMinutesSchema(
         codeBlock: defaultBlockSpecs.codeBlock,
         [TOGGLE_TYPE]: toggleListItemSpec,
         [MEETING_NOTE_TYPE]: meetingNoteSpec,
+        [TOC_TYPE]: tableOfContentsSpec,
+        [DIVIDER_TYPE]: dividerSpec,
+        // 投票。Markdown では `<!--vote:番号-->議題`（DOC_VOTE_SPEC §3.2）
+        [DOC_POLL_TYPE]: docPollSpec,
+        // 相手先が足した行・メモ。Markdown では `<!--ins:番号 種類 日時 名前-->本文`（DOC_VOTE_SPEC §5.1）
+        [DOC_INSERTION_TYPE]: docInsertionSpec,
       },
       styleSpecs: {
         bold: defaultStyleSpecs.bold,
@@ -431,8 +474,11 @@ function MinutesEditorImpl({
   registerApi,
   onResolveTask,
   noteAuthorName,
+  meetingId,
+  applyInsertions = false,
   collaboration,
   isApplyingRemote,
+  headingLinkTitle,
 }: MinutesEditorProps) {
   const editorContainerRef = useInAppLinkNavigation(onBeforeNavigate)
   // 名前はメンバー一覧を読み終えてから届く。値のまま「/」メニューの項目に閉じ込めると、
@@ -485,19 +531,33 @@ function MinutesEditorImpl({
    * y-prosemirror の `_forceRerender`）。渡しても消えるだけなので、本文は器へ
    * 種をまく形で入れる（`seedCollabDoc` → `MinutesCollabSession`）。
    */
+  // BlockNote は色を CSS でなく props のテーマで受け取るので、真偽値で渡す
+  const isDark = useIsDarkTheme()
+
   const editor = useCreateBlockNote({
     schema,
     ...(collaboration
       ? {
           collaboration: {
             fragment: collaboration.fragment,
-            user: { name: collaboration.userName, color: cursorColorFor(collaboration.userId) },
+            // 載せるときは控えの値で作る（画面を測るのは描画が終わったあと）。
+            // 実際の値は下の effect が入れ直す
+            user: { name: collaboration.userName, color: cursorFallbackAt(collaboration.colorIndex) },
             provider: { awareness: collaboration.awareness },
           },
         }
       : { initialContent }),
     dictionary: MINUTES_DICTIONARY,
+    domAttributes: { editor: STABLE_EDITOR_DOM_ATTRIBUTES },
   })
+
+  // 「書いてよいか」は載せたときの値のまま渡し、以後の変化は載せ直さない道で当てる。
+  // 変えて渡すと BlockNote がエディタを作り直し、**取り消し（Ctrl+Z / Cmd+Z）が
+  // 二度と効かなくなる**（理由は useStableEditable の注を参照）
+  const mountEditable = useStableEditable(editor, effectiveEditable)
+
+  // 折りたたみの題名クリックで開閉・表の列の境目のダブルクリックで幅合わせ
+  useEditorClickBehaviors(editorContainerRef, editor)
 
   /**
    * 今の行を「会議メモ」に変える（空の行なら、その行がそのまま会議メモになる）。
@@ -547,10 +607,51 @@ function MinutesEditorImpl({
     editor.focus()
   }, [editor])
 
+  /** 今の行に目次を置く。中身は持たず、開くたびに見出しから引き直される。 */
+  const insertToc = useCallback(() => {
+    insertOrUpdateBlockForSlashMenu(editor, { type: TOC_TYPE, props: {} })
+    editor.focus()
+  }, [editor])
+
+  /** 今の行を投票にする。番号はここで作り、DB の投票は MeetingDocPollHost が作る */
+  const insertPoll = useCallback(
+    (reasonRequired: DocPollReasonRequired) => {
+      insertOrUpdateBlockForSlashMenu(editor, {
+        type: DOC_POLL_TYPE,
+        props: { pollId: crypto.randomUUID(), reasonRequired },
+      })
+      editor.focus()
+    },
+    [editor]
+  )
+  const hasPoll = meetingId != null
+
   const getSlashMenuItems = useCallback(
     async (query: string) =>
       filterSuggestionItems(
         [
+          ...(hasPoll
+            ? [
+                {
+                  key: 'insert_vote',
+                  title: '投票',
+                  subtext: 'OK・NG・保留を押してもらい、誰が押したかを残す',
+                  aliases: ['vote', 'v', 'poll', 'ok', 'ng', 'touhyou', 'とうひょう', '投票'],
+                  group: jaLocale.slash_menu.paragraph.group,
+                  icon: <CheckSquareOffset size={18} />,
+                  onItemClick: () => insertPoll('none'),
+                },
+                {
+                  key: 'insert_vote_must',
+                  title: '投票（理由必須）',
+                  subtext: 'NG と保留は理由を書かないと押せない',
+                  aliases: ['votemust', 'vote-must', 'must', 'hissu', 'ひっす', '必須', '投票必須'],
+                  group: jaLocale.slash_menu.paragraph.group,
+                  icon: <CheckSquareOffset size={18} weight="fill" />,
+                  onItemClick: () => insertPoll('ng_hold'),
+                },
+              ]
+            : []),
           // 会議中にいちばん使うので先頭に置く（ユーザー要望・2026-09-15）
           {
             key: 'insert_meeting_note',
@@ -571,6 +672,15 @@ function MinutesEditorImpl({
             icon: <Checks size={18} />,
             onItemClick: () => setTaskLineOpen(true),
           },
+          {
+            key: 'insert_toc',
+            title: '目次',
+            subtext: '見出しの一覧。開くたびに引き直すので古くならない',
+            aliases: ['toc', 'mokuji', 'もくじ', '目次', 'contents', 'index'],
+            group: jaLocale.slash_menu.paragraph.group,
+            icon: <ListBullets size={18} />,
+            onItemClick: insertToc,
+          },
           // 「/」からもリンクを差し込めるようにする。押すと本文の下のパネルが開く
           ...buildInsertLinkMenuItems(openLinkPicker),
           // 画面用の項目の型は key を省いているが、中身は既定の項目を広げたものなので key が残っている
@@ -580,7 +690,7 @@ function MinutesEditorImpl({
         ],
         query
       ),
-    [editor, openLinkPicker, insertMeetingNote]
+    [editor, openLinkPicker, insertMeetingNote, insertToc, insertPoll, hasPoll]
   )
 
   /**
@@ -651,6 +761,33 @@ function MinutesEditorImpl({
     registerApi?.({ appendMarkdown, seedCollabDoc })
     return () => registerApi?.(null)
   }, [registerApi, appendMarkdown, seedCollabDoc])
+
+  /**
+   * 自分の名前と色を、部屋のみんなへ伝える。
+   *
+   * 載せるときは控えの値で作ってあるので、ここで画面のトークンから読み替えた値に
+   * 入れ替える。名前はメンバー一覧が遅れて届くことがあるので、そのぶんもここで届く。
+   * **色の番号自体は会期中変わらない**（変えても相手の画面には届かないため。
+   * 理由は `cursorColors.ts`）。
+   */
+  // 載せるときに部品が入れた1通目と同じ値を覚えておく（同じ内容をもう1通配らない）
+  const lastUserRef = useRef<string>(
+    collaboration
+      ? `${collaboration.userName}\u0000${cursorFallbackAt(collaboration.colorIndex)}`
+      : ''
+  )
+  useEffect(() => {
+    if (!collaboration) return
+    const next = {
+      name: collaboration.userName,
+      color: cursorColorAt(collaboration.colorIndex),
+    }
+    // 中身が同じなら送らない（載せた直後に、同じ値をもう1通配らないため）
+    const key = `${next.name}\u0000${next.color}`
+    if (lastUserRef.current === key) return
+    lastUserRef.current = key
+    collaboration.awareness.setLocalStateField('user', next)
+  }, [collaboration])
 
   /**
    * 直前の本文。チェックが「入った」瞬間だけを拾うために持つ。
@@ -742,28 +879,53 @@ function MinutesEditorImpl({
     [setChecked, isApplyingRemote]
   )
 
-  return (
-    <div className="minutes-editor" data-testid="minutes-editor" ref={editorContainerRef}>
-      <BlockNoteView
-        editor={editor}
-        editable={effectiveEditable}
-        onChange={() => {
-          const markdown = serializeMinutesBlocks(editor.document)
-          handleCheckboxCompletion(markdown)
-          onChange?.(markdown)
-        }}
-        theme="light"
-        slashMenu={false}
-      >
-        {/* 既定のメニューの代わりに、Markdown で往復できる項目だけに絞ったメニューを置く。
-            行の左の「＋」もこのメニューを開くので、これを外すと「＋」も押して何も起きなくなる。
-            読み取り専用のときは差し込めないので置かない */}
-        {effectiveEditable && (
-          <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
-        )}
-      </BlockNoteView>
+  const editorView = (
+    <BlockNoteView
+      editor={editor}
+      editable={mountEditable}
+      onChange={() => {
+        const markdown = serializeMinutesBlocks(editor.document)
+        handleCheckboxCompletion(markdown)
+        onChange?.(markdown)
+      }}
+      theme={isDark ? 'dark' : 'light'}
+      slashMenu={false}
+    >
+      {/* 既定のメニューの代わりに、Markdown で往復できる項目だけに絞ったメニューを置く。
+          行の左の「＋」もこのメニューを開くので、これを外すと「＋」も押して何も起きなくなる。
+          読み取り専用のときは差し込めないので置かない */}
       {effectiveEditable && (
-        <div className="flex items-center gap-2 mt-2 px-1">
+        <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
+      )}
+    </BlockNoteView>
+  )
+
+  return (
+    // relative: 見出しのリンクボタンを本文の上に重ねて置く基準
+    <div className="minutes-editor relative" data-testid="minutes-editor" ref={editorContainerRef}>
+      {meetingId ? (
+        <MeetingDocPollHost
+          editor={editor as never}
+          meetingId={meetingId}
+          spaceId={spaceId}
+          editable={effectiveEditable}
+          applyInsertions={applyInsertions && effectiveEditable}
+        >
+          {editorView}
+        </MeetingDocPollHost>
+      ) : (
+        editorView
+      )}
+      {headingLinkTitle !== undefined && (
+        <HeadingLinks
+          editor={editor as unknown as HeadingLinksEditor}
+          containerRef={editorContainerRef}
+          pageTitle={headingLinkTitle}
+        />
+      )}
+      {/* 本文の下の差し込みツールバー。PDFで保存するときは紙に載せない（押すためのもの） */}
+      {effectiveEditable && (
+        <div data-print-hide className="flex items-center gap-2 mt-2 px-1">
           {/* 会議中に一番よく使うので、「/」を知らなくても押せる場所に出す */}
           <button
             type="button"

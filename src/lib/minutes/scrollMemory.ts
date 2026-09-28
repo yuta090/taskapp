@@ -103,3 +103,27 @@ export function clearMinutesScroll(meetingId: string): void {
     /* 触れないなら何もしない */
   }
 }
+
+/**
+ * 画面を離れるときに、どの位置を覚えるか。`null` は「覚えているものに触らない」。
+ *
+ * そのまま `scrollTop` を覚えると、覚えた場所を**消してしまう**場合がある。
+ * `saveMinutesScroll` は 0 を「先頭にいた＝忘れてよい」と読むためで、次の2つが該当する。
+ *
+ * - 本文が届く前に離れた（同時編集では器の同期を待つ。開発中は StrictMode で毎回）
+ * - 戻した直後、本文がまだ組み上がっておらず枠に高さが無い（位置が 0 に丸められる）
+ *
+ * どちらも「先頭にいる」のではなく「まだ位置が決まっていない」ので、消してはいけない。
+ */
+export function scrollTopToRemember(params: {
+  /** いまの位置。枠から読めた値（読めなければ最後に控えた値） */
+  current: number
+  /** 戻そうとしていた位置。押さえが続いているあいだだけ 0 以外 */
+  wanted: number
+  /** この会議で戻す処理を済ませたか */
+  restored: boolean
+}): number | null {
+  if (params.current > 0) return params.current
+  if (params.wanted > 0) return params.wanted
+  return params.restored ? 0 : null
+}

@@ -108,6 +108,13 @@ describe('WikiEditor のメモ', () => {
     expect(screen.queryByTestId('wiki-insert-note')).not.toBeInTheDocument()
   })
 
+  // PDFで保存したときに、本文の下の差し込みツールバーが紙に載らないようにする印。
+  // 印を外すと、押しても何も起きないボタンの列が PDF の末尾に刷られる
+  it('本文の下の差し込みツールバーには「紙に載せない」印が付いている', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    expect(screen.getByTestId('wiki-insert-note').closest('[data-print-hide]')).not.toBeNull()
+  })
+
   it('「メモ」ボタンで、書いた日時と書いた人の名前を持つメモを入れる', () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} noteAuthorName="高橋 優太" />)
     fireEvent.click(screen.getByTestId('wiki-insert-note'))
@@ -227,6 +234,7 @@ describe('WikiEditor slash menu and Japanese texts', () => {
     // 先頭はメモ、次に自前のリンク4種。そのあとが BlockNote の既定（video/audio を除く）
     expect(items.map(item => item.key)).toEqual([
       'insert_note',
+      'insert_toc',
       'insert_link_task',
       'insert_link_file',
       'insert_link_wiki',
@@ -245,5 +253,108 @@ describe('WikiEditor slash menu and Japanese texts', () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     expect(capturedEditorOptions?.dictionary?.placeholders.default).toBe('文字を入力、または「/」でメニューを開く')
     expect(capturedEditorOptions?.dictionary?.slash_menu.heading.title).toBe('見出し１')
+  })
+})
+
+vi.mock('@/lib/hooks/useVoterNames', () => ({ useVoterNames: () => () => '' }))
+
+vi.mock('@/lib/hooks/useDocPolls', () => ({
+  useDocPolls: () => ({ polls: {}, isFetched: false, castVote: vi.fn(), createPoll: vi.fn() }),
+}))
+
+/**
+ * 投票ブロック（DOC_VOTE_SPEC）。「/v」「/投票」で理由任意、「/votemust」「/必須」で理由必須。
+ * 相手先ポータルのように投票を配らない画面では「/」に出さない。
+ */
+describe('WikiEditor の投票', () => {
+  const POLL = { wikiPageId: 'page-1', currentUserId: 'me', nameOf: () => '高橋' }
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedEditorOptions = undefined
+    capturedSlashMenuProps = undefined
+  })
+
+  it('投票のブロックをスキーマに持つ（ポータルの読み取り専用表示でも描ける）', () => {
+    render(<WikiEditor editable={false} />)
+    const schema = (capturedEditorOptions as unknown as { schema: { blockSpecs: Record<string, unknown> } }).schema
+    expect(schema.blockSpecs).toHaveProperty('docPoll')
+  })
+
+  it('「/v」で投票がいちばん上に出る', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    const items = await capturedSlashMenuProps!.getItems!('v')
+    expect(items.slice(0, 2).map((i) => i.key)).toEqual(['insert_vote', 'insert_vote_must'])
+  })
+
+  it('「/vote」では両方、「/votem」では理由必須だけが出る', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    const vote = (await capturedSlashMenuProps!.getItems!('vote')).map((i) => i.key)
+    expect(vote).toEqual(expect.arrayContaining(['insert_vote', 'insert_vote_must']))
+    const must = (await capturedSlashMenuProps!.getItems!('votem')).map((i) => i.key)
+    expect(must).toEqual(['insert_vote_must'])
+  })
+
+  it('日本語でも出る（投票・必須）', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    expect((await capturedSlashMenuProps!.getItems!('投票')).map((i) => i.key)).toEqual([
+      'insert_vote',
+      'insert_vote_must',
+    ])
+    expect((await capturedSlashMenuProps!.getItems!('必須')).map((i) => i.key)).toEqual(['insert_vote_must'])
+  })
+
+  it('押すと、新しい番号と理由必須の設定を持つ投票ブロックを置く', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    const [plain] = (await capturedSlashMenuProps!.getItems!('投票')) as unknown as Array<{ onItemClick: () => void }>
+    plain.onItemClick()
+    expect(mockInsertOrUpdateBlock).toHaveBeenLastCalledWith(expect.anything(), {
+      type: 'docPoll',
+      props: { pollId: expect.stringMatching(UUID), reasonRequired: 'none' },
+    })
+    const [must] = (await capturedSlashMenuProps!.getItems!('必須')) as unknown as Array<{ onItemClick: () => void }>
+    must.onItemClick()
+    expect(mockInsertOrUpdateBlock).toHaveBeenLastCalledWith(expect.anything(), {
+      type: 'docPoll',
+      props: { pollId: expect.stringMatching(UUID), reasonRequired: 'ng_hold' },
+    })
+  })
+
+  it('投票を配らない画面（ポータルなど）では「/」に出さない', async () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const items = (await capturedSlashMenuProps!.getItems!('投票')).map((i) => i.key)
+    expect(items).toEqual([])
+  })
+
+  it('議題が空の行には案内を出す', () => {
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} poll={POLL} />)
+    expect(capturedEditorOptions?.dictionary?.placeholders.docPoll).toBe('議題（書かなくてもよい）')
+  })
+})
+
+// 見出しのリンク。中身は HeadingLinks.test.tsx で確かめるので、ここは「渡したか」だけを見る
+vi.mock('@/components/editor/HeadingLinks', () => ({
+  HeadingLinks: ({ pageTitle, editor }: { pageTitle: string; editor: unknown }) => (
+    <div data-testid="heading-links" data-title={pageTitle} data-same-editor={String(editor === mockEditor)} />
+  ),
+}))
+
+describe('WikiEditor の見出しリンク', () => {
+  it('ページ名を渡すと、見出しのリンク（コピーと # での移動）を載せる。閲覧中でも載せる', () => {
+    render(<WikiEditor editable={false} orgId={ORG_ID} spaceId={SPACE_ID} headingLinkTitle="運用メモ" />)
+    const el = screen.getByTestId('heading-links')
+    expect(el).toHaveAttribute('data-title', '運用メモ')
+    expect(el).toHaveAttribute('data-same-editor', 'true')
+  })
+
+  it('ページ名を渡さない画面（相手先ポータル）には載せない', () => {
+    render(<WikiEditor editable={false} />)
+    expect(screen.queryByTestId('heading-links')).toBeNull()
+  })
+
+  it('ボタンの位置の基準にするため、本文の枠を relative にする', () => {
+    const { container } = render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} headingLinkTitle="運用メモ" />)
+    expect(container.querySelector('.wiki-editor')).toHaveClass('relative')
   })
 })

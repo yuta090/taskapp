@@ -12,10 +12,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
+import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   classifyCompleteFailure,
   completeFailureMessage,
+  COMPLETE_FAILURE_NO_ROWS,
   type CompleteFailureKind,
   type MinutesTaskAction,
   type MinutesTaskState,
@@ -126,6 +128,8 @@ export function useMinutesTaskActions({
     async (taskId: string, action: Exclude<MinutesTaskAction, 'open'>) => {
       if (action === 'decide') {
         await rpc.setSpecState(supabase, { taskId, decisionState: 'decided' })
+        // ダッシュボードの「確定事項」に出す「決まった日」を取り直させる
+        if (queryClient) invalidateSpecDecisionEvents(queryClient, spaceId)
       } else {
         // RLS で弾かれた更新は**エラーではなく0行**で返る（useTasks.updateTask と同じ守り）。
         // .select() を付けて0行なら投げる。投げないと、何も起きていないのにチェックが
@@ -142,10 +146,7 @@ export function useMinutesTaskActions({
         // 日本語と「次にすること」に置き換える
         if (error) throw new MinutesCompleteError(classifyCompleteFailure(error.message))
         if ((data ?? []).length === 0) {
-          throw new MinutesCompleteError(
-            'unknown',
-            'このタスクを完了にできませんでした（権限が無いか、削除された可能性があります）'
-          )
+          throw new MinutesCompleteError('unknown', COMPLETE_FAILURE_NO_ROWS)
         }
       }
       // 一覧のキャッシュを捨てる。捨てないと「完了にしたのに一覧では終わっていない」が

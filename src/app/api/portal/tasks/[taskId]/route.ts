@@ -449,7 +449,7 @@ export async function POST(
     // 確認（ログイン・タスクの読み取り・membership・区分）が全て終わったあとで、
     // 実際の書き込みに使うサーバー側(service role)クライアントを作る。書き込む
     // 行は確認済みの id・space_id・ball・client_scope の条件で固定する。
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'portal', actorUserId: user.id })
 
     const now = new Date().toISOString()
     // Safe trimmed comment for use in request_changes branch

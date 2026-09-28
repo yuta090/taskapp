@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import { computeSpecLinkChanges, SPEC_TAG } from '../lib/specLink.js';
 import { getSupabaseClient } from '../supabase/client.js';
-import { config, getAuthContext } from '../config.js';
+import { getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
 import { dryRunDelete, confirmDelete } from '../auth/dryrun.js';
 import { withTaskNumber } from '../lib/taskNumber.js';
 import { ToolUserError } from '../errors.js';
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js';
-import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace } from '../auth/scope.js';
+import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace, requireActorUserId } from '../auth/scope.js';
 import { hideDbError } from '../lib/dbErrors.js';
 import { buildTaskLink, withTrailingLink } from '../lib/appLinks.js';
 // 画面の担当者選択肢と同じ範囲: 相手先側は client/vendor、社内側は admin/editor/viewer
@@ -157,7 +157,7 @@ export async function taskCreate(params) {
         due_date: params.dueDate || null,
         assignee_id: params.assigneeId || null,
         milestone_id: params.milestoneId || null,
-        created_by: config.actorId,
+        created_by: requireActorUserId(),
     })
         .select('*')
         .single();

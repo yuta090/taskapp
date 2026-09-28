@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
 
   const now = new Date()
   const jstDayOfYear = getJstDayOfYear(now)
-  const admin = createAdminClient() as SupabaseClient
+  const admin = createAdminClient({ channel: 'cron' }) as SupabaseClient
 
   const claimed = await claimDueReminderOccurrences(DEFAULT_CLAIM_LIMIT, now)
 
