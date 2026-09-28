@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createReactBlockSpec } from '@blocknote/react'
-import { createExtension, defaultBlockSpecs } from '@blocknote/core'
+import { createExtension, defaultBlockSpecs, type Extension } from '@blocknote/core'
 import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStampLabel, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 
@@ -143,13 +143,45 @@ export const meetingNoteSpec = {
   ],
 }
 
+/** 折りたたみの Enter に要るものだけに絞ったエディタの形（テストから本物をそのまま渡せる）。 */
+type ToggleEnterEditor = {
+  getTextCursorPosition: () => { block: ToggleEnterBlock }
+  getSelection: () => unknown
+  transact: <T>(fn: () => T) => T
+  updateBlock: (block: never, update: { children: object[] }) => ToggleEnterBlock
+  insertBlocks: (blocks: object[], ref: never, placement: 'before') => ToggleEnterBlock[]
+  setTextCursorPosition: (block: never, placement: 'start' | 'end') => void
+}
+type ToggleEnterBlock = { id: string; type: string; content?: unknown; children: ToggleEnterBlock[] }
+
 /**
- * 折りたたみ。BlockNote の既定の折りたたみをそのまま使い、**入力ルールだけ足す**。
+ * 折りたたみの題名で Enter を押したら、題名を割らずに**中身の先頭に空の行を足してそこへ移る**
+ * （Notion と同じ。ユーザー指定・2026-09-28）。既定だと題名を割って、下にもう1つ折りたたみを
+ * 作っていた。閉じていても、中身が増えれば BlockNote が自分で開く。
  *
- * 既定では `>` ＋スペースは引用ブロックに変わるが、議事録に引用ブロックは無い
- * （Markdown の往復ができないので入れていない）。そのため今までは `>` を打っても
- * ただの文字として残っていた。Notion と同じ感覚で使えるよう、`>` ＋スペースを
- * 折りたたみに割り当てる。
+ * 題名が空のときと文字を選んでいるときは既定に任せる（空なら普通の行に戻る）。
+ */
+export function enterToggleBody(editor: ToggleEnterEditor): boolean {
+  const block = editor.getTextCursorPosition().block
+  if (block.type !== TOGGLE_TYPE) return false
+  if (editor.getSelection()) return false
+  if (!Array.isArray(block.content) || block.content.length === 0) return false
+  editor.transact(() => {
+    const first = block.children[0]
+    const body = first
+      ? editor.insertBlocks([{ type: 'paragraph' }], first as never, 'before')[0]
+      : editor.updateBlock(block as never, { children: [{ type: 'paragraph' }] }).children[0]
+    editor.setTextCursorPosition(body as never, 'start')
+  })
+  return true
+}
+
+/**
+ * 折りたたみ。BlockNote の既定の折りたたみに、Notion と同じ打ち方を2つ足す。
+ *
+ * - `>` ＋スペースで折りたたみになる。既定では引用ブロックが取る打ち方なので、Wiki では
+ *   引用側から外してある（`quoteSpec`）。議事録には引用ブロック自体が無い
+ * - 題名で Enter を押すと中身を書く行へ移る（`enterToggleBody`）
  */
 export const toggleListItemSpec = {
   ...defaultBlockSpecs.toggleListItem,
@@ -163,8 +195,24 @@ export const toggleListItemSpec = {
           replace: () => ({ type: TOGGLE_TYPE, props: {} }),
         },
       ],
+      keyboardShortcuts: {
+        Enter: ({ editor }) => enterToggleBody(editor as unknown as ToggleEnterEditor),
+      },
     }),
   ],
+}
+
+/**
+ * 引用。既定の引用から **`>` ＋スペースの入力ルールだけ外したもの**。`>` は折りたたみに
+ * 渡す（Notion と同じ）。引用は「/」メニューと Ctrl+Alt+Q で作れる。
+ */
+export const quoteSpec = {
+  ...defaultBlockSpecs.quote,
+  extensions: (defaultBlockSpecs.quote.extensions ?? []).map((factory) => {
+    // 既定の引用の拡張は「作る関数」。中身を取り出し、入力ルールだけ空にして渡し直す
+    const ext = (factory as unknown as () => Extension)()
+    return { ...ext, inputRules: [] } as Extension
+  }),
 }
 
 /**

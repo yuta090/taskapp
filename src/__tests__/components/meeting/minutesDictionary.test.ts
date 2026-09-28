@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ja as jaLocale } from '@blocknote/core/locales'
-import { MINUTES_DICTIONARY } from '@/components/meeting/minutesDictionary'
+import { MINUTES_DICTIONARY, TOGGLE_LIST_SLASH_ITEM } from '@/components/meeting/minutesDictionary'
 
 describe('議事録の案内文', () => {
   it('チェックの行では、既定の「リストを追加」を出さない', () => {
@@ -29,5 +29,10 @@ describe('議事録の案内文', () => {
 
   it('折りたたみの説明に近道（>）を書いている', () => {
     expect(MINUTES_DICTIONARY.slash_menu.toggle_list.subtext).toContain('>')
+  })
+
+  it('「/toggle」「/トグル」で折りたたみが出る（Wiki も同じ項目を使う）', () => {
+    expect(MINUTES_DICTIONARY.slash_menu.toggle_list).toBe(TOGGLE_LIST_SLASH_ITEM)
+    expect(TOGGLE_LIST_SLASH_ITEM.aliases).toEqual(expect.arrayContaining(['toggle', 'トグル']))
   })
 })
