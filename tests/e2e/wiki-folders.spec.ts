@@ -9,7 +9,7 @@ import { test, expect } from './fixtures'
 //   4. 「…」→「削除」で確認をはさみ、中身は1つ上の階層へ戻る
 // 作ったフォルダは最後に消す（デモ組織のデータを汚さない）。
 // 画面での後片付けは途中で落ちると走らないので、前後に管理用の鍵でも消す。
-// 前の回の残りがあると一覧の並びが変わり、落ちたり取り違えたりするため。
+// 前の回の残りがあると一覧の並びが変わり、取り違えの元になるため。
 
 const ORG_ID = '00000000-0000-0000-0000-000000000001'
 const SPACE_ID = '00000000-0000-0000-0000-000000000010'
@@ -23,14 +23,18 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } })
 }
 
-/** このテストが作るフォルダ（題名が TITLE_PREFIX で始まるもの）を、前の回の残りも含めて消す */
-async function removeTestFolders() {
+/**
+ * このテストが作るフォルダ（題名が TITLE_PREFIX で始まるもの）を消す。
+ * stamp を渡すとその回で作ったものだけ、渡さないと10分以上前の残りだけを消す
+ * （同時に走っている別の回のフォルダまで消すと、そちらが落ちる）。
+ */
+async function removeTestFolders(stamp?: number) {
   const db = admin()
-  const { data, error } = await db
-    .from('wiki_pages')
-    .select('id')
-    .eq('space_id', SPACE_ID)
-    .like('title', `${TITLE_PREFIX}%`)
+  let query = db.from('wiki_pages').select('id').eq('space_id', SPACE_ID)
+  query = stamp
+    ? query.like('title', `${TITLE_PREFIX}%-${stamp}`)
+    : query.like('title', `${TITLE_PREFIX}%`).lt('created_at', new Date(Date.now() - 10 * 60 * 1000).toISOString())
+  const { data, error } = await query
   if (error) throw error
   const ids = (data ?? []).map(r => r.id)
   if (ids.length === 0) return
@@ -39,12 +43,18 @@ async function removeTestFolders() {
   if (deleteError) throw deleteError
 }
 
-test.beforeEach(removeTestFolders)
-test.afterEach(removeTestFolders)
+let stamp = 0
+
+test.beforeEach(async () => {
+  stamp = Date.now()
+  await removeTestFolders()
+})
+test.afterEach(async () => {
+  await removeTestFolders(stamp)
+})
 
 test.describe('Wiki のフォルダ', () => {
   test('作成・ドラッグで移動・名前変更・削除ができる', async ({ page }) => {
-    const stamp = Date.now()
     const outer = `${TITLE_PREFIX}外-${stamp}`
     const inner = `${TITLE_PREFIX}内-${stamp}`
     const renamed = `${TITLE_PREFIX}改名-${stamp}`
@@ -73,7 +83,10 @@ test.describe('Wiki のフォルダ', () => {
     // 2. ドラッグで inner を outer の中へ。字下げ（左の余白）が増えることで中に入ったと見る
     const paddingOf = async (title: string) =>
       rowByTitle(title).evaluate(el => parseFloat(getComputedStyle(el).paddingLeft))
-    const before = await paddingOf(inner)
+    // 作った直後は仮の行が保存後の行に差し替わる。差し替えの瞬間に読むと、外れた行の値
+    // （NaN）が返るので、数が読めるまで待つ
+    let before = NaN
+    await expect.poll(async () => (before = await paddingOf(inner)), { timeout: 15000 }).not.toBeNaN()
     await rowByTitle(inner).dragTo(rowByTitle(outer))
     await expect.poll(() => paddingOf(inner), { timeout: 15000 }).toBeGreaterThan(before)
     // 字下げだけでは、ほかのフォルダの中に落ちても通ってしまう。outer の直下の行が inner かも見る
