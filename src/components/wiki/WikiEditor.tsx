@@ -10,7 +10,14 @@ import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blockno
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { CheckSquareOffset, ListBullets, Notebook, NotePencil } from '@phosphor-icons/react'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
-import { dividerSpec, meetingNoteSpec, tableOfContentsSpec } from '@/components/meeting/minutesBlocks'
+import {
+  dividerSpec,
+  meetingNoteSpec,
+  quoteSpec,
+  tableOfContentsSpec,
+  toggleListItemSpec,
+} from '@/components/meeting/minutesBlocks'
+import { TOGGLE_LIST_SLASH_ITEM } from '@/components/meeting/minutesDictionary'
 import { InsertLinkControl } from '@/components/editor/InsertLinkControl'
 import type { AppLinkSelection } from '@/components/editor/AppLinkPicker'
 import { EditorToolbarButton } from '@/components/editor/EditorToolbarButton'
@@ -19,7 +26,7 @@ import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import { useEditorClickBehaviors } from '@/components/editor/editorClickBehaviors'
 import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
 import type { AppLinkKind } from '@/lib/navigation/appLinks'
-import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE } from '@/lib/minutes/markdown'
+import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
 import { DOC_POLL_TYPE } from '@/lib/doc-polls/logic'
@@ -120,6 +127,10 @@ const schema = BlockNoteSchema.create({
     [TOC_TYPE]: tableOfContentsSpec,
     // 既定の区切り線に `---` ＋スペースの入力ルールだけ足したもの
     [DIVIDER_TYPE]: dividerSpec,
+    // 折りたたみは `>` ＋スペースで作れて、題名で Enter を押すと中身の行へ移る（議事録と同じ）。
+    // `>` は既定では引用が取るので、引用からはその打ち方だけ外す（Notion と同じ割り当て）
+    [TOGGLE_TYPE]: toggleListItemSpec,
+    quote: quoteSpec,
     // 投票。本文には番号と理由必須の設定だけを持ち、票は DB に置く（DOC_VOTE_SPEC）
     [DOC_POLL_TYPE]: docPollSpec,
     // 相手先が足した行・メモ（DOC_VOTE_SPEC §5.1）。本文に入れるのは社内の編集画面だけ
@@ -135,6 +146,7 @@ const WIKI_DICTIONARY = {
     default: '文字を入力、または「/」でメニューを開く',
     [DOC_POLL_TYPE]: '議題（書かなくてもよい）',
   },
+  slash_menu: { ...jaLocale.slash_menu, toggle_list: TOGGLE_LIST_SLASH_ITEM },
 }
 
 // 「/」メニューに出さない項目。動画・音声はこの画面の安全設定（CSP の default-src 'self'）で
