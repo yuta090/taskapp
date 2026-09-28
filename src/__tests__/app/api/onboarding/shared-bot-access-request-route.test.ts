@@ -48,7 +48,7 @@ describe('POST /api/onboarding/shared-bot-access/request', () => {
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ access: 'requested' })
     expect(notifyMock).toHaveBeenCalledTimes(1)
-    expect(notifyMock).toHaveBeenCalledWith({ orgId: ORG })
+    expect(notifyMock).toHaveBeenCalledWith({ orgId: ORG, actorUserId: 'user-1' })
   })
 
   it('再申込(transitioned=false)では通知しない（連打でメールを溢れさせない）', async () => {

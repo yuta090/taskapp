@@ -20,7 +20,7 @@ interface PatchImportConfigBody {
 
 /** 接続の org_id を引く（認可の対象orgを決めるためだけ。import_config は読まない）。 */
 async function findConnectionOrg(id: string): Promise<string | null> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app' })
   const { data, error } = await admin
     .from('integration_connections')
     .select('org_id')
@@ -104,7 +104,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const patch: Record<string, unknown> = { ...(body.import_config as Record<string, unknown>) }
   for (const key of IMPORT_CONFIG_SERVER_MANAGED_KEYS) delete patch[key]
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId })
   const { data, error } = await admin.rpc('rpc_import_config_merge', {
     p_connection_id: id,
     p_patch: patch,

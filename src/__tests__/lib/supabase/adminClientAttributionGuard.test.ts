@@ -38,7 +38,7 @@ function isCommentLine(line: string): boolean {
 }
 
 // このPRの時点での無引数呼び出しの数。減らすのは歓迎、増やすときは各所に attribution を付ける。
-const MAX_UNATTRIBUTED_CALLS = 111
+const MAX_UNATTRIBUTED_CALLS = 76
 
 describe('createAdminClient — 無引数呼び出しの歯止め', () => {
   it(`無引数の createAdminClient() 呼び出しは ${MAX_UNATTRIBUTED_CALLS} 件を超えない（減らす方向にだけ動かす）`, () => {

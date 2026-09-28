@@ -69,7 +69,8 @@ function getEncryptionKey(): string {
 // Core: fetch config from DB (with decryption)
 // ---------------------------------------------------------------------------
 async function fetchFromDb(provider: IntegrationProvider): Promise<SystemIntegrationConfig | null> {
-  const admin = createAdminClient()
+  // 読み取り専用の設定参照（admin/system-config状態APIの双方から使われる汎用ヘルパー）。
+  const admin = createAdminClient({ channel: 'system' })
 
   const { data, error } = await (admin as SupabaseClient)
     .from('system_integration_configs')

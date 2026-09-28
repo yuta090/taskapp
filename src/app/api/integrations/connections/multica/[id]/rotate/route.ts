@@ -14,7 +14,7 @@ interface MulticaConnectionRow {
 }
 
 async function findMulticaConnection(id: string): Promise<MulticaConnectionRow | null> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app' })
   const { data, error } = await admin
     .from('integration_connections')
     .select('id, org_id, provider, metadata')
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     multica: { ...currentMulticaMeta, [field]: secretEncrypted },
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId })
   const { error } = await admin
     .from('integration_connections')
     .update({ metadata: nextMetadata })
