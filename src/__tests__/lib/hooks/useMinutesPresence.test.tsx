@@ -28,6 +28,8 @@ interface FakeChannel {
   untrack: ReturnType<typeof vi.fn>
   send: ReturnType<typeof vi.fn>
   presenceState: ReturnType<typeof vi.fn>
+  /** supabase-js のチャネルの状態。部屋に入っているあいだだけ 'joined' */
+  state: string
   emitStatus: (status: string) => void
   emit: (key: string) => void
 }
@@ -53,7 +55,11 @@ function createFakeChannel(topic: string, options: unknown): FakeChannel {
     untrack: vi.fn(async () => 'ok'),
     send: vi.fn(async () => 'ok'),
     presenceState: vi.fn(() => presenceState),
-    emitStatus: (status: string) => statusCb?.(status),
+    state: 'joining',
+    emitStatus: (status: string) => {
+      channel.state = status === 'SUBSCRIBED' ? 'joined' : status === 'CLOSED' ? 'closed' : 'errored'
+      statusCb?.(status)
+    },
     emit: (key: string) => (handlers.get(key) ?? []).forEach((h) => h()),
   }
   return channel
@@ -64,7 +70,20 @@ const mockChannel = vi.fn((topic: string, options: unknown) => {
   channels.push(channel)
   return channel
 })
-const mockRemoveChannel = vi.fn()
+/** 片付けたチャネル。supabase-js は同じ名前の部屋が残っていると、新しく作らずにそれを返す */
+let removed = new Set<unknown>()
+const mockRemoveChannel = vi.fn(async (channel: unknown) => {
+  removed.add(channel)
+  return 'ok'
+})
+/** まだ片付いていないチャネル（本物の getChannels） */
+const mockGetChannels = vi.fn(() => channels.filter((c) => !removed.has(c)))
+/** ログインの鍵が更新されたときの知らせ（本物の onAuthStateChange） */
+let authListener: ((event: string, session: { access_token: string } | null) => void) | null = null
+const mockOnAuthStateChange = vi.fn((cb: (event: string, session: { access_token: string } | null) => void) => {
+  authListener = cb
+  return { data: { subscription: { unsubscribe: vi.fn() } } }
+})
 const mockSetAuth = vi.fn(async (token?: string | null) => {
   order.push('setAuth')
   return token
@@ -82,7 +101,12 @@ vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     channel: (topic: string, options: unknown) => mockChannel(topic, options),
     removeChannel: (channel: unknown) => mockRemoveChannel(channel),
-    auth: { getSession: () => mockGetSession() },
+    getChannels: () => mockGetChannels(),
+    auth: {
+      getSession: () => mockGetSession(),
+      onAuthStateChange: (cb: (event: string, session: { access_token: string } | null) => void) =>
+        mockOnAuthStateChange(cb),
+    },
     realtime: { setAuth: (token?: string | null) => mockSetAuth(token) },
   }),
 }))
@@ -98,7 +122,7 @@ function renderPresence(overrides: Partial<Parameters<typeof useMinutesPresence>
 /** 鍵の取得 → setAuth → subscribe まで（await の連鎖）を進める */
 async function flush(): Promise<void> {
   await act(async () => {
-    for (let i = 0; i < 6; i += 1) await Promise.resolve()
+    for (let i = 0; i < 12; i += 1) await Promise.resolve()
   })
 }
 
@@ -126,6 +150,8 @@ beforeEach(() => {
   order = []
   presenceState = {}
   channels = []
+  removed = new Set()
+  authListener = null
   setVisibility('visible')
 })
 
@@ -822,3 +848,127 @@ describe('useMinutesPresence 同時編集の送り主の名札', () => {
     expect(sent.payload).toMatchObject({ from: 'tab-self', to: 'tab-other' })
   })
 })
+
+describe('useMinutesPresence 部屋から外れたとき（2026-09-28 本番で確認）', () => {
+  // 本番の実ブラウザで、タブが部屋から外れたまま戻らず、送る通がすべて「部屋の外からの
+  // 代替経路（REST）」に回っていた。相手には届かず、帯も出ないまま、ずっとずれる
+  async function waitRetry(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+    await flush()
+  }
+
+  it('つながったあとで外されたら（CLOSED）、入り直す', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderPresence()
+    await subscribed()
+    await act(async () => {
+      channels[0].emitStatus('CLOSED')
+      await Promise.resolve()
+    })
+    await waitRetry(2_000)
+    expect(mockRemoveChannel).toHaveBeenCalledWith(channels[0])
+    expect(mockChannel).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it('一度つながったあとの外れは、やり直しの回数を数え直す（前の失敗で諦めない）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const collab = { onMessage: vi.fn(), onPeers: vi.fn(), onStatus: vi.fn() }
+    renderPresence({ collab })
+    await flush()
+    // 1回目は失敗、2回目でつながる
+    await act(async () => {
+      channels[0].emitStatus('CHANNEL_ERROR')
+      await Promise.resolve()
+    })
+    await waitRetry(2_000)
+    await act(async () => {
+      channels[1].emitStatus('SUBSCRIBED')
+      await Promise.resolve()
+    })
+    // そのあと2回外れても、諦めずに入り直す
+    for (const [index, delay] of [[1, 2_000], [2, 2_000]] as const) {
+      await act(async () => {
+        channels[index].emitStatus('CLOSED')
+        await Promise.resolve()
+      })
+      await waitRetry(delay)
+      await act(async () => {
+        channels[index + 1].emitStatus('SUBSCRIBED')
+        await Promise.resolve()
+      })
+    }
+    expect(mockChannel).toHaveBeenCalledTimes(4)
+    expect(collab.onStatus).not.toHaveBeenCalledWith('error')
+    warn.mockRestore()
+  })
+
+  it('同じ名前の古い部屋が残っていれば、片付け終わるのを待ってから作る', async () => {
+    // supabase-js は同じ名前の部屋が残っていると、それを返す。閉じかけの部屋を掴むと外れたままになる
+    const stale = createFakeChannel('realtime:meeting-minutes:m1', {})
+    let finishRemoval: () => void = () => {}
+    channels.push(stale)
+    mockRemoveChannel.mockImplementationOnce(
+      (channel: unknown) =>
+        new Promise((resolve) => {
+          finishRemoval = () => {
+            removed.add(channel)
+            resolve('ok')
+          }
+        })
+    )
+    renderPresence()
+    await flush()
+    expect(mockRemoveChannel).toHaveBeenCalledWith(stale)
+    expect(mockChannel).not.toHaveBeenCalled()
+    await act(async () => {
+      finishRemoval()
+      await Promise.resolve()
+    })
+    await flush()
+    expect(mockChannel).toHaveBeenCalledTimes(1)
+  })
+
+  it('部屋に入っていないときは送らない（代替経路に回さない）。代わりに入り直す', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const collab = { onMessage: vi.fn(), onPeers: vi.fn(), onStatus: vi.fn() }
+    const { result } = renderPresence({ collab })
+    await subscribed()
+    channels[0].state = 'closed'
+    act(() => result.current.sendCollab('y-update', new Uint8Array([1, 2, 3])))
+    expect(channels[0].send).not.toHaveBeenCalled()
+    await waitRetry(2_000)
+    expect(mockChannel).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it('タブが手前に戻ったとき、部屋から外れていれば入り直す', async () => {
+    renderPresence()
+    await subscribed()
+    channels[0].state = 'closed'
+    setVisibility('hidden')
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    setVisibility('visible')
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await flush()
+    expect(mockChannel).toHaveBeenCalledTimes(2)
+  })
+
+  it('ログインの鍵が更新されたら、部屋の鍵も渡し直す（1時間で切れて外されないように）', async () => {
+    renderPresence()
+    await subscribed()
+    expect(authListener).not.toBeNull()
+    await act(async () => {
+      authListener?.('TOKEN_REFRESHED', { access_token: 'jwt-new' })
+      await Promise.resolve()
+    })
+    expect(mockSetAuth).toHaveBeenLastCalledWith('jwt-new')
+  })
+})
+

@@ -165,6 +165,10 @@ export function useMinutesCollab({
   // 固まり、2つの窓が互いに届かないままになる（2026-09-27 本番で報告）。書けない間は
   // エディタも読み取り専用なので、ここで載せ替えても打った分は失われない。
   // 画面の幅は描画の途中では見ない（effect で見る）ので、ここには入れない
+  // 同時編集を始めたあとは、在席も出たり入ったりさせない（下の `enabled: presenceEnabled || wanted`）。
+  // 「書けるか」の判定は組織の一覧を読み直すあいだ一瞬「分からない」に戻ることがあり、そのたびに
+  // 部屋を出入りすると、閉じかけの古い部屋を掴んで外れたままになることがあった（2026-09-28 本番）。
+  // 保存は表の RLS で守られるので、在席を残しても書けるようにはならない
   const ready = collabAllowed && presenceEnabled && !!self.userId && initialMarkdown.length <= maxLength
   const [wanted, setWanted] = useState(ready)
 
@@ -357,7 +361,7 @@ export function useMinutesCollab({
   } = useMinutesPresence({
     meetingId,
     topicPrefix,
-    enabled: presenceEnabled,
+    enabled: presenceEnabled || wanted,
     self,
     tabId,
     collab: collabWiring,
