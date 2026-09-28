@@ -48,6 +48,10 @@ describe('mobile_push_tokens migration', () => {
     expect(statements).not.toMatch(/grant[^;]*\bupdate\b[^;]*mobile_push_tokens/)
   })
 
+  it('既定の権限（新しい表に insert/update が自動で付く）を明示的に外す（あとで insert ポリシーを足しても RPC を迂回させない）', () => {
+    expect(statements).toMatch(/revoke insert, update on table public\.mobile_push_tokens from authenticated/)
+  })
+
   it('登録 RPC は SECURITY DEFINER なので、中で2段階認証を確かめる（RLS を素通りするため）', () => {
     expect(statements).toMatch(/function public\.rpc_register_mobile_push_token/)
     expect(statements).toMatch(/security definer/)

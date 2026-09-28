@@ -7,6 +7,7 @@
  * 送るのは Web の /api/push/dispatch（src/lib/push/sendExpoPush.ts）。
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { unregisterPushToken, type UnregisterResult } from '~/lib/unregisterPushToken'
 import { supabase } from './supabase'
 
 const STORED_TOKEN_KEY = 'agentpm-push-token'
@@ -23,15 +24,18 @@ export async function registerPushToken(token: string, platform: 'ios' | 'androi
 
 /**
  * ログアウトの前に呼ぶ。この端末に前の人の通知が届き続けないように、自分の行を消す。
- * 失敗してもログアウトは止めない（次に別の人が登録すれば DB 側で移る）。
+ * 失敗してもログアウトは止めない（~/lib/unregisterPushToken.ts）。
+ *
+ * 既知の穴: 自分でログアウトせずに切れた場合（ログインの期限切れ・他の端末からの全端末ログアウト）は、
+ * もう DB に触れないので外せない。次にこの端末で誰かがログインして登録すれば、DB 側で宛先が移る。
  */
-export async function unregisterStoredPushToken(): Promise<void> {
-  try {
-    const token = await AsyncStorage.getItem(STORED_TOKEN_KEY)
-    if (!token) return
-    await supabase.from('mobile_push_tokens').delete().eq('token', token)
-    await AsyncStorage.removeItem(STORED_TOKEN_KEY)
-  } catch (e) {
-    console.warn('[push] Failed to unregister push token:', e)
-  }
+export function unregisterStoredPushToken(): Promise<UnregisterResult> {
+  return unregisterPushToken({
+    getStoredToken: () => AsyncStorage.getItem(STORED_TOKEN_KEY),
+    deleteTokenRow: async (token) => {
+      const { error } = await supabase.from('mobile_push_tokens').delete().eq('token', token)
+      return { error }
+    },
+    clearStoredToken: () => AsyncStorage.removeItem(STORED_TOKEN_KEY),
+  })
 }

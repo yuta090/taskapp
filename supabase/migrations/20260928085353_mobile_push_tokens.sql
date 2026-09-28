@@ -36,8 +36,11 @@ create policy mfa_required_when_enrolled on public.mobile_push_tokens
   as restrictive for all to authenticated
   using ((select public.mfa_satisfied())) with check ((select public.mfa_satisfied()));
 
--- insert/update は渡さない（書き込みは下の RPC だけ）。service_role（dispatch）は RLS の外
+-- 書き込みは下の RPC だけ。新しい表には既定の権限（20260912143750_table_privileges.sql）で
+-- insert/update も自動で付くので、明示的に外す（あとで insert ポリシーを足しても RPC を迂回させない）。
+-- service_role（dispatch）は RLS の外
 grant select, delete on table public.mobile_push_tokens to authenticated;
+revoke insert, update on table public.mobile_push_tokens from authenticated;
 
 create or replace function public.rpc_register_mobile_push_token(
   p_token text,

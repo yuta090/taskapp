@@ -629,6 +629,14 @@ describe('POST /api/push/dispatch — スマホアプリ', () => {
     expect(sendExpoPushMock.mock.calls[0][3]).toEqual({ accessToken: 'expo-secret' })
   })
 
+  it('ブラウザの購読が引けなくても、アプリには送る（片方の失敗でもう片方を止めない）', async () => {
+    responses.push_subscriptions = { data: null, error: { message: 'db down' } }
+    const response = await call()
+    expect(response.status).toBe(200)
+    expect(sendExpoPushMock).toHaveBeenCalledTimes(1)
+    expect(sendNotificationMock).not.toHaveBeenCalled()
+  })
+
   it('ブラウザにもアプリにも宛先が無ければ、宛先の役割は引かない', async () => {
     responses.mobile_push_tokens = { data: [], error: null }
     const json = await (await call()).json()

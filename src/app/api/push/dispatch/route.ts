@@ -143,8 +143,8 @@ export async function POST(request: NextRequest) {
     ])
 
     if (subscriptionsResult.error) {
+      // ブラウザの宛先が引けなくても、アプリには送る（アプリ側の取得エラーと同じ扱い）
       console.error('[push/dispatch] Failed to fetch push subscriptions:', subscriptionsResult.error)
-      return NextResponse.json({ error: 'Failed to fetch push subscriptions' }, { status: 500 })
     }
 
     if (mobileTokensResult.error) {
