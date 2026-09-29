@@ -1,4 +1,4 @@
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { refreshZoomToken } from '@/lib/zoom/client'
 import { decryptToken } from '@/lib/integrations/token-crypto'
 import { buildTokenColumns } from '@/lib/integrations/token-manager'
@@ -55,10 +55,8 @@ export class ZoomProvider implements VideoConferenceProvider {
    */
   private async getUserAccessToken(userId: string): Promise<string | null> {
     try {
-      const supabaseAdmin = createSupabaseClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      )
+      // このユーザー自身のZoom接続を読み書きする（会議作成を依頼した利用者本人）。
+      const supabaseAdmin = createAdminClient({ channel: 'app', actorUserId: userId })
 
       const { data: conn } = await supabaseAdmin
         .from('integration_connections')

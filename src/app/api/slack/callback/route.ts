@@ -1,23 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mfaRedirectResponse } from '@/lib/auth/apiMfaGuard'
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { verifySignedState, exchangeCodeForToken } from '@/lib/slack/oauth'
 import { SLACK_CONFIG } from '@/lib/slack/config'
 import { invalidateSlackClientCache } from '@/lib/slack/client'
 
 export const runtime = 'nodejs'
-
-let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
-function getSupabaseAdmin() {
-  if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
-  }
-  return _supabaseAdmin
-}
 
 /**
  * GET /api/slack/callback?code=...&state=...
@@ -37,6 +27,7 @@ export async function GET(request: NextRequest) {
     // 二要素認証: 登録済み × コード未入力(aal1) は連携を紐付けさせず、コード入力画面へ
     const mfaBlock = await mfaRedirectResponse(supabase as SupabaseClient, user, appUrl, '/settings/org-integrations')
     if (mfaBlock) return mfaBlock
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
@@ -71,7 +62,7 @@ export async function GET(request: NextRequest) {
     }
 
     // トークンを暗号化
-    const { data: encryptedToken, error: encryptError } = await (getSupabaseAdmin() as SupabaseClient)
+    const { data: encryptedToken, error: encryptError } = await admin
       .rpc('encrypt_slack_token', {
         token: tokenResponse.access_token,
         secret: SLACK_CONFIG.clientSecret,
@@ -85,7 +76,7 @@ export async function GET(request: NextRequest) {
     }
 
     // DB保存（upsert: org_id + team_id でユニーク）
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
+    const { error: upsertError } = await admin
       .from('slack_workspaces')
       .upsert(
         {

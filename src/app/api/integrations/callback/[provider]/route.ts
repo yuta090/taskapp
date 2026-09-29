@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mfaRedirectResponse } from '@/lib/auth/apiMfaGuard'
 import { createHmac, timingSafeEqual } from 'crypto'
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { exchangeCodeForTokens } from '@/lib/google-calendar/client'
 import { exchangeZoomCode } from '@/lib/zoom/client'
@@ -16,17 +17,6 @@ import { buildTokenColumns } from '@/lib/integrations/token-manager'
 import { saveOAuthConnection } from '@/lib/integrations/connection-store'
 
 export const runtime = 'nodejs'
-
-let _supabaseAdmin: SupabaseClient<Database> | null = null
-function getSupabaseAdmin(): SupabaseClient<Database> {
-  if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
-  }
-  return _supabaseAdmin
-}
 
 /**
  * Verify HMAC signed state (15 minute expiry)
@@ -101,6 +91,7 @@ export async function GET(
     // 二要素認証: 登録済み × コード未入力(aal1) は連携を紐付けさせず、コード入力画面へ
     const mfaBlock = await mfaRedirectResponse(supabase as SupabaseClient, user, appUrl, '/settings/integrations')
     if (mfaBlock) return mfaBlock
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient<Database>
 
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
@@ -134,31 +125,31 @@ export async function GET(
     const { orgId } = stateData
 
     if (provider === 'google_calendar') {
-      return await handleGoogleCalendarCallback(code, orgId, user.id, appUrl)
+      return await handleGoogleCalendarCallback(admin, code, orgId, user.id, appUrl)
     }
 
     if (provider === 'zoom') {
-      return await handleZoomCallback(code, orgId, user.id, appUrl)
+      return await handleZoomCallback(admin, code, orgId, user.id, appUrl)
     }
 
     if (provider === 'teams') {
-      return await handleTeamsCallback(code, orgId, user.id, appUrl)
+      return await handleTeamsCallback(admin, code, orgId, user.id, appUrl)
     }
 
     if (provider === 'notion') {
-      return await handleNotionCallback(code, orgId, appUrl)
+      return await handleNotionCallback(admin, code, orgId, appUrl)
     }
 
     if (provider === 'google_sheets') {
-      return await handleGoogleSheetsCallback(code, orgId, appUrl)
+      return await handleGoogleSheetsCallback(admin, code, orgId, appUrl)
     }
 
     if (provider === 'google_tasks') {
-      return await handleGoogleTasksCallback(code, orgId, user.id, appUrl)
+      return await handleGoogleTasksCallback(admin, code, orgId, user.id, appUrl)
     }
 
     if (isAccountingOAuthProvider(provider)) {
-      return await handleAccountingCallback(provider, code, orgId, appUrl)
+      return await handleAccountingCallback(admin, provider, code, orgId, appUrl)
     }
 
     return NextResponse.redirect(`${appUrl}?error=unsupported_provider`)
@@ -169,6 +160,7 @@ export async function GET(
 }
 
 async function handleGoogleCalendarCallback(
+  admin: SupabaseClient,
   code: string,
   orgId: string,
   userId: string,
@@ -179,7 +171,7 @@ async function handleGoogleCalendarCallback(
 
     // DB保存（upsert: provider + owner_type + owner_id でユニーク）
     const { error: upsertError } = await saveOAuthConnection(
-      getSupabaseAdmin() as SupabaseClient,
+      admin,
       {
         provider: 'google_calendar',
         owner_type: 'user',
@@ -221,6 +213,7 @@ async function handleGoogleCalendarCallback(
  * ワーカー側で行うため、ここは接続の保存に専念する(metadata は空)。
  */
 async function handleGoogleTasksCallback(
+  admin: SupabaseClient,
   code: string,
   orgId: string,
   userId: string,
@@ -230,7 +223,7 @@ async function handleGoogleTasksCallback(
     const tokens = await exchangeGoogleTasksCode(code)
 
     const { data: saved, error: upsertError } = await saveOAuthConnection(
-      getSupabaseAdmin() as SupabaseClient,
+      admin,
       {
         provider: 'google_tasks',
         owner_type: 'user',
@@ -258,7 +251,7 @@ async function handleGoogleTasksCallback(
     // 接続直後に既存のミラー対象タスクを一括 enqueue(best-effort。失敗しても接続は成立させる)。
     // トリガーは将来の変更しか拾わないため、既存分はここで backfill する。
     if (saved?.id) {
-      const { error: backfillError } = await (getSupabaseAdmin() as SupabaseClient).rpc(
+      const { error: backfillError } = await admin.rpc(
         'rpc_backfill_task_mirror',
         { p_connection_id: saved.id },
       )
@@ -277,6 +270,7 @@ async function handleGoogleTasksCallback(
 }
 
 async function handleZoomCallback(
+  admin: SupabaseClient,
   code: string,
   orgId: string,
   userId: string,
@@ -286,7 +280,7 @@ async function handleZoomCallback(
     const tokens = await exchangeZoomCode(code)
 
     const { error: upsertError } = await saveOAuthConnection(
-      getSupabaseAdmin() as SupabaseClient,
+      admin,
       {
         provider: 'zoom',
         owner_type: 'user',
@@ -328,6 +322,7 @@ async function handleZoomCallback(
  * リダイレクト先は既存の/settings/integrationsではなく秘書コンソールの連携タブ。
  */
 async function handleNotionCallback(
+  admin: SupabaseClient,
   code: string,
   orgId: string,
   appUrl: string,
@@ -338,7 +333,7 @@ async function handleNotionCallback(
 
     // Notionトークンは無期限（refresh_tokenなし、token_expires_atはnull）。
     const { error: upsertError } = await saveOAuthConnection(
-      getSupabaseAdmin() as SupabaseClient,
+      admin,
       {
         provider: 'notion',
         owner_type: 'org',
@@ -382,6 +377,7 @@ async function handleNotionCallback(
  * 3社で保存の形が同じなので、provider ごとにハンドラを増やさず1つで扱う。
  */
 async function handleAccountingCallback(
+  admin: SupabaseClient,
   provider: AccountingProviderId,
   code: string,
   orgId: string,
@@ -392,7 +388,7 @@ async function handleAccountingCallback(
     const tokens = await exchangeAccountingCode(provider, code)
 
     const { error: upsertError } = await saveOAuthConnection(
-      getSupabaseAdmin() as SupabaseClient,
+      admin,
       {
         provider,
         owner_type: 'org',
@@ -437,6 +433,7 @@ async function handleAccountingCallback(
  * token-manager.refreshIfNeededが有効期限切れ後にstatus='expired'化して顕在化させる）。
  */
 async function handleGoogleSheetsCallback(
+  admin: SupabaseClient,
   code: string,
   orgId: string,
   appUrl: string,
@@ -464,7 +461,7 @@ async function handleGoogleSheetsCallback(
     }
 
     const { error: upsertError } = await saveOAuthConnection(
-      getSupabaseAdmin() as SupabaseClient,
+      admin,
       upsertPayload as Parameters<typeof saveOAuthConnection>[1],
     )
 
@@ -485,6 +482,7 @@ async function handleGoogleSheetsCallback(
 }
 
 async function handleTeamsCallback(
+  admin: SupabaseClient,
   code: string,
   orgId: string,
   userId: string,
@@ -494,7 +492,7 @@ async function handleTeamsCallback(
     const tokens = await exchangeTeamsCode(code)
 
     const { error: upsertError } = await saveOAuthConnection(
-      getSupabaseAdmin() as SupabaseClient,
+      admin,
       {
         provider: 'teams',
         owner_type: 'user',

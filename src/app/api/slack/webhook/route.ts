@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySlackRequest } from '@/lib/slack/verify'
 import { postSlackMessage } from '@/lib/slack/client'
 import { callLlm } from '@/lib/ai/client'
@@ -9,13 +10,11 @@ import { buildSystemPrompt } from '@/lib/ai/prompt'
 
 export const runtime = 'nodejs'
 
+// Slack Events API(署名検証のみ・TaskApp のログインセッションは無い)。
 let _supabaseAdmin: SupabaseClient<Database> | null = null
 function getSupabaseAdmin(): SupabaseClient<Database> {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'webhook' }) as SupabaseClient<Database>
   }
   return _supabaseAdmin
 }

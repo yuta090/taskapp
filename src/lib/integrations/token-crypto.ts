@@ -1,4 +1,5 @@
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
  * integration_connections のOAuthトークン暗号化。
@@ -19,13 +20,12 @@ import { createClient as createSupabaseClient, type SupabaseClient } from '@supa
  * 「トークン無し」に化けて正当な接続を失効させたり配達を永久に失ったりする(詳細は decryptToken)。
  */
 
+// pgcrypto RPC 呼び出し専用（table 書き込みは行わない）。呼び出し元は kintone/task-sync/
+// video-conference 等に広く混在するため token-manager.ts と同じく channel:'system' に揃える。
 let _supabaseAdmin: SupabaseClient | null = null
 function admin(): SupabaseClient {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'system' }) as SupabaseClient
   }
   return _supabaseAdmin
 }

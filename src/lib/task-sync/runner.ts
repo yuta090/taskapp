@@ -1,4 +1,6 @@
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { CONNECTOR_SYSTEM_USER_ID } from '@/lib/connectors/systemUser'
 import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
 import { resolveCredentials, type ConnectionCredentialRow } from '@/lib/task-sync/credentials'
 import { importConnection, type ImportTargets, type MissingContainerMap } from '@/lib/task-sync/engine'
@@ -16,10 +18,9 @@ import { createTaskSyncStore, validateImportTargets } from '@/lib/task-sync/stor
 let _admin: SupabaseClient | null = null
 function admin(): SupabaseClient {
   if (!_admin) {
-    _admin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    // cron起点のタスク同期取り込みランナー。実行者の名義はシステムユーザーに揃える
+    // (src/lib/task-sync/store.ts の created_by と同じ CONNECTOR_SYSTEM_USER_ID)。
+    _admin = createAdminClient({ channel: 'connector', actorUserId: CONNECTOR_SYSTEM_USER_ID }) as SupabaseClient
   }
   return _admin
 }

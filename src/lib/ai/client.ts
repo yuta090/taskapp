@@ -1,14 +1,14 @@
-import { createClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { SLACK_CONFIG } from '@/lib/slack/config'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+// org の AI 設定は cron・Slack Webhook・マッピングウィザード等、呼び出し元が混在する共有基盤
+// （特定の利用者/経路に紐付かない）。個々の呼び出し元へ attribution を通す改修は侵襲的なため、
+// 他の共有基盤（src/lib/ai/usage.ts 等）と同じく channel:'system' に揃える。
+let _supabaseAdmin: ReturnType<typeof createAdminClient> | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'system' })
   }
   return _supabaseAdmin
 }

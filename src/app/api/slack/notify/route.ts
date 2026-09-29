@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { notificationRegistry } from '@/lib/notifications'
 import { SlackNotificationProvider } from '@/lib/slack/provider'
@@ -10,17 +11,6 @@ export const runtime = 'nodejs'
 
 if (!notificationRegistry.get('slack')) {
   notificationRegistry.register(new SlackNotificationProvider())
-}
-
-let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
-function getSupabaseAdmin() {
-  if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
-  }
-  return _supabaseAdmin
 }
 
 const ALLOWED_EVENTS: NotificationEventType[] = [
@@ -64,22 +54,26 @@ export async function POST(request: NextRequest) {
 
     // 内部呼び出しの場合はbodyからactorIdを取得
     const resolvedActorId = actorId || bodyActorId || null
+    const admin = createAdminClient({
+      channel: 'app',
+      actorUserId: resolvedActorId ?? undefined,
+    }) as SupabaseClient
 
     // タスク・Space・Actor・Assignee情報を並列取得
     const [taskResult, spaceResult, actorResult] = await Promise.all([
-      (getSupabaseAdmin() as SupabaseClient)
+      admin
         .from('tasks')
         .select('*')
         .eq('id', taskId)
         .eq('space_id', spaceId)
         .single(),
-      (getSupabaseAdmin() as SupabaseClient)
+      admin
         .from('spaces')
         .select('name, org_id')
         .eq('id', spaceId)
         .single(),
       resolvedActorId
-        ? (getSupabaseAdmin() as SupabaseClient)
+        ? admin
             .from('profiles')
             .select('display_name')
             .eq('id', resolvedActorId)
@@ -97,7 +91,7 @@ export async function POST(request: NextRequest) {
     // Assignee名取得
     let assigneeName: string | null = null
     if (task.assignee_id) {
-      const { data: assigneeProfile } = await (getSupabaseAdmin() as SupabaseClient)
+      const { data: assigneeProfile } = await admin
         .from('profiles')
         .select('display_name')
         .eq('id', task.assignee_id)

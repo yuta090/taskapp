@@ -29,6 +29,8 @@ vi.mock('@/lib/slack/config', () => ({ SLACK_CONFIG: { clientSecret: 'cs' } }))
 const { postSlackMessage } = await import('@/lib/slack/client')
 
 beforeEach(() => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
   postMessageMock.mockClear()
 })
 
