@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { test, expect } from './fixtures'
+import { createAdminDb } from './adminDb'
 
 // Wiki のフォルダ（PR5）を実ブラウザで一通り触る。jsdom では HTML5 のドラッグ＆ドロップと
 // 確認ダイアログの流れを通しで確かめられないので、ここで固定する。
@@ -17,10 +17,7 @@ const SPACE_URL = `/${ORG_ID}/project/${SPACE_ID}`
 const TITLE_PREFIX = 'E2Eフォルダ'
 
 function admin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が .env.local に無い')
-  return createClient(url, key, { auth: { persistSession: false } })
+  return createAdminDb()
 }
 
 /**
