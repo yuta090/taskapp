@@ -70,3 +70,23 @@ describe('createChunkedStorage', () => {
     expect(await storage.getItem('sb:auth/token')).toBe('v')
   })
 })
+
+describe('createChunkedStorage — 書き込みの途中で失敗したとき', () => {
+  it('新旧の断片が混ざった値を残さない（読むと null になり、ログインし直しになる）', async () => {
+    const store = memoryStore()
+    const storage = createChunkedStorage(store, 4)
+    await storage.setItem('sb-auth', 'aaaabbbbcccc')
+    let writes = 0
+    const flaky: KeyValueStore = {
+      ...store,
+      setItem: async (k, v) => {
+        writes += 1
+        if (writes === 2) throw new Error('keychain busy')
+        await store.setItem(k, v)
+      },
+    }
+    const storage2 = createChunkedStorage(flaky, 4)
+    await expect(storage2.setItem('sb-auth', 'xxxxyyyyzzzz')).rejects.toThrow('keychain busy')
+    expect(await storage.getItem('sb-auth')).toBeNull()
+  })
+})

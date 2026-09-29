@@ -44,12 +44,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [chosenOrgId, setChosenOrgId] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setSessionLoaded(true)
-      // ログインしていない起動: 前に外し損ねた通知の宛先が残っていれば、ここでやり直す
-      if (!data.session) void unregisterLeftoverPushToken()
-    })
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setSession(data.session)
+        // ログインしていない起動: 前に外し損ねた通知の宛先が残っていれば、ここでやり直す
+        if (!data.session) void unregisterLeftoverPushToken()
+      })
+      // 保存先が読めない等で失敗しても、起動画面で止めずにログイン画面へ進める
+      .catch(() => setSession(null))
+      .finally(() => setSessionLoaded(true))
     AsyncStorage.getItem(ACTIVE_ORG_KEY)
       .catch(() => null)
       .then((saved) => setSavedOrgId(saved))

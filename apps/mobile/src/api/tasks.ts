@@ -61,7 +61,9 @@ export async function fetchTask(taskId: string): Promise<TaskDetail | null> {
   const row = data as unknown as Task & { reviews?: EmbeddedReviews; spaces?: { name: string } | null }
   const { spaces, ...rest } = row
   const { tasks, reviewStatuses } = splitEmbeddedReviews<Task>([rest])
-  return { task: tasks[0], reviewStatus: reviewStatuses[taskId], spaceName: spaces?.name ?? null }
+  const task = tasks[0]
+  if (!task) return null
+  return { task, reviewStatus: reviewStatuses[taskId], spaceName: spaces?.name ?? null }
 }
 
 /**

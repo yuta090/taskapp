@@ -49,8 +49,15 @@ export function createChunkedStorage(store: KeyValueStore, chunkSize = 1800): Ke
       const parts: string[] = []
       for (let i = 0; i < value.length; i += chunkSize) parts.push(value.slice(i, i + chunkSize))
       if (parts.length === 0) parts.push('')
-      for (let i = 0; i < parts.length; i++) await store.setItem(`${base}.${i}`, parts[i])
-      await store.setItem(`${base}.n`, String(parts.length))
+      // 書き始める前に断片の数を消す。途中で失敗しても、新旧の断片が混ざった値は読まれない（null＝ログインし直し）
+      await store.removeItem(`${base}.n`)
+      try {
+        for (let i = 0; i < parts.length; i++) await store.setItem(`${base}.${i}`, parts[i])
+        await store.setItem(`${base}.n`, String(parts.length))
+      } catch (error) {
+        await removeChunks(base, 0, Math.max(parts.length, previous)).catch(() => {})
+        throw error
+      }
       await removeChunks(base, parts.length, previous)
     },
 

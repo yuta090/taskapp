@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { signInWithGoogle } from '~/api/googleSignIn'
 import { supabase } from '~/api/supabase'
 import { Button, Field } from '~/components/ui'
+import { loginErrorMessage } from '~/lib/loginError'
 import { useColors } from '~/theme/colors'
 
 /**
@@ -31,7 +32,7 @@ export default function LoginScreen() {
     setError(null)
     const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     setSubmitting(false)
-    if (signInError) setError('メールアドレスかパスワードが違います')
+    if (signInError) setError(loginErrorMessage(signInError))
   }
 
   return (

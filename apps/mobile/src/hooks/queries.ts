@@ -151,8 +151,11 @@ export function useAddComment(task: { id: string; org_id: string; space_id: stri
   const queryClient = useQueryClient()
   const ctx = useReadyContext()
   return useMutation({
-    mutationFn: ({ body, visibility }: { body: string; visibility: CommentVisibility }) =>
-      addComment(task!, ctx!.userId, body, visibility),
+    mutationFn: ({ body, visibility }: { body: string; visibility: CommentVisibility }) => {
+      // ログアウトした直後などに押されたら、送らずに失敗として返す
+      if (!task || !ctx) throw new Error('ログインし直してから、もう一度お試しください')
+      return addComment(task, ctx.userId, body, visibility)
+    },
     onSettled: () =>
       queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'comments' && q.queryKey[2] === task?.id }),
   })
@@ -170,7 +173,10 @@ export function useMarkAllRead() {
   const queryClient = useQueryClient()
   const ctx = useReadyContext()
   return useMutation({
-    mutationFn: () => markAllRead(ctx!.userId, ctx!.orgId),
+    mutationFn: () => {
+      if (!ctx) throw new Error('ログインし直してから、もう一度お試しください')
+      return markAllRead(ctx.userId, ctx.orgId)
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['inbox'] }),
   })
 }

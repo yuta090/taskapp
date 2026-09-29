@@ -43,3 +43,12 @@ describe('assuranceFromSession', () => {
     expect(assuranceFromSession({ access_token: 'broken', user: {} })).toBeNull()
   })
 })
+
+describe('assuranceFromSession — 形のおかしいトークン', () => {
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+  it('3つに分かれていない・中身が配列なら null（使える判定にしない）', () => {
+    expect(assuranceFromSession({ access_token: 'a.b', user: {} })).toBeNull()
+    expect(assuranceFromSession({ access_token: `h.${b64([1, 2])}.s`, user: {} })).toBeNull()
+    expect(assuranceFromSession({ access_token: 'h.%%%.s', user: {} })).toBeNull()
+  })
+})
