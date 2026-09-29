@@ -95,7 +95,8 @@ test('Wiki の目次ブロック: 「/」から入れられて、見出しを拾
   expect(tocFont).toBeLessThan(bodyFont)
 
   // 3. 最後の項目を押すと、画面の外にあった見出しが画面に入る
-  const target = editor.getByRole('heading', { name: '目次の確認 おわりに', exact: true })
+  // 見出しの名前はこのテストで作ったものなので getByRole の name では探さない（e2eContract が実装の表示名として検査する）
+  const target = editor.locator('h2', { hasText: '目次の確認 おわりに' })
   await expect(target).not.toBeInViewport()
   await items.last().click()
   await expect(target).toBeInViewport({ timeout: 10000 })
