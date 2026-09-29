@@ -32,6 +32,8 @@ export const supabase: SupabaseClient = createClient(url, anonKey, {
     persistSession: true,
     // アプリには URL でセッションを受け取る仕組みが無い（Web の /auth/callback 相当は無い）
     detectSessionInUrl: false,
+    // Google ログインは PKCE（アプリに戻ってきた認可コードを、端末に残した鍵と一緒にセッションへ換える）
+    flowType: 'pkce',
     lock: processLock,
   },
 })

@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { signInWithGoogle } from '~/api/googleSignIn'
 import { supabase } from '~/api/supabase'
 import { Button, Field } from '~/components/ui'
 import { useColors } from '~/theme/colors'
 
 /**
- * メールアドレスとパスワードでログインする（Web の /login と同じアカウント）。
- * Google でのログイン・新規登録・パスワード再設定は Web で行う（アプリに戻る URL の設定が要るため、次の段階）。
+ * メールアドレスとパスワード、または Google でログインする（Web の /login と同じアカウント）。
+ * 新規登録・パスワード再設定は Web で行う。
  */
 export default function LoginScreen() {
   const c = useColors()
@@ -15,6 +16,15 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [googleSubmitting, setGoogleSubmitting] = useState(false)
+
+  const onGoogle = async () => {
+    setGoogleSubmitting(true)
+    setError(null)
+    const result = await signInWithGoogle()
+    setGoogleSubmitting(false)
+    if (!result.ok && !result.cancelled) setError(result.message ?? 'ログインできませんでした')
+  }
 
   const onSubmit = async () => {
     setSubmitting(true)
@@ -49,7 +59,9 @@ export default function LoginScreen() {
             onSubmitEditing={onSubmit}
           />
           {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
-          <Button label="ログイン" onPress={onSubmit} loading={submitting} disabled={!email || !password} />
+          <Button label="ログイン" onPress={onSubmit} loading={submitting} disabled={!email || !password || googleSubmitting} />
+          <Text style={[styles.or, { color: c.textMuted }]}>または</Text>
+          <Button label="Google でログイン" variant="secondary" onPress={onGoogle} loading={googleSubmitting} disabled={submitting} />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -63,4 +75,5 @@ const styles = StyleSheet.create({
   lead: { fontSize: 14, textAlign: 'center', marginTop: 8, marginBottom: 32 },
   form: { gap: 16 },
   error: { fontSize: 13 },
+  or: { fontSize: 12, textAlign: 'center' },
 })
