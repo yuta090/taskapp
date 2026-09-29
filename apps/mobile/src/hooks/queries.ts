@@ -3,7 +3,7 @@
  * （組織を切り替えたとき・別の人がログインしたときに、前のデータを出さないため）。
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CommentVisibility, TaskStatus } from '@/types/database'
+import type { CommentVisibility, Task, TaskStatus } from '@/types/database'
 import { addComment, fetchComments } from '~/api/comments'
 import { fetchInbox, markAllRead, markRead } from '~/api/notifications'
 import {
@@ -12,6 +12,7 @@ import {
   fetchMyPendingReviewTaskIds,
   fetchMyTasks,
   fetchTask,
+  passBallToClientTask,
   takeBallInternal,
   updateTaskStatus,
   type MyTasksData,
@@ -88,8 +89,9 @@ export function useUpdateStatus() {
   const invalidate = useInvalidateTask()
   const ctx = useReadyContext()
   return useMutation({
-    mutationFn: ({ taskId, status }: { taskId: string; status: TaskStatus }) => updateTaskStatus(taskId, status),
-    onMutate: async ({ taskId, status }) => {
+    mutationFn: ({ task, status }: { task: Pick<Task, 'id' | 'space_id' | 'status'>; status: TaskStatus }) =>
+      updateTaskStatus(task, status),
+    onMutate: async ({ task, status }) => {
       if (!ctx) return undefined
       const key = keys.myTasks(ctx.userId, ctx.orgId)
       await queryClient.cancelQueries({ queryKey: key })
@@ -97,7 +99,7 @@ export function useUpdateStatus() {
       if (previous) {
         queryClient.setQueryData<MyTasksData>(key, {
           ...previous,
-          tasks: previous.tasks.map((t) => (t.id === taskId ? { ...t, status } : t)),
+          tasks: previous.tasks.map((t) => (t.id === task.id ? { ...t, status } : t)),
         })
       }
       return { key, previous }
@@ -105,15 +107,23 @@ export function useUpdateStatus() {
     onError: (_e, _v, context) => {
       if (context?.previous) queryClient.setQueryData(context.key, context.previous)
     },
-    onSettled: (_d, _e, { taskId }) => invalidate(taskId),
+    onSettled: (_d, _e, { task }) => invalidate(task.id),
   })
 }
 
 export function useTakeBall() {
   const invalidate = useInvalidateTask()
   return useMutation({
-    mutationFn: (taskId: string) => takeBallInternal(taskId),
-    onSettled: (_d, _e, taskId) => invalidate(taskId),
+    mutationFn: (task: Pick<Task, 'id' | 'space_id'>) => takeBallInternal(task),
+    onSettled: (_d, _e, task) => invalidate(task.id),
+  })
+}
+
+export function usePassBallToClient() {
+  const invalidate = useInvalidateTask()
+  return useMutation({
+    mutationFn: (task: Pick<Task, 'id' | 'space_id'>) => passBallToClientTask(task),
+    onSettled: (_d, _e, task) => invalidate(task.id),
   })
 }
 

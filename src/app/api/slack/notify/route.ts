@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
+import { createRouteAuth } from '@/lib/supabase/routeAuth'
 import { notificationRegistry } from '@/lib/notifications'
 import { SlackNotificationProvider } from '@/lib/slack/provider'
 import type { NotificationEventType, TaskNotificationPayload } from '@/lib/notifications/types'
@@ -34,15 +34,15 @@ export async function POST(request: NextRequest) {
       internalSecret && internalSecret === process.env.INTERNAL_NOTIFY_SECRET
 
     if (!isInternalCall) {
-      const supabase = await createClient()
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (authError || !user) {
+      // ブラウザの Cookie、またはスマホアプリの Bearer トークン（src/lib/supabase/routeAuth.ts）
+      const auth = await createRouteAuth(request)
+      if (!auth) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
       // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く
-      const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+      const mfaBlock = await mfaGuardResponse(auth.supabase as SupabaseClient, auth.user, auth.accessToken)
       if (mfaBlock) return mfaBlock
-      actorId = user.id
+      actorId = auth.user.id
     }
 
     const body = await request.json()

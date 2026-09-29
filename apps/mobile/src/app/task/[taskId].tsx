@@ -11,6 +11,7 @@ import {
   useApproveReview,
   useBlockReview,
   useComments,
+  usePassBallToClient,
   usePendingReviewTaskIds,
   useTakeBall,
   useTaskDetail,
@@ -32,6 +33,7 @@ export default function TaskDetailScreen() {
   const pending = usePendingReviewTaskIds()
   const updateStatus = useUpdateStatus()
   const takeBall = useTakeBall()
+  const passToClient = usePassBallToClient()
   const approve = useApproveReview()
   const block = useBlockReview()
   const [blockOpen, setBlockOpen] = useState(false)
@@ -58,7 +60,7 @@ export default function TaskDetailScreen() {
       }
     }
     updateStatus.mutate(
-      { taskId: task.id, status },
+      { task, status },
       {
         onError: (e) => {
           // 0 行（権限なし・削除済み）は ensureUpdated が決まった文で投げる。それ以外は DB の文を言い換える
@@ -70,7 +72,24 @@ export default function TaskDetailScreen() {
   }
 
   const onTakeBall = () =>
-    takeBall.mutate(task.id, { onError: (e) => Alert.alert('ボールを戻せませんでした', e instanceof Error ? e.message : '') })
+    takeBall.mutate(task, { onError: (e) => Alert.alert('ボールを戻せませんでした', e instanceof Error ? e.message : '') })
+
+  const onPassToClient = () =>
+    Alert.alert('相手先にボールを渡しますか？', '相手先に承認依頼のメールが届きます', [
+      { text: 'やめる', style: 'cancel' },
+      {
+        text: '渡す',
+        onPress: () =>
+          passToClient.mutate(task, {
+            onSuccess: ({ emailSent }) => {
+              if (!emailSent) {
+                Alert.alert('承認依頼のメールを送れませんでした', 'ボールは相手先に渡っています。Web から送り直してください')
+              }
+            },
+            onError: (e) => Alert.alert('ボールを渡せませんでした', e instanceof Error ? e.message : ''),
+          }),
+      },
+    ])
 
   const onApprove = () =>
     approve.mutate(task.id, {
@@ -184,9 +203,18 @@ export default function TaskDetailScreen() {
         {task.ball !== 'internal' ? (
           <View style={styles.block}>
             <Button label="ボールを自分たちに戻す" variant="secondary" onPress={onTakeBall} loading={takeBall.isPending} />
-            <Text style={[styles.hint, { color: c.textMuted }]}>相手先にボールを渡すのは、いまは Web で行います</Text>
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.block}>
+            <Button
+              label="相手先にボールを渡す"
+              variant="secondary"
+              onPress={onPassToClient}
+              loading={passToClient.isPending}
+            />
+            <Text style={[styles.hint, { color: c.textMuted }]}>相手先に承認依頼のメールが届きます</Text>
+          </View>
+        )}
 
         {task.description ? (
           <View style={styles.block}>

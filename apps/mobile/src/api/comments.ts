@@ -1,12 +1,11 @@
 /**
  * タスクのコメント（Web の useTaskComments と同じ読み書き）。
  * 受信トレイへの通知（メンション・コメントが付いた）は DB のトリガー（task_comments_notify）が作る。
- *
- * 既知の差: Web は「相手先にも見える」コメントのとき Slack にも知らせる（/api/slack/notify）。
- * そのサーバーはブラウザのログイン（Cookie）でしか呼べないので、アプリからのコメントでは Slack に出ない。
+ * 「相手先にも見える」コメントは、Web と同じく Slack にも知らせる（/api/slack/notify をアプリのトークンで呼ぶ）。
  */
 import type { CommentVisibility, TaskComment } from '@/types/database'
 import { supabase } from './supabase'
+import { notifySlack } from './webApi'
 
 export interface CommentWithAuthor extends TaskComment {
   authorName: string
@@ -52,4 +51,7 @@ export async function addComment(
     visibility,
   })
   if (error) throw error
+  if (visibility === 'client') {
+    notifySlack({ event: 'comment_added', taskId: task.id, spaceId: task.space_id, changes: { commentBody: body } })
+  }
 }

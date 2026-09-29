@@ -4,10 +4,12 @@
  */
 import { rpc } from '@/lib/supabase/rpc'
 import { splitEmbeddedReviews, type EmbeddedReviews } from '@/lib/tasks/reviewStatus'
-import type { Milestone, ReviewStatus, Space, Task, TaskStatus } from '@/types/database'
+import type { BallSide, Milestone, ReviewStatus, Space, Task, TaskStatus } from '@/types/database'
 import { ownerIdsBySide } from '~/lib/owners'
+import { passBallToClient } from '~/lib/passToClient'
 import { ensureUpdated } from '~/lib/taskRules'
 import { supabase, typedSupabase } from './supabase'
+import { notifySlack, postWebApi } from './webApi'
 
 export interface MyTasksData {
   tasks: Task[]
@@ -63,30 +65,51 @@ export async function fetchTask(taskId: string): Promise<TaskDetail | null> {
 }
 
 /**
- * 状態を変える。Web のマイタスクの「状態を切り替える」と同じく、タスクの行を直接更新する。
+ * 状態を変える。Web のタスク詳細（useTasks.updateTask）と同じく、タスクの行を直接更新して Slack にも知らせる。
  * 完了にできない条件（社内承認が終わっていない等）は DB も拒否する。
  */
-export async function updateTaskStatus(taskId: string, status: TaskStatus): Promise<void> {
-  const { data, error } = await supabase.from('tasks').update({ status }).eq('id', taskId).select('id')
+export async function updateTaskStatus(task: Pick<Task, 'id' | 'space_id' | 'status'>, status: TaskStatus): Promise<void> {
+  const { data, error } = await supabase.from('tasks').update({ status }).eq('id', task.id).select('id')
   if (error) throw error
   ensureUpdated(data)
+  notifySlack({ event: 'status_changed', taskId: task.id, spaceId: task.space_id, changes: { oldStatus: task.status, newStatus: status } })
 }
 
-/**
- * ボールを社内に戻す（自分たちの番にする）。
- *
- * 相手先に渡す操作はまだ出さない: Web では相手先に渡すとき、サーバー（/api/portal/notify-approval）が
- * 相手先へ承認依頼のメールを送る。そのサーバーはブラウザのログイン（Cookie）でしか呼べないので、
- * アプリから渡すとメールが届かない。アプリ用の認証を足すまでは Web で行う。
- */
-export async function takeBallInternal(taskId: string): Promise<void> {
+async function fetchOwners(taskId: string) {
   const { data, error } = await supabase.from('task_owners').select('side, user_id').eq('task_id', taskId)
   if (error) throw error
-  const { clientOwnerIds, internalOwnerIds, hasOtherSides } = ownerIdsBySide(data ?? [])
+  return (data ?? []) as { side: BallSide; user_id: string }[]
+}
+
+/** ボールを社内に戻す（自分たちの番にする）。担当者は今のまま（rpc_pass_ball は担当者を入れ替えるので全員渡す） */
+export async function takeBallInternal(task: Pick<Task, 'id' | 'space_id'>): Promise<void> {
+  const { clientOwnerIds, internalOwnerIds, hasOtherSides } = ownerIdsBySide(await fetchOwners(task.id))
   if (hasOtherSides) {
     throw new Error('代理店・ベンダーの担当者がいるタスクは、Web でボールを渡してください')
   }
-  await rpc.passBall(typedSupabase, { taskId, ball: 'internal', clientOwnerIds, internalOwnerIds })
+  await rpc.passBall(typedSupabase, { taskId: task.id, ball: 'internal', clientOwnerIds, internalOwnerIds })
+  notifySlack({ event: 'ball_passed', taskId: task.id, spaceId: task.space_id, changes: { newBall: 'internal' } })
+}
+
+/**
+ * 相手先にボールを渡す（~/lib/passToClient.ts の順）。承認依頼メールは Web の /api/portal/notify-approval が
+ * 送る（アプリのトークンで呼ぶ）。メールを送れなくてもボールは戻さない（Web と同じ）。
+ */
+export function passBallToClientTask(task: Pick<Task, 'id' | 'space_id'>) {
+  return passBallToClient(task.id, {
+    getOwners: fetchOwners,
+    passBall: ({ clientOwnerIds, internalOwnerIds }) =>
+      rpc.passBall(typedSupabase, { taskId: task.id, ball: 'client', clientOwnerIds, internalOwnerIds }).then(() => {}),
+    notifyApproval: async (taskId) => {
+      try {
+        return (await postWebApi('/api/portal/notify-approval', { taskId })).ok
+      } catch {
+        return false
+      }
+    },
+    notifySlack: (taskId) =>
+      notifySlack({ event: 'ball_passed', taskId, spaceId: task.space_id, changes: { newBall: 'client' } }),
+  })
 }
 
 /** 自分に届いた社内承認を承認する。そろえば DB がタスクを完了にする */

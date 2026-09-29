@@ -13,9 +13,10 @@ Web 用のルール（3ペイン・`bg-surface`・Next.js のページ速度レ�
 - **Web のロジックは複製せず `@/…` で共有する**（`@/lib/tasks/myTaskViews` など）。共有してよいのは
   React・Next.js・ブラウザに依存しないファイルだけ。共有先を変えたら `npx expo export --platform ios` で
   まとめられるか確かめる。
-- **Web ではサーバーが副作用を足している操作は、アプリから出さない**。例: 相手先にボールを渡すと
-  `/api/portal/notify-approval` が承認依頼メールを送る。そのサーバーはブラウザの Cookie でしか呼べないので、
-  アプリから同じ DB 操作をするとメールが届かない。アプリ用の認証（Bearer トークン）を足すまでは Web に任せる。
+- **Web ではサーバーが副作用を足している操作は、アプリでも同じサーバー API を呼ぶ**（`src/api/webApi.ts`。
+  アクセストークンを Bearer で付ける）。サーバー側で Bearer を受け付けるのは `createRouteAuth`
+  （`src/lib/supabase/routeAuth.ts`）を使うルートだけ。新しく呼ぶルートは、そのルートを `createRouteAuth` に
+  切り替えて、2段階認証の確認に `accessToken` を渡す（渡さないと登録者が必ず弾かれる）。
 - **`rpc_pass_ball` は担当者を入れ替える**。ボールだけ変えるときも、今の担当者を全員渡す（`src/lib/owners.ts`）。
 - **古い版が残る前提で変える**。DB の列名・RPC の引数を変えるときは、古い版のアプリが壊れないか考え、
   壊れるなら `src/lib/mobile/version.ts`（Web 側）の最低の版を上げる手順を踏む。
