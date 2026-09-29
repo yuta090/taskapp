@@ -1,15 +1,16 @@
 /**
- * ログインが自分のログアウト以外で切れたとき（ログインの期限切れ・他の端末からの全端末ログアウト）の後片付け。
- * もう DB に触れないので、Web の /api/mobile/push-token/unregister に端末のトークンを渡して宛先を外してもらう
+ * ログアウトした・ログインが切れた後に、通知の宛先が残っていたら外す。
+ * もう DB に触れないので、Web の /api/mobile/push-token/unregister に端末のトークンを渡して外してもらう
  * （トークンを持っていることが証明）。外さないと、前の人の通知がこの端末に届き続ける。
+ *
+ * 呼ぶのは SIGNED_OUT のときと、ログインしていない状態でアプリを起動したとき（圏外で外せなかった分のやり直し）。
+ * 自分でログアウトしたときは先に自分で外していて、外せていれば覚えたトークンは消えている＝ここでは何もしない。
  */
 export async function cleanupPushAfterSignedOut(deps: {
-  manual: boolean
   getStoredToken: () => Promise<string | null>
   postUnregister: (token: string) => Promise<boolean>
   clearStoredToken: () => Promise<void>
 }): Promise<void> {
-  if (deps.manual) return
   try {
     const token = await deps.getStoredToken()
     if (!token) return

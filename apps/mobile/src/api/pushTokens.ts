@@ -28,7 +28,7 @@ export async function registerPushToken(token: string, platform: 'ios' | 'androi
  * ログアウトの前に呼ぶ。この端末に前の人の通知が届き続けないように、自分の行を消す。
  * 失敗してもログアウトは止めない（~/lib/unregisterPushToken.ts）。
  *
- * 自分でログアウトせずに切れた場合は unregisterAfterSignedOut（サーバーに頼んで外す）。
+ * 外せなかったとき・自分でログアウトせずに切れたときは unregisterLeftoverPushToken（サーバーに頼んで外す）。
  */
 export function unregisterStoredPushToken(): Promise<UnregisterResult> {
   return unregisterPushToken({
@@ -42,12 +42,11 @@ export function unregisterStoredPushToken(): Promise<UnregisterResult> {
 }
 
 /**
- * 自分のログアウト以外でログインが切れたとき（期限切れ・他の端末から全端末ログアウト）に呼ぶ。
- * もう DB に触れないので、Web の /api/mobile/push-token/unregister にトークンを渡して外してもらう。
+ * ログアウト・ログインが切れた後に、外し損ねた宛先があれば外す（~/lib/signedOutCleanup.ts）。
+ * SIGNED_OUT のときと、ログインしていない状態でアプリを起動したときに呼ぶ。
  */
-export function unregisterAfterSignedOut(manual: boolean): Promise<void> {
+export function unregisterLeftoverPushToken(): Promise<void> {
   return cleanupPushAfterSignedOut({
-    manual,
     getStoredToken: () => AsyncStorage.getItem(STORED_TOKEN_KEY),
     postUnregister: async (token) => (await postWebApi('/api/mobile/push-token/unregister', { token }, { auth: false })).ok,
     clearStoredToken: () => AsyncStorage.removeItem(STORED_TOKEN_KEY),

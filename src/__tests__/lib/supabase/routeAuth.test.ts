@@ -44,9 +44,17 @@ describe('createRouteAuth', () => {
     expect(cookieCreateClientMock).not.toHaveBeenCalled()
   })
 
-  it('Bearer 以外の Authorization（Basic など）は null', async () => {
-    expect(await createRouteAuth(request({ authorization: 'Basic abc' }))).toBeNull()
+  it('Bearer 以外の Authorization（手前に置いた Basic 認証など）は Cookie のログインで確かめる', async () => {
+    cookieGetUser.mockResolvedValue({ data: { user: { id: 'u2' } }, error: null })
+    cookieGetSession.mockResolvedValue({ data: { session: { access_token: 'cookie-jwt' } } })
+    const auth = await createRouteAuth(request({ authorization: 'Basic abc' }))
+    expect(auth).toMatchObject({ user: { id: 'u2' }, via: 'cookie' })
     expect(createBearerClientMock).not.toHaveBeenCalled()
+  })
+
+  it('Bearer の後ろが空・空白入りなら null（Cookie に戻らない）', async () => {
+    expect(await createRouteAuth(request({ authorization: 'Bearer ' }))).toBeNull()
+    expect(await createRouteAuth(request({ authorization: 'Bearer a b' }))).toBeNull()
     expect(cookieCreateClientMock).not.toHaveBeenCalled()
   })
 

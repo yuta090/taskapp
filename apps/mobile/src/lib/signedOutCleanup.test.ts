@@ -3,7 +3,6 @@ import { cleanupPushAfterSignedOut } from './signedOutCleanup'
 
 function deps(over: Partial<Parameters<typeof cleanupPushAfterSignedOut>[0]> = {}) {
   return {
-    manual: false,
     getStoredToken: vi.fn(async () => 'ExponentPushToken[a]' as string | null),
     postUnregister: vi.fn(async (_token: string) => true),
     clearStoredToken: vi.fn(async () => {}),
@@ -19,10 +18,10 @@ describe('cleanupPushAfterSignedOut', () => {
     expect(d.clearStoredToken).toHaveBeenCalled()
   })
 
-  it('自分でログアウトしたときは何もしない（ログアウトの前に自分で外している）', async () => {
-    const d = deps({ manual: true })
+  it('自分でログアウトしたときも、外し損ねたトークンが残っていればサーバーに頼む（外せていれば残っていない）', async () => {
+    const d = deps()
     await cleanupPushAfterSignedOut(d)
-    expect(d.postUnregister).not.toHaveBeenCalled()
+    expect(d.postUnregister).toHaveBeenCalledTimes(1)
   })
 
   it('外せなかったら、覚えたトークンを残す（次にやり直せるように）', async () => {

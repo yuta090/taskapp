@@ -9,7 +9,7 @@ import { createClient as createCookieClient } from '@/lib/supabase/server'
  * ルートの本人確認。**呼んだルートだけ**が Bearer を受け付ける（server.ts の createClient は Cookie のまま）。
  * 使っているルート: /api/portal/notify-approval・/api/slack/notify
  *
- * - Authorization があれば Bearer だけで確かめる。無効なら null（Cookie には戻らない＝取り違えない）
+ * - Authorization が Bearer なら Bearer だけで確かめる。無効なら null（Cookie には戻らない＝取り違えない）
  * - 無ければ今までどおり Cookie のログイン
  * accessToken は getUser() で確かめ済みのものだけを返す。2段階認証の確認（mfaGuardResponse）に
  * そのまま渡す（Bearer のクライアントはセッションを持たないので、渡さないと登録者が必ず弾かれる）。
@@ -27,7 +27,9 @@ const MAX_TOKEN_LENGTH = 4096
 
 export async function createRouteAuth(request: NextRequest): Promise<RouteAuth | null> {
   const header = request.headers.get('authorization')
-  if (header !== null) {
+  // Bearer のときだけ Bearer で確かめる。Basic など他の形式（手前に置いた Basic 認証でブラウザが
+  // 付けるもの）は Cookie のログインで確かめる
+  if (header !== null && /^Bearer(\s|$)/i.test(header)) {
     const match = BEARER_RE.exec(header)
     if (!match || match[1].length > MAX_TOKEN_LENGTH) return null
     const accessToken = match[1]

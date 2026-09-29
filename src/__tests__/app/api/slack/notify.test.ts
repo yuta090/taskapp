@@ -13,12 +13,27 @@ vi.mock('@/lib/notifications', () => ({
 vi.mock('@/lib/slack/provider', () => ({ SlackNotificationProvider: vi.fn() }))
 
 let cookieUser: Record<string, unknown> | null = null
+/** 呼んだ人の所属（RLS が効くセッションのクライアントで確かめる） */
+let orgMember: { role: string } | null = { role: 'member' }
+let spaceMember: { role: string } | null = null
+const memberQueries: string[] = []
+function sessionFrom(table: string) {
+  memberQueries.push(table)
+  const data = table === 'org_memberships' ? orgMember : table === 'space_memberships' ? spaceMember : null
+  const b: Record<string, unknown> = {}
+  b.select = () => b
+  b.eq = () => b
+  b.neq = () => b
+  b.maybeSingle = async () => ({ data, error: null })
+  return b
+}
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
     auth: {
       getUser: vi.fn(async () => ({ data: { user: cookieUser }, error: cookieUser ? null : { message: 'no session' } })),
       getSession: vi.fn(async () => ({ data: { session: null } })),
     },
+    from: sessionFrom,
   })),
 }))
 
@@ -32,6 +47,7 @@ vi.mock('@/lib/supabase/bearer', () => ({
           : { data: { user: null }, error: { message: 'invalid JWT' } }
       ),
     },
+    from: sessionFrom,
   })),
 }))
 
@@ -74,6 +90,33 @@ describe('POST /api/slack/notify — 本人確認', () => {
     vi.clearAllMocks()
     cookieUser = null
     bearerUser = { id: 'u-mobile' }
+    orgMember = { role: 'member' }
+    spaceMember = null
+    memberQueries.length = 0
+  })
+
+  it('そのタスクの組織にもプロジェクトにも入っていない人は 403 で、Slack に送らない（他組織の Slack に投稿させない）', async () => {
+    orgMember = null
+    spaceMember = null
+    expect((await call({ Authorization: `Bearer ${token}` })).status).toBe(403)
+    expect(notifyAllMock).not.toHaveBeenCalled()
+  })
+
+  it('相手先（client）の所属だけでは送れない', async () => {
+    orgMember = { role: 'client' }
+    expect((await call({ Authorization: `Bearer ${token}` })).status).toBe(403)
+    expect(notifyAllMock).not.toHaveBeenCalled()
+  })
+
+  it('プロジェクトのメンバーなら送れる（組織の所属が無くても）', async () => {
+    orgMember = null
+    spaceMember = { role: 'editor' }
+    expect((await call({ Authorization: `Bearer ${token}` })).status).toBe(200)
+  })
+
+  it('所属はログインした本人のクライアント（RLS が効く側）で確かめる', async () => {
+    await call({ Authorization: `Bearer ${token}` })
+    expect(memberQueries).toContain('org_memberships')
   })
 
   it('ログインしていなければ 401', async () => {

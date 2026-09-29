@@ -9,7 +9,7 @@ import { ownerIdsBySide } from '~/lib/owners'
 import { passBallToClient } from '~/lib/passToClient'
 import { ensureUpdated } from '~/lib/taskRules'
 import { supabase, typedSupabase } from './supabase'
-import { notifySlack, postWebApi } from './webApi'
+import { notifySlack, sendApprovalEmail } from './webApi'
 
 export interface MyTasksData {
   tasks: Task[]
@@ -100,13 +100,7 @@ export function passBallToClientTask(task: Pick<Task, 'id' | 'space_id'>) {
     getOwners: fetchOwners,
     passBall: ({ clientOwnerIds, internalOwnerIds }) =>
       rpc.passBall(typedSupabase, { taskId: task.id, ball: 'client', clientOwnerIds, internalOwnerIds }).then(() => {}),
-    notifyApproval: async (taskId) => {
-      try {
-        return (await postWebApi('/api/portal/notify-approval', { taskId })).ok
-      } catch {
-        return false
-      }
-    },
+    notifyApproval: sendApprovalEmail,
     notifySlack: (taskId) =>
       notifySlack({ event: 'ball_passed', taskId, spaceId: task.space_id, changes: { newBall: 'client' } }),
   })

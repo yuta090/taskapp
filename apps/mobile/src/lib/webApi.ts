@@ -28,3 +28,13 @@ export function buildWebApiRequest(
     init: { method: 'POST', headers, body: JSON.stringify(body) },
   }
 }
+
+/**
+ * 承認依頼メールを送れたか。/api/portal/notify-approval は失敗・送る相手がいないときも 200 を返す
+ * （Web からは送りっぱなしで呼ぶ作り）ので、中身の success と送った件数で見る。
+ */
+export function approvalEmailSent(ok: boolean, json: unknown): boolean {
+  if (!ok || !json || typeof json !== 'object') return false
+  const body = json as { success?: unknown; sent?: unknown }
+  return body.success === true && typeof body.sent === 'number' && body.sent > 0
+}

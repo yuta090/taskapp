@@ -4,9 +4,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { Session } from '@supabase/supabase-js'
 import { useQuery } from '@tanstack/react-query'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { fetchMyOrgs, type OrgChoice } from '~/api/orgs'
-import { unregisterAfterSignedOut, unregisterStoredPushToken } from '~/api/pushTokens'
+import { unregisterLeftoverPushToken, unregisterStoredPushToken } from '~/api/pushTokens'
 import { supabase } from '~/api/supabase'
 import { assuranceFromSession, resolveAuthStep, type AuthStep } from '~/lib/authStep'
 import { clearCachedData } from './queryClient'
@@ -42,13 +42,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [sessionLoaded, setSessionLoaded] = useState(false)
   const [savedOrgId, setSavedOrgId] = useState<string | null | undefined>(undefined)
   const [chosenOrgId, setChosenOrgId] = useState<string | null>(null)
-  // 自分でログアウトしたか（それ以外で切れたら、通知の宛先をサーバーに頼んで外す）
-  const manualSignOutRef = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setSessionLoaded(true)
+      // ログインしていない起動: 前に外し損ねた通知の宛先が残っていれば、ここでやり直す
+      if (!data.session) void unregisterLeftoverPushToken()
     })
     AsyncStorage.getItem(ACTIVE_ORG_KEY)
       .catch(() => null)
@@ -59,8 +59,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setChosenOrgId(null)
         setSavedOrgId(null)
         void clearLocalUserData()
-        void unregisterAfterSignedOut(manualSignOutRef.current)
-        manualSignOutRef.current = false
+        void unregisterLeftoverPushToken()
       }
     })
     return () => data.subscription.unsubscribe()
@@ -102,7 +101,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // そのときも端末からは必ず消す（共用端末で「ログアウトしたつもり」を防ぐ）
     // 先にこの端末を通知の宛先から外す（ログアウトした後は自分の行を消せない）
     await unregisterStoredPushToken()
-    manualSignOutRef.current = true
     const { error } = await supabase.auth.signOut()
     if (error) await supabase.auth.signOut({ scope: 'local' })
     // SIGNED_OUT でも消すが、イベントを待たずに消しておく
