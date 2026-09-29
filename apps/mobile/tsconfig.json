@@ -1,0 +1,18 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      // アプリ自身のコード
+      "~/*": ["./src/*"],
+      // Web（リポジトリ直下の src）と共有するコード。Web 側のファイルが `@/…` で互いを
+      // 参照しているので、アプリからも同じ名前で解決できるようにそろえる（metro.config.js と対）
+      "@/*": ["../../src/*"],
+      // 共有するコードが読む型を、アプリ側の同じパッケージに寄せる（2か所の定義が混ざると
+      // SupabaseClient 同士が別の型とみなされる）。版は Web と同じに固定している
+      "@supabase/supabase-js": ["./node_modules/@supabase/supabase-js"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  "exclude": ["node_modules"]
+}

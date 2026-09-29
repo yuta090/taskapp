@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
+import { createRouteAuth } from '@/lib/supabase/routeAuth'
 import { notificationRegistry } from '@/lib/notifications'
 import { SlackNotificationProvider } from '@/lib/slack/provider'
 import type { NotificationEventType, TaskNotificationPayload } from '@/lib/notifications/types'
@@ -28,21 +28,23 @@ export async function POST(request: NextRequest) {
   try {
     // 認証: ユーザーセッション or 内部シークレット
     let actorId: string | null = null
+    let sessionClient: SupabaseClient | null = null
 
     const internalSecret = request.headers.get('x-internal-secret')
     const isInternalCall =
       internalSecret && internalSecret === process.env.INTERNAL_NOTIFY_SECRET
 
     if (!isInternalCall) {
-      const supabase = await createClient()
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (authError || !user) {
+      // ブラウザの Cookie、またはスマホアプリの Bearer トークン（src/lib/supabase/routeAuth.ts）
+      const auth = await createRouteAuth(request)
+      if (!auth) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
       // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く
-      const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+      const mfaBlock = await mfaGuardResponse(auth.supabase as SupabaseClient, auth.user, auth.accessToken)
       if (mfaBlock) return mfaBlock
-      actorId = user.id
+      actorId = auth.user.id
+      sessionClient = auth.supabase as SupabaseClient
     }
 
     const body = await request.json()
@@ -86,6 +88,32 @@ export async function POST(request: NextRequest) {
 
     if (!task || !space) {
       return NextResponse.json({ error: 'Task or space not found' }, { status: 404 })
+    }
+
+    // 呼んだ人がそのタスクの組織かプロジェクトのメンバーか（相手先は除く）。確かめないと、ログインさえ
+    // していれば他の組織の taskId/spaceId を指定して、その組織の Slack に投稿させられる。
+    // service role ではなく本人のクライアント（RLS が効く側）で確かめる。内部呼び出し（合言葉付き）は対象外
+    if (sessionClient && actorId) {
+      const isMember = (row: { role?: string } | null) => !!row && row.role !== 'client'
+      const { data: orgRow } = await sessionClient
+        .from('org_memberships')
+        .select('role')
+        .eq('org_id', space.org_id)
+        .eq('user_id', actorId)
+        .maybeSingle()
+      let allowed = isMember(orgRow as { role?: string } | null)
+      if (!allowed) {
+        const { data: spaceRow } = await sessionClient
+          .from('space_memberships')
+          .select('role')
+          .eq('space_id', spaceId)
+          .eq('user_id', actorId)
+          .maybeSingle()
+        allowed = isMember(spaceRow as { role?: string } | null)
+      }
+      if (!allowed) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
     }
 
     // Assignee名取得

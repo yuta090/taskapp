@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
-import { createClient } from '@/lib/supabase/server'
+import { createRouteAuth } from '@/lib/supabase/routeAuth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendApprovalEmail } from '@/lib/email/approval'
 import { resolveSenderOrgName } from '@/lib/email/senderOrgName'
@@ -14,20 +14,21 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * - email_action_tokens を作成
  * - 承認依頼メールを送信
  *
- * 認証: ログインユーザーのセッション（内部UIから呼び出される）。
+ * 認証: ログインユーザーのセッション（内部UIから呼び出される）。スマホアプリからは
+ * Authorization: Bearer <アクセストークン>（src/lib/supabase/routeAuth.ts）。
  * 呼び出し元が対象タスクの org/space の内部メンバーであることを検証してから
  * トークン発行・メール送信を行う（他組織のタスクを指定した越権送信を防止）。
  */
 export async function POST(request: NextRequest) {
   try {
-    // 呼び出し元の認証確認
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    // 呼び出し元の認証確認（ブラウザの Cookie、またはスマホアプリの Bearer トークン）
+    const auth = await createRouteAuth(request)
+    if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const { supabase, user } = auth
     // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（RLS 経由でない経路の防衛）
-    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user, auth.accessToken)
     if (mfaBlock) return mfaBlock
 
     const body = await request.json()
