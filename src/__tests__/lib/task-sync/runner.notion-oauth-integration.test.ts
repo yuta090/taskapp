@@ -110,6 +110,8 @@ function row(over: Record<string, unknown> = {}) {
 let fetchMock: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
   connectionRows.length = 0
   validateImportTargets.mockReset().mockResolvedValue({ ok: true, assigneeId: null })
   decryptToken.mockReset().mockResolvedValue('notion-workspace-token')

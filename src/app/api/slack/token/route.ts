@@ -1,23 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { WebClient } from '@slack/web-api'
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { SLACK_CONFIG } from '@/lib/slack/config'
 import { invalidateSlackClientCache } from '@/lib/slack/client'
 
 export const runtime = 'nodejs'
-
-let _supabaseAdmin: SupabaseClient | null = null
-function getSupabaseAdmin(): SupabaseClient {
-  if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
-  }
-  return _supabaseAdmin
-}
 
 /**
  * POST /api/slack/token — 手動でBot Tokenを登録
@@ -34,6 +24,7 @@ export async function POST(request: NextRequest) {
     // 二要素認証: 登録済み × コード未入力(aal1) は弾く
     const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
     if (mfaBlock) return mfaBlock
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     const body = await request.json()
     const { orgId, botToken } = body
@@ -87,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     // トークンを暗号化
-    const { data: encryptedToken, error: encryptError } = await (getSupabaseAdmin() as SupabaseClient)
+    const { data: encryptedToken, error: encryptError } = await admin
       .rpc('encrypt_slack_token', {
         token: botToken,
         secret: SLACK_CONFIG.clientSecret,
@@ -102,7 +93,7 @@ export async function POST(request: NextRequest) {
     }
 
     // DB保存（upsert）
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
+    const { error: upsertError } = await admin
       .from('slack_workspaces')
       .upsert(
         {
@@ -161,6 +152,7 @@ export async function DELETE(request: NextRequest) {
     // 二要素認証: 登録済み × コード未入力(aal1) は弾く
     const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
     if (mfaBlock) return mfaBlock
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     const { searchParams } = new URL(request.url)
     const orgId = searchParams.get('orgId')
@@ -185,7 +177,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // workspace削除（cascade で space_slack_channels も削除される）
-    const { error } = await (getSupabaseAdmin() as SupabaseClient)
+    const { error } = await admin
       .from('slack_workspaces')
       .delete()
       .eq('org_id', orgId)

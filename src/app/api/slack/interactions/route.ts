@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySlackRequest } from '@/lib/slack/verify'
 import { parseTaskCreateSubmission } from '@/lib/slack/modals'
 import { resolveTaskAppUser } from '@/lib/slack/usermap'
@@ -8,13 +8,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+// Slack 署名検証のみ（TaskApp のログインセッションは無い）。actor が解決できたときだけ付す。
+let _supabaseAdmin: ReturnType<typeof createAdminClient> | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'webhook' })
   }
   return _supabaseAdmin
 }
@@ -137,9 +135,12 @@ async function handleTaskCreate(
     }
   }
 
-  // Insert task
+  // Insert task。actor が解決できた(createdBy)ときはその名義で attribution ヘッダーを付ける。
   const now = new Date().toISOString()
-  const { data: task, error: insertError } = await (getSupabaseAdmin() as SupabaseClient)
+  const insertAdmin = createdBy
+    ? (createAdminClient({ channel: 'webhook', actorUserId: createdBy }) as SupabaseClient)
+    : (getSupabaseAdmin() as SupabaseClient)
+  const { data: task, error: insertError } = await insertAdmin
     .from('tasks')
     .insert({
       org_id: orgId,

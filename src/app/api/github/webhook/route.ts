@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import {
   verifyWebhookSignature,
   parseWebhookHeaders,
@@ -13,13 +13,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // Webhookはbodyをrawで受け取る必要がある
 export const runtime = 'nodejs'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+let _supabaseAdmin: ReturnType<typeof createAdminClient> | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'webhook' })
   }
   return _supabaseAdmin
 }

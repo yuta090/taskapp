@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySlackRequest } from '@/lib/slack/verify'
 import { getSlackClientForOrg } from '@/lib/slack/client'
 import { buildTaskCreateModal } from '@/lib/slack/modals'
 
 export const runtime = 'nodejs'
 
-let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
+// Slack 署名検証のみ（TaskApp のログインセッションは無い）。
+let _supabaseAdmin: ReturnType<typeof createAdminClient> | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'webhook' })
   }
   return _supabaseAdmin
 }

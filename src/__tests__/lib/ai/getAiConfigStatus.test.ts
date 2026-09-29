@@ -31,6 +31,8 @@ const ai = await import('@/lib/ai/client')
 
 beforeEach(() => {
   vi.clearAllMocks()
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
   fromMock.mockImplementation(() => chain(fromResponse))
 })
 
