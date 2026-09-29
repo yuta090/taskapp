@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Field too long' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app' })
   const { error } = await admin.from('lp_leads').insert({
     source,
     email,

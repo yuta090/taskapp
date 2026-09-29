@@ -26,7 +26,7 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
   const mfaBlock = await mfaGuardResponse(supabase as unknown as SupabaseClient, user)
   if (mfaBlock) return mfaBlock
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
   const { data: row } = await admin
     .from('api_keys')
     .select('id, org_id, user_id, issued_via')

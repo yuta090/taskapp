@@ -153,6 +153,30 @@ describe('開いた直後はまだ書けるか分からないとき（2026-09-27
     expect(result.current.fragment).not.toBeNull()
   })
 
+  it('書けると分かった描画のうちから「用意中」にする（1人用のエディタで打てる隙間を作らない）', () => {
+    // 書けると分かった描画と、同時編集を始める effect のあいだに、1人用のエディタが書ける状態で
+    // 一瞬出ていた。そこで打った分は、同時編集のエディタに載せ替えたときに消える（2026-09-28 本番）
+    const renders: { presenceEnabled: boolean; solo: boolean; pending: boolean; synced: boolean }[] = []
+    const { rerender } = renderHook(
+      ({ presenceEnabled }: { presenceEnabled: boolean }) => {
+        const r = useMinutesCollab({
+          meetingId: 'm1',
+          presenceEnabled,
+          self: { userId: 'u-self', name: '自分' },
+          collabAllowed: true,
+          initialMarkdown: BASE,
+        })
+        renders.push({ presenceEnabled, solo: r.solo, pending: r.pending, synced: r.synced })
+        return r
+      },
+      { initialProps: { presenceEnabled: false } }
+    )
+    rerender({ presenceEnabled: true })
+    // 書けると分かったあとの描画で、「1人用で書ける（用意中でなく本文も入っている）」形は1度も出ない
+    const writableSolo = renders.filter((r) => r.presenceEnabled && r.solo && !r.pending && r.synced)
+    expect(writableSolo).toEqual([])
+  })
+
   it('一度始めたら、あとで書けなくなっても器は作り直さない（本文の二重を招く）', async () => {
     const { result, rerender } = renderHook(
       ({ presenceEnabled }: { presenceEnabled: boolean }) =>

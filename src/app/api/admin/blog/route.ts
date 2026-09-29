@@ -11,7 +11,8 @@ const POST_FIELDS =
 
 /** 記事作成 */
 export async function POST(request: NextRequest) {
-  if (!(await verifySuperadmin())) {
+  const actorUserId = await verifySuperadmin()
+  if (!actorUserId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
   }
 
   const status = (body.status as PostStatus) ?? 'draft'
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId })
   const { data, error } = await (admin as SupabaseClient)
     .from('blog_posts')
     .insert({
@@ -59,7 +60,8 @@ export async function POST(request: NextRequest) {
 
 /** 記事更新 */
 export async function PATCH(request: NextRequest) {
-  if (!(await verifySuperadmin())) {
+  const actorUserId = await verifySuperadmin()
+  if (!actorUserId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -73,7 +75,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: validation.error }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId })
 
   // 公開へ遷移する際、まだ published_at が無ければ now() を自動セット
   const update: Record<string, unknown> = {
@@ -119,14 +121,15 @@ export async function PATCH(request: NextRequest) {
 
 /** 記事削除 */
 export async function DELETE(request: NextRequest) {
-  if (!(await verifySuperadmin())) {
+  const actorUserId = await verifySuperadmin()
+  if (!actorUserId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const id = request.nextUrl.searchParams.get('id')
   if (!id) {
     return NextResponse.json({ error: 'id is required' }, { status: 400 })
   }
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId })
   const { error } = await (admin as SupabaseClient).from('blog_posts').delete().eq('id', id)
   if (error) {
     console.error('blog_posts delete failed:', error)

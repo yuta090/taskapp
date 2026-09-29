@@ -104,7 +104,10 @@ async function sendToSpace(params: {
   }
 
   // ここに来るのは純粋な1:1個別DMの相手先のみ → Pro専有ゲート。
-  const entitlements = await resolveOrgEntitlements(createAdminClient(), orgId)
+  const entitlements = await resolveOrgEntitlements(
+    createAdminClient({ channel: 'app', actorUserId: sentBy }),
+    orgId,
+  )
   if (!entitlements.has('line_direct_dm')) {
     return NextResponse.json({ error: 'plan_required', feature: 'line_direct_dm' }, { status: 403 })
   }

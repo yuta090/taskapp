@@ -50,7 +50,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     return NextResponse.json({ error: `メモは${NOTE_MAX_LEN}文字以内にしてください` }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: adminUserId })
   // timestamptz に渡す完全な時刻なので日付ずれ(toISOString禁止ルール)の対象外。
   // upsert の UPDATE 経路では列の DEFAULT now() が効かないため明示する
   const updatedAt = new Date().toISOString()

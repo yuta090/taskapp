@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     // ベストエフォート: 通知が失敗しても申込自体は成功として返す（記録はもう確定している）。
     if (transitioned) {
       try {
-        await notifySharedBotAccessRequested({ orgId })
+        await notifySharedBotAccessRequested({ orgId, actorUserId: auth.userId })
       } catch (err) {
         console.error('shared-bot-access/request: notify failed', orgId, err)
       }

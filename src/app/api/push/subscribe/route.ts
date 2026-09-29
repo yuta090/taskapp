@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'endpoint and keys are required' }, { status: 400 })
     }
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     // Ownership transfer: remove any row for this endpoint that belongs to a
     // different user before upserting under the current user's id.

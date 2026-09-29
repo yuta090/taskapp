@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create file record' }, { status: 500 })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
     const { data: signed, error: signedError } = await admin.storage
       .from('space-files')
       .createSignedUploadUrl(storagePath)

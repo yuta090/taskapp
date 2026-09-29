@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   const plaintextSecret = generateConnectorSecret()
   const encrypted = await encryptConnectorSecret(plaintextSecret)
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId })
   const { data, error } = await admin
     .from('integration_connections')
     .insert({

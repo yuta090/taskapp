@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     orgId = body.orgId
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: adminUserId })
   const { data, error } = await admin.rpc('reconcile_org_milestones', { p_org_id: orgId })
   if (error) {
     console.error('[admin/milestones/reconcile] rpc failed:', error)

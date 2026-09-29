@@ -126,7 +126,7 @@ export async function PATCH(request: NextRequest) {
   if (status === 'active') {
     const ownerType = await findChannelAccountOwnerType(accountId)
     if (ownerType === 'org') {
-      const admin = createAdminClient() as SupabaseClient
+      const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId }) as SupabaseClient
       const ent = await resolveOrgEntitlements(admin, orgId)
       if (!ent.has('own_line_account')) {
         return NextResponse.json(
@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
   }
 
   // 自社アカウント（白ラベルの org account）を繋ぐのは Pro 専有。
-  const admin = createAdminClient() as SupabaseClient
+  const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId }) as SupabaseClient
   const ent = await resolveOrgEntitlements(admin, orgId)
   if (!ent.has('own_line_account')) {
     return NextResponse.json(

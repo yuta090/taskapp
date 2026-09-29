@@ -23,13 +23,15 @@ import { sendSharedBotAccessRequestedEmail } from '@/lib/email/sharedBotAccessRe
  */
 export interface NotifySharedBotAccessRequestedParams {
   orgId: string
+  /** 申込を行った内部メンバー（分かるときだけ。呼び出し元は onboarding/shared-bot-access/request）。 */
+  actorUserId?: string
 }
 
 export async function notifySharedBotAccessRequested(
   params: NotifySharedBotAccessRequestedParams,
 ): Promise<{ notified: number }> {
-  const { orgId } = params
-  const client = createAdminClient() as SupabaseClient
+  const { orgId, actorUserId } = params
+  const client = createAdminClient({ channel: 'app', actorUserId }) as SupabaseClient
 
   let orgName = '(名称不明の組織)'
   let adminIds: string[] = []

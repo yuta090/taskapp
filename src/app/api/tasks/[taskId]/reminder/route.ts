@@ -63,7 +63,7 @@ export async function POST(
 
   // 設定時のみプランを確認（解除はプラン不問）
   if (remindAt !== null) {
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId }) as SupabaseClient
     const ent = await resolveOrgEntitlements(admin, task.orgId)
     if (!ent.has('timed_line_reminders')) {
       return NextResponse.json(

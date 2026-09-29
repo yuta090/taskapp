@@ -7,7 +7,7 @@ import { WikiConflictError, type UpdateWikiPageInput } from '@/lib/hooks/useWiki
 import type { WikiPage } from '@/types/database'
 import type * as Y from 'yjs'
 import { readSavedState, writeSavedState } from '@/lib/collab/scribe'
-import { canonicalizeWikiBody, wikiAppendedBlocks, wikiContentHash } from './bodyMerge'
+import { canonicalizeWikiBody, wikiAppendedBlocks, wikiBodiesEquivalent, wikiContentHash } from './bodyMerge'
 
 // 議事録の競合帯(MinutesDocumentView.tsx)と同じ文面の作り。Wiki には掲示板のような
 // 自動合流・保存の直列化までは作らない（必要最小限）。
@@ -48,6 +48,8 @@ export interface WikiEditorApi {
   replaceContent: (body: string | null) => boolean
   /** 末尾にブロックを足す。一時的にできない（読み取り専用・変換中）なら 'busy' */
   appendBlocks: (blocks: unknown[]) => 'applied' | 'busy' | 'failed'
+  /** 読み込んだ本文を、エディタが書き出す形に直す（既定の書式を補う）。できなければ null */
+  normalizeBody?: (body: string | null) => string | null
 }
 
 /** 保存の基準にする、サーバーにある状態 */
@@ -143,6 +145,24 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
   const reloadingRef = useRef(false)
   /** 追記を差し込めずにやり直した回数 */
   const appendRetryCountRef = useRef(0)
+
+  /**
+   * 読み込んだ本文をエディタの形に直したもの（既定の書式を補い、id を除いて比べる）と同じか。
+   * 同時編集では、器の中身をエディタへ流し込んだ瞬間に「変更」が届くので、これで誰も打って
+   * いない保存を止める（Fable の指示: 「読み込んだ本文を一度 parse→直列化した文字列」と同じなら保存しない）。
+   * 直した形は本文ごとに1回だけ作って覚える（打つたびに作り直すと重い）
+   */
+  const normalizedKnownRef = useRef<{ source: string | null; normalized: string | null } | null>(null)
+  const sameAsKnownInEditorForm = (content: string): boolean => {
+    const normalize = editorApiRef.current?.normalizeBody
+    if (!normalize) return false
+    const known = knownServerBodyRef.current
+    if (normalizedKnownRef.current?.source !== known) {
+      normalizedKnownRef.current = { source: known, normalized: normalize(known) }
+    }
+    const normalized = normalizedKnownRef.current.normalized
+    return normalized !== null && wikiBodiesEquivalent(content, normalized)
+  }
 
   /** 同時編集中に、部屋の誰かが保存した分か（それなら競合ではない。中身は器で合流済み） */
   const savedInRoom = (fresh: WikiBodyBaseline): boolean => {
@@ -436,7 +456,10 @@ export function useWikiBodySave({ updatePage, fetchPage }: { updatePage: UpdateP
     // 版の履歴が無駄に増える（議事録の baselineRef 比較と同じ考え方）。生の文字列そのまま
     // ではなく正規化(canonicalizeWikiBody)して比べる — DB側で組み立てられた本文は
     // キー順・空白がクライアントの JSON.stringify と一致しないことがあるため。
-    if (canonicalizeWikiBody(content) === canonicalizeWikiBody(knownServerBodyRef.current)) {
+    if (
+      canonicalizeWikiBody(content) === canonicalizeWikiBody(knownServerBodyRef.current) ||
+      sameAsKnownInEditorForm(content)
+    ) {
       pendingBodyRef.current = null
       // 打った直後に元へ戻すと(Ctrl+Zなど)ここに来るが、直前に setSaveStatus('saving')
       // 済みのことがあるため、ここで idle に戻さないと「保存中...」の表示が永久に残る。

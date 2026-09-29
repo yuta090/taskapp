@@ -71,7 +71,7 @@ export async function POST(
       // 認証済みセッションでの自動受諾パスはボディ無しで呼ばれる
     }
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'app' }) as SupabaseClient
 
     const { data: invite, error: inviteError } = await admin
       .from('invites')

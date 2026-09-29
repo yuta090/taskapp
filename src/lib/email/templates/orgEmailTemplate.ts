@@ -42,7 +42,8 @@ function mergeOver(base: TemplateFields, row: Record<string, unknown>): Template
 
 async function fetchOrgRow(orgId: string, key: string): Promise<Record<string, unknown> | null> {
   try {
-    const admin = createAdminClient()
+    // 読み取り専用。招待メール送信経路(app)から呼ばれる。
+    const admin = createAdminClient({ channel: 'system' })
     const { data, error } = await admin
       .from('org_email_templates')
       .select(ORG_EMAIL_TEMPLATE_COLUMNS)

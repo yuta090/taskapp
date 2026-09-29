@@ -43,7 +43,7 @@ function toCtaData(row: Record<string, unknown> | null): CtaBlockData | null {
 
 /** 公開済み記事を slug で取得（CTAを解決して埋め込む）。非公開なら null。 */
 export async function getPublishedPost(slug: string): Promise<PublicPost | null> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app' })
   const { data } = await (admin as SupabaseClient)
     .from('blog_posts')
     .select(
@@ -83,7 +83,7 @@ export async function getPublishedPost(slug: string): Promise<PublicPost | null>
 export async function getPublishedPostSummary(
   slug: string
 ): Promise<{ title: string; author_name: string | null; cover_image_url: string | null } | null> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app' })
   const { data } = await (admin as SupabaseClient)
     .from('blog_posts')
     .select('title, author_name, cover_image_url')
@@ -103,7 +103,7 @@ export async function getPublishedPostSummary(
 
 /** 公開済み記事の一覧（公開日降順）。 */
 export async function listPublishedPosts(): Promise<PostListItem[]> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app' })
   const { data } = await (admin as SupabaseClient)
     .from('blog_posts')
     .select('slug, title, description, published_at, cover_image_url, cover_caption, tags, status')

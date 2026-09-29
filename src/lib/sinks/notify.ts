@@ -76,7 +76,8 @@ export async function notifySinkDisabledForRelink(
   orgId: string,
   displayName: string,
 ): Promise<void> {
-  const client = createAdminClient() as SupabaseClient
+  // 呼び出し元は line/webhookHandler.ts のみ（グループ再リンクは受信メッセージ処理から起きる）。
+  const client = createAdminClient({ channel: 'webhook' }) as SupabaseClient
 
   const [{ data: space }, { data: admins }] = await Promise.all([
     client.from('spaces').select('id').eq('org_id', orgId).order('created_at', { ascending: true }).limit(1).maybeSingle(),
