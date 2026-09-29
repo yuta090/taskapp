@@ -30,3 +30,9 @@ export function completionBlocker(
 export function ensureUpdated(rows: readonly unknown[] | null): void {
   if (!rows || rows.length === 0) throw new Error(STATUS_CHANGE_NO_ROWS)
 }
+
+/** 差し戻しの理由（前後の空白を除く）。空なら送らない（Web の TaskReviewSection と同じ） */
+export function normalizeBlockReason(reason: string): string | null {
+  const trimmed = reason.trim()
+  return trimmed ? trimmed : null
+}

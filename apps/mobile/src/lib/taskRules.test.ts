@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { STATUS_CHANGE_NO_ROWS } from '@/lib/tasks/completeFailure'
-import { completionBlocker, ensureUpdated, STATUS_CHOICES } from './taskRules'
+import { completionBlocker, ensureUpdated, normalizeBlockReason, STATUS_CHOICES } from './taskRules'
 
 describe('completionBlocker', () => {
   const task = { type: 'task' as const, decision_state: null }
@@ -32,5 +32,15 @@ describe('ensureUpdated', () => {
 describe('STATUS_CHOICES', () => {
   it('スマホで切り替えられるのは「検討中」を除く状態（検討中は仕様の決定で抜ける）', () => {
     expect(STATUS_CHOICES.map((c) => c.value)).toEqual(['backlog', 'todo', 'in_progress', 'done'])
+  })
+})
+
+describe('normalizeBlockReason', () => {
+  it('前後の空白を除いた理由を返す（Web の TaskReviewSection と同じ）', () => {
+    expect(normalizeBlockReason('  文言を直してください \n')).toBe('文言を直してください')
+  })
+  it('空・空白だけなら null（送らない）', () => {
+    expect(normalizeBlockReason('')).toBeNull()
+    expect(normalizeBlockReason('   \n ')).toBeNull()
   })
 })

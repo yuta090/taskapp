@@ -8,6 +8,7 @@ import { addComment, fetchComments } from '~/api/comments'
 import { fetchInbox, markAllRead, markRead } from '~/api/notifications'
 import {
   approveReview,
+  blockReview,
   fetchMyPendingReviewTaskIds,
   fetchMyTasks,
   fetchTask,
@@ -122,6 +123,16 @@ export function useApproveReview() {
   return useMutation({
     mutationFn: (taskId: string) => approveReview(taskId),
     onSettled: (_d, _e, taskId) =>
+      Promise.all([invalidate(taskId), queryClient.invalidateQueries({ queryKey: ['inbox'] })]),
+  })
+}
+
+export function useBlockReview() {
+  const invalidate = useInvalidateTask()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, reason }: { taskId: string; reason: string }) => blockReview(taskId, reason),
+    onSettled: (_d, _e, { taskId }) =>
       Promise.all([invalidate(taskId), queryClient.invalidateQueries({ queryKey: ['inbox'] })]),
   })
 }

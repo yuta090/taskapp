@@ -94,6 +94,11 @@ export async function approveReview(taskId: string) {
   return rpc.reviewApprove(typedSupabase, { taskId })
 }
 
+/** 自分に届いた社内承認を差し戻す（理由は依頼した人の受信トレイに届く。通知は DB 側で作られる） */
+export async function blockReview(taskId: string, reason: string) {
+  return rpc.reviewBlock(typedSupabase, { taskId, blockedReason: reason })
+}
+
 /** 自分が承認者で、まだ答えていない社内承認のあるタスク（Web の useMyPendingReviews と同じ） */
 export async function fetchMyPendingReviewTaskIds(userId: string, orgId: string): Promise<string[]> {
   const { data, error } = await supabase

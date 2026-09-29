@@ -9,13 +9,14 @@ import { Button, Chip, EmptyState, ErrorRetry, Loading } from '~/components/ui'
 import {
   useAddComment,
   useApproveReview,
+  useBlockReview,
   useComments,
   usePendingReviewTaskIds,
   useTakeBall,
   useTaskDetail,
   useUpdateStatus,
 } from '~/hooks/queries'
-import { completionBlocker, STATUS_CHOICES } from '~/lib/taskRules'
+import { completionBlocker, normalizeBlockReason, STATUS_CHOICES } from '~/lib/taskRules'
 import { useColors } from '~/theme/colors'
 
 /**
@@ -32,6 +33,9 @@ export default function TaskDetailScreen() {
   const updateStatus = useUpdateStatus()
   const takeBall = useTakeBall()
   const approve = useApproveReview()
+  const block = useBlockReview()
+  const [blockOpen, setBlockOpen] = useState(false)
+  const [blockReason, setBlockReason] = useState('')
   const addComment = useAddComment(task)
   const [draft, setDraft] = useState('')
   const [visibility, setVisibility] = useState<CommentVisibility>('internal')
@@ -76,6 +80,21 @@ export default function TaskDetailScreen() {
       onError: (e) => Alert.alert('承認できませんでした', e instanceof Error ? e.message : ''),
     })
 
+  const onBlock = () => {
+    const reason = normalizeBlockReason(blockReason)
+    if (!reason) return
+    block.mutate(
+      { taskId: task.id, reason },
+      {
+        onSuccess: () => {
+          setBlockReason('')
+          setBlockOpen(false)
+        },
+        onError: () => Alert.alert('差し戻しに失敗しました'),
+      }
+    )
+  }
+
   const onSend = () => {
     const body = draft.trim()
     if (!body) return
@@ -108,8 +127,35 @@ export default function TaskDetailScreen() {
         {awaitingMyApproval ? (
           <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.primary }]}>
             <Text style={[styles.cardTitle, { color: c.text }]}>社内承認を依頼されています</Text>
-            <Button label="承認する" onPress={onApprove} loading={approve.isPending} />
-            <Text style={[styles.hint, { color: c.textMuted }]}>差し戻しは Web で理由を書いて行います</Text>
+            <Button label="承認する" onPress={onApprove} loading={approve.isPending} disabled={block.isPending} />
+            {blockOpen ? (
+              <View style={styles.block}>
+                <TextInput
+                  value={blockReason}
+                  onChangeText={setBlockReason}
+                  placeholder="差し戻す理由（依頼した人に届きます）"
+                  placeholderTextColor={c.textMuted}
+                  multiline
+                  autoFocus
+                  style={[styles.input, { color: c.text, borderColor: c.border }]}
+                />
+                <View style={styles.blockActions}>
+                  <View style={styles.flex}>
+                    <Button label="やめる" variant="secondary" onPress={() => setBlockOpen(false)} disabled={block.isPending} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Button
+                      label="差し戻す"
+                      onPress={onBlock}
+                      loading={block.isPending}
+                      disabled={!normalizeBlockReason(blockReason)}
+                    />
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <Button label="差し戻す" variant="secondary" onPress={() => setBlockOpen(true)} disabled={approve.isPending} />
+            )}
           </View>
         ) : null}
 
@@ -210,6 +256,7 @@ const styles = StyleSheet.create({
   status: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   statusLabel: { fontSize: 14, fontWeight: '500' },
   block: { gap: 6 },
+  blockActions: { flexDirection: 'row', gap: 8 },
   hint: { fontSize: 12 },
   description: { fontSize: 15, lineHeight: 22 },
   comment: { borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, padding: 12, gap: 4 },
