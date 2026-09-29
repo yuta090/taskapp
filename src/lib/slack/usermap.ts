@@ -1,14 +1,13 @@
-import { createClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getSlackClientForOrg } from './client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+// Slack ユーザー → TaskApp ユーザーの解決（auth.admin.listUsers 等・読み取りのみ）。
+// client.ts と同じ共有基盤のため channel:'system' に揃える。
+let _supabaseAdmin: ReturnType<typeof createAdminClient> | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'system' })
   }
   return _supabaseAdmin
 }

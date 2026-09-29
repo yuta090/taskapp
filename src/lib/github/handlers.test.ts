@@ -7,6 +7,11 @@ import type { GitHubPullRequestPayload, GitHubInstallationPayload, GitHubIssuePa
  * merged=false の close・opened・edited では通知しない（既存の動きを変えない）。
  */
 
+// createAdminClient（src/lib/supabase/admin.ts）は接続先と鍵が無いと例外を投げる。下の
+// vi.mock('@supabase/supabase-js') の createClient を通るので、値はダミーでよい
+process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'http://localhost'
+process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-service-role-key'
+
 const ORG_ID = 'org-1'
 const REPO_ROW_ID = 'repo-row-1'
 const PR_ROW_ID = 'pr-row-1'

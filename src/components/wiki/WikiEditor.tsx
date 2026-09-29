@@ -38,7 +38,7 @@ import { DOC_INSERTION_TYPE } from '@/lib/doc-insertions/logic'
 import { docInsertionSpec } from '@/components/editor/docInsertion/docInsertionBlock'
 import type { Doc as YDoc, XmlFragment as YXmlFragment } from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
-import { seedWikiDoc } from '@/lib/collab/seed'
+import { normalizeWikiBody, seedWikiDoc } from '@/lib/collab/seed'
 import { cursorColorAt, cursorFallbackAt } from '@/lib/collab/cursorColors'
 import type { WikiEditorApi } from '@/lib/wiki/useWikiBodySave'
 
@@ -269,10 +269,15 @@ export function WikiEditor({
     [editor]
   )
 
+  const normalizeBody = useCallback(
+    (body: string | null) => normalizeWikiBody(body, editor.pmSchema, schema),
+    [editor]
+  )
+
   useEffect(() => {
-    registerApi?.({ replaceContent, appendBlocks, seedCollabDoc })
+    registerApi?.({ replaceContent, appendBlocks, seedCollabDoc, normalizeBody })
     return () => registerApi?.(null)
-  }, [registerApi, replaceContent, appendBlocks, seedCollabDoc])
+  }, [registerApi, replaceContent, appendBlocks, seedCollabDoc, normalizeBody])
 
   /**
    * 自分の名前と色を部屋のみんなへ伝える。載せるときは控えの値で作ってあるので、ここで

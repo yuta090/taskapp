@@ -1,6 +1,6 @@
-import { createClient as createSupabaseAdmin } from '@supabase/supabase-js'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
@@ -36,23 +36,6 @@ function applyRateLimit(request: NextRequest): NextResponse | null {
     )
   }
   return null
-}
-
-// Create admin client with service role key (bypasses RLS)
-function createAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Missing Supabase configuration')
-  }
-
-  return createSupabaseAdmin(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  })
 }
 
 /**
@@ -147,7 +130,7 @@ export async function POST(request: NextRequest) {
       return authResult
     }
 
-    const adminClient = createAdminClient()
+    const adminClient = createAdminClient({ channel: 'app', actorUserId: authResult.userId })
 
     // 送られてきた組織とプロジェクトの組み合わせを確かめる（役割はその組織・そのプロジェクトで判定する）
     if (!(await spaceBelongsToOrg(adminClient, spaceId, orgId))) {
@@ -231,7 +214,7 @@ export async function DELETE(request: NextRequest) {
       return authResult
     }
 
-    const adminClient = createAdminClient()
+    const adminClient = createAdminClient({ channel: 'app', actorUserId: authResult.userId })
 
     // Verify the key belongs to this org before deleting
     const { data: existingKey } = await adminClient
@@ -309,7 +292,7 @@ export async function GET(request: NextRequest) {
       return authResult
     }
 
-    const adminClient = createAdminClient()
+    const adminClient = createAdminClient({ channel: 'app', actorUserId: authResult.userId })
 
     // 送られてきた組織とプロジェクトの組み合わせを確かめる
     if (!(await spaceBelongsToOrg(adminClient, spaceId, orgId))) {

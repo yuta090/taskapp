@@ -4,6 +4,7 @@ import { checkAuth } from '../auth/helpers.js'
 import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js'
 import { mapRaiseExceptionError } from '../lib/rpcErrors.js'
 import { ToolUserError } from '../errors.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 
 // 画面の承認者候補と同じ役割の範囲（社内のadmin/editorだけ。rpc_review_open_asも同じ規則）
 const REVIEW_APPROVER_ROLES = ['admin', 'editor'] as const
@@ -35,7 +36,8 @@ export interface ReviewApproval {
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  if (error) throw notFoundOr(error, 'reviews/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return data.org_id
 }
 
@@ -90,9 +92,8 @@ export async function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Prom
     .eq('space_id', params.spaceId)
     .single()
 
-  if (checkError || !existingTask) {
-    throw new Error('タスクが見つかりません')
-  }
+  if (checkError) throw notFoundOr(checkError, 'review_open (task)', 'タスクが見つかりません', 'タスクの確認に失敗しました')
+  if (!existingTask) throw new ToolUserError('タスクが見つかりません', 404)
 
   // 承認者は、画面の承認者候補と同じ範囲・役割（社内のadmin/editor）に限る
   await assertUsersHaveSpaceRole(params.reviewerIds, params.spaceId, REVIEW_APPROVER_ROLES, 'reviewerIds')
@@ -117,7 +118,7 @@ export async function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Prom
     .eq('space_id', params.spaceId)
     .single()
 
-  if (reviewError) throw new Error('レビューが見つかりません')
+  if (reviewError) throw notFoundOr(reviewError, 'review_open (review)', 'レビューが見つかりません', 'レビューの取得に失敗しました')
 
   return { ok: true, review: review as Review }
 }
@@ -135,9 +136,8 @@ export async function reviewApprove(params: z.infer<typeof reviewApproveSchema>)
     .eq('space_id', params.spaceId)
     .single()
 
-  if (checkError || !existingTask) {
-    throw new Error('タスクが見つかりません')
-  }
+  if (checkError) throw notFoundOr(checkError, 'review_approve (task)', 'タスクが見つかりません', 'タスクの確認に失敗しました')
+  if (!existingTask) throw new ToolUserError('タスクが見つかりません', 404)
 
   // 承認するのは呼んだ本人の分だけ（review_approvals.reviewer_id）。鍵に紐づく利用者から取る
   const actor = requireActorUserId()
@@ -169,9 +169,8 @@ export async function reviewBlock(params: z.infer<typeof reviewBlockSchema>): Pr
     .eq('space_id', params.spaceId)
     .single()
 
-  if (checkError || !existingTask) {
-    throw new Error('タスクが見つかりません')
-  }
+  if (checkError) throw notFoundOr(checkError, 'review_block (task)', 'タスクが見つかりません', 'タスクの確認に失敗しました')
+  if (!existingTask) throw new ToolUserError('タスクが見つかりません', 404)
 
   // ブロックするのは呼んだ本人の分だけ（review_approvals.reviewer_id）。鍵に紐づく利用者から取る
   const actor = requireActorUserId()
@@ -215,7 +214,10 @@ export async function reviewCancel(params: z.infer<typeof reviewCancelSchema>): 
     .single()
 
   // 打ち間違い・別プロジェクトのタスクは、理由を呼んだ人に返す（一般的な Error は 500 に化けて理由が届かない）
-  if (checkError || !existingTask) {
+  if (checkError) {
+    throw new ToolUserError('タスクが見つからないか、このプロジェクトのものではありません', 404, { cause: checkError })
+  }
+  if (!existingTask) {
     throw new ToolUserError('タスクが見つからないか、このプロジェクトのものではありません', 404)
   }
 
@@ -227,7 +229,7 @@ export async function reviewCancel(params: z.infer<typeof reviewCancelSchema>): 
     .eq('space_id', params.spaceId)
     .maybeSingle()
 
-  if (reviewError) throw new Error('レビューの取得に失敗しました')
+  if (reviewError) throw hideDbError(reviewError, 'review_cancel (review)', 'レビューの取得に失敗しました')
   if (!review) throw new ToolUserError('このタスクにはレビューがありません', 404)
 
   const { error } = await supabase.rpc('rpc_review_cancel_as', {
@@ -259,7 +261,7 @@ export async function reviewList(params: z.infer<typeof reviewListSchema>): Prom
 
   const { data, error } = await query
 
-  if (error) throw new Error('レビュー一覧の取得に失敗しました')
+  if (error) throw hideDbError(error, 'review_list', 'レビュー一覧の取得に失敗しました')
   return (data || []) as Review[]
 }
 
@@ -276,7 +278,7 @@ export async function reviewGet(params: z.infer<typeof reviewGetSchema>): Promis
     .eq('space_id', params.spaceId)
     .maybeSingle()
 
-  if (reviewError) throw new Error('レビューの取得に失敗しました')
+  if (reviewError) throw hideDbError(reviewError, 'review_get', 'レビューの取得に失敗しました')
 
   if (!review) {
     return { review: null, approvals: [] }
@@ -288,7 +290,7 @@ export async function reviewGet(params: z.infer<typeof reviewGetSchema>): Promis
     .eq('review_id', review.id)
     .eq('org_id', orgId)
 
-  if (approvalsError) throw new Error('承認状態の取得に失敗しました')
+  if (approvalsError) throw hideDbError(approvalsError, 'review_get (approvals)', '承認状態の取得に失敗しました')
 
   return {
     review: review as Review,

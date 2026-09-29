@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { type SupabaseClient } from '@supabase/supabase-js'
 import { fillLoginAndSubmit } from './login'
+import { createAdminDb } from './adminDb'
 
 /**
  * 社内承認を「受信箱で押す」ところだけ、実ブラウザで通しで確かめる。
@@ -52,7 +53,7 @@ test.beforeAll(async () => {
     !SUPABASE_URL || !SERVICE_ROLE_KEY,
     'NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が無いので飛ばす'
   )
-  admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } })
+  admin = createAdminDb()
 
   const requesterId = await userIdOf(REQUESTER_EMAIL)
   const approverId = await userIdOf(APPROVER_EMAIL)

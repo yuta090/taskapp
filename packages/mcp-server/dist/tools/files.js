@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
 import { ToolUserError } from '../errors.js';
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js';
 import { buildFileDownloadLink } from '../lib/appLinks.js';
 /**
  * file_* — プロジェクトのファイル（`agentpm file list / upload` の実体）。
@@ -38,8 +39,10 @@ const fileUploadCompleteSchema = z.object({
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single();
-    if (error || !data)
-        throw new Error('スペースが見つかりません');
+    if (error)
+        throw notFoundOr(error, 'file (space)', 'スペースが見つかりません', 'スペースが見つかりません');
+    if (!data)
+        throw new ToolUserError('スペースが見つかりません', 404);
     return data.org_id;
 }
 function isClientRole(role) {
@@ -84,7 +87,7 @@ export async function fileList(params) {
     }
     const { data, error } = await query.order('created_at', { ascending: false }).limit(params.limit);
     if (error)
-        throw new Error('ファイル一覧の取得に失敗しました');
+        throw hideDbError(error, 'file_list', 'ファイル一覧の取得に失敗しました');
     return (data || [])
         .map((f) => ({
         id: f.id,
@@ -138,17 +141,20 @@ export async function fileUploadUrl(params) {
     })
         .select('id')
         .single();
-    if (insertError || !row) {
+    if (insertError) {
         // 生の DB エラー文(制約名など)は外に出さない(Web の upload-url route と同じ)
-        console.error('file_upload_url insert error:', insertError);
-        throw new Error('ファイルの登録に失敗しました');
+        throw hideDbError(insertError, 'file_upload_url (insert)', 'ファイルの登録に失敗しました');
     }
+    if (!row)
+        throw new Error('ファイルの登録に失敗しました');
     const { data: signed, error: signedError } = await supabase.storage
         .from(BUCKET)
         .createSignedUploadUrl(storagePath);
     if (signedError || !signed) {
         // 署名URLが出せない行は誰もアップロードできないので消す（ベストエフォート）
         await supabase.from('files').delete().eq('id', fileId);
+        if (signedError)
+            throw hideDbError(signedError, 'file_upload_url (signed url)', 'アップロード用URLの発行に失敗しました');
         throw new Error('アップロード用URLの発行に失敗しました');
     }
     return {
@@ -168,8 +174,10 @@ export async function fileUploadComplete(params) {
         .eq('id', params.fileId)
         .eq('space_id', params.spaceId)
         .single();
-    if (error || !file)
-        throw new Error('ファイルが見つかりません');
+    if (error)
+        throw notFoundOr(error, 'file_upload_complete', 'ファイルが見つかりません', 'ファイルが見つかりません');
+    if (!file)
+        throw new ToolUserError('ファイルが見つかりません', 404);
     if (!ctx.userId || file.uploaded_by !== ctx.userId) {
         throw new Error('権限エラー: 自分がアップロードしたファイルだけ完了にできます');
     }
@@ -187,13 +195,13 @@ export async function fileUploadComplete(params) {
     const fileName = storagePath.slice(lastSlash + 1);
     const { data: listing, error: listError } = await supabase.storage.from(BUCKET).list(folder);
     if (listError)
-        throw new Error('アップロードの確認に失敗しました');
+        throw hideDbError(listError, 'file_upload_complete (storage list)', 'アップロードの確認に失敗しました');
     const exists = (listing || []).some((entry) => entry.name === fileName);
     if (!exists)
         throw new Error('アップロードが完了していません（Storage にファイルがありません）');
     const { error: updateError } = await supabase.from('files').update({ status: 'ready' }).eq('id', params.fileId);
     if (updateError)
-        throw new Error('ファイルの完了処理に失敗しました');
+        throw hideDbError(updateError, 'file_upload_complete (update)', 'ファイルの完了処理に失敗しました');
     // Web の complete route は origin='client' のとき内部メンバーへ通知するが、CLI 経路は現状 client ロールの
     // write が認可されず origin='client' にならないため省略している。client 経路を開くときはここに通知を足す
     return { ok: true, fileId: file.id, name: file.name, downloadPath, tablePath, message: 'アップロードが完了しました' };
@@ -236,13 +244,10 @@ export async function fileUpdate(params) {
         .eq('status', 'ready')
         .select('id, name, description, mime_type, size_bytes, origin, client_visible, status, created_at')
         .single();
-    if (error?.code === 'PGRST116') {
-        throw new ToolUserError('ファイルが見つかりません（アップロード中は更新できません）', 404);
-    }
-    if (error || !data) {
-        console.error('file_update failed:', error?.code, error?.message);
+    if (error)
+        throw notFoundOr(error, 'file_update', 'ファイルが見つかりません（アップロード中は更新できません）', 'ファイルの更新に失敗しました');
+    if (!data)
         throw new Error('ファイルの更新に失敗しました');
-    }
     const f = data;
     return {
         id: f.id,

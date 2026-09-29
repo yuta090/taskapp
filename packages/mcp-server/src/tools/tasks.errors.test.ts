@@ -12,6 +12,7 @@ let taskInsertError: { code: string; message: string } | null = null
 let memberError: { code: string; message: string } | null = null
 let inviteError: { code: string; message: string } | null = null
 let listUsersError: { code: string; message: string } | null = null
+let spaceError: { code?: string; message: string } | null = null
 
 function chain(table: string) {
   const c: Record<string, unknown> = {}
@@ -19,7 +20,7 @@ function chain(table: string) {
   c.insert = () => c
   c.update = () => c
   c.single = async () => {
-    if (table === 'spaces') return { data: { org_id: 'org-1' }, error: null }
+    if (table === 'spaces') return spaceError ? { data: null, error: spaceError } : { data: { org_id: 'org-1' }, error: null }
     if (table === 'tasks') return { data: { id: TASK }, error: taskInsertError }
     return { data: null, error: null }
   }
@@ -50,6 +51,7 @@ beforeEach(() => {
   memberError = null
   inviteError = null
   listUsersError = null
+  spaceError = null
 })
 
 describe('task_create — 見覚えのないDBの理由は生の文言を出さない', () => {
@@ -91,5 +93,29 @@ describe('task_update（assigneeEmail解決） — 見覚えのないDBの理由
     )
 
     expect((err as Error).message).not.toContain('unexpectedly')
+  })
+
+  it('スペース取得に失敗（0件=PGRST116はToolUserError(404)、cause を残す）', async () => {
+    spaceError = { code: 'PGRST116', message: 'no rows' }
+
+    const err = (await taskUpdate({ spaceId: SPACE, taskId: TASK, assigneeEmail: 'x@example.com' }).catch(
+      (e: unknown) => e
+    )) as Error & { status?: number; cause?: unknown }
+
+    expect(err).toMatchObject({ name: 'ToolUserError', status: 404 })
+    expect(err.message).toBe('スペースが見つかりません')
+    expect(err.cause).toEqual(spaceError)
+  })
+
+  it('スペース取得に失敗（それ以外は一般のErrorのまま、cause を残す）', async () => {
+    spaceError = { code: '42501', message: 'permission denied for table spaces' }
+
+    const err = (await taskUpdate({ spaceId: SPACE, taskId: TASK, assigneeEmail: 'x@example.com' }).catch(
+      (e: unknown) => e
+    )) as Error & { cause?: unknown }
+
+    expect(err).not.toMatchObject({ name: 'ToolUserError' })
+    expect(err.message).not.toContain('permission denied')
+    expect(err.cause).toEqual(spaceError)
   })
 })

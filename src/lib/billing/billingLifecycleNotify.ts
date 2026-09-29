@@ -62,7 +62,8 @@ export async function notifyBillingLifecycle(input: {
   key: BillingTemplateKey
   planId: string | null
 }): Promise<number> {
-  const client = createAdminClient()
+  // 呼び出し元は stripe/webhook/route.ts のみ。
+  const client = createAdminClient({ channel: 'webhook' })
   let orgName = '貴社'
   let recipients: string[] = []
   try {

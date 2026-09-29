@@ -18,7 +18,8 @@ export async function notifyCodeOnlyGroupLinked(
   spaceId: string,
   groupDisplayName: string | null,
 ): Promise<void> {
-  const client = createAdminClient() as SupabaseClient
+  // 呼び出し元は line/webhookHandler.ts のみ（code_only 成立は受信メッセージ処理から起きる）。
+  const client = createAdminClient({ channel: 'webhook' }) as SupabaseClient
 
   let orgName = '貴社'
   let spaceName = 'プロジェクト'

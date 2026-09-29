@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { test, expect } from './fixtures'
+import { createAdminDb } from './adminDb'
 
 // 文書エディタのクリックの足し算（src/components/editor/editorClickBehaviors.ts）と表の文字の大きさ。
 // どれも実際のレイアウトと BlockNote の DOM に頼るので jsdom では確かめきれない。実ブラウザで次を固定する。
@@ -39,10 +39,7 @@ const BODY = [
 ]
 
 function admin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が .env.local に無い')
-  return createClient(url, key, { auth: { persistSession: false } })
+  return createAdminDb()
 }
 
 let pageId: string | null = null

@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 import { BlockNoteEditor, BlockNoteSchema, defaultBlockSpecs, nodeToBlock } from '@blocknote/core'
 import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror'
-import { buildWikiSeed } from '@/lib/collab/seed'
+import { buildWikiSeed, normalizeWikiBody } from '@/lib/collab/seed'
 import { MINUTES_FRAGMENT_NAME, seedClientId } from '@/lib/collab/hash'
 
 const schema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs } })
@@ -88,5 +88,22 @@ describe('buildWikiSeed', () => {
 
   it('JSON として読めない本文は例外にする（呼び出し側で1人用に落とす）', () => {
     expect(() => seed('{壊れている')).toThrow()
+  })
+})
+
+describe('normalizeWikiBody（読み込んだ本文を、エディタが書き出す形に直す）', () => {
+  // 同時編集では、器の中身をエディタへ流し込んだ瞬間に「変更」として届く。エディタは既定の
+  // 書式（文字色「既定」など）を補った形で書き出すので、DB で組み立てた本文と文字列が食い違い、
+  // 誰も打っていないのに保存が走っていた。比べる前に、読み込んだ本文を同じ形へ直す
+  it('既定の書式が無い本文でも、エディタが書き出す形と同じになる', () => {
+    const raw = JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: 'DBで作った', styles: {} }] }])
+    const normalized = normalizeWikiBody(raw, editor.pmSchema, schema)
+    const parsed = JSON.parse(normalized!) as { type: string; props: Record<string, unknown>; content: { text: string }[] }[]
+    expect(parsed[0].props).toMatchObject({ textColor: 'default', backgroundColor: 'default', textAlignment: 'left' })
+    expect(parsed[0].content[0].text).toBe('DBで作った')
+  })
+
+  it('JSON として読めなければ null（比べずに、これまでどおり保存へ回す）', () => {
+    expect(normalizeWikiBody('{壊れている', editor.pmSchema, schema)).toBeNull()
   })
 })

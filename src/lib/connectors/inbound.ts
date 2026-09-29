@@ -1,4 +1,6 @@
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { CONNECTOR_SYSTEM_USER_ID } from '@/lib/connectors/systemUser'
 import { verifySinkSignature } from '@/lib/sinks/signature'
 import { decryptConnectorSecret } from '@/lib/connectors/secrets'
 import { enqueueConnectorJob } from './enqueue'
@@ -58,10 +60,9 @@ export interface InboundHandleResult {
 let _admin: SupabaseClient | null = null
 function admin(): SupabaseClient {
   if (!_admin) {
-    _admin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    // multica → TaskApp のWebhook受信(外部起点)。実行者の名義はシステムユーザーに揃える
+    // (rpc_connector_create_task 等の created_by と同じ CONNECTOR_SYSTEM_USER_ID)。
+    _admin = createAdminClient({ channel: 'connector', actorUserId: CONNECTOR_SYSTEM_USER_ID }) as SupabaseClient
   }
   return _admin
 }

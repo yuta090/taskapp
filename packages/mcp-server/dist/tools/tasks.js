@@ -8,7 +8,7 @@ import { withTaskNumber } from '../lib/taskNumber.js';
 import { ToolUserError } from '../errors.js';
 import { flattenTaskInternalMetrics } from '../lib/taskMetrics.js';
 import { assertInSpace, assertUsersAreSpaceMembers, assertUsersHaveSpaceRole, assertInvitesAreInSpace, requireActorUserId } from '../auth/scope.js';
-import { hideDbError } from '../lib/dbErrors.js';
+import { hideDbError, notFoundOr } from '../lib/dbErrors.js';
 import { buildTaskLink, withTrailingLink } from '../lib/appLinks.js';
 // 画面の担当者選択肢と同じ範囲: 相手先側は client/vendor、社内側は admin/editor/viewer
 const CLIENT_OWNER_ROLES = ['client', 'vendor'];
@@ -113,9 +113,10 @@ export async function taskCreate(params) {
         .select('org_id')
         .eq('id', params.spaceId)
         .single();
-    if (spaceError || !space) {
-        throw new Error('スペースが見つかりません');
-    }
+    if (spaceError)
+        throw notFoundOr(spaceError, 'task_create (space)', 'スペースが見つかりません', 'スペースが見つかりません');
+    if (!space)
+        throw new ToolUserError('スペースが見つかりません', 404);
     const orgId = space.org_id;
     // 決定事項のタスク(type=spec)は、Wiki ページ（画面と同じ形）か、旧来の仕様書パスのどちらかで作れる。
     // 画面はもう Wiki ページしか使わないので、新しく作るときは wikiPageId を使う。
@@ -187,7 +188,7 @@ export async function taskCreate(params) {
             .insert(ownerRows)
             .select('*');
         if (ownersError)
-            throw new Error('担当者の登録に失敗しました');
+            throw hideDbError(ownersError, 'task_create (owners)', '担当者の登録に失敗しました');
         owners = ownersData || [];
     }
     return { task: task, owners };
@@ -311,9 +312,11 @@ export async function taskUpdate(params) {
     // 担当者は「本人」か「招待中の招待」のどちらか一方だけ（DB の tasks_single_assignee_chk）。
     // 片方を指定したら、もう片方は明示的に消してから入れる
     if (params.assigneeEmail !== undefined) {
-        const { data: space } = await supabase.from('spaces').select('org_id').eq('id', params.spaceId).single();
+        const { data: space, error: spaceError } = await supabase.from('spaces').select('org_id').eq('id', params.spaceId).single();
+        if (spaceError)
+            throw notFoundOr(spaceError, 'task_update (space)', 'スペースが見つかりません', 'スペースが見つかりません');
         if (!space)
-            throw new Error('スペースが見つかりません');
+            throw new ToolUserError('スペースが見つかりません', 404);
         const resolved = await resolveAssigneeByEmail(space.org_id, params.spaceId, params.assigneeEmail);
         updateData.assignee_id = resolved.assignee_id;
         updateData.assignee_invite_id = resolved.assignee_invite_id;
@@ -348,9 +351,9 @@ export async function taskUpdate(params) {
             const gateReason = completionGateReason(error);
             if (gateReason)
                 throw new ToolUserError(gateReason, 409);
-            // それ以外の DB の理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
-            console.error('task_update failed:', error.code, error.message);
-            throw new Error('タスク更新に失敗しました');
+            // 0件（PGRST116）は対象のタスクが無い(=見つからない)。それ以外の DB の理由は中身を含むので
+            // 呼んだ人には返さず、サーバーのログにだけ残す（どちらも cause に元のDBエラーを持たせる）
+            throw notFoundOr(error, 'task_update', 'タスクが見つかりません', 'タスク更新に失敗しました');
         }
         data = flattenTaskInternalMetrics(updated);
     }
@@ -366,7 +369,7 @@ export async function taskUpdate(params) {
                 .eq('space_id', params.spaceId)
                 .maybeSingle();
             if (taskCheckError)
-                throw new Error('タスク更新に失敗しました');
+                throw hideDbError(taskCheckError, 'task_update (actualHours space check)', 'タスク更新に失敗しました');
             if (!taskInSpace)
                 throw new Error('タスクが見つかりません');
         }
@@ -377,10 +380,10 @@ export async function taskUpdate(params) {
             // tasks 側の更新(あれば)は既にDBへ反映済みで、この呼び出しでは戻せない
             // （半分だけ保存された状態）。どこまで保存されたかは秘密を含まないので、
             // 呼んだ人に見せてよい理由として返す（ToolUserError でないと /api/tools が
-            // 中身を隠した500に潰してしまい、CLI/AIに届かない）
+            // 中身を隠した500に潰してしまい、CLI/AIに届かない）。cause には元のDBエラーを残す
             throw new ToolUserError(data
                 ? 'タイトル等は更新できましたが、実績工数の更新に失敗しました'
-                : '実績工数の更新に失敗しました', 400);
+                : '実績工数の更新に失敗しました', 400, { cause: metricsError });
         }
     }
     if (!data) {
@@ -391,7 +394,7 @@ export async function taskUpdate(params) {
             .eq('space_id', params.spaceId)
             .single();
         if (fetchError)
-            throw new Error('タスク更新に失敗しました');
+            throw hideDbError(fetchError, 'task_update (refetch)', 'タスク更新に失敗しました');
         data = flattenTaskInternalMetrics(fetched);
     }
     // fetched/updated 行は upsert 前の値を持ちうるため、渡した値で上書きして返す
@@ -424,7 +427,7 @@ export async function taskList(params) {
     }
     const { data, error } = await query;
     if (error)
-        throw new Error('タスク一覧の取得に失敗しました');
+        throw hideDbError(error, 'task_list', 'タスク一覧の取得に失敗しました');
     // link はそのまま Wiki・議事録の本文に貼れる（画面側の「リンクを挿入」と同じ形）
     return (data || []).map((t) => withTrailingLink(withTaskNumber(flattenTaskInternalMetrics(t)), buildTaskLink(t.org_id, params.spaceId, t.id)));
 }
@@ -439,14 +442,14 @@ export async function taskGet(params) {
         .eq('space_id', params.spaceId)
         .single();
     if (taskError)
-        throw new Error('タスクが見つかりません');
+        throw notFoundOr(taskError, 'task_get', 'タスクが見つかりません', 'タスクが見つかりません');
     const { data: owners, error: ownersError } = await supabase
         .from('task_owners')
         .select('*')
         .eq('task_id', params.taskId)
         .eq('space_id', params.spaceId);
     if (ownersError)
-        throw new Error('担当者の取得に失敗しました');
+        throw hideDbError(ownersError, 'task_get (owners)', '担当者の取得に失敗しました');
     return {
         task: withTrailingLink(withTaskNumber(flattenTaskInternalMetrics(task)), buildTaskLink(task.org_id, params.spaceId, params.taskId)),
         owners: (owners || []),
@@ -505,7 +508,7 @@ export async function taskListMy(params) {
         .select('space_id, spaces(id, name)')
         .eq('user_id', ctx.userId);
     if (memberError) {
-        throw new Error('スペース一覧の取得に失敗しました');
+        throw hideDbError(memberError, 'task_list_my', 'スペース一覧の取得に失敗しました');
     }
     // allowed_space_idsでフィルタ
     let spaceIds = memberships.map(m => m.space_id);
@@ -577,7 +580,7 @@ export async function taskStale(params) {
     }
     const { data, error } = await query;
     if (error)
-        throw new Error('滞留タスクの取得に失敗しました');
+        throw hideDbError(error, 'task_stale', '滞留タスクの取得に失敗しました');
     return (data || []).map(flattenTaskInternalMetrics);
 }
 // Tool definitions for MCP

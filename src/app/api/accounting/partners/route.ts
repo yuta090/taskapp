@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '権限がありません' }, { status: 403 })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
     const { data: space } = await (admin as SupabaseClient)
       .from('spaces')
       .select('org_id')
@@ -122,7 +122,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: '権限がありません' }, { status: 403 })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
     const { data: space } = await (admin as SupabaseClient)
       .from('spaces')
       .select('org_id')

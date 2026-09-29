@@ -5,7 +5,8 @@ import { authorizeAndLog } from '../auth/index.js';
 import { assertInSpace, assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js';
 import { mapRaiseExceptionError, mapConfirmProposalError } from '../lib/rpcErrors.js';
 import { proposalStatusLabel } from '../lib/statusLabels.js';
-import { hideDbError } from '../lib/dbErrors.js';
+import { ToolUserError } from '../errors.js';
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js';
 import { hideDbErrorWithHint } from '../lib/dbErrorHints.js';
 // Schemas
 export const schedulingListSchema = z.object({
@@ -120,9 +121,10 @@ export async function schedulingCreate(params) {
         .select('org_id')
         .eq('id', params.spaceId)
         .single();
-    if (spaceError || !space) {
-        throw new Error('スペースが見つかりません');
-    }
+    if (spaceError)
+        throw notFoundOr(spaceError, 'create_scheduling_proposal (space)', 'スペースが見つかりません', 'スペースの取得に失敗しました');
+    if (!space)
+        throw new ToolUserError('スペースが見つかりません', 404);
     // 回答者は、画面の回答者選択肢と同じ範囲（このプロジェクトのメンバー）に限る
     await assertUsersAreSpaceMembers(params.respondents.map((r) => r.userId), params.spaceId);
     // Create proposal
@@ -180,9 +182,10 @@ export async function schedulingRespond(params) {
         .eq('id', params.proposalId)
         .eq('space_id', params.spaceId)
         .single();
-    if (proposalError || !proposal) {
-        throw new Error('提案が見つかりません');
-    }
+    if (proposalError)
+        throw notFoundOr(proposalError, 'respond_to_proposal (proposal)', '提案が見つかりません', '提案の取得に失敗しました');
+    if (!proposal)
+        throw new ToolUserError('提案が見つかりません', 404);
     if (proposal.status !== 'open') {
         throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、回答できません`);
     }
@@ -194,9 +197,11 @@ export async function schedulingRespond(params) {
         .eq('proposal_id', params.proposalId)
         .eq('user_id', userId)
         .single();
-    if (respondentError || !respondent) {
-        throw new Error('この提案の回答者として登録されていません');
+    if (respondentError) {
+        throw notFoundOr(respondentError, 'respond_to_proposal (respondent)', 'この提案の回答者として登録されていません', 'この提案の回答者として登録されていません');
     }
+    if (!respondent)
+        throw new ToolUserError('この提案の回答者として登録されていません', 404);
     // slotId が当該 proposal に属するか検証（cross-proposal 汚染防止）
     const submittedSlotIds = params.responses.map((r) => r.slotId);
     const { data: validSlots, error: slotCheckError } = await supabase
@@ -205,7 +210,7 @@ export async function schedulingRespond(params) {
         .eq('proposal_id', params.proposalId)
         .in('id', submittedSlotIds);
     if (slotCheckError)
-        throw new Error('スロット検証に失敗しました');
+        throw hideDbError(slotCheckError, 'respond_to_proposal (slot check)', 'スロット検証に失敗しました');
     const validSlotIds = new Set((validSlots || []).map((s) => s.id));
     const invalidSlotIds = submittedSlotIds.filter((id) => !validSlotIds.has(id));
     if (invalidSlotIds.length > 0) {
@@ -265,9 +270,10 @@ export async function schedulingCancel(params) {
         .eq('id', params.proposalId)
         .eq('space_id', params.spaceId)
         .single();
-    if (fetchError || !proposal) {
-        throw new Error('提案が見つかりません');
-    }
+    if (fetchError)
+        throw notFoundOr(fetchError, 'cancel_scheduling_proposal (fetch)', '提案が見つかりません', '提案の取得に失敗しました');
+    if (!proposal)
+        throw new ToolUserError('提案が見つかりません', 404);
     if (proposal.status !== 'open') {
         throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、変更できません`);
     }
@@ -320,9 +326,10 @@ export async function schedulingGetResponses(params) {
         .eq('id', params.proposalId)
         .eq('space_id', params.spaceId)
         .single();
-    if (proposalError || !proposal) {
-        throw new Error('提案が見つかりません');
-    }
+    if (proposalError)
+        throw notFoundOr(proposalError, 'get_proposal_responses (proposal)', '提案が見つかりません', '提案の取得に失敗しました');
+    if (!proposal)
+        throw new ToolUserError('提案が見つかりません', 404);
     // Fetch respondents with their responses
     const { data: respondents, error: respondentError } = await supabase
         .from('proposal_respondents')
@@ -654,8 +661,10 @@ export async function schedulingSendReminder(params) {
         .eq('id', params.proposalId)
         .eq('space_id', params.spaceId)
         .single();
-    if (proposalError || !proposal)
-        throw new Error('提案が見つかりません');
+    if (proposalError)
+        throw notFoundOr(proposalError, 'send_proposal_reminder (proposal)', '提案が見つかりません', '提案の取得に失敗しました');
+    if (!proposal)
+        throw new ToolUserError('提案が見つかりません', 404);
     if (proposal.status !== 'open')
         throw new Error(`この提案は現在「${proposalStatusLabel(proposal.status)}」のため、リマインドできません`);
     // Find respondents who haven't responded to any slot

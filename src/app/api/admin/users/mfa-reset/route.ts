@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '自分自身の二要素認証は解除できません。別の運営に依頼してください' }, { status: 409 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: adminUserId })
   const { data, error } = await admin.auth.admin.mfa.listFactors({ userId })
   if (error) {
     console.error('[mfa-reset] listFactors failed', error)

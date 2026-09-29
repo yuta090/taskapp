@@ -14,6 +14,8 @@ const metricsUpserts: Array<{ values: Record<string, unknown>; options: Record<s
 const spaceChecks: Array<Record<string, unknown>> = []
 let taskExistsInSpace = true
 let metricsUpsertShouldFail = false
+let taskCheckDbError: { code?: string; message: string } | null = null
+let refetchDbError: { code?: string; message: string } | null = null
 
 function makeTasksChain() {
   let eqArgs: Record<string, unknown> = {}
@@ -28,11 +30,14 @@ function makeTasksChain() {
       return chain
     },
     single: async () =>
-      taskExistsInSpace
+      refetchDbError
+        ? { data: null, error: refetchDbError }
+        : taskExistsInSpace
         ? { data: { id: TASK, actual_hours: null }, error: null }
         : { data: null, error: { message: 'no rows', code: 'PGRST116' } },
     maybeSingle: async () => {
       spaceChecks.push(eqArgs)
+      if (taskCheckDbError) return { data: null, error: taskCheckDbError }
       return { data: taskExistsInSpace ? { id: TASK } : null, error: null }
     },
   }
@@ -71,6 +76,8 @@ beforeEach(() => {
   spaceChecks.length = 0
   taskExistsInSpace = true
   metricsUpsertShouldFail = false
+  taskCheckDbError = null
+  refetchDbError = null
 })
 
 describe('task_update — actualHours は task_internal_metrics へ書く', () => {
@@ -135,6 +142,7 @@ describe('task_update — actualHours は task_internal_metrics へ書く', () =
     // ToolUserError でないと /api/tools が中身を隠した500に潰してしまい、CLI/AIに理由が届かない
     expect(err).toMatchObject({ name: 'ToolUserError', status: 400 })
     expect((err as Error).message).toContain('タイトル等は更新できましたが')
+    expect((err as Error).cause).toEqual({ message: 'boom' })
   })
 
   it('actualHoursだけの更新でupsertが失敗したときは、tasks側は変えていない旨のToolUserErrorにする', async () => {
@@ -143,6 +151,29 @@ describe('task_update — actualHours は task_internal_metrics へ書く', () =
     const err = await taskUpdate({ spaceId: SPACE, taskId: TASK, actualHours: 3 }).catch((e: unknown) => e)
     expect(err).toMatchObject({ name: 'ToolUserError', status: 400 })
     expect((err as Error).message).toBe('実績工数の更新に失敗しました')
+    expect((err as Error).cause).toEqual({ message: 'boom' })
+  })
+
+  it('space内の存在確認(maybeSingle)がDBエラーで断られても、cause に元のDBエラーを残す', async () => {
+    taskCheckDbError = { code: '42501', message: 'permission denied for table tasks' }
+
+    const err = (await taskUpdate({ spaceId: SPACE, taskId: TASK, actualHours: 3 }).catch((e: unknown) => e)) as Error & {
+      cause?: unknown
+    }
+
+    expect(err.message).not.toContain('permission denied')
+    expect(err.cause).toEqual(taskCheckDbError)
+  })
+
+  it('actualHours更新後の再取得(single)がDBエラーで断られても、cause に元のDBエラーを残す', async () => {
+    refetchDbError = { code: '42501', message: 'permission denied for table tasks' }
+
+    const err = (await taskUpdate({ spaceId: SPACE, taskId: TASK, actualHours: 3 }).catch((e: unknown) => e)) as Error & {
+      cause?: unknown
+    }
+
+    expect(err.message).not.toContain('permission denied')
+    expect(err.cause).toEqual(refetchDbError)
   })
 
   it('ほかの項目と一緒でも、別の space のタスク ID では書き込まない（エラーを返す）', async () => {

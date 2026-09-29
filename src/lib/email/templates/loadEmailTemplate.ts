@@ -64,7 +64,8 @@ export async function loadEmailTemplateRows(opts: { fresh?: boolean } = {}): Pro
 async function fetchEmailTemplateRows(): Promise<Record<string, EmailTemplateRow>> {
   let rows: Record<string, unknown>[] = []
   try {
-    const admin = createAdminClient()
+    // 読み取り専用。メール送信経路の全域(cron/webhook/app等)から呼ばれる共有ヘルパーのため 'system' とする。
+    const admin = createAdminClient({ channel: 'system' })
     // 台帳のキーだけ取る（台帳から外したキーの行が残っていても読まない）
     const { data, error } = await admin.from('email_templates').select(EMAIL_TEMPLATE_COLUMNS).in('key', [...EMAIL_TEMPLATE_KEYS])
     if (error) {

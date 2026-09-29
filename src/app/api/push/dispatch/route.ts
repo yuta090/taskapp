@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     const vapidSubject = process.env.VAPID_SUBJECT
     const vapidConfigured = !!(vapidPublicKey && vapidPrivateKey && vapidSubject)
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'cron' }) as SupabaseClient
 
     const { data: notification, error: notificationError } = await admin
       .from('notifications')

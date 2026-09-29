@@ -110,6 +110,8 @@ function signed(raw: string, secret = SECRET) {
 }
 
 beforeEach(() => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
   state.connection = {
     id: CONNECTION_ID,
     metadata: { generic_inbound: { receive_secret_encrypted: 'enc' } },

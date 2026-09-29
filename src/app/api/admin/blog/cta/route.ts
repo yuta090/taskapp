@@ -24,7 +24,8 @@ function buildCtaRow(body: Record<string, unknown>) {
 
 /** CTAブロック作成 */
 export async function POST(request: NextRequest) {
-  if (!(await verifySuperadmin())) {
+  const actorUserId = await verifySuperadmin()
+  if (!actorUserId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const body = await request.json().catch(() => null)
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: validation.error }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId })
   const { data, error } = await (admin as SupabaseClient)
     .from('cta_blocks')
     .insert(buildCtaRow(body))
@@ -55,7 +56,8 @@ export async function POST(request: NextRequest) {
 
 /** CTAブロック更新 */
 export async function PATCH(request: NextRequest) {
-  if (!(await verifySuperadmin())) {
+  const actorUserId = await verifySuperadmin()
+  if (!actorUserId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const body = await request.json().catch(() => null)
@@ -67,7 +69,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: validation.error }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId })
   const { data, error } = await (admin as SupabaseClient)
     .from('cta_blocks')
     .update(buildCtaRow(body))
@@ -87,14 +89,15 @@ export async function PATCH(request: NextRequest) {
 
 /** CTAブロック削除（記事側の参照は on delete set null で外れる） */
 export async function DELETE(request: NextRequest) {
-  if (!(await verifySuperadmin())) {
+  const actorUserId = await verifySuperadmin()
+  if (!actorUserId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const id = request.nextUrl.searchParams.get('id')
   if (!id) {
     return NextResponse.json({ error: 'id is required' }, { status: 400 })
   }
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId })
   const { error } = await (admin as SupabaseClient).from('cta_blocks').delete().eq('id', id)
   if (error) {
     console.error('cta_blocks delete failed:', error)

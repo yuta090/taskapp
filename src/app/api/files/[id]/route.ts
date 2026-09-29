@@ -164,7 +164,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
     const { error: removeError } = await admin.storage.from('space-files').remove([file.storage_path])
 
     if (removeError) {

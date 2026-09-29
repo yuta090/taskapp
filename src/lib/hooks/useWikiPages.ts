@@ -108,6 +108,17 @@ export class WikiConflictError extends Error {
 // 読み込み中に毎レンダー新しい [] を返すと呼び出し側の useMemo が毎回無効化されるため共有定数にする
 const EMPTY_PAGES: WikiPage[] = []
 
+/** 画面で変えられる項目。作成の保存を待つ間に変わっていたら、保存の結果より画面の値を残す */
+const LOCALLY_EDITABLE_KEYS = ['title', 'body', 'tags', 'parent_page_id', 'milestone_id', 'pinned_at'] as const
+
+function keepLocalEdits(saved: WikiPage, current: WikiPage, optimistic: WikiPage): WikiPage {
+  const merged = { ...saved }
+  for (const key of LOCALLY_EDITABLE_KEYS) {
+    if (current[key] !== optimistic[key]) Object.assign(merged, { [key]: current[key] })
+  }
+  return merged
+}
+
 export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOptions): UseWikiPagesReturn {
   const queryClient = useQueryClient()
 
@@ -118,6 +129,20 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
   const defaultCreatedRef = useRef(false)
 
   const queryKey = ['wikiPages', orgId, spaceId] as const
+
+  // 作った直後でまだ DB に無いページ（id → 保存の完了。成功なら true）。
+  // この間にそのページを動かす・消す・親にすると、DB に行が無くて空振りする・
+  // 外部キーで弾かれるので、更新の送信だけを保存の完了まで待たせる（画面は先に動かす）
+  const pendingCreatesRef = useRef(new Map<string, Promise<boolean>>())
+  const waitForSaved = useCallback(async (ids: Array<string | null | undefined>): Promise<void> => {
+    const waits = ids.flatMap(id => {
+      const pending = id ? pendingCreatesRef.current.get(id) : undefined
+      return pending ? [pending] : []
+    })
+    if (waits.length === 0) return
+    const results = await Promise.all(waits)
+    if (results.includes(false)) throw new Error('作成できなかったページは更新できません')
+  }, [])
 
   // ---------- Query: page list (without body) ----------
   const { data, isPending, error: queryError } = useQuery<{
@@ -305,7 +330,9 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
 
   const createPage = useCallback(async (input: CreateWikiPageInput): Promise<WikiPage> => {
     const now = new Date().toISOString()
-    const tempId = crypto.randomUUID()
+    // id は画面側で決めて、そのまま保存する。保存の結果で別の id の行に差し替えると、
+    // その間に入れた変更（ドラッグでの移動など）が消えるため
+    const newId = crypto.randomUUID()
 
     const { data: authData, error: authError } = await supabase.auth.getUser()
     if (authError || !authData?.user) {
@@ -317,7 +344,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
     const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID!
 
     const optimisticPage: WikiPage = {
-      id: tempId,
+      id: newId,
       org_id: orgId,
       space_id: spaceId,
       title: input.title,
@@ -345,10 +372,14 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       })
     )
 
+    let markSaved: (ok: boolean) => void = () => {}
+    pendingCreatesRef.current.set(newId, new Promise<boolean>(resolve => { markSaved = resolve }))
+
     try {
       const { data: created, error: createError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
         .insert({
+          id: newId,
           org_id: orgId,
           space_id: spaceId,
           title: input.title,
@@ -364,25 +395,30 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
 
       if (createError) throw createError
 
+      // 保存の結果で置き換えるが、保存を待つ間に画面で変えた項目はそのまま残す
       const createdPage = created as WikiPage
       queryClient.setQueryData<{ pages: WikiPage[]; autoCreatedPageId: string | null }>(
         queryKey,
         (old) => ({
-          pages: (old?.pages ?? []).map(p => p.id === tempId ? createdPage : p),
+          pages: (old?.pages ?? []).map(p => (p.id === newId ? keepLocalEdits(createdPage, p, optimisticPage) : p)),
           autoCreatedPageId: old?.autoCreatedPageId ?? null,
         })
       )
+      markSaved(true)
       return createdPage
     } catch (err) {
       // Revert optimistic update
       queryClient.setQueryData<{ pages: WikiPage[]; autoCreatedPageId: string | null }>(
         queryKey,
         (old) => ({
-          pages: (old?.pages ?? []).filter(p => p.id !== tempId),
+          pages: (old?.pages ?? []).filter(p => p.id !== newId),
           autoCreatedPageId: old?.autoCreatedPageId ?? null,
         })
       )
+      markSaved(false)
       throw err instanceof Error ? err : new Error('Failed to create wiki page')
+    } finally {
+      pendingCreatesRef.current.delete(newId)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId+spaceId already in deps
   }, [orgId, spaceId, supabase, queryClient])
@@ -425,6 +461,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
     // 本人確認はキャッシュ経由（毎回サーバーへ出ると、本文中のリンクを押したときの待ちが伸びる）
     let userId: string | undefined
     try {
+      await waitForSaved([pageId, input.parent_page_id])
       userId = (await getCachedUserId(supabase)) || process.env.NEXT_PUBLIC_DEMO_USER_ID
 
       const updateData: Record<string, unknown> = { updated_by: userId }
@@ -470,9 +507,17 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
       // この案内板の設定に関わらず「無いかもしれない」がそのまま型に出る。
       updatedAt = rows.at(0)?.updated_at ?? null
     } catch (err) {
-      // Revert optimistic update
-      if (previousData) {
-        queryClient.setQueryData(queryKey, previousData)
+      // Revert optimistic update（このページだけを戻す。一覧ごと戻すと、待つ間に作成に
+      // 失敗して消えたページまで生き返る）
+      const previousPage = previousData?.pages.find(p => p.id === pageId)
+      if (previousPage) {
+        queryClient.setQueryData<{ pages: WikiPage[]; autoCreatedPageId: string | null }>(
+          queryKey,
+          (old) => ({
+            pages: (old?.pages ?? []).map(p => (p.id === pageId ? previousPage : p)),
+            autoCreatedPageId: old?.autoCreatedPageId ?? null,
+          })
+        )
       }
       if (err instanceof WikiConflictError) throw err
       throw err instanceof Error ? err : new Error('Failed to update wiki page')
@@ -503,7 +548,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
 
     return { updatedAt }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId already in deps
-  }, [orgId, supabase, queryClient])
+  }, [orgId, supabase, queryClient, waitForSaved])
 
   const reparentPages = useCallback(async (ids: string[], newParentId: string | null): Promise<void> => {
     if (ids.length === 0) return
@@ -526,6 +571,7 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
     )
 
     try {
+      await waitForSaved([...ids, newParentId])
       const userId = (await getCachedUserId(supabase)) || process.env.NEXT_PUBLIC_DEMO_USER_ID
 
       const { error: updateError } = await (supabase as SupabaseClient)
@@ -537,14 +583,24 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
 
       if (updateError) throw updateError
     } catch (err) {
-      // Revert optimistic update（1回でまとめて戻す）
-      if (previousData) {
-        queryClient.setQueryData(queryKey, previousData)
-      }
+      // Revert optimistic update（動かしたページの親だけを1回でまとめて戻す。一覧ごと戻すと、
+      // 待つ間に作成に失敗して消えたフォルダまで生き返る）
+      const previousParents = new Map(
+        (previousData?.pages ?? []).filter(p => idSet.has(p.id)).map(p => [p.id, p.parent_page_id])
+      )
+      queryClient.setQueryData<{ pages: WikiPage[]; autoCreatedPageId: string | null }>(
+        queryKey,
+        (old) => ({
+          pages: (old?.pages ?? []).map(p =>
+            previousParents.has(p.id) ? { ...p, parent_page_id: previousParents.get(p.id) ?? null } : p
+          ),
+          autoCreatedPageId: old?.autoCreatedPageId ?? null,
+        })
+      )
       throw err instanceof Error ? err : new Error('Failed to reparent wiki pages')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId+spaceId already in deps
-  }, [orgId, spaceId, supabase, queryClient])
+  }, [orgId, spaceId, supabase, queryClient, waitForSaved])
 
   const deletePage = useCallback(async (pageId: string): Promise<void> => {
     const previousData = queryClient.getQueryData<{
@@ -562,6 +618,12 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
     )
 
     try {
+      try {
+        await waitForSaved([pageId])
+      } catch {
+        // 作成に失敗したページは DB に無く、画面からも消えている。消すものが無いので終わり
+        return
+      }
       const { error: deleteError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
         .delete()
@@ -570,14 +632,26 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
 
       if (deleteError) throw deleteError
     } catch (err) {
-      // Revert optimistic update
-      if (previousData) {
-        queryClient.setQueryData(queryKey, previousData)
+      // Revert optimistic update（消したページだけを元の位置に戻す。一覧ごと戻すと、
+      // その間に入った別の変更まで巻き戻る）
+      const previousPages = previousData?.pages ?? []
+      const index = previousPages.findIndex(p => p.id === pageId)
+      if (index >= 0) {
+        queryClient.setQueryData<{ pages: WikiPage[]; autoCreatedPageId: string | null }>(
+          queryKey,
+          (old) => {
+            const pages = old?.pages ?? []
+            if (pages.some(p => p.id === pageId)) return { pages, autoCreatedPageId: old?.autoCreatedPageId ?? null }
+            const restored = [...pages]
+            restored.splice(Math.min(index, restored.length), 0, previousPages[index])
+            return { pages: restored, autoCreatedPageId: old?.autoCreatedPageId ?? null }
+          }
+        )
       }
       throw err instanceof Error ? err : new Error('Failed to delete wiki page')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from orgId already in deps
-  }, [orgId, supabase, queryClient])
+  }, [orgId, supabase, queryClient, waitForSaved])
 
   const publishPage = useCallback(async (pageId: string, milestoneId: string): Promise<void> => {
     try {

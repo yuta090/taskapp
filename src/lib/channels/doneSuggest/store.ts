@@ -10,8 +10,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * 却下(dismissed)後も行は残る＝再サジェストを恒久抑止する。
  */
 
+// 呼び出し元は line/webhookHandler.ts のみ（LINEの受信メッセージ処理から起動する）。
 function admin(): SupabaseClient {
-  return createAdminClient() as SupabaseClient
+  return createAdminClient({ channel: 'webhook' }) as SupabaseClient
 }
 
 export interface InsertDoneSuggestionInput {

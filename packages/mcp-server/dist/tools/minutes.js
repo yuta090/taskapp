@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { assertWriteApplied } from '../lib/staleWrite.js';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
+import { ToolUserError } from '../errors.js';
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js';
 // ── Schemas ──────────────────────────────────────────────
 const minutesGetSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -45,8 +47,10 @@ const H1_LINE_RE = /^#(?!#)[ \t]+.*$/;
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single();
-    if (error || !data)
-        throw new Error('スペースが見つかりません');
+    if (error)
+        throw notFoundOr(error, 'minutes/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました');
+    if (!data)
+        throw new ToolUserError('スペースが見つかりません', 404);
     return data.org_id;
 }
 async function getMeetingScoped(meetingId, spaceId, orgId) {
@@ -58,8 +62,10 @@ async function getMeetingScoped(meetingId, spaceId, orgId) {
         .eq('org_id', orgId)
         .eq('space_id', spaceId)
         .single();
-    if (error || !data)
-        throw new Error('会議が見つかりません');
+    if (error)
+        throw notFoundOr(error, 'minutes/getMeetingScoped', '会議が見つかりません', '会議の取得に失敗しました');
+    if (!data)
+        throw new ToolUserError('会議が見つかりません', 404);
     return data;
 }
 /** 目次の行を見出し1の直後（無ければ先頭）に挿入する。既にあれば null（何もしない＝冪等）。 */
@@ -113,7 +119,7 @@ export async function minutesUpdate(params) {
     }
     const { data, error } = await query.select('*');
     if (error)
-        throw new Error('議事録の更新に失敗しました');
+        throw hideDbError(error, 'minutes_update', '議事録の更新に失敗しました');
     const rows = (data ?? []);
     assertWriteApplied(rows.length, params.expectedUpdatedAt, '会議が見つかりません');
     return rows[0];
@@ -156,7 +162,7 @@ export async function minutesAppend(params) {
         .select('*')
         .single();
     if (error)
-        throw new Error('議事録の追記に失敗しました');
+        throw hideDbError(error, 'minutes_append', '議事録の追記に失敗しました');
     return data;
 }
 export async function minutesToc(params) {
@@ -179,7 +185,7 @@ export async function minutesToc(params) {
     }
     const { data, error } = await query.select('*');
     if (error)
-        throw new Error('議事録の更新に失敗しました');
+        throw hideDbError(error, 'minutes_toc', '議事録の更新に失敗しました');
     const rows = (data ?? []);
     assertWriteApplied(rows.length, params.expectedUpdatedAt, '会議が見つかりません');
     return rows[0];

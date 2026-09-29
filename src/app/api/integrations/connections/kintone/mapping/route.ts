@@ -57,8 +57,12 @@ interface KintoneConnectionRow extends ConnectionCredentialRow {
 }
 
 /** connection_id を org_id・provider='kintone' の境界付きで引く。他orgの接続は絶対に引けない。 */
-async function findKintoneConnection(connectionId: string, orgId: string): Promise<KintoneConnectionRow | null> {
-  const admin = createAdminClient()
+async function findKintoneConnection(
+  connectionId: string,
+  orgId: string,
+  actorUserId: string,
+): Promise<KintoneConnectionRow | null> {
+  const admin = createAdminClient({ channel: 'app', actorUserId })
   const { data, error } = await admin
     .from('integration_connections')
     .select(
@@ -148,7 +152,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: parsed.reason }, { status: 400 })
   }
 
-  const connection = await findKintoneConnection(connectionId, orgId)
+  const connection = await findKintoneConnection(connectionId, orgId, auth.userId)
   if (!connection) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 })
   }
@@ -219,7 +223,7 @@ export async function PUT(request: NextRequest) {
   // kintone_mappings[app_id] の更新をRPC内の単一UPDATE文で行う。ここでは import_config 全体を
   // 組み立てない（＝他アプリのkintone_mappingsエントリを一切送らない。他のキー(kintone_app_ids等)
   // もRPC側で保持される）。
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId })
   const { data: mergedConfig, error: rpcError } = await admin.rpc('rpc_kintone_mapping_merge', {
     p_connection_id: connectionId,
     p_org_id: orgId,

@@ -40,7 +40,7 @@ export async function GET(
       return NextResponse.json({ error: 'File not found' }, { status: 404 })
     }
 
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
     const { data: signed, error: signedError } = await admin.storage
       .from('space-files')
       .createSignedUrl(file.storage_path, SIGNED_URL_TTL_SECONDS, { download: file.name })

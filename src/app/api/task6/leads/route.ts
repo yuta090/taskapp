@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app' })
   const { error: insertError } = await admin.from('template_leads').insert({
     email,
     template_key: magnet.key,
