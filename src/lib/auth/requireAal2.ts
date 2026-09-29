@@ -26,13 +26,14 @@ export function readAalClaim(accessToken: string | null | undefined): 'aal1' | '
 
 /**
  * @param strict true = 登録していない人も拒否（「二要素認証が必須」の面で使う）
+ * @param accessToken getUser で確かめ済みのアクセストークン（Bearer のクライアント用）。省くと getSession から読む
  * @param user   呼び出し側が **supabase.auth.getUser() で取得した** ユーザー。渡すと Auth API への往復を増やさない。
  *               getUser の応答は listFactors と同じデータ源で、factor が無いときは factors キー自体が省かれる
  *               （= 未登録）。手組みのオブジェクトを渡さないこと
  */
 export async function checkAal2(
   supabase: SupabaseClient,
-  opts: { strict?: boolean; user?: User | null } = {},
+  opts: { strict?: boolean; user?: User | null; accessToken?: string | null } = {},
 ): Promise<Aal2Check> {
   try {
     let factorList: Array<{ status: string }>
@@ -51,9 +52,12 @@ export async function checkAal2(
       }
       factorList = factors.data?.all ?? []
     }
-    const { data: sessionData } = await supabase.auth.getSession()
+    // accessToken を渡されたら（Bearer のクライアント。セッションを持たない）それを読む。
+    // getUser(accessToken) で確かめ済みのものだけを渡すこと（src/lib/supabase/routeAuth.ts）
+    const token =
+      opts.accessToken !== undefined ? opts.accessToken : (await supabase.auth.getSession()).data.session?.access_token
     const enrolled = factorList.some((f) => f.status === 'verified')
-    const aal = readAalClaim(sessionData.session?.access_token)
+    const aal = readAalClaim(token)
 
     if (enrolled && aal !== 'aal2') return { ok: false, reason: 'mfa_required', userId: user.id }
     if (opts.strict && !enrolled) return { ok: false, reason: 'mfa_not_enrolled', userId: user.id }
