@@ -70,7 +70,13 @@ test.describe('Wiki のフォルダ', () => {
       const input = page.getByTestId('wiki-inline-create-row').locator('input')
       await expect(input).toBeVisible()
       await input.fill(title)
+      // 押した直後の行は、保存が終わるまで仮の行。仮の行をドラッグすると、保存の結果で
+      // 差し替わったときに移動が黙って消える（全件実行で落ちた原因）。保存の完了を待つ
+      const saved = page.waitForResponse(
+        r => r.url().includes('/rest/v1/wiki_pages') && r.request().method() === 'POST' && r.ok()
+      )
       await input.press('Enter')
+      await saved
       await expect(rowByTitle(title)).toBeVisible({ timeout: 15000 })
     }
 
