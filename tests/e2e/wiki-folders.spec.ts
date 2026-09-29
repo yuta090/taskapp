@@ -28,7 +28,7 @@ function admin() {
  * stamp を渡すとその回で作ったものだけ、渡さないと10分以上前の残りだけを消す
  * （同時に走っている別の回のフォルダまで消すと、そちらが落ちる）。
  */
-async function removeTestFolders(stamp?: number) {
+async function removeTestFolders(stamp?: string) {
   const db = admin()
   let query = db.from('wiki_pages').select('id').eq('space_id', SPACE_ID)
   query = stamp
@@ -43,10 +43,11 @@ async function removeTestFolders(stamp?: number) {
   if (deleteError) throw deleteError
 }
 
-let stamp = 0
+let stamp = ''
 
 test.beforeEach(async () => {
-  stamp = Date.now()
+  // 同時に走る回と同じミリ秒になっても題名がぶつからないよう、乱数も足す
+  stamp = `${Date.now()}${Math.random().toString(36).slice(2, 6)}`
   await removeTestFolders()
 })
 test.afterEach(async () => {
@@ -59,6 +60,13 @@ test.describe('Wiki のフォルダ', () => {
     const inner = `${TITLE_PREFIX}内-${stamp}`
     const renamed = `${TITLE_PREFIX}改名-${stamp}`
 
+    // フォルダの保存（POST）をわざと遅らせ、保存が終わる前にドラッグする状況を必ず作る。
+    // 以前は保存の結果で行が差し替わり、その間の移動が黙って消えていた
+    await page.route('**/rest/v1/wiki_pages*', async route => {
+      if (route.request().method() === 'POST') await new Promise(resolve => setTimeout(resolve, 1500))
+      await route.continue()
+    })
+
     await page.goto(`${SPACE_URL}/wiki`)
     await expect(page.locator('[data-testid^="wiki-page-row-"]').first()).toBeVisible({ timeout: 20000 })
 
@@ -70,19 +78,19 @@ test.describe('Wiki のフォルダ', () => {
       const input = page.getByTestId('wiki-inline-create-row').locator('input')
       await expect(input).toBeVisible()
       await input.fill(title)
-      // 押した直後の行は、保存が終わるまで仮の行。仮の行をドラッグすると、保存の結果で
-      // 差し替わったときに移動が黙って消える（全件実行で落ちた原因）。保存の完了を待つ
       const saved = page.waitForResponse(
-        r => r.url().includes('/rest/v1/wiki_pages') && r.request().method() === 'POST' && r.ok()
+        r => r.url().includes('/rest/v1/wiki_pages') && r.request().method() === 'POST'
       )
       await input.press('Enter')
-      await saved
       await expect(rowByTitle(title)).toBeVisible({ timeout: 15000 })
+      // 保存の完了はここでは待たず、呼び出し側に渡す（保存が終わる前にドラッグするため）。
+      // Promise をそのまま返すと、async 関数の戻りを await した時点で保存まで待ってしまうので包む
+      return { saved }
     }
 
     // 1. 作成（押すとフォルダ表示に切り替わる）
-    await createFolder(outer)
-    await createFolder(inner)
+    const { saved: outerSaved } = await createFolder(outer)
+    const { saved: innerSaved } = await createFolder(inner)
     await expect(page.getByTestId('wiki-view-folder')).toHaveAttribute('aria-pressed', 'true')
     await expect(rowByTitle(outer).getByTestId('wiki-folder-icon')).toBeVisible()
 
@@ -95,6 +103,10 @@ test.describe('Wiki のフォルダ', () => {
     await expect.poll(async () => (before = await paddingOf(inner)), { timeout: 15000 }).not.toBeNaN()
     await rowByTitle(inner).dragTo(rowByTitle(outer))
     await expect.poll(() => paddingOf(inner), { timeout: 15000 }).toBeGreaterThan(before)
+    // 保存が終わったあとも中に入ったまま（以前はここで保存の結果に上書きされ、一番上の階層に戻っていた）
+    await Promise.all([outerSaved, innerSaved])
+    await page.waitForTimeout(500)
+    expect(await paddingOf(inner)).toBeGreaterThan(before)
     // 字下げだけでは、ほかのフォルダの中に落ちても通ってしまう。outer の直下の行が inner かも見る
     await expect(
       rowByTitle(outer).locator('xpath=following-sibling::*[1]').getByRole('heading', { name: inner, exact: true })
