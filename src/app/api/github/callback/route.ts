@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mfaRedirectResponse } from '@/lib/auth/apiMfaGuard'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { getInstallationRepositories, getInstallationPermissions } from '@/lib/github'
 import { verifySignedState } from '@/lib/github/config'
@@ -21,26 +22,18 @@ export const runtime = 'nodejs'
 // isSafeInternalPath 一か所に揃えるため、ここでも改めて確認する。
 const DEFAULT_REDIRECT = '/settings/org-integrations'
 
-// Untyped client — github_installations/github_repositories are not in Database types
-let _supabaseAdmin: SupabaseClient | null = null
-function getSupabaseAdmin(): SupabaseClient {
-  if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
-  }
-  return _supabaseAdmin
-}
-
 // その時点の許可範囲を記録する（GITHUB_ISSUES_LINK_SPEC.md §5・§7.6）。
 // permissions / permissions_updated_at 列は本番マイグレーション適用前にこのコードが
 // 先に出ても壊れないよう、失敗してもログのみで処理は止めない。
-async function saveInstallationPermissions(orgId: string, installationIdNum: number): Promise<void> {
+async function saveInstallationPermissions(
+  admin: SupabaseClient,
+  orgId: string,
+  installationIdNum: number,
+): Promise<void> {
   try {
     const permissions = await getInstallationPermissions(installationIdNum)
     if (permissions) {
-      const { error } = await getSupabaseAdmin()
+      const { error } = await admin
         .from('github_installations')
         .update({
           permissions,
@@ -59,6 +52,7 @@ async function saveInstallationPermissions(orgId: string, installationIdNum: num
 }
 
 async function saveRepositories(
+  admin: SupabaseClient,
   orgId: string,
   installationIdNum: number,
   repositories: Awaited<ReturnType<typeof getInstallationRepositories>>,
@@ -73,7 +67,7 @@ async function saveRepositories(
     is_private: repo.private,
   }))
 
-  const { error } = await getSupabaseAdmin()
+  const { error } = await admin
     .from('github_repositories')
     .upsert(repoRecords, { onConflict: 'org_id,repo_id' })
 
@@ -172,6 +166,7 @@ export async function GET(request: NextRequest) {
   // 3. 二要素認証: 登録済み × コード未入力(aal1) は連携を紐付けさせず、コード入力画面へ
   const mfaBlock = await mfaRedirectResponse(supabase as SupabaseClient, user, new URL(request.url).origin, '/settings/org-integrations')
   if (mfaBlock) return mfaBlock
+  const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
   // 4. インストールを始めたのと同じ利用者かどうか
   if (user.id !== stateUserId) {
@@ -191,7 +186,7 @@ export async function GET(request: NextRequest) {
   // （installation_id は組織をまたいで一意。webhook が installation_id から組織を
   //   1つに逆引きしているため、1インストール = 1組織を保つ）
   // 行が無いのは正常（新規インストール）なので maybeSingle を使う
-  const { data: existingInstall, error: existingInstallError } = await getSupabaseAdmin()
+  const { data: existingInstall, error: existingInstallError } = await admin
     .from('github_installations')
     .select('id, org_id')
     .eq('installation_id', installationIdNum)
@@ -231,11 +226,11 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      await saveInstallationPermissions(orgId, installationIdNum)
-      await saveRepositories(orgId, installationIdNum, repositories)
+      await saveInstallationPermissions(admin, orgId, installationIdNum)
+      await saveRepositories(admin, orgId, installationIdNum, repositories)
 
       // 持ち主確認をしていないため、account_login / account_type は触らない
-      await getSupabaseAdmin()
+      await admin
         .from('github_installations')
         .update({ updated_at: new Date().toISOString() })
         .eq('id', existingInstall.id)
@@ -336,7 +331,7 @@ export async function GET(request: NextRequest) {
 
     if (existingInstall) {
       // 更新
-      await getSupabaseAdmin()
+      await admin
         .from('github_installations')
         .update({
           account_login: accountLogin,
@@ -345,7 +340,7 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', existingInstall.id)
     } else {
-      const { error: installError } = await getSupabaseAdmin()
+      const { error: installError } = await admin
         .from('github_installations')
         .insert({
           org_id: orgId,
@@ -363,8 +358,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    await saveInstallationPermissions(orgId, installationIdNum)
-    await saveRepositories(orgId, installationIdNum, repositories)
+    await saveInstallationPermissions(admin, orgId, installationIdNum)
+    await saveRepositories(admin, orgId, installationIdNum, repositories)
 
     // 成功時はリダイレクト
     return NextResponse.redirect(

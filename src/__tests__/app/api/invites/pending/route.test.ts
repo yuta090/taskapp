@@ -102,7 +102,8 @@ describe('GET /api/invites/pending', () => {
           role: 'member',
           space_id: 'space-1',
           created_at: '2026-07-01T00:00:00Z',
-          expires_at: '2026-09-29T00:00:00Z',
+          // 期限は遠い未来にする。実在の日付だと、その日を過ぎたとたんに状態が「期限切れ」になって落ちる
+          expires_at: '2099-12-31T00:00:00Z',
           spaces: { name: 'テストプロジェクト' },
         },
       ],
@@ -164,7 +165,7 @@ describe('GET /api/invites/pending', () => {
         space_id: 'space-1',
         space_name: 'テストプロジェクト',
         created_at: '2026-07-01T00:00:00Z',
-        expires_at: '2026-09-29T00:00:00Z',
+        expires_at: '2099-12-31T00:00:00Z',
         accepted_at: null,
         status: 'pending',
       },

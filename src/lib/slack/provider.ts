@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type {
   NotificationProvider,
   NotificationEventType,
@@ -11,13 +11,13 @@ import { postSlackMessage } from './client'
 import { buildTaskBlocks, buildTaskFallbackText } from './blocks'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+// notificationRegistry から呼ばれる通知プロバイダーの実装。呼び出し元(タスク変更フック等)の
+// actor は notify 呼び出し側(slack/notify route)が別途 context.actorId として持つため、
+// ここでは client.ts と同じ channel:'system' に揃える(個々の actor をここまで引き回さない)。
+let _supabaseAdmin: ReturnType<typeof createAdminClient> | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'system' })
   }
   return _supabaseAdmin
 }

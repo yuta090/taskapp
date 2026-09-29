@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { test, expect } from './fixtures'
+import { createAdminDb } from './adminDb'
 
 // メモの中で Enter を押したら、空の行を足さずにすぐ下の行へ移る（src/components/meeting/minutesBlocks.tsx の
 // exitNoteOnEnter）。議事録の「会議メモ」も同じ部品なので、Wiki で確かめる。
@@ -18,10 +18,7 @@ const BODY = [
 ]
 
 function admin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が .env.local に無い')
-  return createClient(url, key, { auth: { persistSession: false } })
+  return createAdminDb()
 }
 
 let pageId: string | null = null
