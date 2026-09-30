@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { wikiAppendedBlocks, wikiContentHash } from '@/lib/wiki/bodyMerge'
+import { wikiAppendedBlocks, wikiBodiesEquivalent, wikiContentHash } from '@/lib/wiki/bodyMerge'
 
 const a = { id: 'a', type: 'paragraph', props: { textAlignment: 'left' }, content: [{ type: 'text', text: 'A', styles: {} }], children: [] }
 const b = { id: 'b', type: 'paragraph', content: [{ type: 'text', text: 'B', styles: {} }], children: [] }
@@ -42,5 +42,19 @@ describe('wikiContentHash', () => {
   it('中身が違えば違う値、null と空は同じ', () => {
     expect(wikiContentHash('[1]')).not.toBe(wikiContentHash('[2]'))
     expect(wikiContentHash(null)).toBe(wikiContentHash(''))
+  })
+})
+
+describe('wikiBodiesEquivalent（見分け番号だけの違いは同じ本文と見なす）', () => {
+  it('ブロックの id だけが違う本文は同じ', () => {
+    const x = JSON.stringify([{ id: 'a', type: 'paragraph', content: [], children: [] }])
+    const y = JSON.stringify([{ id: 'b', type: 'paragraph', content: [], children: [] }])
+    expect(wikiBodiesEquivalent(x, y)).toBe(true)
+  })
+
+  it('中身が違えば違う・並びが違えば違う', () => {
+    const p = (text: string, id = 'x') => ({ id, type: 'paragraph', content: [{ type: 'text', text, styles: {} }], children: [] })
+    expect(wikiBodiesEquivalent(JSON.stringify([p('あ')]), JSON.stringify([p('い')]))).toBe(false)
+    expect(wikiBodiesEquivalent(JSON.stringify([p('あ', '1'), p('い', '2')]), JSON.stringify([p('い', '1'), p('あ', '2')]))).toBe(false)
   })
 })

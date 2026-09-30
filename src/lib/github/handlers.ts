@@ -1,5 +1,6 @@
 // GitHub Webhook Event Handlers
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { linkPRToTasks, linkIssueToTasks } from './task-linker'
 import { notifyTasksForMergedPR } from './merge-notify'
 import type {
@@ -12,10 +13,8 @@ import type {
 let _supabaseAdmin: SupabaseClient | null = null
 function getSupabaseAdmin(): SupabaseClient {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    // GitHub Webhook(POST /api/github/webhook)からのみ呼ばれる。ログイン中の利用者は無い。
+    _supabaseAdmin = createAdminClient({ channel: 'webhook' }) as SupabaseClient
   }
   return _supabaseAdmin
 }

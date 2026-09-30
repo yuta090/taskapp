@@ -1,4 +1,6 @@
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { CONNECTOR_SYSTEM_USER_ID } from '@/lib/connectors/systemUser'
 import { getValidTokenDetailed } from '@/lib/integrations/token-manager'
 import { refreshAccessToken } from '@/lib/google-calendar/client'
 import { listTasks } from './client'
@@ -15,10 +17,7 @@ import { listTasks } from './client'
 let _admin: SupabaseClient | null = null
 function admin(): SupabaseClient {
   if (!_admin) {
-    _admin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _admin = createAdminClient({ channel: 'connector', actorUserId: CONNECTOR_SYSTEM_USER_ID }) as SupabaseClient
   }
   return _admin
 }

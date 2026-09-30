@@ -6,12 +6,14 @@ import { ToolUserError } from '../errors.js'
 import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js'
 import { mapRaiseExceptionError } from '../lib/rpcErrors.js'
 import { buildMinutesLink, withLink } from '../lib/appLinks.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  if (error) throw notFoundOr(error, 'meetings/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return data.org_id
 }
 
@@ -75,11 +77,7 @@ export async function meetingCreate(params: z.infer<typeof meetingCreateSchema>)
     .select('*')
     .single()
 
-  if (error) {
-    // DB の理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
-    console.error('meeting_create failed:', error.code, error.message)
-    throw new Error('会議の作成に失敗しました')
-  }
+  if (error) throw hideDbError(error, 'meeting_create', '会議の作成に失敗しました')
 
   if (params.participantIds.length > 0) {
     const participantRows = params.participantIds.map((userId) => ({
@@ -115,9 +113,8 @@ export async function meetingStart(params: z.infer<typeof meetingStartSchema>): 
     .eq('space_id', params.spaceId)
     .single()
 
-  if (checkError || !existingMeeting) {
-    throw new Error('会議が見つかりません')
-  }
+  if (checkError) throw notFoundOr(checkError, 'meeting_start (check)', '会議が見つかりません', '会議の確認に失敗しました')
+  if (!existingMeeting) throw new ToolUserError('会議が見つかりません', 404)
 
   // 誰が開始したか（task_events.actor_id）は、鍵に紐づく利用者から取る
   const actor = requireActorUserId()
@@ -137,7 +134,7 @@ export async function meetingStart(params: z.infer<typeof meetingStartSchema>): 
     .eq('space_id', params.spaceId)
     .single()
 
-  if (meetingError) throw new Error('会議が見つかりません')
+  if (meetingError) throw notFoundOr(meetingError, 'meeting_start (reload)', '会議が見つかりません', '会議の取得に失敗しました')
 
   return { ok: true, meeting: meeting as Meeting }
 }
@@ -169,9 +166,8 @@ export async function meetingEnd(params: z.infer<typeof meetingEndSchema>): Prom
     .eq('space_id', params.spaceId)
     .single()
 
-  if (checkError || !existingMeeting) {
-    throw new Error('会議が見つかりません')
-  }
+  if (checkError) throw notFoundOr(checkError, 'meeting_end (check)', '会議が見つかりません', '会議の確認に失敗しました')
+  if (!existingMeeting) throw new ToolUserError('会議が見つかりません', 404)
 
   // 誰が終了したか（task_events.actor_id）は、鍵に紐づく利用者から取る
   const actor = requireActorUserId()
@@ -191,7 +187,7 @@ export async function meetingEnd(params: z.infer<typeof meetingEndSchema>): Prom
     .eq('space_id', params.spaceId)
     .single()
 
-  if (meetingError) throw new Error('会議が見つかりません')
+  if (meetingError) throw notFoundOr(meetingError, 'meeting_end (reload)', '会議が見つかりません', '会議の取得に失敗しました')
 
   return {
     ok: true,
@@ -223,7 +219,7 @@ export async function meetingList(params: z.infer<typeof meetingListSchema>): Pr
 
   const { data, error } = await query
 
-  if (error) throw new Error('会議一覧の取得に失敗しました')
+  if (error) throw hideDbError(error, 'meeting_list', '会議一覧の取得に失敗しました')
   // link はそのまま Wiki・議事録の本文に貼れる（画面側の「リンクを挿入」と同じ形）
   return ((data || []) as Meeting[]).map((meeting) =>
     withLink(meeting, buildMinutesLink(orgId, params.spaceId, meeting.id))
@@ -243,7 +239,7 @@ export async function meetingGet(params: z.infer<typeof meetingGetSchema>): Prom
     .eq('space_id', params.spaceId)
     .single()
 
-  if (meetingError) throw new Error('会議が見つかりません')
+  if (meetingError) throw notFoundOr(meetingError, 'meeting_get', '会議が見つかりません', '会議の取得に失敗しました')
 
   const { data: participants, error: participantsError } = await supabase
     .from('meeting_participants')
@@ -252,7 +248,7 @@ export async function meetingGet(params: z.infer<typeof meetingGetSchema>): Prom
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
 
-  if (participantsError) throw new Error('参加者の取得に失敗しました')
+  if (participantsError) throw hideDbError(participantsError, 'meeting_get (participants)', '参加者の取得に失敗しました')
 
   return {
     meeting: withLink(meeting as Meeting, buildMinutesLink(orgId, params.spaceId, params.meetingId)) as Meeting,

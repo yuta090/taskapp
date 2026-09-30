@@ -7,8 +7,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BillingReconcilePatch } from './stripeSync'
 
+// 呼び出し元は cron/billing-reconcile/route.ts のみ。
 function admin(): SupabaseClient {
-  return createAdminClient() as SupabaseClient
+  return createAdminClient({ channel: 'cron' }) as SupabaseClient
 }
 
 export interface ReconcilableBillingRow {

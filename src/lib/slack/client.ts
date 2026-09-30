@@ -1,14 +1,14 @@
 import { WebClient, type KnownBlock, type Block } from '@slack/web-api'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { SLACK_CONFIG } from './config'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+// Slack Bot Token の解決は、Slack API 系 route(app 起点/webhook 起点)から広く共有して呼ばれる
+// 基盤のため channel:'system' に揃える（個々の呼び出し元への attribution 引き回しは侵襲的）。
+let _supabaseAdmin: ReturnType<typeof createAdminClient> | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'system' })
   }
   return _supabaseAdmin
 }

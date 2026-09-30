@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
 import { getValidToken } from '@/lib/integrations'
 import { queryFreeBusy } from '@/lib/google-calendar'
@@ -10,17 +11,6 @@ import { refreshAccessToken } from '@/lib/google-calendar/client'
 import type { IntegrationConnection } from '@/lib/integrations/types'
 
 export const runtime = 'nodejs'
-
-let _supabaseAdmin: SupabaseClient<Database> | null = null
-function getSupabaseAdmin(): SupabaseClient<Database> {
-  if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
-  }
-  return _supabaseAdmin
-}
 
 /**
  * POST /api/integrations/freebusy
@@ -50,6 +40,7 @@ export async function POST(request: NextRequest) {
   // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く
   const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
   if (mfaBlock) return mfaBlock
+  const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient<Database>
 
   let body: { userIds: string[]; timeMin: string; timeMax: string }
   try {
@@ -86,7 +77,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Batch fetch all active google_calendar connections for the requested users
-  const { data: connections } = await (getSupabaseAdmin() as SupabaseClient)
+  const { data: connections } = await admin
     .from('integration_connections')
     .select('*')
     .eq('provider', 'google_calendar')

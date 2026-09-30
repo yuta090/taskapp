@@ -38,7 +38,7 @@ export async function GET() {
   // ⚠ ここから下は「ログイン確認 → 所属の確認 → 接続 → 名前」の直列。並列にしない判断をした：
   // 滅多に開かない設定画面で、クエリを割って重複を取り除く手数に見合わない。2回目以降は
   // 画面側のキャッシュが効く
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
   let query = admin
     .from('api_keys')
     .select('id, name, org_id, user_id, allowed_actions, created_at, last_used_at, is_active, oauth_client_id, organizations(name)')

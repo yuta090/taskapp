@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app', actorUserId: auth.userId })
   const { data, error } = await admin
     .from('integration_connections')
     .select('id, provider, status, base_url, import_enabled, import_config, metadata, created_at')

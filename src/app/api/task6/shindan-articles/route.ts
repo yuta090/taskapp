@@ -40,7 +40,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ posts: [] }, { headers: { 'Cache-Control': CACHE_CONTROL } })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'app' })
   const { data, error } = await (admin as SupabaseClient)
     .from('blog_posts')
     .select('slug, title, description')

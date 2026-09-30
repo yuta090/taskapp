@@ -11,8 +11,13 @@ import { checkAal2 } from './requireAal2'
 import { MFA_CHALLENGE_PATH } from './mfa'
 
 /** 通してよければ null、弾くなら 403 レスポンス（未ログインは呼び出し側の 401 に任せる） */
-export async function mfaGuardResponse(supabase: SupabaseClient, user?: User | null): Promise<NextResponse | null> {
-  const r = await checkAal2(supabase, { user })
+export async function mfaGuardResponse(
+  supabase: SupabaseClient,
+  user?: User | null,
+  /** Bearer で来たリクエストでは必ず渡す（src/lib/supabase/routeAuth.ts の accessToken） */
+  accessToken?: string | null
+): Promise<NextResponse | null> {
+  const r = await checkAal2(supabase, accessToken === undefined ? { user } : { user, accessToken })
   if (r.ok || r.reason === 'unauthenticated' || r.reason === 'mfa_not_enrolled') return null
   return NextResponse.json({ error: 'mfa_required', message: '二要素認証のコード入力が必要です' }, { status: 403 })
 }

@@ -1,14 +1,15 @@
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { IntegrationConnection, IntegrationProvider } from './types'
 import { encryptToken, decryptToken } from './token-crypto'
 
+// integration_connections のトークン解決/更新は OAuth コールバック・connector ワーカー・
+// video-conference provider 等、呼び出し元が広く混在する共有基盤。個々の呼び出し元へ
+// attribution を通す改修は侵襲的なため channel:'system' に揃える。
 let _supabaseAdmin: SupabaseClient | null = null
 function getSupabaseAdmin(): SupabaseClient {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'system' }) as SupabaseClient
   }
   return _supabaseAdmin
 }

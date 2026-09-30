@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     }
 
     // この関数は、本人の所属を確かめたあと、管理用の鍵からだけ呼ぶ
-    const admin = createAdminClient()
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
     const { data, error } = await admin.rpc('rpc_check_org_limits', {
       p_org_id: orgId,
     })

@@ -24,7 +24,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: userId })
   const { data, error } = await (admin as SupabaseClient)
     .from('system_integration_configs')
     .select('id, provider, enabled, credentials_encrypted, config, updated_at')
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'credentials object is required' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: userId })
 
   // Encrypt credentials JSON
   const credentialsJson = JSON.stringify(credentials)
@@ -159,7 +159,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Valid provider is required' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'admin', actorUserId: userId })
   const { error } = await (admin as SupabaseClient)
     .from('system_integration_configs')
     .delete()

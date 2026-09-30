@@ -45,7 +45,7 @@ export const REGISTRATION_LIMIT_PER_HOUR = 10
 /** 同じ相手からの登録が多すぎないか。Vercel は共有メモリが無いので DB で数える */
 export async function tooManyRecentRegistrations(ipHash: string | null): Promise<boolean> {
   if (!ipHash) return false
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp' })
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const { count, error } = await admin
     .from('oauth_clients')
@@ -62,7 +62,7 @@ export async function registerClient(params: {
   redirectUris: string[]
   ipHash: string | null
 }): Promise<OAuthClient> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp' })
   const { data, error } = await admin
     .from('oauth_clients')
     .insert({
@@ -78,7 +78,7 @@ export async function registerClient(params: {
 }
 
 export async function getClient(clientId: string): Promise<OAuthClient | null> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp' })
   const { data } = await admin
     .from('oauth_clients')
     .select('client_id, client_name, redirect_uris')
@@ -91,7 +91,7 @@ export async function getClient(clientId: string): Promise<OAuthClient | null> {
 
 /** 同意が成立した。引換券を1枚出す（生の値は戻り値だけ・DB には控え） */
 export async function createAuthorizationCode(consent: PendingConsent): Promise<string> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp', actorUserId: consent.userId })
   const code = newSecret()
 
   const { error } = await admin.from('oauth_authorization_codes').insert({
@@ -126,7 +126,7 @@ export interface ConsumedCode {
  * そこから出た合鍵を全部止める（返り値は null）。
  */
 export async function consumeAuthorizationCode(code: string): Promise<ConsumedCode | null> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp' })
   const codeHash = hashSecret(code)
 
   const { data: row } = await admin
@@ -181,7 +181,7 @@ export async function issueTokens(params: {
   authorizationCodeId: string | null
   familyId?: string
 }): Promise<IssuedTokens> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp', actorUserId: params.userId, apiKeyId: params.apiKeyId })
   const accessToken = newOAuthToken()
   const refreshToken = newOAuthToken()
   const base = {
@@ -207,7 +207,7 @@ export async function issueTokens(params: {
  * すでに使われた付け替え用が持ち込まれたら、系列ごと止める（返り値は null）。
  */
 export async function rotateRefreshToken(refreshToken: string, clientId: string): Promise<IssuedTokens | null> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp' })
   const tokenHash = hashSecret(refreshToken)
 
   const { data: row } = await admin
@@ -261,7 +261,7 @@ export async function createOAuthApiKey(params: {
   orgId: string
   allowedActions: string[]
 }): Promise<string> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp', actorUserId: params.userId })
   const unusableSecret = newSecret()
 
   const { data, error } = await admin
@@ -290,7 +290,7 @@ export async function createOAuthApiKey(params: {
 
 /** その接続を解除する（合鍵を全部止め、対応する鍵も無効にする） */
 export async function revokeConnection(apiKeyId: string): Promise<void> {
-  const admin = createAdminClient()
+  const admin = createAdminClient({ channel: 'mcp', apiKeyId })
   await admin.from('oauth_tokens').update({ revoked_at: new Date().toISOString() }).eq('api_key_id', apiKeyId).is('revoked_at', null)
   await admin.from('api_keys').update({ is_active: false }).eq('id', apiKeyId)
 }

@@ -1,22 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
-import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { SLACK_CONFIG } from '@/lib/slack/config'
 import { verifyAiKey } from '@/lib/ai/client'
 
 export const runtime = 'nodejs'
-
-let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
-function getSupabaseAdmin() {
-  if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
-  }
-  return _supabaseAdmin
-}
 
 /**
  * GET /api/ai-config?orgId=xxx
@@ -33,6 +23,7 @@ export async function GET(request: NextRequest) {
     // 二要素認証: 登録済み × コード未入力(aal1) は弾く
     const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
     if (mfaBlock) return mfaBlock
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     const { searchParams } = new URL(request.url)
     const orgId = searchParams.get('orgId')
@@ -76,7 +67,7 @@ export async function GET(request: NextRequest) {
     // ここでは復号化してプレフィックスだけ返す
     let keyPrefix = ''
     try {
-      const { data: decrypted } = await (getSupabaseAdmin() as SupabaseClient)
+      const { data: decrypted } = await admin
         .rpc('decrypt_slack_token', {
           encrypted: data.api_key_encrypted,
           secret: SLACK_CONFIG.clientSecret,
@@ -124,6 +115,7 @@ export async function POST(request: NextRequest) {
     // 二要素認証: 登録済み × コード未入力(aal1) は弾く
     const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
     if (mfaBlock) return mfaBlock
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     const body = await request.json()
     const { orgId, provider, apiKey, model } = body
@@ -186,7 +178,7 @@ export async function POST(request: NextRequest) {
     const keyStatus = verification === 'valid' ? 'valid' : 'unverified'
 
     // APIキーを暗号化
-    const { data: encryptedKey, error: encryptError } = await (getSupabaseAdmin() as SupabaseClient)
+    const { data: encryptedKey, error: encryptError } = await admin
       .rpc('encrypt_slack_token', {
         token: apiKey,
         secret: SLACK_CONFIG.clientSecret,
@@ -201,7 +193,7 @@ export async function POST(request: NextRequest) {
     }
 
     // DB保存（upsert）
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
+    const { error: upsertError } = await admin
       .from('org_ai_config')
       .upsert(
         {
@@ -259,6 +251,7 @@ export async function DELETE(request: NextRequest) {
     // 二要素認証: 登録済み × コード未入力(aal1) は弾く
     const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
     if (mfaBlock) return mfaBlock
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     const { searchParams } = new URL(request.url)
     const orgId = searchParams.get('orgId')
@@ -282,7 +275,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    const { error } = await (getSupabaseAdmin() as SupabaseClient)
+    const { error } = await admin
       .from('org_ai_config')
       .delete()
       .eq('org_id', orgId)

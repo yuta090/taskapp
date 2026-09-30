@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { checkAuth } from '../auth/helpers.js'
-import { notFoundOr } from '../lib/dbErrors.js'
+import { ToolUserError } from '../errors.js'
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
 
 // Milestone type
 export interface Milestone {
@@ -18,7 +19,8 @@ export interface Milestone {
 async function getOrgId(spaceId: string): Promise<string> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
-  if (error || !data) throw new Error('スペースが見つかりません')
+  if (error) throw notFoundOr(error, 'milestones/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました')
+  if (!data) throw new ToolUserError('スペースが見つかりません', 404)
   return data.org_id
 }
 
@@ -72,10 +74,7 @@ export async function milestoneCreate(params: z.infer<typeof milestoneCreateSche
     .select('*')
     .single()
 
-  if (error) {
-    console.error('milestone_create failed:', error.code, error.message)
-    throw new Error('マイルストーンの作成に失敗しました')
-  }
+  if (error) throw hideDbError(error, 'milestone_create', 'マイルストーンの作成に失敗しました')
   return data as Milestone
 }
 
@@ -121,10 +120,7 @@ export async function milestoneList(params: z.infer<typeof milestoneListSchema>)
     .eq('space_id', params.spaceId)
     .order('order_key', { ascending: true })
 
-  if (error) {
-    console.error('milestone_list failed:', error.code, error.message)
-    throw new Error('マイルストーン一覧の取得に失敗しました')
-  }
+  if (error) throw hideDbError(error, 'milestone_list', 'マイルストーン一覧の取得に失敗しました')
   return (data || []) as Milestone[]
 }
 
@@ -157,10 +153,7 @@ export async function milestoneDelete(params: z.infer<typeof milestoneDeleteSche
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
 
-  if (error) {
-    console.error('milestone_delete failed:', error.code, error.message)
-    throw new Error('マイルストーンの削除に失敗しました')
-  }
+  if (error) throw hideDbError(error, 'milestone_delete', 'マイルストーンの削除に失敗しました')
   return { success: true, milestoneId: params.milestoneId }
 }
 

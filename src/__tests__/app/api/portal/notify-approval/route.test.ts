@@ -197,7 +197,42 @@ vi.mock('@/lib/supabase/admin', () => ({
   })),
 }))
 
+// スマホアプリの Bearer トークン用のクライアント。本人確認だけ差し替え、問い合わせ（from）は上の
+// セッション用クライアント（RLS が効く側）と同じものを使う＝認可が service role に頼らないことを同じ形で確かめる
+let bearerUser: Record<string, unknown> | null = null
+vi.mock('@/lib/supabase/bearer', async () => {
+  const server = await import('@/lib/supabase/server')
+  const base = (await server.createClient()) as unknown as Record<string, unknown>
+  return {
+    createBearerClient: vi.fn(() => ({
+      ...base,
+      auth: {
+        getUser: vi.fn((jwt: string) =>
+          Promise.resolve(
+            jwt.startsWith('good') && bearerUser
+              ? { data: { user: bearerUser }, error: null }
+              : { data: { user: null }, error: { message: 'invalid JWT' } }
+          )
+        ),
+        getSession: () => Promise.resolve({ data: { session: null } }),
+      },
+    })),
+  }
+})
+
+const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url')
+const jwtWithAal = (aal: string) => `good.${b64({ aal })}.sig`
+
 const { POST } = await import('@/app/api/portal/notify-approval/route')
+
+function callPostBearer(token: string, body: Record<string, unknown>) {
+  const request = new NextRequest(new URL('/api/portal/notify-approval', 'http://localhost:3000'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  })
+  return POST(request)
+}
 
 function callPost(body: Record<string, unknown>) {
   const request = new NextRequest(new URL('/api/portal/notify-approval', 'http://localhost:3000'), {
@@ -376,5 +411,64 @@ describe('POST /api/portal/notify-approval', () => {
     expect(response.status).toBe(404)
     expect(tokenInsertMock).not.toHaveBeenCalled()
     expect(sendApprovalEmailMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * スマホアプリ（apps/mobile）は Cookie を持たないので、Authorization: Bearer <アクセストークン> で呼ぶ。
+ * 認可（社内メンバーか）と2段階認証の確認は Cookie のときと同じものを通す。
+ */
+describe('POST /api/portal/notify-approval — Bearer（スマホアプリ）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    notCalls.length = 0
+    bearerUser = { id: 'user-1' }
+    authResponse = { data: { user: null } }
+    taskResponse = { data: mockTask, error: null }
+    orgMembershipResponse = { data: null, error: null }
+    spaceMembershipResponse = { data: { role: 'member' }, error: null }
+    taskOwnersResponse = { data: [{ user_id: 'client-user-1' }], error: null }
+    clientMembersResponse = { data: [], error: null }
+    profilesResponse = { data: [{ id: 'client-user-1', email: 'client@example.com' }], error: null }
+    spaceResponse = {
+      data: { name: 'テストスペース', org_id: 'org-1', organizations: { name: 'テスト組織' } },
+      error: null,
+    }
+    tokenInsertResponse = { data: { token: 'generated-token' }, error: null }
+  })
+
+  it('無効なトークンなら 401 で、何も起こさない', async () => {
+    const response = await callPostBearer('bad-token', { taskId: 'task-1' })
+    expect(response.status).toBe(401)
+    expect(tokenInsertMock).not.toHaveBeenCalled()
+    expect(sendApprovalEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('社内メンバーなら承認依頼メールを送る（Cookie が無くても）', async () => {
+    const response = await callPostBearer(jwtWithAal('aal1'), { taskId: 'task-1' })
+    expect(response.status).toBe(200)
+    expect(sendApprovalEmailMock).toHaveBeenCalledTimes(1)
+    expect(notCalls.some((c) => c.table === 'space_memberships')).toBe(true)
+  })
+
+  it('社内メンバーでなければ 403 で、何も起こさない', async () => {
+    spaceMembershipResponse = { data: null, error: null }
+    const response = await callPostBearer(jwtWithAal('aal1'), { taskId: 'task-1' })
+    expect(response.status).toBe(403)
+    expect(sendApprovalEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('2段階認証を登録した人が、まだ2段階目を通していないトークンなら 403', async () => {
+    bearerUser = { id: 'user-1', factors: [{ status: 'verified' }] }
+    const response = await callPostBearer(jwtWithAal('aal1'), { taskId: 'task-1' })
+    expect(response.status).toBe(403)
+    expect(sendApprovalEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('2段階目を通したトークンなら送る', async () => {
+    bearerUser = { id: 'user-1', factors: [{ status: 'verified' }] }
+    const response = await callPostBearer(jwtWithAal('aal2'), { taskId: 'task-1' })
+    expect(response.status).toBe(200)
+    expect(sendApprovalEmailMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'endpoint is required' }, { status: 400 })
     }
 
-    const admin = createAdminClient() as SupabaseClient
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id }) as SupabaseClient
 
     const { error } = await admin
       .from('push_subscriptions')

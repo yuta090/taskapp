@@ -4,14 +4,17 @@ import { checkAuth } from '../auth/helpers.js';
 import { assertUsersHaveSpaceRole, requireActorUserId } from '../auth/scope.js';
 import { mapRaiseExceptionError } from '../lib/rpcErrors.js';
 import { ToolUserError } from '../errors.js';
+import { notFoundOr, hideDbError } from '../lib/dbErrors.js';
 // 画面の承認者候補と同じ役割の範囲（社内のadmin/editorだけ。rpc_review_open_asも同じ規則）
 const REVIEW_APPROVER_ROLES = ['admin', 'editor'];
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single();
-    if (error || !data)
-        throw new Error('スペースが見つかりません');
+    if (error)
+        throw notFoundOr(error, 'reviews/getOrgId', 'スペースが見つかりません', 'スペースの取得に失敗しました');
+    if (!data)
+        throw new ToolUserError('スペースが見つかりません', 404);
     return data.org_id;
 }
 // Schemas
@@ -57,9 +60,10 @@ export async function reviewOpen(params) {
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId)
         .single();
-    if (checkError || !existingTask) {
-        throw new Error('タスクが見つかりません');
-    }
+    if (checkError)
+        throw notFoundOr(checkError, 'review_open (task)', 'タスクが見つかりません', 'タスクの確認に失敗しました');
+    if (!existingTask)
+        throw new ToolUserError('タスクが見つかりません', 404);
     // 承認者は、画面の承認者候補と同じ範囲・役割（社内のadmin/editor）に限る
     await assertUsersHaveSpaceRole(params.reviewerIds, params.spaceId, REVIEW_APPROVER_ROLES, 'reviewerIds');
     // 依頼した人（reviews.created_by・task_events.actor_id）は、鍵に紐づく利用者から取る
@@ -80,7 +84,7 @@ export async function reviewOpen(params) {
         .eq('space_id', params.spaceId)
         .single();
     if (reviewError)
-        throw new Error('レビューが見つかりません');
+        throw notFoundOr(reviewError, 'review_open (review)', 'レビューが見つかりません', 'レビューの取得に失敗しました');
     return { ok: true, review: review };
 }
 export async function reviewApprove(params) {
@@ -94,9 +98,10 @@ export async function reviewApprove(params) {
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId)
         .single();
-    if (checkError || !existingTask) {
-        throw new Error('タスクが見つかりません');
-    }
+    if (checkError)
+        throw notFoundOr(checkError, 'review_approve (task)', 'タスクが見つかりません', 'タスクの確認に失敗しました');
+    if (!existingTask)
+        throw new ToolUserError('タスクが見つかりません', 404);
     // 承認するのは呼んだ本人の分だけ（review_approvals.reviewer_id）。鍵に紐づく利用者から取る
     const actor = requireActorUserId();
     const { data, error } = await supabase.rpc('rpc_review_approve_as', {
@@ -122,9 +127,10 @@ export async function reviewBlock(params) {
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId)
         .single();
-    if (checkError || !existingTask) {
-        throw new Error('タスクが見つかりません');
-    }
+    if (checkError)
+        throw notFoundOr(checkError, 'review_block (task)', 'タスクが見つかりません', 'タスクの確認に失敗しました');
+    if (!existingTask)
+        throw new ToolUserError('タスクが見つかりません', 404);
     // ブロックするのは呼んだ本人の分だけ（review_approvals.reviewer_id）。鍵に紐づく利用者から取る
     const actor = requireActorUserId();
     const { error } = await supabase.rpc('rpc_review_block_as', {
@@ -160,7 +166,10 @@ export async function reviewCancel(params) {
         .eq('space_id', params.spaceId)
         .single();
     // 打ち間違い・別プロジェクトのタスクは、理由を呼んだ人に返す（一般的な Error は 500 に化けて理由が届かない）
-    if (checkError || !existingTask) {
+    if (checkError) {
+        throw new ToolUserError('タスクが見つからないか、このプロジェクトのものではありません', 404, { cause: checkError });
+    }
+    if (!existingTask) {
         throw new ToolUserError('タスクが見つからないか、このプロジェクトのものではありません', 404);
     }
     const { data: review, error: reviewError } = await supabase
@@ -171,7 +180,7 @@ export async function reviewCancel(params) {
         .eq('space_id', params.spaceId)
         .maybeSingle();
     if (reviewError)
-        throw new Error('レビューの取得に失敗しました');
+        throw hideDbError(reviewError, 'review_cancel (review)', 'レビューの取得に失敗しました');
     if (!review)
         throw new ToolUserError('このタスクにはレビューがありません', 404);
     const { error } = await supabase.rpc('rpc_review_cancel_as', {
@@ -198,7 +207,7 @@ export async function reviewList(params) {
     }
     const { data, error } = await query;
     if (error)
-        throw new Error('レビュー一覧の取得に失敗しました');
+        throw hideDbError(error, 'review_list', 'レビュー一覧の取得に失敗しました');
     return (data || []);
 }
 export async function reviewGet(params) {
@@ -213,7 +222,7 @@ export async function reviewGet(params) {
         .eq('space_id', params.spaceId)
         .maybeSingle();
     if (reviewError)
-        throw new Error('レビューの取得に失敗しました');
+        throw hideDbError(reviewError, 'review_get', 'レビューの取得に失敗しました');
     if (!review) {
         return { review: null, approvals: [] };
     }
@@ -223,7 +232,7 @@ export async function reviewGet(params) {
         .eq('review_id', review.id)
         .eq('org_id', orgId);
     if (approvalsError)
-        throw new Error('承認状態の取得に失敗しました');
+        throw hideDbError(approvalsError, 'review_get (approvals)', '承認状態の取得に失敗しました');
     return {
         review: review,
         approvals: (approvals || []),

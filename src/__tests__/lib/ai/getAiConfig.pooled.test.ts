@@ -45,6 +45,8 @@ let orgAiConfigResponse: any
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://supabase.example.com')
+  vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-role-key')
   vi.stubEnv('PLATFORM_AI_API_KEY', 'sk-pool')
   vi.stubEnv('PLATFORM_AI_PROVIDER', 'openai')
   vi.stubEnv('PLATFORM_AI_MODEL', 'gpt-4o-mini')

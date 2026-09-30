@@ -1,12 +1,11 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+// Slack app_mention の文脈構築（読み取りのみ）。ai/client.ts と同じ共有基盤のため channel:'system'。
+let _supabaseAdmin: ReturnType<typeof createAdminClient> | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    _supabaseAdmin = createAdminClient({ channel: 'system' })
   }
   return _supabaseAdmin
 }

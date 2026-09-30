@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
   // プランの枠はここ1箇所でだけ見る（新しい接続の拒否のみ）。以降のツール呼び出しや
   // 合鍵の付け替えでは見ない＝いったんつないだ接続は、プランが下がっても切らない
-  const capacity = await orgMcpConnectionCapacity(orgId)
+  const capacity = await orgMcpConnectionCapacity(orgId, user.id)
   if (isMcpConnectionLimitReached(capacity)) {
     return NextResponse.json(
       {
