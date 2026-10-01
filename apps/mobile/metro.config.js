@@ -15,6 +15,11 @@ const config = getDefaultConfig(projectRoot)
 
 config.watchFolders = [...(config.watchFolders ?? []), webSrc]
 
+// macOS は exFAT など一部のドライブで、ファイルごとに `._名前` という付属ファイルを作る。
+// Expo Router が src/app のそれを画面として読み、起動時に SyntaxError で止まる（2026-10-01）。読まないようにする。
+const appleDoubleFiles = /[\\/]\._[^\\/]*$/
+config.resolver.blockList = [...[config.resolver.blockList ?? []].flat(), appleDoubleFiles]
+
 const upstreamResolveRequest = config.resolver.resolveRequest
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const target = moduleName.startsWith('@/')
