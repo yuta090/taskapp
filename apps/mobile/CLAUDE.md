@@ -28,6 +28,8 @@ Web 用のルール（3ペイン・`bg-surface`・Next.js のページ速度レ�
   アクセストークンを Bearer で付ける）。サーバー側で Bearer を受け付けるのは `createRouteAuth`
   （`src/lib/supabase/routeAuth.ts`）を使うルートだけ。新しく呼ぶルートは、そのルートを `createRouteAuth` に
   切り替えて、2段階認証の確認に `accessToken` を渡す（渡さないと登録者が必ず弾かれる）。
+- **Wiki の本文（`wiki_pages.body`）は BlockNote の JSON 文字列で、Markdown ではない**。読むのは `src/lib/wikiBody.ts`（`parseWikiBody`）。
+  新しいブロックの型は Web のエディタに足したら、ここにも対応を足す（未対応は文字だけ出る）。
 - **`rpc_pass_ball` は担当者を入れ替える**。ボールだけ変えるときも、今の担当者を全員渡す（`src/lib/owners.ts`）。
 - **古い版が残る前提で変える**。DB の列名・RPC の引数を変えるときは、古い版のアプリが壊れないか考え、
   壊れるなら `src/lib/mobile/version.ts`（Web 側）の最低の版を上げる手順を踏む。

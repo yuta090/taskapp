@@ -141,6 +141,8 @@ function useInvalidateTask() {
   return (taskId: string) =>
     Promise.all([
       queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'task' && q.queryKey[2] === taskId }),
+      // 承認・差し戻しのあと、詳細の「社内承認」の欄（承認者ごとの状態）も読み直す
+      queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'taskReview' && q.queryKey[2] === taskId }),
       queryClient.invalidateQueries({ queryKey: ['myTasks'] }),
       queryClient.invalidateQueries({ queryKey: ['spaceTasks'] }),
       queryClient.invalidateQueries({ queryKey: ['pendingReviews'] }),

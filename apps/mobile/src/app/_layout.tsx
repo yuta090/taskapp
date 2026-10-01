@@ -4,7 +4,7 @@ import * as SplashScreen from 'expo-splash-screen'
 import { useEffect } from 'react'
 import { Text, useColorScheme } from 'react-native'
 import { Centered, Screen } from '~/components/ui'
-import { persister, queryClient } from '~/hooks/queryClient'
+import { dehydrateOptions, persister, queryClient } from '~/hooks/queryClient'
 import { usePushNotifications } from '~/hooks/usePushNotifications'
 import { SessionProvider, useSession } from '~/hooks/useSession'
 import { useVersionGate } from '~/hooks/useVersionGate'
@@ -25,6 +25,7 @@ export default function RootLayout() {
           persister,
           buster: CACHE_BUSTER,
           maxAge: 1000 * 60 * 60 * 24,
+          dehydrateOptions,
         }}>
         <SessionProvider>
           <RootNavigator />
@@ -57,6 +58,7 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="project/[spaceId]" options={{ title: 'プロジェクト' }} />
         <Stack.Screen name="task/[taskId]" options={{ title: 'タスク' }} />
+        <Stack.Screen name="wiki/[pageId]" options={{ title: 'Wiki' }} />
         <Stack.Screen name="notification/[notificationId]" options={{ title: '通知' }} />
       </Stack.Protected>
     </Stack>
