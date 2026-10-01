@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
 import { focusManager, QueryClient } from '@tanstack/react-query'
 import { AppState } from 'react-native'
+import { shouldPersistQuery } from '~/lib/persistPolicy'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +31,9 @@ export const persister = createAsyncStoragePersister({
   storage: AsyncStorage,
   key: 'agentpm-query-cache',
 })
+
+/** 端末に書くものの条件（本文つきの Wiki ページは書かない。理由は persistPolicy.ts） */
+export const dehydrateOptions = { shouldDehydrateQuery: shouldPersistQuery }
 
 /** ログアウトしたら、前の人のデータを端末から消す */
 export async function clearCachedData(): Promise<void> {

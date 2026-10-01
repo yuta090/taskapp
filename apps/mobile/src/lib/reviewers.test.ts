@@ -5,6 +5,7 @@ import {
   isSpaceAdminMember,
   memberDisplayName,
   normalizeReviewRow,
+  optimisticOpenedReview,
   reviewRequestMode,
   resolveSelection,
   reviewStatusLabel,
@@ -12,6 +13,7 @@ import {
   toggleReviewer,
   toReviewMembers,
   type ReviewMember,
+  type TaskReviewData,
 } from './reviewers'
 
 const members: ReviewMember[] = [
@@ -157,5 +159,37 @@ describe('toReviewMembers', () => {
   })
   it('null なら空', () => {
     expect(toReviewMembers(null)).toEqual([])
+  })
+})
+
+describe('optimisticOpenedReview', () => {
+  const prev = (status: string, approvals: [string, string][]): TaskReviewData => ({
+    review: { id: 'r1', status, created_by: 'me' },
+    approvals: approvals.map(([reviewer_id, state]) => ({ id: `a-${reviewer_id}`, reviewer_id, state, blocked_reason: state === 'blocked' ? '直して' : null })),
+  })
+
+  it('はじめての依頼は、全員が未対応の承認待ち', () => {
+    const r = optimisticOpenedReview(null, ['a', 'b'], 'me')
+    expect(r.review).toEqual({ id: '', status: 'open', created_by: 'me' })
+    expect(r.approvals.map((a) => a.state)).toEqual(['pending', 'pending'])
+  })
+
+  it('再依頼では、承認済みの人はそのまま、差し戻した人は未対応に戻る', () => {
+    const r = optimisticOpenedReview(prev('changes_requested', [['a', 'approved'], ['b', 'blocked']]), ['a', 'b'], 'me')
+    expect(r.approvals.map((a) => [a.reviewer_id, a.state, a.blocked_reason])).toEqual([
+      ['a', 'approved', null],
+      ['b', 'pending', null],
+    ])
+    expect(r.review.status).toBe('open')
+  })
+
+  it('全員が承認済みなら、最初から approved', () => {
+    const r = optimisticOpenedReview(prev('changes_requested', [['a', 'approved']]), ['a'], 'me')
+    expect(r.review.status).toBe('approved')
+  })
+
+  it('取り消し済みの前回の状態は引き継がない', () => {
+    const r = optimisticOpenedReview(prev('cancelled', [['a', 'approved']]), ['a'], 'me')
+    expect(r.approvals[0].state).toBe('pending')
   })
 })

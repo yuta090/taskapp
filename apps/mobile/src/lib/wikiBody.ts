@@ -6,10 +6,13 @@
  * 読むだけなので、編集に要る属性（色・幅・id）は落とし、見た目に要るものだけ残す。
  *
  * - 対応: 見出し・段落・箇条書き（入れ子）・番号付き・チェック・折りたたみ・引用・コード・区切り線・表
- * - Web で開いてもらう: 会議一覧・投票・差し込み・目次・会議メモ・画像などのファイル類（1行の案内）
+ * - 利用者の文字を持つ独自ブロック（会議メモ・相手先の書き足し・投票）は、文字と書いた人・日時を出す
+ *   （投票は議題の文字に「投票は Web で」を添える）
+ * - Web で開いてもらう: 会議一覧・目次・画像などのファイル類（文字を持たないもの。1行の案内）
  * - 知らない型でも、中身の文字は段落として出す（本文を落とさない）
  * - JSON として読めない本文は、全文を1つの段落にして文字で出す（HTML も文字のまま）
  */
+import { formatNoteStampLabel, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 
 /** 1かたまりの文字。書式とリンク先を持つ */
 export interface WikiSpan {
@@ -34,17 +37,22 @@ export type WikiBlock =
   | { type: 'divider' }
   /** 行 → 列 → 文字のかたまり */
   | { type: 'table'; rows: WikiSpan[][][] }
+  /**
+   * 会議メモ・相手先の書き足し・投票。利用者が書いた文字を持つので、案内に置き換えず文字を出す。
+   * band は帯（会議メモの背景）をつけるか、byline は「書いた人 · 日時」（無ければ空文字）、
+   * webNote は文字のあとに添える案内（投票だけ）
+   */
+  | { type: 'memo'; band: boolean; label: string | null; spans: WikiSpan[]; byline: string; webNote: string | null; children: WikiBlock[] }
   | { type: 'notice'; message: string; children: WikiBlock[] }
 
 export const WEB_ONLY_MESSAGE = 'この部分は Web で開いてください'
 
-/** スマホでは描けないブロックの型（Web の独自ブロックと、画像などのファイル類） */
+export const POLL_WEB_NOTE = '投票は Web で'
+
+/** スマホでは描けないブロックの型（文字を持たない Web の独自ブロックと、画像などのファイル類） */
 const WEB_ONLY_TYPES = new Set([
   'meetingsList',
-  'docPoll',
-  'docInsertion',
   'tableOfContents',
-  'meetingNote',
   'image',
   'video',
   'audio',
@@ -133,7 +141,14 @@ function tableRows(content: unknown): WikiSpan[][][] {
   })
 }
 
-function blocksOf(raws: unknown, depth: number): WikiBlock[] {
+/** 書いた人と日時（Web の会議メモと同じ整え方）。どちらも無ければ空文字 */
+function bylineOf(props: Json, today: Date): string {
+  const author = normalizeNoteAuthor(typeof props.author === 'string' ? props.author : '')
+  const stamp = formatNoteStampLabel(typeof props.createdAt === 'string' ? props.createdAt : undefined, today)
+  return [author, stamp].filter(Boolean).join(' · ')
+}
+
+function blocksOf(raws: unknown, depth: number, today: Date): WikiBlock[] {
   if (!Array.isArray(raws)) return []
   const list = raws.filter(isRawBlock)
   if (depth > MAX_DEPTH) {
@@ -145,7 +160,7 @@ function blocksOf(raws: unknown, depth: number): WikiBlock[] {
   for (const raw of list) {
     const props = isObject(raw.props) ? raw.props : {}
     const spans = spansOf(raw.content)
-    const children = blocksOf(raw.children, depth + 1)
+    const children = blocksOf(raw.children, depth + 1, today)
     if (raw.type === 'numberedListItem') {
       run = run === 0 && typeof props.start === 'number' ? Math.trunc(props.start) : run + 1
       out.push({ type: 'numbered', number: run, spans, children })
@@ -180,6 +195,31 @@ function blocksOf(raws: unknown, depth: number): WikiBlock[] {
       case 'table':
         out.push({ type: 'table', rows: tableRows(raw.content) })
         break
+      case 'meetingNote':
+        out.push({ type: 'memo', band: true, label: null, spans, byline: bylineOf(props, today), webNote: null, children })
+        break
+      case 'docInsertion':
+        out.push({
+          type: 'memo',
+          band: props.kind === 'meeting_note',
+          label: null,
+          spans,
+          byline: bylineOf(props, today),
+          webNote: null,
+          children,
+        })
+        break
+      case 'docPoll':
+        out.push({
+          type: 'memo',
+          band: false,
+          label: props.reasonRequired === 'ng_hold' ? '投票（理由必須）' : '投票',
+          spans,
+          byline: '',
+          webNote: POLL_WEB_NOTE,
+          children,
+        })
+        break
       default:
         if (WEB_ONLY_TYPES.has(raw.type as string)) {
           out.push({ type: 'notice', message: WEB_ONLY_MESSAGE, children })
@@ -194,8 +234,11 @@ function blocksOf(raws: unknown, depth: number): WikiBlock[] {
   return out
 }
 
-/** 本文（BlockNote の JSON 文字列）を画面用のブロック列にする。空・null は空の配列 */
-export function parseWikiBody(body: string | null): WikiBlock[] {
+/**
+ * 本文（BlockNote の JSON 文字列）を画面用のブロック列にする。空・null は空の配列。
+ * today は「同じ年なら日時に年を付けない」判定の基準（既定は今）
+ */
+export function parseWikiBody(body: string | null, today: Date = new Date()): WikiBlock[] {
   if (body == null || body.trim() === '') return []
   let parsed: unknown
   try {
@@ -203,7 +246,44 @@ export function parseWikiBody(body: string | null): WikiBlock[] {
   } catch {
     parsed = undefined
   }
-  if (Array.isArray(parsed) && parsed.every(isRawBlock)) return blocksOf(parsed, 0)
+  if (Array.isArray(parsed) && parsed.every(isRawBlock)) return blocksOf(parsed, 0, today)
   // JSON として読めない本文（古い形式など）は、全文を文字のまま1つの段落で出す
   return [{ type: 'paragraph', spans: [{ text: body }], children: [] }]
+}
+
+// ---- 表の列幅 ----
+
+/** 半角1文字ぶんの幅（文字の大きさ 14 に対しておおよそ） */
+const CHAR_UNIT = 8
+/** セルの左右の余白と罫線のぶん */
+const CELL_CHROME = 20
+const MIN_COLUMN_WIDTH = 72
+const MAX_COLUMN_WIDTH = 240
+
+/** 全角（日本語など）は半角の2文字ぶんとして数える */
+function widthUnits(line: string): number {
+  let units = 0
+  for (const ch of line) {
+    const code = ch.codePointAt(0) ?? 0
+    units += code >= 0x1100 && !(code >= 0xff61 && code <= 0xff9f) ? 2 : 1
+  }
+  return units
+}
+
+/**
+ * 表の列ごとの幅（pt）。その列でいちばん長いセルの文字数から決め、下限・上限に収める。
+ * 上限を超える長いセルは、セルの中で折り返す。
+ */
+export function tableColumnWidths(rows: WikiSpan[][][]): number[] {
+  const columns = rows.reduce((max, row) => Math.max(max, row.length), 0)
+  const widths: number[] = []
+  for (let k = 0; k < columns; k++) {
+    let longest = 0
+    for (const row of rows) {
+      const text = plainText(row[k] ?? [])
+      for (const line of text.split('\n')) longest = Math.max(longest, widthUnits(line))
+    }
+    widths.push(Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, longest * CHAR_UNIT + CELL_CHROME)))
+  }
+  return widths
 }

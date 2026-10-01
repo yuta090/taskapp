@@ -4,10 +4,10 @@
  * 色は ~/theme/colors のトークンだけ。文字は選択できる。HTML は描かない（文字のまま）。
  */
 import * as WebBrowser from 'expo-web-browser'
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { WEB_BASE_URL } from '~/api/webApi'
-import type { WikiBlock, WikiSpan } from '~/lib/wikiBody'
+import { tableColumnWidths, type WikiBlock, type WikiSpan } from '~/lib/wikiBody'
 import { useColors, type Colors } from '~/theme/colors'
 
 const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' })
@@ -90,13 +90,15 @@ function ToggleBlock({ block, c }: { block: Extract<WikiBlock, { type: 'toggle' 
 }
 
 function TableBlock({ block, c }: { block: Extract<WikiBlock, { type: 'table' }>; c: Colors }) {
+  // 列ごとに、その列でいちばん長いセルに合わせた幅にする（上限・下限あり）
+  const widths = useMemo(() => tableColumnWidths(block.rows), [block.rows])
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator>
       <View style={[styles.table, { borderColor: c.border }]}>
         {block.rows.map((row, r) => (
           <View key={r} style={styles.tableRow}>
             {row.map((cell, k) => (
-              <View key={k} style={[styles.cell, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <View key={k} style={[styles.cell, { width: widths[k], borderColor: c.border, backgroundColor: c.surface }]}>
                 <Line spans={cell} c={c} style={styles.cellText} />
               </View>
             ))}
@@ -180,6 +182,18 @@ function Block({ block, c }: { block: WikiBlock; c: Colors }) {
       return <View style={[styles.divider, { backgroundColor: c.border }]} />
     case 'table':
       return <TableBlock block={block} c={c} />
+    case 'memo':
+      return (
+        <View>
+          <View style={[styles.memo, block.band && [styles.memoBand, { backgroundColor: c.chip, borderLeftColor: c.primary }]]}>
+            {block.label ? <Text style={[styles.memoLabel, { color: c.textSecondary }]}>{block.label}</Text> : null}
+            {block.spans.length > 0 ? <Line spans={block.spans} c={c} /> : null}
+            {block.webNote ? <Text style={[styles.memoMeta, { color: c.textMuted }]}>{block.webNote}</Text> : null}
+            {block.byline ? <Text style={[styles.memoMeta, { color: c.textMuted }]}>{block.byline}</Text> : null}
+          </View>
+          <Children blocks={block.children} c={c} />
+        </View>
+      )
     case 'notice':
       return (
         <View>
@@ -220,13 +234,15 @@ const styles = StyleSheet.create({
   table: { borderTopWidth: StyleSheet.hairlineWidth, borderLeftWidth: StyleSheet.hairlineWidth },
   tableRow: { flexDirection: 'row' },
   cell: {
-    minWidth: 96,
-    maxWidth: 240,
     borderRightWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   cellText: { fontSize: 14, lineHeight: 20 },
+  memo: { gap: 2 },
+  memoBand: { borderLeftWidth: 4, borderRadius: 4, paddingLeft: 12, paddingRight: 8, paddingVertical: 4 },
+  memoLabel: { fontSize: 12, fontWeight: '600' },
+  memoMeta: { fontSize: 12 },
   notice: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
 })

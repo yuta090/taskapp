@@ -5,13 +5,13 @@
 import type { Task } from '@/types/database'
 import { router } from 'expo-router'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import { useWikiPage, usePrefetchWikiPage } from '~/hooks/wikiQueries'
+import { usePrefetchWikiPage, useWikiTitle } from '~/hooks/wikiQueries'
 import { useColors } from '~/theme/colors'
 
 export function TaskWikiLink({ task }: { task: Pick<Task, 'id' | 'wiki_page_id' | 'spec_path' | 'org_id' | 'space_id'> }) {
   const c = useColors()
-  // 題名は手元にあれば出す。読めていなければ「資料を開く」（読み込みは裏で進み、開くころには本文も来ている）
-  const page = useWikiPage(task.wiki_page_id)
+  // 題名だけの軽い問い合わせ。手元にあれば出し、無ければ「資料を開く」。本文は押す瞬間（onPressIn）に先読みする
+  const title = useWikiTitle(task.wiki_page_id, task.org_id)
   const prefetch = usePrefetchWikiPage()
   const pageId = task.wiki_page_id
   if (!pageId && !task.spec_path) return null
@@ -22,11 +22,11 @@ export function TaskWikiLink({ task }: { task: Pick<Task, 'id' | 'wiki_page_id' 
       {pageId ? (
         <Pressable
           accessibilityRole="button"
-          onPressIn={() => prefetch(pageId)}
-          onPress={() => router.push({ pathname: '/wiki/[pageId]', params: { pageId } })}
+          onPressIn={() => prefetch(pageId, task.org_id)}
+          onPress={() => router.push({ pathname: '/wiki/[pageId]', params: { pageId, orgId: task.org_id } })}
           style={({ pressed }) => [styles.row, { backgroundColor: pressed ? c.chip : c.surface, borderColor: c.border }]}>
           <Text style={[styles.label, { color: c.text }]} numberOfLines={1}>
-            {page.data?.title ?? '資料を開く'}
+            {title.data ?? '資料を開く'}
           </Text>
           <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>
         </Pressable>

@@ -1,15 +1,22 @@
 /**
  * Wiki ページの読み取り（react-query）。キーに userId と orgId を入れる
  * （組織を切り替えたとき・別の人がログインしたときに、前のデータを出さないため）。
+ *
+ * orgId は、開いたタスクの組織を画面へ渡してもらう（アクティブな組織と別の組織のタスクもあるため）。
+ * 渡されなければ、いまアクティブな組織を使う。
+ *
+ * 本文つきの 'wikiPage' は端末に書かない（メモリだけ。src/lib/persistPolicy.ts）。
+ * 題名だけの 'wikiTitle' は軽いので端末に書いてよい。
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
-import { fetchWikiPage } from '~/api/wiki'
+import { fetchWikiPage, fetchWikiTitle } from '~/api/wiki'
 import { parseWikiBody } from '~/lib/wikiBody'
 import { useReadyContext } from './useSession'
 
 export const wikiKeys = {
   page: (userId: string, orgId: string, pageId: string) => ['wikiPage', userId, orgId, pageId] as const,
+  title: (userId: string, orgId: string, pageId: string) => ['wikiTitle', userId, orgId, pageId] as const,
 }
 
 /** 画面（useWikiPage）と、押す前の先読み（usePrefetchWikiPage）で同じ読み方を使う */
@@ -21,11 +28,23 @@ function wikiPageOptions(userId: string, orgId: string, pageId: string) {
 }
 
 /** 手元に前回の本文があれば、通信を待たずにそれを先に出す */
-export function useWikiPage(pageId: string | null | undefined) {
+export function useWikiPage(pageId: string | null | undefined, orgId?: string | null) {
   const ctx = useReadyContext()
+  const org = orgId || ctx?.orgId || ''
   return useQuery({
-    ...wikiPageOptions(ctx?.userId ?? '', ctx?.orgId ?? '', pageId ?? ''),
-    enabled: !!ctx && !!pageId,
+    ...wikiPageOptions(ctx?.userId ?? '', org, pageId ?? ''),
+    enabled: !!ctx && !!org && !!pageId,
+  })
+}
+
+/** 資料リンクの行に出す題名。本文は読まない */
+export function useWikiTitle(pageId: string | null | undefined, orgId?: string | null) {
+  const ctx = useReadyContext()
+  const org = orgId || ctx?.orgId || ''
+  return useQuery({
+    queryKey: wikiKeys.title(ctx?.userId ?? '', org, pageId ?? ''),
+    queryFn: () => fetchWikiTitle(org, pageId as string),
+    enabled: !!ctx && !!org && !!pageId,
   })
 }
 
@@ -33,9 +52,10 @@ export function useWikiPage(pageId: string | null | undefined) {
 export function usePrefetchWikiPage() {
   const ctx = useReadyContext()
   const queryClient = useQueryClient()
-  return (pageId: string) => {
-    if (!ctx) return
-    void queryClient.prefetchQuery(wikiPageOptions(ctx.userId, ctx.orgId, pageId))
+  return (pageId: string, orgId?: string | null) => {
+    const org = orgId || ctx?.orgId
+    if (!ctx || !org) return
+    void queryClient.prefetchQuery(wikiPageOptions(ctx.userId, org, pageId))
   }
 }
 

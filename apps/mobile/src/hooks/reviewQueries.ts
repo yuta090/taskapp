@@ -7,7 +7,7 @@
  */
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { cancelReview, fetchDefaultReviewerIds, fetchSpaceMembers, fetchTaskReview, openReview } from '~/api/reviews'
-import type { TaskReviewData } from '~/lib/reviewers'
+import { optimisticOpenedReview, type TaskReviewData } from '~/lib/reviewers'
 import { useSession } from './useSession'
 
 export const reviewKeys = {
@@ -71,21 +71,16 @@ export function useOpenReview() {
       await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData<TaskReviewData | null>(key)
       // id はまだ無い（サーバーが決める）。空の id のあいだは画面側で取り消しを出さない
-      queryClient.setQueryData(key, {
-        review: { id: '', status: 'open', created_by: userId },
-        approvals: reviewerIds.map((reviewerId) => ({
-          id: `pending-${reviewerId}`,
-          reviewer_id: reviewerId,
-          state: 'pending',
-          blocked_reason: null,
-        })),
-      })
+      queryClient.setQueryData(key, optimisticOpenedReview(previous, reviewerIds, userId))
       return { key, previous }
     },
     onError: (_e, _v, context) => {
       if (context) queryClient.setQueryData(context.key, context.previous)
     },
-    onSettled: (_d, _e, { taskId }) => invalidateAfterReviewChange(queryClient, taskId),
+    // 読み直しは待たない（待つと、失敗したときの onError＝警告と選択欄への復帰が、読み直しの終わりまで遅れる）
+    onSettled: (_d, _e, { taskId }) => {
+      void invalidateAfterReviewChange(queryClient, taskId)
+    },
   })
 }
 
@@ -107,6 +102,9 @@ export function useCancelReview() {
     onError: (_e, _v, context) => {
       if (context) queryClient.setQueryData(context.key, context.previous)
     },
-    onSettled: (_d, _e, { taskId }) => invalidateAfterReviewChange(queryClient, taskId),
+    // 読み直しは待たない（待つと、失敗したときの onError＝警告と選択欄への復帰が、読み直しの終わりまで遅れる）
+    onSettled: (_d, _e, { taskId }) => {
+      void invalidateAfterReviewChange(queryClient, taskId)
+    },
   })
 }

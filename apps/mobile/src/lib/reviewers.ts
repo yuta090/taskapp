@@ -133,3 +133,24 @@ export function toReviewMembers(rows: readonly SpaceMemberRpcRow[] | null): Revi
     role: m.role,
   }))
 }
+
+/**
+ * 依頼した直後に先に画面へ出す「社内承認」の形。サーバー（_review_open_impl）は再依頼のとき、
+ * 承認済みの人の状態をそのまま残し、それ以外は未対応に戻す。全員が承認済みなら最初から approved になる。
+ * id はサーバーが決めるので、まだ無い（空）。
+ */
+export function optimisticOpenedReview(
+  previous: TaskReviewData | null | undefined,
+  reviewerIds: readonly string[],
+  myUserId: string
+): TaskReviewData {
+  const kept = previous && previous.review.status !== 'cancelled' ? previous.approvals : []
+  const approvals: ReviewApprovalRow[] = reviewerIds.map((reviewerId) => {
+    const before = kept.find((a) => a.reviewer_id === reviewerId)
+    return before?.state === 'approved'
+      ? before
+      : { id: `pending-${reviewerId}`, reviewer_id: reviewerId, state: 'pending', blocked_reason: null }
+  })
+  const allApproved = approvals.length > 0 && approvals.every((a) => a.state === 'approved')
+  return { review: { id: '', status: allApproved ? 'approved' : 'open', created_by: myUserId }, approvals }
+}

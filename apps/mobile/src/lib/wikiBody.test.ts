@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { parseWikiBody, safeLinkHref, type WikiBlock } from './wikiBody'
+import { parseWikiBody, safeLinkHref, tableColumnWidths, type WikiBlock } from './wikiBody'
 
 /** Wiki が保存する BlockNote の JSON（本番の4ページと同じ形: props・id・children つき） */
 const props = { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' }
 const t = (text: string, styles: Record<string, unknown> = {}) => ({ type: 'text', text, styles })
 const body = (blocks: unknown[]) => JSON.stringify(blocks)
+/** 「同じ年なら年を出さない」判定の基準（テストで固定する） */
+const TODAY = new Date(2026, 9, 1)
 
 describe('parseWikiBody: 空・JSON でない本文', () => {
   it('null・空文字・空白・空配列は空のブロック列', () => {
@@ -294,8 +296,8 @@ describe('parseWikiBody: 表', () => {
 })
 
 describe('parseWikiBody: Web で開いてもらう部分・未対応の型', () => {
-  it.each(['meetingsList', 'docPoll', 'docInsertion', 'tableOfContents', 'meetingNote'])(
-    '%s は「この部分は Web で開いてください」の1行にする',
+  it.each(['meetingsList', 'tableOfContents'])(
+    '%s は文字を持たないので「この部分は Web で開いてください」の1行にする',
     (type) => {
       expect(parseWikiBody(body([{ id: 'x', type, props: { limit: '5' }, children: [] }]))).toEqual([
         { type: 'notice', message: 'この部分は Web で開いてください', children: [] },
@@ -303,16 +305,94 @@ describe('parseWikiBody: Web で開いてもらう部分・未対応の型', () 
     }
   )
 
-  it('会議メモ（meetingNote）に文字があっても、1行の案内にして中身の子は読む', () => {
+  it('会議メモ（meetingNote）は文字を出し、書いた人と日時（props の author / createdAt）を添える。子も読む', () => {
     const blocks = parseWikiBody(
-      body([{ type: 'meetingNote', content: [t('メモ')], children: [{ type: 'paragraph', content: [t('子')] }] }])
+      body([
+        {
+          type: 'meetingNote',
+          props: { createdAt: '2026-09-15T14:30', author: '高橋 優太' },
+          content: [t('決定: 来週に延期', { bold: true })],
+          children: [{ type: 'paragraph', content: [t('子')] }],
+        },
+      ]),
+      TODAY
     )
     expect(blocks).toEqual([
       {
-        type: 'notice',
-        message: 'この部分は Web で開いてください',
+        type: 'memo',
+        band: true,
+        label: null,
+        spans: [{ text: '決定: 来週に延期', bold: true }],
+        byline: '高橋 優太 · 9/15 14:30',
+        webNote: null,
         children: [{ type: 'paragraph', spans: [{ text: '子' }], children: [] }],
       },
+    ])
+  })
+
+  it('会議メモは props が無ければ、書いた人・日時なしで文字だけ出す', () => {
+    expect(parseWikiBody(body([{ type: 'meetingNote', content: [t('メモ')] }]), TODAY)).toEqual([
+      { type: 'memo', band: true, label: null, spans: [{ text: 'メモ' }], byline: '', webNote: null, children: [] },
+    ])
+  })
+
+  it('年が違う日時は年つきで出し、形が違う日時と空の名前は添えない。名前の < > は落とす', () => {
+    const [old] = parseWikiBody(
+      body([{ type: 'meetingNote', props: { createdAt: '2025-12-03T09:05', author: '<b>田中</b>' }, content: [t('旧')] }]),
+      TODAY
+    ) as Extract<WikiBlock, { type: 'memo' }>[]
+    expect(old.byline).toBe('b田中/b · 2025/12/3 9:05')
+    const [bad] = parseWikiBody(
+      body([{ type: 'meetingNote', props: { createdAt: 'きのう', author: '  ' }, content: [t('x')] }]),
+      TODAY
+    ) as Extract<WikiBlock, { type: 'memo' }>[]
+    expect(bad.byline).toBe('')
+  })
+
+  it('相手先の書き足し（docInsertion）は文字と書いた人・日時を出す。メモ種別は帯、普通の行は帯なし', () => {
+    const make = (kind: string) =>
+      parseWikiBody(
+        body([
+          {
+            type: 'docInsertion',
+            props: { insertionId: 'i', kind, createdAt: '2026-09-20T10:00', author: '相手先 花子' },
+            content: [t('ここを直してください')],
+          },
+        ]),
+        TODAY
+      )
+    expect(make('paragraph')).toEqual([
+      {
+        type: 'memo',
+        band: false,
+        label: null,
+        spans: [{ text: 'ここを直してください' }],
+        byline: '相手先 花子 · 9/20 10:00',
+        webNote: null,
+        children: [],
+      },
+    ])
+    expect((make('meeting_note')[0] as Extract<WikiBlock, { type: 'memo' }>).band).toBe(true)
+  })
+
+  it('投票（docPoll）は議題の文字と「投票は Web で」の案内の両方を出す。理由必須は見出しに表す', () => {
+    const make = (reasonRequired: string, content: unknown[]) =>
+      parseWikiBody(body([{ type: 'docPoll', props: { pollId: 'p', reasonRequired }, content }]))
+    expect(make('none', [t('この案で進めてよいか')])).toEqual([
+      {
+        type: 'memo',
+        band: false,
+        label: '投票',
+        spans: [{ text: 'この案で進めてよいか' }],
+        byline: '',
+        webNote: '投票は Web で',
+        children: [],
+      },
+    ])
+    expect((make('ng_hold', [t('x')])[0] as Extract<WikiBlock, { type: 'memo' }>).label).toBe('投票（理由必須）')
+    // 議題が空でも案内は出す
+    expect(make('none', [])).toEqual([
+      { type: 'memo', band: false, label: '投票', spans: [], byline: '', webNote: '投票は Web で', children: [] },
     ])
   })
 
@@ -370,5 +450,40 @@ describe('parseWikiBody: 本番の Wiki と同じ形', () => {
       ])
     )
     expect(blocks.map((b) => b.type)).toEqual(['heading', 'bullet', 'notice', 'paragraph'])
+  })
+})
+
+describe('tableColumnWidths: 列ごとの幅', () => {
+  const cells = (...texts: string[]) => texts.map((text) => (text ? [{ text }] : []))
+
+  it('表が空なら空', () => {
+    expect(tableColumnWidths([])).toEqual([])
+  })
+
+  it('短い列は下限、長い列は上限に収める', () => {
+    const widths = tableColumnWidths([cells('a', 'a'.repeat(200))])
+    expect(widths[0]).toBe(72)
+    expect(widths[1]).toBe(240)
+  })
+
+  it('列の中でいちばん長いセルで決める（列ごとに別の幅になる）', () => {
+    const widths = tableColumnWidths([cells('短い', 'x'), cells('ずっとずっと長いセルの文字', 'y')])
+    expect(widths[0]).toBeGreaterThan(widths[1])
+  })
+
+  it('全角は半角の2文字ぶんとして数える', () => {
+    const [full] = tableColumnWidths([cells('あ'.repeat(5))])
+    const [half] = tableColumnWidths([cells('a'.repeat(10))])
+    expect(full).toBe(half)
+  })
+
+  it('セル内に改行があれば、いちばん長い行で決める', () => {
+    const [multi] = tableColumnWidths([cells('a'.repeat(12) + '\n' + 'b'.repeat(2))])
+    const [single] = tableColumnWidths([cells('a'.repeat(12))])
+    expect(multi).toBe(single)
+  })
+
+  it('行ごとに列の数が違っても、いちばん多い列の数ぶん返す', () => {
+    expect(tableColumnWidths([cells('a'), cells('a', 'b', 'c')])).toHaveLength(3)
   })
 })

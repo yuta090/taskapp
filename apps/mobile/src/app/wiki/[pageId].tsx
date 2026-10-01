@@ -13,21 +13,23 @@ import { useColors } from '~/theme/colors'
 /** Wiki のページ。スマホは読むだけ（編集は Web）。前回の本文が手元にあれば、通信を待たずにそれを先に出す */
 export default function WikiPageScreen() {
   const c = useColors()
-  const { pageId } = useLocalSearchParams<{ pageId: string }>()
+  const { pageId, orgId: orgIdParam } = useLocalSearchParams<{ pageId: string; orgId?: string }>()
   const ctx = useReadyContext()
-  const query = useWikiPage(pageId)
+  // タスクの組織を渡してもらう（アクティブな組織と別の組織のタスクの資料もある）。無ければアクティブな組織
+  const orgId = (typeof orgIdParam === 'string' && orgIdParam) || ctx?.orgId
+  const query = useWikiPage(pageId, orgId)
   const page = query.data
   const blocks = useParsedWikiBody(page?.body)
 
   // 全画面の Loading は、手元に何も無いときだけ
   if (query.isPending) return <Loading />
   if (query.isError && !page) return <ErrorRetry message="ページを読み込めませんでした" onRetry={() => query.refetch()} />
-  if (!page || !ctx) {
+  if (!page || !orgId) {
     return <EmptyState message="このページを開けませんでした。削除されたか、見る権限がない可能性があります。" />
   }
 
   const updated = formatDue(formatDateToLocalString(new Date(page.updated_at)))
-  const webUrl = `${WEB_BASE_URL}/${ctx.orgId}/project/${page.space_id}/wiki?page=${page.id}`
+  const webUrl = `${WEB_BASE_URL}/${orgId}/project/${page.space_id}/wiki?page=${page.id}`
 
   return (
     <ScrollView

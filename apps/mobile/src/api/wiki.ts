@@ -26,3 +26,15 @@ export async function fetchWikiPage(orgId: string, pageId: string): Promise<Wiki
   if (error) throw error
   return (data as WikiPage | null) ?? null
 }
+
+/** 題名だけ（資料リンクの行用）。本文を読まない軽い問い合わせ */
+export async function fetchWikiTitle(orgId: string, pageId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('wiki_pages')
+    .select('id, title')
+    .eq('id', pageId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error) throw error
+  return (data as { title: string } | null)?.title ?? null
+}
