@@ -18,6 +18,7 @@ import {
   type MyTasksData,
 } from '~/api/tasks'
 import { toInboxItem } from '~/lib/inbox'
+import { taskDetailFromList } from '~/lib/taskDetailFromList'
 import { useReadyContext, useSession } from './useSession'
 
 export const keys = {
@@ -58,9 +59,18 @@ export function useInbox() {
   })
 }
 
+/** マイタスクの一覧がすでに持っていれば、通信を待たずにそれで先に描く（押したらすぐ出す） */
 export function useTaskDetail(taskId: string) {
   const { userId } = useSession()
-  return useQuery({ queryKey: keys.task(userId ?? '', taskId), queryFn: () => fetchTask(taskId), enabled: !!userId })
+  const ctx = useReadyContext()
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: keys.task(userId ?? '', taskId),
+    queryFn: () => fetchTask(taskId),
+    enabled: !!userId,
+    placeholderData: () =>
+      ctx ? taskDetailFromList(queryClient.getQueryData<MyTasksData>(keys.myTasks(ctx.userId, ctx.orgId)), taskId) : undefined,
+  })
 }
 
 export function useComments(task: { id: string; org_id: string; space_id: string } | undefined) {

@@ -56,6 +56,7 @@ function RootNavigator() {
       <Stack.Protected guard={step === 'ready'}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="task/[taskId]" options={{ title: 'タスク' }} />
+        <Stack.Screen name="notification/[notificationId]" options={{ title: '通知' }} />
       </Stack.Protected>
     </Stack>
   )
