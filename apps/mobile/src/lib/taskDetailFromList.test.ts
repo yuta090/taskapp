@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Space, Task } from '@/types/database'
-import { taskDetailFromList } from './taskDetailFromList'
+import { taskDetailFromList, taskDetailFromSources } from './taskDetailFromList'
 
 function task(over: Partial<Task>): Task {
   return {
@@ -71,5 +71,38 @@ describe('taskDetailFromList', () => {
   it('プロジェクトが見つからなければ spaceName が null', () => {
     const data = { tasks: [task({ id: 't1', space_id: 's9' })], reviewStatuses: {}, spaces: [space({})], milestones: [] }
     expect(taskDetailFromList(data, 't1')?.spaceName).toBeNull()
+  })
+})
+
+describe('taskDetailFromSources', () => {
+  const mine = { tasks: [task({ id: 't1' })], reviewStatuses: {}, spaces: [space({})], milestones: [] }
+  const project = { tasks: [task({ id: 't2', space_id: 's2' })], reviewStatuses: { t2: 'open' as const } }
+  const spaces = [space({}), space({ id: 's2', name: 'B社LP' })]
+
+  it('マイタスクにあればそれを使う', () => {
+    expect(taskDetailFromSources(mine, [project], spaces, 't1')?.task.id).toBe('t1')
+  })
+
+  it('マイタスクに無く、プロジェクトのタスクにあればそれを使う（プロジェクト名は spaces から引く）', () => {
+    expect(taskDetailFromSources(mine, [project], spaces, 't2')).toEqual({
+      task: project.tasks[0],
+      reviewStatus: 'open',
+      spaceName: 'B社LP',
+    })
+  })
+
+  it('複数のプロジェクトの取り置きから最初に見つかったものを返す', () => {
+    const other = { tasks: [task({ id: 't3' })], reviewStatuses: {} }
+    expect(taskDetailFromSources(undefined, [undefined, other, project], spaces, 't3')?.task.id).toBe('t3')
+  })
+
+  it('どこにも無ければ undefined', () => {
+    expect(taskDetailFromSources(mine, [project], spaces, 'zzz')).toBeUndefined()
+    expect(taskDetailFromSources(undefined, [], undefined, 't1')).toBeUndefined()
+  })
+
+  it('プロジェクト名を引けなければ spaceName は null', () => {
+    expect(taskDetailFromSources(undefined, [project], undefined, 't2')?.spaceName).toBeNull()
+    expect(taskDetailFromSources(undefined, [project], [space({})], 't2')?.spaceName).toBeNull()
   })
 })
