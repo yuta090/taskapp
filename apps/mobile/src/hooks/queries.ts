@@ -3,9 +3,11 @@
  * （組織を切り替えたとき・別の人がログインしたときに、前のデータを出さないため）。
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CommentVisibility, Task, TaskStatus } from '@/types/database'
+import type { CommentVisibility, Space, Task, TaskStatus } from '@/types/database'
 import { addComment, fetchComments } from '~/api/comments'
 import { fetchInbox, markAllRead, markRead } from '~/api/notifications'
+import { fetchSpaces } from '~/api/spaces'
+import { fetchSpaceTasks, type SpaceTasksData } from '~/api/spaceTasks'
 import {
   approveReview,
   blockReview,
@@ -18,13 +20,16 @@ import {
   type MyTasksData,
 } from '~/api/tasks'
 import { toInboxItem } from '~/lib/inbox'
-import { taskDetailFromList } from '~/lib/taskDetailFromList'
+import { taskDetailFromSources } from '~/lib/taskDetailFromList'
 import { useReadyContext, useSession } from './useSession'
 
 export const keys = {
   myTasks: (userId: string, orgId: string) => ['myTasks', userId, orgId] as const,
   pendingReviews: (userId: string, orgId: string) => ['pendingReviews', userId, orgId] as const,
   inbox: (userId: string, orgId: string) => ['inbox', userId, orgId] as const,
+  spaces: (userId: string, orgId: string) => ['spaces', userId, orgId] as const,
+  // 先頭の3つ（'spaceTasks', userId, orgId）で、その組織のプロジェクトのタスクすべてを前方一致で探せる
+  spaceTasks: (userId: string, orgId: string, spaceId: string) => ['spaceTasks', userId, orgId, spaceId] as const,
   // 1件ものにも userId を入れる（同じ端末で別の人がログインしたとき、前の人の取り置きを出さない）
   task: (userId: string, taskId: string) => ['task', userId, taskId] as const,
   comments: (userId: string, taskId: string) => ['comments', userId, taskId] as const,
@@ -59,7 +64,46 @@ export function useInbox() {
   })
 }
 
-/** マイタスクの一覧がすでに持っていれば、通信を待たずにそれで先に描く（押したらすぐ出す） */
+/** プロジェクト一覧。マイタスクの取り置きが持っている spaces があれば、それで先に描く */
+export function useSpaces() {
+  const ctx = useReadyContext()
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: keys.spaces(ctx?.userId ?? '', ctx?.orgId ?? ''),
+    queryFn: () => fetchSpaces(ctx!.orgId),
+    enabled: !!ctx,
+    placeholderData: () =>
+      ctx ? queryClient.getQueryData<MyTasksData>(keys.myTasks(ctx.userId, ctx.orgId))?.spaces : undefined,
+  })
+}
+
+/** プロジェクトのタスクの読み方。画面（useSpaceTasks）と、行を押す前の先読み（prefetchSpaceTasks）で同じものを使う */
+function spaceTasksOptions(userId: string, orgId: string, spaceId: string) {
+  return {
+    queryKey: keys.spaceTasks(userId, orgId, spaceId),
+    queryFn: () => fetchSpaceTasks(orgId, spaceId),
+  }
+}
+
+export function useSpaceTasks(spaceId: string) {
+  const ctx = useReadyContext()
+  return useQuery({
+    ...spaceTasksOptions(ctx?.userId ?? '', ctx?.orgId ?? '', spaceId),
+    enabled: !!ctx,
+  })
+}
+
+/** 行を押した瞬間に読み始める（遷移するころには手元に来ている）。失敗は画面を開いたときに読み直すので無視する */
+export function usePrefetchSpaceTasks() {
+  const ctx = useReadyContext()
+  const queryClient = useQueryClient()
+  return (spaceId: string) => {
+    if (!ctx) return
+    void queryClient.prefetchQuery(spaceTasksOptions(ctx.userId, ctx.orgId, spaceId))
+  }
+}
+
+/** マイタスクとプロジェクトのタスクの取り置きが持っていれば、通信を待たずにそれで先に描く（押したらすぐ出す） */
 export function useTaskDetail(taskId: string) {
   const { userId } = useSession()
   const ctx = useReadyContext()
@@ -68,8 +112,17 @@ export function useTaskDetail(taskId: string) {
     queryKey: keys.task(userId ?? '', taskId),
     queryFn: () => fetchTask(taskId),
     enabled: !!userId,
-    placeholderData: () =>
-      ctx ? taskDetailFromList(queryClient.getQueryData<MyTasksData>(keys.myTasks(ctx.userId, ctx.orgId)), taskId) : undefined,
+    placeholderData: () => {
+      if (!ctx) return undefined
+      return taskDetailFromSources(
+        queryClient.getQueryData<MyTasksData>(keys.myTasks(ctx.userId, ctx.orgId)),
+        queryClient
+          .getQueriesData<SpaceTasksData>({ queryKey: ['spaceTasks', ctx.userId, ctx.orgId] })
+          .map(([, data]) => data),
+        queryClient.getQueryData<Space[]>(keys.spaces(ctx.userId, ctx.orgId)),
+        taskId
+      )
+    },
   })
 }
 
@@ -82,13 +135,14 @@ export function useComments(task: { id: string; org_id: string; space_id: string
   })
 }
 
-/** タスクを変えたら、そのタスク・マイタスク・承認待ちを読み直す */
+/** タスクを変えたら、そのタスク・マイタスク・プロジェクトのタスク・承認待ちを読み直す */
 function useInvalidateTask() {
   const queryClient = useQueryClient()
   return (taskId: string) =>
     Promise.all([
       queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'task' && q.queryKey[2] === taskId }),
       queryClient.invalidateQueries({ queryKey: ['myTasks'] }),
+      queryClient.invalidateQueries({ queryKey: ['spaceTasks'] }),
       queryClient.invalidateQueries({ queryKey: ['pendingReviews'] }),
     ])
 }
