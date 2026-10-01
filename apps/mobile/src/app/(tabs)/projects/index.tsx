@@ -35,7 +35,7 @@ export default function ProjectsScreen() {
       if (cancelled || isProjectRestoreDone()) return
       markProjectRestoreDone()
       const spaceId = pickRestorableProject(projects, saved)
-      if (spaceId) router.push({ pathname: '/project/[spaceId]', params: { spaceId } })
+      if (spaceId) router.push({ pathname: '/projects/[spaceId]', params: { spaceId } })
     })
     return () => {
       cancelled = true
@@ -63,7 +63,7 @@ export default function ProjectsScreen() {
             onPress={() => {
               // 読み込み中に自分で選んだときは、あとから覚えていたプロジェクトを重ねて開かない
               markProjectRestoreDone()
-              router.push({ pathname: '/project/[spaceId]', params: { spaceId: item.id } })
+              router.push({ pathname: '/projects/[spaceId]', params: { spaceId: item.id } })
             }}
             style={({ pressed }) => [styles.row, { backgroundColor: pressed ? c.chip : c.surface, borderColor: c.border }]}>
             <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
