@@ -57,6 +57,7 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="project/[spaceId]" options={{ title: 'プロジェクト' }} />
         <Stack.Screen name="task/[taskId]" options={{ title: 'タスク' }} />
+        <Stack.Screen name="wiki/[pageId]" options={{ title: 'Wiki' }} />
         <Stack.Screen name="notification/[notificationId]" options={{ title: '通知' }} />
       </Stack.Protected>
     </Stack>
