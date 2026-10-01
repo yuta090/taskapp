@@ -74,17 +74,25 @@ export default function ProjectTasksScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: c.background }]}>
-      <Stack.Screen options={{ title: spaceName ?? 'プロジェクト' }} />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="プロジェクトを切り替える"
-        onPress={() => setPickerOpen(true)}
-        style={({ pressed }) => [styles.switcher, { backgroundColor: pressed ? c.border : c.chip, borderColor: c.border }]}>
-        <Text style={[styles.switcherName, { color: c.text }]} numberOfLines={1}>
-          {spaceName ?? 'プロジェクト'}
-        </Text>
-        <Text style={[styles.switcherArrow, { color: c.textSecondary }]}>▾</Text>
-      </Pressable>
+      {/* ヘッダーの題名そのものが切り替えボタン（画面に1行足さない）。▾ で押せると分かるようにする */}
+      <Stack.Screen
+        options={{
+          title: spaceName ?? 'プロジェクト',
+          headerTitle: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="プロジェクトを切り替える"
+              hitSlop={8}
+              onPress={() => setPickerOpen(true)}
+              style={styles.headerTitle}>
+              <Text style={[styles.headerTitleText, { color: c.text }]} numberOfLines={1}>
+                {spaceName ?? 'プロジェクト'}
+              </Text>
+              <Text style={[styles.headerTitleArrow, { color: c.textSecondary }]}>▾</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <PickerSheet
         visible={pickerOpen}
         title="プロジェクトを切り替える"
@@ -124,9 +132,9 @@ export default function ProjectTasksScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  switcher: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 12, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth },
-  switcherName: { flex: 1, fontSize: 15, fontWeight: '600' },
-  switcherArrow: { fontSize: 14 },
+  headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, maxWidth: 240 },
+  headerTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '600' },
+  headerTitleArrow: { fontSize: 14 },
   filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
   filter: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   filterLabel: { fontSize: 13, fontWeight: '500' },
