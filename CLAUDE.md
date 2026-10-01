@@ -26,6 +26,7 @@ iPhone / Android 用のアプリ（Expo・React Native）は `apps/mobile/` に�
 マイタスクの並べ方・通知の文面・RPC の呼び方などは Web の `src/lib` を `@/…` でそのまま共有する。
 ルールは **`apps/mobile/CLAUDE.md`**。Web 側で気をつけること:
 
+- **アプリは押したらすぐ出す**（通信を待たせず、手元のデータで先に描く）。詳しくは `apps/mobile/CLAUDE.md`
 - **アプリが読んでいる表・列・RPC の引数を変えるときは、古い版のアプリが壊れないか確かめる**（ストアのアプリは古い版が残る）。
   壊れるなら、直した版をストアに出してから `src/lib/mobile/version.ts` の最低の版を上げる（古い版は更新を促す画面になる）
 - アプリから共有されている `src/lib` のファイル（`apps/mobile/src` で `@/` を grep）に、React・Next.js・ブラウザ依存を足さない
