@@ -10,6 +10,8 @@ Web 用のルール（3ペイン・`bg-surface`・Next.js のページ速度レ�
 - **パッケージは `npx expo install` で入れる**。api.expo.dev に届かないときは `EXPO_OFFLINE=1 npx expo install …`。
 - **DB への問い合わせは Web と同じ表・同じ条件で書く**（`src/api/`）。Web 側の対応箇所をコメントに書く。
   見える範囲は RLS が決める。アプリ側で絞っても安全にはならない。
+- **`spaces` を埋め込むときは外部キー名を書く**（例 `spaces!tasks_space_id_fkey(name)`）。tasks など12表は spaces への
+  外部キーが2本あり、書かないと本番で PGRST201 になる。番人は Web 側の `src/__tests__/lib/supabase/spaceEmbedHint.test.ts`。
 - **Web のロジックは複製せず `@/…` で共有する**（`@/lib/tasks/myTaskViews` など）。共有してよいのは
   React・Next.js・ブラウザに依存しないファイルだけ。共有先を変えたら `npx expo export --platform ios` で
   まとめられるか確かめる。

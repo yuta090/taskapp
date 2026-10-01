@@ -53,7 +53,8 @@ export interface TaskDetail {
 export async function fetchTask(taskId: string): Promise<TaskDetail | null> {
   const { data, error } = await supabase
     .from('tasks')
-    .select('*, reviews(status, created_at), spaces(name)')
+    // tasks と spaces をつなぐ外部キーは2本あるので、名前を書く（書かないと PGRST201 で失敗する）
+    .select('*, reviews(status, created_at), spaces!tasks_space_id_fkey(name)')
     .eq('id', taskId)
     .maybeSingle()
   if (error) throw error
