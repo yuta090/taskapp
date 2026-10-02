@@ -8,6 +8,7 @@ import { PickerSheet } from '~/components/PickerSheet'
 import { TaskRow } from '~/components/TaskRow'
 import { EmptyState, ErrorRetry, Loading } from '~/components/ui'
 import { usePrefetchMeetings } from '~/hooks/meetingQueries'
+import { usePrefetchWikiPages } from '~/hooks/wikiQueries'
 import { usePrefetchSpaceTasks, useSpaces, useSpaceTasks } from '~/hooks/queries'
 import { useJstToday } from '~/hooks/useJstToday'
 import { saveLastProject } from '~/hooks/useLastProject'
@@ -27,6 +28,7 @@ export default function ProjectTasksScreen() {
   const ctx = useReadyContext()
   const prefetch = usePrefetchSpaceTasks()
   const prefetchMeetings = usePrefetchMeetings()
+  const prefetchWiki = usePrefetchWikiPages()
   const [pickerOpen, setPickerOpen] = useState(false)
 
   // 開いたとき・切り替えたときに、最後に開いたプロジェクトとして覚える（アプリを開き直したとき開く）
@@ -42,7 +44,7 @@ export default function ProjectTasksScreen() {
   const missing = !known && spaces.isSuccess && !spaces.isFetching
   useEffect(() => {
     if (!missing) return
-    // 上に会議・議事録の画面が乗っていても、一覧まで戻す
+    // 上に会議・議事録・Wiki の画面が乗っていても、一覧まで戻す
     router.dismissTo('/projects')
   }, [missing])
 
@@ -93,17 +95,28 @@ export default function ProjectTasksScreen() {
               <Text style={[styles.headerTitleArrow, { color: c.textSecondary }]}>▾</Text>
             </Pressable>
           ),
-          // 会議・議事録への入り口。画面に行を足さず、ヘッダーの右に置く
+          // 会議・議事録と Wiki への入り口。画面に行を足さず、ヘッダーの右に並べる
           headerRight: () => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="会議・議事録を開く"
-              hitSlop={8}
-              onPressIn={() => prefetchMeetings(spaceId)}
-              onPress={() => router.push({ pathname: '/projects/[spaceId]/meetings', params: { spaceId } })}
-              style={styles.headerAction}>
-              <Text style={[styles.headerActionText, { color: c.primary }]}>議事録</Text>
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="会議・議事録を開く"
+                hitSlop={8}
+                onPressIn={() => prefetchMeetings(spaceId)}
+                onPress={() => router.push({ pathname: '/projects/[spaceId]/meetings', params: { spaceId } })}
+                style={styles.headerAction}>
+                <Text maxFontSizeMultiplier={1.3} style={[styles.headerActionText, { color: c.primary }]}>議事録</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Wiki を開く"
+                hitSlop={{ top: 8, bottom: 8, right: 8 }}
+                onPressIn={() => prefetchWiki(spaceId)}
+                onPress={() => router.push({ pathname: '/projects/[spaceId]/wiki', params: { spaceId } })}
+                style={styles.headerAction}>
+                <Text maxFontSizeMultiplier={1.3} style={[styles.headerActionText, { color: c.primary }]}>Wiki</Text>
+              </Pressable>
+            </View>
           ),
         }}
       />
@@ -146,9 +159,10 @@ export default function ProjectTasksScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, maxWidth: 240 },
+  headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, maxWidth: 190, flexShrink: 1 },
   headerTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '600' },
   headerTitleArrow: { fontSize: 14 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   headerAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   headerActionText: { fontSize: 17 },
   filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
