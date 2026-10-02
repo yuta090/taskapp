@@ -7,6 +7,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'r
 import { PickerSheet } from '~/components/PickerSheet'
 import { TaskRow } from '~/components/TaskRow'
 import { EmptyState, ErrorRetry, Loading } from '~/components/ui'
+import { usePrefetchMeetings } from '~/hooks/meetingQueries'
 import { usePrefetchSpaceTasks, useSpaces, useSpaceTasks } from '~/hooks/queries'
 import { useJstToday } from '~/hooks/useJstToday'
 import { saveLastProject } from '~/hooks/useLastProject'
@@ -25,6 +26,7 @@ export default function ProjectTasksScreen() {
   const today = useJstToday()
   const ctx = useReadyContext()
   const prefetch = usePrefetchSpaceTasks()
+  const prefetchMeetings = usePrefetchMeetings()
   const [pickerOpen, setPickerOpen] = useState(false)
 
   // 開いたとき・切り替えたときに、最後に開いたプロジェクトとして覚える（アプリを開き直したとき開く）
@@ -40,8 +42,8 @@ export default function ProjectTasksScreen() {
   const missing = !known && spaces.isSuccess && !spaces.isFetching
   useEffect(() => {
     if (!missing) return
-    if (router.canGoBack()) router.back()
-    else router.replace('/projects')
+    // 上に会議・議事録の画面が乗っていても、一覧まで戻す
+    router.dismissTo('/projects')
   }, [missing])
 
   const spaceName = spaces.data?.find((s) => s.id === spaceId)?.name
@@ -91,6 +93,18 @@ export default function ProjectTasksScreen() {
               <Text style={[styles.headerTitleArrow, { color: c.textSecondary }]}>▾</Text>
             </Pressable>
           ),
+          // 会議・議事録への入り口。画面に行を足さず、ヘッダーの右に置く
+          headerRight: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="会議・議事録を開く"
+              hitSlop={8}
+              onPressIn={() => prefetchMeetings(spaceId)}
+              onPress={() => router.push({ pathname: '/projects/[spaceId]/meetings', params: { spaceId } })}
+              style={styles.headerAction}>
+              <Text style={[styles.headerActionText, { color: c.primary }]}>議事録</Text>
+            </Pressable>
+          ),
         }}
       />
       <PickerSheet
@@ -135,6 +149,8 @@ const styles = StyleSheet.create({
   headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, maxWidth: 240 },
   headerTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '600' },
   headerTitleArrow: { fontSize: 14 },
+  headerAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
+  headerActionText: { fontSize: 17 },
   filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
   filter: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   filterLabel: { fontSize: 13, fontWeight: '500' },

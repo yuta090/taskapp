@@ -15,6 +15,14 @@ describe('shouldPersistQuery（端末に取り置くもの）', () => {
     expect(heads).toEqual([])
   })
 
+  it('議事録の本文つきは端末に書かない（会議の一覧は本文を持たないので書く）', async () => {
+    const heads = await persistedHeads([
+      ['meetingMinutes', 'u', 'o', 'm'],
+      ['meetings', 'u', 'o', 's'],
+    ])
+    expect(heads).toEqual(['meetings'])
+  })
+
   it('題名だけの軽い問い合わせや、一覧・タスクは今までどおり書く', async () => {
     const heads = await persistedHeads([
       ['wikiTitle', 'u', 'o', 'p'],
