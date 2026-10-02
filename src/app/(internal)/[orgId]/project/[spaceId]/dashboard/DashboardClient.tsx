@@ -12,7 +12,6 @@ import {
 } from '@phosphor-icons/react'
 import { Breadcrumb, LoadingState, ErrorRetry } from '@/components/shared'
 import { buildTaskDeepLink } from '@/lib/taskLinks'
-import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useMeetings } from '@/lib/hooks/useMeetings'
@@ -25,7 +24,14 @@ import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useRecentTaskComments } from '@/lib/hooks/useRecentTaskComments'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
-import { daysOverdue, groupOverdueTasks } from '@/lib/dashboard/overdue'
+import { groupOverdueTasks } from '@/lib/dashboard/overdue'
+import {
+  classifyFollowUps,
+  formatDueDays,
+  upcomingDeadlines,
+  type ClientFollowUp,
+} from '@/lib/dashboard/followUps'
+import { milestoneProgress } from '@/lib/dashboard/milestoneProgress'
 import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 import { latestCommentPerTask, RECENT_COMMENT_TASK_LIMIT } from '@/lib/dashboard/recentComments'
 import { summarizeDecisions } from '@/lib/dashboard/decisions'
@@ -42,86 +48,12 @@ import { summarizeByMember } from '@/lib/dashboard/memberProgress'
 import { previousWeekStartOf, summarizeWeek } from '@/lib/dashboard/weekHighlights'
 import { useWeekWikiActivity } from '@/lib/hooks/useWeekWikiActivity'
 
-// -- Constants --
-
-/** Days since ball was passed to client before showing warning */
-const FOLLOW_UP_WARN_DAYS = 5
-const FOLLOW_UP_URGENT_DAYS = 7
-
 interface DashboardClientProps {
   orgId: string
   spaceId: string
 }
 
 // -- Helpers --
-
-/**
- * 期限まであと何日か（過ぎていれば負）。日本時間の今日の文字列と期限の日付だけで数える。
- * 「期限切れ」（src/lib/dashboard/overdue.ts）と同じ数え方にして、同じ画面で食い違わないようにする
- * （前は new Date(due_date) と今の時刻の差だったので、朝9時を過ぎると今日が期限のタスクが「1日超過」になった）。
- */
-function daysUntil(dueDate: string, today: string): number {
-  return -daysOverdue(dueDate, today)
-}
-
-type FollowUpLevel = 'urgent' | 'warn'
-
-interface ClientFollowUp {
-  task: Task
-  level: FollowUpLevel
-  /** Days since task.updated_at (proxy for ball pass date) */
-  staleDays: number
-  /** Days until due (negative = overdue) */
-  dueDaysLeft: number | null
-}
-
-function classifyFollowUps(tasks: Task[], today: string): ClientFollowUp[] {
-  const now = new Date()
-  const clientTasks = tasks.filter(
-    (t) => t.ball === 'client' && t.status !== 'done'
-  )
-
-  const items: ClientFollowUp[] = []
-
-  for (const task of clientTasks) {
-    // Shared with TaskRow's "N日待ち" badge (B-4) so the two views can't disagree.
-    const staleDays = getClientWaitingDays(task.updated_at, now)
-    const dueDaysLeft = task.due_date ? daysUntil(task.due_date, today) : null
-
-    // urgent: overdue OR stale 7+ days with due soon
-    const isOverdue = dueDaysLeft !== null && dueDaysLeft < 0
-    const isStaleUrgent =
-      staleDays >= FOLLOW_UP_URGENT_DAYS && dueDaysLeft !== null && dueDaysLeft <= 3
-
-    if (isOverdue || isStaleUrgent) {
-      items.push({ task, level: 'urgent', staleDays, dueDaysLeft })
-      continue
-    }
-
-    // warn: stale 5+ days OR due within a week
-    const isStaleWarn = staleDays >= FOLLOW_UP_WARN_DAYS
-    const isDueSoon = dueDaysLeft !== null && dueDaysLeft <= 7
-
-    if (isStaleWarn || isDueSoon) {
-      items.push({ task, level: 'warn', staleDays, dueDaysLeft })
-    }
-  }
-
-  // Sort: urgent first, then by staleDays descending
-  items.sort((a, b) => {
-    if (a.level !== b.level) return a.level === 'urgent' ? -1 : 1
-    return b.staleDays - a.staleDays
-  })
-
-  return items
-}
-
-function formatDueDays(days: number | null): string {
-  if (days === null) return '期限なし'
-  if (days < 0) return `${Math.abs(days)}日超過`
-  if (days === 0) return '今日'
-  return `${days}日後`
-}
 
 function riskBadge(level: RiskLevel) {
   const styles: Record<RiskLevel, string> = {
@@ -329,9 +261,9 @@ export function MilestoneProgressSection({
   /** 日本時間の今日（'YYYY-MM-DD'）。省略したらその場で作る */
   today?: string
 }) {
-  const activeMilestones = milestones.filter((m) => !m.completed_at)
+  const progress = milestoneProgress(milestones, tasks, today)
 
-  if (activeMilestones.length === 0) {
+  if (progress.length === 0) {
     return (
       <div className="bg-surface border border-gray-200 rounded-lg p-6">
         <h3 className="text-sm font-medium text-gray-900 mb-3">マイルストーン進捗</h3>
@@ -344,15 +276,9 @@ export function MilestoneProgressSection({
     <div className="bg-surface border border-gray-200 rounded-lg p-6">
       <h3 className="text-sm font-medium text-gray-900 mb-4">マイルストーン進捗</h3>
       <div className="space-y-3">
-        {activeMilestones.map((ms) => {
-          const msTasks = tasks.filter((t) => t.milestone_id === ms.id)
-          const done = msTasks.filter((t) => t.status === 'done').length
-          const total = msTasks.length
-          const pct = total > 0 ? Math.round((done / total) * 100) : 0
+        {progress.map(({ milestone: ms, done, total, pct, daysLeft }) => {
           const forecast = forecasts.get(ms.id)
-          const dueStr = ms.due_date
-            ? formatDueDays(daysUntil(ms.due_date, today))
-            : null
+          const dueStr = daysLeft !== null ? formatDueDays(daysLeft) : null
 
           return (
             <div key={ms.id}>
@@ -446,15 +372,7 @@ function UpcomingDeadlinesSection({
   spaceId: string
   today: string
 }) {
-  const upcoming = tasks
-    .filter((t) => t.status !== 'done' && t.due_date)
-    .map((t) => ({
-      task: t,
-      daysLeft: daysUntil(t.due_date!, today),
-    }))
-    .filter((t) => t.daysLeft <= 7)
-    .sort((a, b) => a.daysLeft - b.daysLeft)
-    .slice(0, 8)
+  const upcoming = upcomingDeadlines(tasks, today)
 
   return (
     <div className="bg-surface border border-gray-200 rounded-lg p-6">
