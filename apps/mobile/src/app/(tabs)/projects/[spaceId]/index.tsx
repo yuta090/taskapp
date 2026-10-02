@@ -2,12 +2,12 @@ import { DEFAULT_QUICK_FILTER, type QuickFilterKey } from '@/lib/tasks/quickFilt
 import type { Task } from '@/types/database'
 import { FlashList } from '@shopify/flash-list'
 import { router, Stack, useLocalSearchParams } from 'expo-router'
-import { useEffect, useMemo, useState } from 'react'
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { PickerSheet } from '~/components/PickerSheet'
 import { TaskRow } from '~/components/TaskRow'
 import { EmptyState, ErrorRetry, Loading } from '~/components/ui'
-import { usePrefetchMeetings } from '~/hooks/meetingQueries'
+import { usePrefetchDashboard } from '~/hooks/dashboardQueries'
 import { usePrefetchWikiPages } from '~/hooks/wikiQueries'
 import { usePrefetchSpaceTasks, useSpaces, useSpaceTasks } from '~/hooks/queries'
 import { useJstToday } from '~/hooks/useJstToday'
@@ -16,6 +16,14 @@ import { useReadyContext } from '~/hooks/useSession'
 import { buildProjectTaskList, PROJECT_TASK_FILTERS } from '~/lib/projectTaskList'
 import { listProjects } from '~/lib/spaceList'
 import { useColors } from '~/theme/colors'
+
+/** ヘッダー右の「メニュー」から開く、このプロジェクトの画面。key で行き先を引く */
+const PROJECT_MENU = [
+  { key: 'dashboard', label: 'ダッシュボード', pathname: '/projects/[spaceId]/dashboard' },
+  { key: 'meetings', label: '議事録', pathname: '/projects/[spaceId]/meetings' },
+  { key: 'wiki', label: 'Wiki', pathname: '/projects/[spaceId]/wiki' },
+] as const
+const PROJECT_MENU_OPTIONS = PROJECT_MENU.map(({ key, label }) => ({ key, label }))
 
 /** プロジェクトのタスク。スマホは読む・開くが中心（作成・編集は Web） */
 export default function ProjectTasksScreen() {
@@ -27,9 +35,11 @@ export default function ProjectTasksScreen() {
   const today = useJstToday()
   const ctx = useReadyContext()
   const prefetch = usePrefetchSpaceTasks()
-  const prefetchMeetings = usePrefetchMeetings()
+  const prefetchDashboard = usePrefetchDashboard()
   const prefetchWiki = usePrefetchWikiPages()
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const pendingMenuPath = useRef<(typeof PROJECT_MENU)[number]['pathname'] | null>(null)
 
   // 開いたとき・切り替えたときに、最後に開いたプロジェクトとして覚える（アプリを開き直したとき開く）
   const userId = ctx?.userId
@@ -95,28 +105,21 @@ export default function ProjectTasksScreen() {
               <Text style={[styles.headerTitleArrow, { color: c.textSecondary }]}>▾</Text>
             </Pressable>
           ),
-          // 会議・議事録と Wiki への入り口。画面に行を足さず、ヘッダーの右に並べる
+          // ダッシュボード・議事録・Wiki への入り口。画面に行を足さず、ヘッダーの右に1つだけ置く（3つ並べると題名が潰れる）。
+          // 押した瞬間に3つとも先読みする（どれを選んでも、開くころには手元に来ている）
           headerRight: () => (
-            <View style={styles.headerActions}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="会議・議事録を開く"
-                hitSlop={8}
-                onPressIn={() => prefetchMeetings(spaceId)}
-                onPress={() => router.push({ pathname: '/projects/[spaceId]/meetings', params: { spaceId } })}
-                style={styles.headerAction}>
-                <Text maxFontSizeMultiplier={1.3} style={[styles.headerActionText, { color: c.primary }]}>議事録</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Wiki を開く"
-                hitSlop={{ top: 8, bottom: 8, right: 8 }}
-                onPressIn={() => prefetchWiki(spaceId)}
-                onPress={() => router.push({ pathname: '/projects/[spaceId]/wiki', params: { spaceId } })}
-                style={styles.headerAction}>
-                <Text maxFontSizeMultiplier={1.3} style={[styles.headerActionText, { color: c.primary }]}>Wiki</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="このプロジェクトの画面を選ぶ"
+              hitSlop={{ top: 8, bottom: 8, right: 8 }}
+              onPressIn={() => {
+                prefetchDashboard(spaceId)
+                prefetchWiki(spaceId)
+              }}
+              onPress={() => setMenuOpen(true)}
+              style={styles.headerAction}>
+              <Text maxFontSizeMultiplier={1.3} style={[styles.headerActionText, { color: c.primary }]}>メニュー ▾</Text>
+            </Pressable>
           ),
         }}
       />
@@ -133,6 +136,26 @@ export default function ProjectTasksScreen() {
           router.setParams({ spaceId: key })
         }}
         onClose={() => setPickerOpen(false)}
+      />
+      <PickerSheet
+        visible={menuOpen}
+        title="このプロジェクトの画面"
+        options={PROJECT_MENU_OPTIONS}
+        onSelect={(key) => {
+          setMenuOpen(false)
+          const item = PROJECT_MENU.find((m) => m.key === key)
+          if (!item) return
+          // iOS はシートが閉じきる前に画面を移すと無視されることがあるので、閉じたあと（onDismiss）に移る。
+          // Android には閉じきった合図が無いので、すぐ移る
+          if (Platform.OS === 'ios') pendingMenuPath.current = item.pathname
+          else router.push({ pathname: item.pathname, params: { spaceId } })
+        }}
+        onDismiss={() => {
+          const pathname = pendingMenuPath.current
+          pendingMenuPath.current = null
+          if (pathname) router.push({ pathname, params: { spaceId } })
+        }}
+        onClose={() => setMenuOpen(false)}
       />
       <View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
@@ -162,7 +185,6 @@ const styles = StyleSheet.create({
   headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, maxWidth: 190, flexShrink: 1 },
   headerTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '600' },
   headerTitleArrow: { fontSize: 14 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   headerAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   headerActionText: { fontSize: 17 },
   filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },

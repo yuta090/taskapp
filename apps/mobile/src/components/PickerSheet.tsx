@@ -14,16 +14,18 @@ interface Props {
   options: PickerOption[]
   onSelect: (key: string) => void
   onClose: () => void
+  /** シートが閉じきったあと（iOS のみ。Android では呼ばれない）。選んだあと別の画面へ移るときに使う */
+  onDismiss?: () => void
 }
 
 /** 下から出る選択シート（組織・プロジェクトの切り替え）。背景を押すと閉じる */
-export function PickerSheet({ visible, title, options, onSelect, onClose }: Props) {
+export function PickerSheet({ visible, title, options, onSelect, onClose, onDismiss }: Props) {
   const c = useColors()
   const insets = useSafeAreaInsets()
   const { height } = useWindowDimensions()
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.root}>
         <Pressable accessibilityRole="button" accessibilityLabel="閉じる" style={styles.backdrop} onPress={onClose} />
         <View style={[styles.sheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + 8 }]}>
