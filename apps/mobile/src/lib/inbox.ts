@@ -6,6 +6,7 @@
  */
 import { buildPushMessage, type PushNotificationRow } from '@/lib/push/buildPushMessage'
 import { isActionableNotification } from '@/lib/notifications/classify'
+import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 
 export interface InboxRow extends PushNotificationRow {
   created_at: string
@@ -24,6 +25,8 @@ export interface InboxItem {
   unread: boolean
   /** 自分が何かする必要がある通知で、まだ対応していない */
   needsAction: boolean
+  /** Web で開ける行き先（安全なパスでなければ null）。「Web で開く」ボタンに使う */
+  webPath: string | null
 }
 
 export function toInboxItem(row: InboxRow): InboxItem {
@@ -38,7 +41,15 @@ export function toInboxItem(row: InboxRow): InboxItem {
     createdAt: row.created_at,
     unread: row.read_at === null,
     needsAction: isActionableNotification(row.type) && row.actioned_at === null,
+    webPath: isSafeInternalPath(message.url) ? message.url : null,
   }
+}
+
+/** タップしたときの行き先。タスクに結びつく通知はタスク詳細、そうでなければ通知詳細 */
+export type InboxDestination = { kind: 'task'; taskId: string } | { kind: 'notification'; id: string }
+
+export function inboxDestination(item: Pick<InboxItem, 'id' | 'taskId'>): InboxDestination {
+  return item.taskId ? { kind: 'task', taskId: item.taskId } : { kind: 'notification', id: item.id }
 }
 
 /** 新着と未読をまとめる（両方にあれば1件に）。新しい順。Web の useNotifications と同じ規則 */

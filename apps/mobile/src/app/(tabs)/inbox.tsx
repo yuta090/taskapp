@@ -4,7 +4,7 @@ import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { EmptyState, ErrorRetry, Loading } from '~/components/ui'
 import { useInbox, useMarkAllRead, useMarkRead } from '~/hooks/queries'
-import type { InboxItem } from '~/lib/inbox'
+import { inboxDestination, type InboxItem } from '~/lib/inbox'
 import { useColors } from '~/theme/colors'
 
 function formatWhen(iso: string): string {
@@ -21,7 +21,12 @@ export default function InboxScreen() {
 
   const open = (item: InboxItem) => {
     if (item.unread) markRead.mutate(item.id)
-    if (item.taskId) router.push({ pathname: '/task/[taskId]', params: { taskId: item.taskId } })
+    const destination = inboxDestination(item)
+    if (destination.kind === 'task') {
+      router.push({ pathname: '/task/[taskId]', params: { taskId: destination.taskId } })
+    } else {
+      router.push({ pathname: '/notification/[notificationId]', params: { notificationId: destination.id } })
+    }
   }
 
   const body = (() => {

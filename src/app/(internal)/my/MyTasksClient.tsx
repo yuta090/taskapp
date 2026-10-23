@@ -49,7 +49,7 @@ import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
-import { buildTaskHref } from '@/lib/navigation/appLinks'
+import { buildTaskHref, buildWikiPageHref } from '@/lib/navigation/appLinks'
 
 const TaskCreateSheet = dynamic(
   () => import('@/components/task/TaskCreateSheet').then((m) => ({ default: m.TaskCreateSheet })),
@@ -58,6 +58,12 @@ const TaskCreateSheet = dynamic(
 
 const TaskInspector = dynamic(
   () => import('@/components/task/TaskInspector').then((m) => ({ default: m.TaskInspector })),
+  { ssr: false }
+)
+
+// 詳細から Wiki を押したときに重ねて出す。エディタ（BlockNote）が重いので、押すまで読み込まない
+const WikiPageOverlay = dynamic(
+  () => import('@/components/wiki/WikiPageOverlay').then((m) => ({ default: m.WikiPageOverlay })),
   { ssr: false }
 )
 
@@ -164,6 +170,8 @@ interface MyTaskInspectorProps {
   onDeleted: (taskId: string) => void
   /** 詳細の子タスクを押したとき。そのプロジェクトのタスク（useTasks の結果）を渡す */
   onOpenTask: (task: Task) => void
+  /** 詳細の Wiki へのリンクを押したとき（このタスクのプロジェクトのページ） */
+  onOpenWikiPage: (pageId: string) => void
   /** このタスクの自分宛ての未読のコメントの数。1以上なら詳細のコメント欄を開いておく */
   unreadCommentCount: number
   /** 一覧で完了にしたときの案内から開いたときだけ true。確認依頼の入力欄まで開く */
@@ -191,7 +199,7 @@ const SHOW_TOLERANCE_MS = DEFAULT_STALE_TIME_MS
  * 子タスクの表示にも要る。useTasks はそのプロジェクトの全タスクを読み込むため、担当者は
  * 自然に揃う。担当者が揃うまでは TaskInspector を出さない。
  */
-function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted, onOpenTask, unreadCommentCount, openReviewRequest }: MyTaskInspectorProps) {
+function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted, onOpenTask, onOpenWikiPage, unreadCommentCount, openReviewRequest }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
   const inspectorQueryClient = useQueryClient()
 
@@ -255,6 +263,10 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
   const onOpenTaskRef = useRef(onOpenTask)
   useEffect(() => {
     onOpenTaskRef.current = onOpenTask
+  })
+  const onOpenWikiPageRef = useRef(onOpenWikiPage)
+  useEffect(() => {
+    onOpenWikiPageRef.current = onOpenWikiPage
   })
   // 社内承認の状態も一緒に映す（詳細から承認を依頼したら、一覧の「社内承認を依頼」を「社内承認待ち」に変える）
   const spaceReviewStatus = reviewStatuses[task.id]
@@ -329,6 +341,7 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
           const target = tasks.find((t) => t.id === taskId)
           if (target) onOpenTaskRef.current(target)
         }}
+        onOpenWikiPage={(pageId) => onOpenWikiPageRef.current(pageId)}
         onClose={onClose}
         // 閲覧者（viewer）・相手先には編集操作を渡さない（onUpdate 等が無ければ表示だけになる設計）
         onPassBall={canEdit ? async (ball, overrideClientOwnerIds, overrideInternalOwnerIds) => {
@@ -648,9 +661,12 @@ export default function MyTasksClient() {
       // マイタスクから別の画面へ戻る／進むときも、合図はこの画面が出ている間に行き先の URL で届く。
       // 行き先の task= を拾うと、閉じる直前のこの画面で詳細を作ってプロジェクト全タスクを取り直してしまう
       if (window.location.pathname !== '/my') return
-      const taskId = new URLSearchParams(window.location.search).get('task')
+      const params = new URLSearchParams(window.location.search)
+      const taskId = params.get('task')
       setSelectedTaskId(taskId)
       if (taskId) setOpenedAt(Date.now())
+      // 重ねた Wiki も URL の wiki= に合わせる（「戻る」で閉じる）
+      setWikiPageId(params.get('wiki'))
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -672,6 +688,45 @@ export default function MyTasksClient() {
       router.push(buildTaskHref(target.org_id, target.space_id, target.id))
     }
   }, [selectTask, router])
+
+  // 詳細の Wiki へのリンクは、画面を移らずに重ねて開く（閉じれば詳細はそのまま）。
+  // URL の wiki= にも残し、開くときは履歴を積んで「戻る」で閉じられるようにする。
+  // スマホの幅では詳細が全画面のシート（重ねる Wiki より手前）なので、今までどおり Wiki 画面へ移る
+  const [wikiPageId, setWikiPageId] = useState<string | null>(() => searchParams.get('wiki'))
+  const pushedWikiRef = useRef(false)
+  const isMobileRef = useRef(isMobile)
+  useEffect(() => {
+    isMobileRef.current = isMobile
+  })
+  const handleInspectorOpenWikiPage = useCallback((pageId: string) => {
+    const task = tasksRef.current.find((t) => t.id === selectedTaskIdRef.current)
+    if (!task) return
+    if (isMobileRef.current) {
+      router.push(buildWikiPageHref(task.org_id, task.space_id, pageId))
+      return
+    }
+    setWikiPageId(pageId)
+    const params = new URLSearchParams(window.location.search)
+    params.set('wiki', pageId)
+    window.history.pushState(null, '', `/my?${params.toString()}`)
+    pushedWikiRef.current = true
+  }, [router])
+  const handleWikiOverlayClose = useCallback(() => {
+    if (pushedWikiRef.current) {
+      // 開くときに積んだ分を戻す（popstate で wiki= が消えて閉じる）
+      pushedWikiRef.current = false
+      window.history.back()
+      return
+    }
+    setWikiPageId(null)
+    const params = new URLSearchParams(window.location.search)
+    params.delete('wiki')
+    const query = params.toString()
+    window.history.replaceState(null, '', query ? `/my?${query}` : '/my')
+  }, [])
+  useEffect(() => {
+    if (!wikiPageId) pushedWikiRef.current = false
+  }, [wikiPageId])
 
   const handleInspectorSynced = useCallback((updated: Task, reviewStatus: ReviewStatus | undefined) => {
     queryClient.setQueryData<MyTasksData>(
@@ -1311,8 +1366,20 @@ export default function MyTasksClient() {
           onSynced={handleInspectorSynced}
           onDeleted={handleInspectorDeleted}
           onOpenTask={handleInspectorOpenTask}
+          onOpenWikiPage={handleInspectorOpenWikiPage}
           unreadCommentCount={unreadComments[selectedTask.id]?.count ?? 0}
           openReviewRequest={reviewRequestTaskId === selectedTask.id}
+        />
+      )}
+
+      {selectedTask && wikiPageId && !isMobile && (
+        <WikiPageOverlay
+          key={wikiPageId}
+          orgId={selectedTask.org_id}
+          spaceId={selectedTask.space_id}
+          pageId={wikiPageId}
+          canEdit={canEditSpace(selectedTask.space_id, selectedTask.org_id)}
+          onClose={handleWikiOverlayClose}
         />
       )}
     </div>

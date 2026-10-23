@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeNewestFirst, toInboxItem, type InboxRow } from './inbox'
+import { inboxDestination, mergeNewestFirst, toInboxItem, type InboxRow } from './inbox'
 
 function row(over: Partial<InboxRow>): InboxRow {
   return {
@@ -36,6 +36,21 @@ describe('toInboxItem', () => {
   })
   it('タスクに結びつかない通知は taskId が null', () => {
     expect(toInboxItem(row({ type: 'invite_accepted', payload: {} })).taskId).toBeNull()
+  })
+  it('Web で開ける行き先を持つ（タスクに結びつく通知はタスクのページ）', () => {
+    expect(toInboxItem(row({})).webPath).toBe('/o1/project/s1?task=t1')
+  })
+  it('Web の行き先が無い通知は webPath が null にならず、安全な既定のページになる', () => {
+    expect(toInboxItem(row({ type: 'invite_accepted', payload: {} })).webPath).toBe('/inbox')
+  })
+})
+
+describe('inboxDestination', () => {
+  it('taskId があればタスクを開く', () => {
+    expect(inboxDestination({ id: 'n1', taskId: 't1' })).toEqual({ kind: 'task', taskId: 't1' })
+  })
+  it('taskId が無ければ通知の詳細を開く', () => {
+    expect(inboxDestination({ id: 'n1', taskId: null })).toEqual({ kind: 'notification', id: 'n1' })
   })
 })
 

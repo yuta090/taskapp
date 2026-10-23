@@ -2,9 +2,12 @@ import { STATUS_CHANGE_NO_ROWS, statusChangeFailureMessage } from '@/lib/tasks/c
 import { formatTaskNumber } from '@/lib/tasks/taskNumber'
 import type { CommentVisibility, TaskStatus } from '@/types/database'
 import { Stack, useLocalSearchParams } from 'expo-router'
-import { useState } from 'react'
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { formatDue } from '~/components/TaskRow'
+import { TaskReviewSection } from '~/components/TaskReviewSection'
+import { TaskWikiLink } from '~/components/TaskWikiLink'
 import { Button, Chip, EmptyState, ErrorRetry, Loading } from '~/components/ui'
 import {
   useAddComment,
@@ -21,7 +24,7 @@ import { completionBlocker, normalizeBlockReason, STATUS_CHOICES } from '~/lib/t
 import { useColors } from '~/theme/colors'
 
 /**
- * タスクの詳細。スマホでやることにしぼる: 状態を変える・ボールを自分たちに戻す・承認する・コメントする。
+ * タスクの詳細。スマホでやることにしぼる: 状態を変える・ボールを動かす・社内承認を依頼する／承認する・資料を読む・コメントする。
  * 変えたら即保存（保存ボタンなし）。それ以外の編集は Web で行う。
  */
 export default function TaskDetailScreen() {
@@ -41,6 +44,17 @@ export default function TaskDetailScreen() {
   const addComment = useAddComment(task)
   const [draft, setDraft] = useState('')
   const [visibility, setVisibility] = useState<CommentVisibility>('internal')
+  // 下の入力欄は、ホームバーの上（画面の角から離す）に置く。キーボードが出ている間は余白を足さない
+  const insets = useSafeAreaInsets()
+  const [keyboardShown, setKeyboardShown] = useState(false)
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardShown(true))
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardShown(false))
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [])
 
   if (detail.isPending) return <Loading />
   if (detail.isError && !detail.data) return <ErrorRetry message="タスクを読み込めませんでした" onRetry={() => detail.refetch()} />
@@ -216,6 +230,10 @@ export default function TaskDetailScreen() {
           </View>
         )}
 
+        <TaskWikiLink task={task} />
+
+        <TaskReviewSection task={task} canRequest />
+
         {task.description ? (
           <View style={styles.block}>
             <Text style={[styles.sectionLabel, { color: c.textMuted }]}>説明</Text>
@@ -246,16 +264,17 @@ export default function TaskDetailScreen() {
         )}
       </ScrollView>
 
-      <View style={[styles.composer, { backgroundColor: c.surface, borderColor: c.border }]}>
-        <Pressable
-          accessibilityRole="switch"
-          accessibilityState={{ checked: clientVisible }}
-          onPress={() => setVisibility(clientVisible ? 'internal' : 'client')}
-          style={[styles.visibility, { borderColor: clientVisible ? c.clientVisible : c.border }]}>
-          <Text style={[styles.visibilityLabel, { color: clientVisible ? c.clientVisible : c.textSecondary }]}>
-            {clientVisible ? '相手先にも見える' : '社内だけ'}
-          </Text>
-        </Pressable>
+      <View
+        style={[
+          styles.composer,
+          {
+            backgroundColor: c.surface,
+            borderColor: c.border,
+            paddingLeft: 16 + insets.left,
+            paddingRight: 16 + insets.right,
+            paddingBottom: keyboardShown ? 12 : Math.max(insets.bottom, 12) + 4,
+          },
+        ]}>
         <TextInput
           value={draft}
           onChangeText={setDraft}
@@ -264,9 +283,24 @@ export default function TaskDetailScreen() {
           multiline
           style={[styles.input, { color: c.text, borderColor: c.border }]}
         />
-        <Pressable accessibilityRole="button" onPress={onSend} disabled={!draft.trim() || addComment.isPending} hitSlop={8}>
-          <Text style={[styles.send, { color: draft.trim() ? c.primary : c.textMuted }]}>送信</Text>
-        </Pressable>
+        <View style={styles.composerActions}>
+          <Pressable
+            accessibilityRole="switch"
+            accessibilityState={{ checked: clientVisible }}
+            onPress={() => setVisibility(clientVisible ? 'internal' : 'client')}
+            style={[styles.visibility, { borderColor: clientVisible ? c.clientVisible : c.border }]}>
+            <Text style={[styles.visibilityLabel, { color: clientVisible ? c.clientVisible : c.textSecondary }]}>
+              {clientVisible ? '相手先にも見える' : '社内だけ'}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onSend}
+            disabled={!draft.trim() || addComment.isPending}
+            style={[styles.send, { backgroundColor: draft.trim() ? c.primary : c.chip }]}>
+            <Text style={[styles.sendLabel, { color: draft.trim() ? c.onPrimary : c.textMuted }]}>送信</Text>
+          </Pressable>
+        </View>
       </View>
     </KeyboardAvoidingView>
   )
@@ -291,15 +325,14 @@ const styles = StyleSheet.create({
   commentAuthor: { fontSize: 12, fontWeight: '500' },
   commentBody: { fontSize: 15, lineHeight: 21 },
   composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 10,
+    paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  visibility: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 6 },
-  visibilityLabel: { fontSize: 12, fontWeight: '500' },
-  input: { flex: 1, maxHeight: 120, minHeight: 36, borderWidth: StyleSheet.hairlineWidth, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15 },
-  send: { fontSize: 15, fontWeight: '600', paddingBottom: 8 },
+  composerActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  visibility: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14 },
+  visibilityLabel: { fontSize: 14, fontWeight: '500' },
+  input: { maxHeight: 120, minHeight: 44, borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
+  send: { minHeight: 44, minWidth: 88, alignItems: 'center', justifyContent: 'center', borderRadius: 999, paddingHorizontal: 20 },
+  sendLabel: { fontSize: 15, fontWeight: '600' },
 })

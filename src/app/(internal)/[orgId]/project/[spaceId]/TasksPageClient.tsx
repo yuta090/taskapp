@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { buildWikiPageHref } from '@/lib/navigation/appLinks'
 import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, GearSix, Eye, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, CheckSquare, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
@@ -18,6 +19,10 @@ import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 const TaskInspector = dynamic(() => import('@/components/task/TaskInspector').then(mod => ({ default: mod.TaskInspector })), {
   ssr: false,
   loading: () => <div className="p-6 space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-4 bg-gray-100 rounded animate-pulse" />)}</div>,
+})
+// 詳細から Wiki を押したときに重ねて出す。エディタ（BlockNote）が重いので、押すまで読み込まない
+const WikiPageOverlay = dynamic(() => import('@/components/wiki/WikiPageOverlay').then(mod => ({ default: mod.WikiPageOverlay })), {
+  ssr: false,
 })
 const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet').then(mod => ({ default: mod.TaskCreateSheet })), {
   ssr: false,
@@ -301,6 +306,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Derive UI state directly from URL params (no sync needed)
   const isCreateOpen = searchParams.get('create') !== null
   const selectedTaskId = searchParams.get('task')
+  const wikiPageId = searchParams.get('wiki')
   const activeFilter: FilterKey = useMemo(() => {
     // 既定は「アクティブ」。開いた直後に完了・未着手まで並ぶと、いま動いているタスクが埋もれる
     return parseQuickFilter(searchParams.get('filter'))
@@ -343,6 +349,40 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     },
     [projectBasePath]
   )
+
+  // 詳細の Wiki へのリンクは、画面を移らずに重ねて開く（閉じれば詳細はそのまま）。
+  // URL の wiki= に残し、開くときは履歴を積んで「戻る」で閉じられるようにする。
+  // スマホの幅では詳細が全画面のシート（重ねる Wiki より手前）なので、今までどおり Wiki 画面へ移る
+  const router = useRouter()
+  const pushedWikiRef = useRef(false)
+  const handleOpenWikiPage = useCallback(
+    (pageId: string) => {
+      if (isMobile) {
+        router.push(buildWikiPageHref(orgId, spaceId, pageId))
+        return
+      }
+      const params = new URLSearchParams(window.location.search)
+      params.set('wiki', pageId)
+      window.history.pushState(null, '', `${projectBasePath}?${params.toString()}`)
+      pushedWikiRef.current = true
+    },
+    [isMobile, router, orgId, spaceId, projectBasePath]
+  )
+  const handleWikiOverlayClose = useCallback(() => {
+    if (pushedWikiRef.current) {
+      // 開くときに積んだ分を戻す（wiki= が消えて閉じる）
+      pushedWikiRef.current = false
+      window.history.back()
+      return
+    }
+    const params = new URLSearchParams(window.location.search)
+    params.delete('wiki')
+    const query = params.toString()
+    window.history.replaceState(null, '', query ? `${projectBasePath}?${query}` : projectBasePath)
+  }, [projectBasePath])
+  useEffect(() => {
+    if (!wikiPageId) pushedWikiRef.current = false
+  }, [wikiPageId])
 
   // Check if advanced filters are active
   const hasAdvancedFilters = useMemo(() => {
@@ -611,6 +651,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         parentTasks={parentTasks}
         childTasks={childTasks}
         onOpenTask={(taskId) => syncUrlWithState(isCreateOpen, taskId, activeFilter, { push: true })}
+        onOpenWikiPage={handleOpenWikiPage}
         onClose={() => {
           syncUrlWithState(isCreateOpen, null, activeFilter)
         }}
@@ -638,7 +679,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         canEditPricing={canEditMoney}
       />
     )
-  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleCreateChild, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, reviewRequestTaskId, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleCreateChild, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, reviewRequestTaskId, setInspector, syncUrlWithState, handleOpenWikiPage, isCreateOpen, activeFilter, spaceId, tasks])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
@@ -1609,6 +1650,17 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         defaultDescription={duplicateSource?.description || ''}
         parentTasks={parentTaskOptions}
       />
+
+      {selectedTask && wikiPageId && !isMobile && (
+        <WikiPageOverlay
+          key={wikiPageId}
+          orgId={orgId}
+          spaceId={spaceId}
+          pageId={wikiPageId}
+          canEdit={canEdit}
+          onClose={handleWikiOverlayClose}
+        />
+      )}
     </div>
   )
 }

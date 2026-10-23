@@ -33,6 +33,12 @@ beforeEach(() => {
 })
 
 describe('GET /api/channels/line/basic-id', () => {
+  it('request を認可に渡す（スマホの Bearer を受け付けるため）', async () => {
+    const req = new NextRequest(`http://localhost:3000/api/channels/line/basic-id?orgId=${ORG}`)
+    await GET(req)
+    expect(authzMock.requireInternalMember).toHaveBeenCalledWith(ORG, req)
+  })
+
   it('orgId欠落は400', async () => {
     const response = await callGet(null)
     expect(response.status).toBe(400)

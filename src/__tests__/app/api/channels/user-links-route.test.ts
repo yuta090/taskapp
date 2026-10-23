@@ -74,6 +74,12 @@ describe('POST /api/channels/user-links/code', () => {
     expect(codeHash).not.toContain(json.code)
   })
 
+  it('request を認可に渡す（スマホの Bearer を受け付けるため）', async () => {
+    const req = post({ orgId: ORG, channelAccountId: ACCOUNT })
+    await issueCode(req)
+    expect(authzMock.requireInternalMember).toHaveBeenCalledWith(ORG, req)
+  })
+
   it('body の userId は信用せず、セッションのユーザーで発行する', async () => {
     // 攻撃: 低権限ユーザーが owner の UUID を指定してコードを発行しようとする
     const res = await issueCode(post({ orgId: ORG, channelAccountId: ACCOUNT, userId: OWNER }))
@@ -124,6 +130,17 @@ describe('POST /api/channels/user-links/code', () => {
 })
 
 describe('DELETE /api/channels/user-links（失効）', () => {
+  it('request を認可に渡す（本人用と、他人の分を切る管理者用の両方）', async () => {
+    const own = del({ orgId: ORG, linkId: LINK })
+    await revokeLink(own)
+    expect(authzMock.requireInternalMember).toHaveBeenCalledWith(ORG, own)
+
+    storeMock.findUserLinkById.mockResolvedValue({ id: LINK, orgId: ORG, userId: OWNER })
+    const other = del({ orgId: ORG, linkId: LINK })
+    await revokeLink(other)
+    expect(authzMock.requireOrgAdmin).toHaveBeenCalledWith(ORG, other)
+  })
+
   it('本人は自分の紐付けを失効できる', async () => {
     const res = await revokeLink(del({ orgId: ORG, linkId: LINK }))
     expect(res.status).toBe(200)
@@ -161,6 +178,13 @@ describe('DELETE /api/channels/user-links（失効）', () => {
 })
 
 describe('GET /api/channels/user-links（一覧）', () => {
+  it('request を認可に渡す（スマホの Bearer を受け付けるため）', async () => {
+    storeMock.listActiveUserLinks.mockResolvedValue([])
+    const req = new Request(`http://localhost/api/channels/user-links?orgId=${ORG}`) as never
+    await listLinks(req)
+    expect(authzMock.requireInternalMember).toHaveBeenCalledWith(ORG, req)
+  })
+
   it('内部メンバーは org の紐付け一覧を取得できる', async () => {
     storeMock.listActiveUserLinks.mockResolvedValue([{ id: LINK, userId: ME }])
     const req = new Request(`http://localhost/api/channels/user-links?orgId=${ORG}`) as never

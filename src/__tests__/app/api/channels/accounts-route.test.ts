@@ -24,6 +24,11 @@ vi.mock('@/lib/supabase/server', () => ({
   })),
 }))
 
+// スマホの Bearer（authz が createRouteAuth と2段階認証の確認を通る）
+const routeAuthMock = vi.fn()
+vi.mock('@/lib/supabase/routeAuth', () => ({ createRouteAuth: (req: unknown) => routeAuthMock(req) }))
+vi.mock('@/lib/auth/apiMfaGuard', () => ({ mfaGuardResponse: vi.fn(async () => null) }))
+
 const storeMock = {
   findChannelAccountMetaForOrg: vi.fn(),
   findChannelAccountMetaForOrgChannel: vi.fn(),
@@ -85,6 +90,36 @@ describe('GET /api/channels/accounts', () => {
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
     storeMock.findChannelAccountMetaForOrg.mockResolvedValue(accountMeta)
     storeMock.orgUsesSharedBot.mockResolvedValue(false)
+  })
+
+  it('スマホの Bearer でも一覧を取得できる（Cookie のログインは使わない）', async () => {
+    routeAuthMock.mockResolvedValue({
+      supabase: { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ single: membershipSingleMock }) }) }) }) },
+      user: { id: 'staff-1' },
+      accessToken: 'jwt-abc',
+      via: 'bearer',
+    })
+    const response = await GET(
+      new NextRequest(`http://localhost:3000/api/channels/accounts?orgId=${ORG_A}`, {
+        headers: { authorization: 'Bearer jwt-abc' },
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(getUserMock).not.toHaveBeenCalled()
+  })
+
+  it('PATCH は Bearer を受け付けない（管理操作は Web のまま）', async () => {
+    storeMock.findChannelAccountOrgId.mockResolvedValue(ORG_A)
+    getUserMock.mockResolvedValue({ data: { user: null }, error: { message: 'x' } })
+    const response = await PATCH(
+      new NextRequest('http://localhost:3000/api/channels/accounts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', authorization: 'Bearer jwt-abc' },
+        body: JSON.stringify({ accountId: ACCOUNT_ID, status: 'disabled' }),
+      }),
+    )
+    expect(response.status).toBe(401)
+    expect(routeAuthMock).not.toHaveBeenCalled()
   })
 
   it('orgId欠落は400', async () => {

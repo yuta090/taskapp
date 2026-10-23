@@ -13,6 +13,10 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Label>マイタスク</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="checklist" md="checklist" />
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="projects">
+        <NativeTabs.Trigger.Label>プロジェクト</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="folder" md="folder" />
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="inbox">
         <NativeTabs.Trigger.Label>受信トレイ</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="tray" md="inbox" />

@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'orgId is required' }, { status: 400 })
   }
 
-  const auth = await requireInternalMember(orgId)
+  const auth = await requireInternalMember(orgId, request)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

@@ -26,11 +26,15 @@ iPhone / Android 用のアプリ（Expo・React Native）は `apps/mobile/` に�
 マイタスクの並べ方・通知の文面・RPC の呼び方などは Web の `src/lib` を `@/…` でそのまま共有する。
 ルールは **`apps/mobile/CLAUDE.md`**。Web 側で気をつけること:
 
+- **アプリは押したらすぐ出す**（通信を待たせず、手元のデータで先に描く）。詳しくは `apps/mobile/CLAUDE.md`
 - **アプリが読んでいる表・列・RPC の引数を変えるときは、古い版のアプリが壊れないか確かめる**（ストアのアプリは古い版が残る）。
   壊れるなら、直した版をストアに出してから `src/lib/mobile/version.ts` の最低の版を上げる（古い版は更新を促す画面になる）
 - アプリから共有されている `src/lib` のファイル（`apps/mobile/src` で `@/` を grep）に、React・Next.js・ブラウザ依存を足さない
 - **アプリから呼ぶ API ルートは `createRouteAuth`（`src/lib/supabase/routeAuth.ts`）で本人確認する**（Cookie と Bearer の両方を受ける）。
-  使っているのは `/api/portal/notify-approval`・`/api/slack/notify` だけ。`src/lib/supabase/server.ts` の `createClient` は Cookie 専用のまま。
+  使っているのは `/api/portal/notify-approval`・`/api/slack/notify` と、`src/lib/channels/authz.ts` の第2引数に `request` を渡したチャネル接続のルート
+  （LINE の自分接続: `channels/user-links`・`channels/user-links/code`・`channels/line/basic-id`・`channels/accounts` の GET・`onboarding/line-status`）。
+  `authz.ts` は **`request` を渡したルートだけ** Bearer を受ける（渡さないルートは Cookie のまま。Bearer では二要素認証の確認も行う）。
+  `src/lib/supabase/server.ts` の `createClient` は Cookie 専用のまま。
   Bearer で来たら `mfaGuardResponse(supabase, user, accessToken)` と**トークンを必ず渡す**（セッションを持たないので、渡さないと2段階認証の登録者が必ず弾かれる）
 - ルートの `tsconfig.json`・ESLint は `apps/` を対象外にしている。アプリの確認は `apps/mobile` で `npm test`・`npm run typecheck`・`npm run lint`
 

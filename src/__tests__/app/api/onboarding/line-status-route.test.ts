@@ -48,6 +48,12 @@ beforeEach(() => {
 })
 
 describe('GET /api/onboarding/line-status', () => {
+  it('request を認可に渡す（スマホの Bearer を受け付けるため）', async () => {
+    const req = new NextRequest(new URL(`/api/onboarding/line-status?orgId=${ORG}`, 'http://localhost:3000'))
+    await GET(req)
+    expect(requireInternalMemberMock).toHaveBeenCalledWith(ORG, req)
+  })
+
   it('dmUnreachable:false（未マーク）をレスポンスに含める', async () => {
     const res = await callGet()
     expect(res.status).toBe(200)

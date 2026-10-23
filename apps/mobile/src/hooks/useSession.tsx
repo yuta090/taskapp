@@ -10,6 +10,7 @@ import { unregisterLeftoverPushToken, unregisterStoredPushToken } from '~/api/pu
 import { supabase } from '~/api/supabase'
 import { assuranceFromSession, resolveAuthStep, type AuthStep } from '~/lib/authStep'
 import { clearCachedData } from './queryClient'
+import { clearLastProjects, markProjectRestoreDone, resetProjectRestore } from './useLastProject'
 
 const ACTIVE_ORG_KEY = 'agentpm-active-org'
 
@@ -35,6 +36,8 @@ const SessionContext = createContext<SessionState | null>(null)
 async function clearLocalUserData(): Promise<void> {
   await clearCachedData()
   await AsyncStorage.removeItem(ACTIVE_ORG_KEY).catch(() => {})
+  await clearLastProjects()
+  resetProjectRestore()
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -96,6 +99,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     orgs.find((o) => o.orgId === chosenOrgId) ?? orgs.find((o) => o.orgId === savedOrgId) ?? orgs[0] ?? null
 
   const setActiveOrg = useCallback((orgId: string) => {
+    // 切り替え先のプロジェクトを、あとで勝手に開かない（どの画面から切り替えても）
+    markProjectRestoreDone()
     setChosenOrgId(orgId)
     AsyncStorage.setItem(ACTIVE_ORG_KEY, orgId).catch(() => {})
   }, [])

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, type MouseEvent as ReactMouseEvent } from 'react'
 import NextLink from 'next/link'
 import { X, Plus, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye, BookOpen, PushPin } from '@phosphor-icons/react'
 import { TaskReminderField } from './TaskReminderField'
@@ -89,6 +89,11 @@ interface TaskInspectorProps {
    */
   onOpenTask?: (taskId: string) => void
   /**
+   * Wiki へのリンク（「Wikiページを開く」「このマイルストーンの Wiki」）を普通にクリックしたときに呼ぶ。
+   * 今の画面のまま Wiki を重ねて開くのに使う。渡さなければリンクとして Wiki 画面へ移る
+   */
+  onOpenWikiPage?: (pageId: string) => void
+  /**
    * 代理店モードの価格の枠（TaskPricingPanel）を出してよいか。
    * DB側の書き込み判定（guard_task_pricing_write/delete, 20260308_003）と同じ規則:
    * その space の space_memberships の行がはっきり admin/editor の人だけ
@@ -130,10 +135,17 @@ export function TaskInspector({
   onCreateChild,
   openReviewRequest = false,
   onOpenTask,
+  onOpenWikiPage,
   canEditPricing = false,
   unreadCommentCount = 0,
 }: TaskInspectorProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
+  // Wiki へのリンクの onClick。普通のクリックだけその場で開き、Cmd/Ctrl/Shift/Alt 付きはブラウザに任せる（子タスクのリンクと同じ）
+  const openWikiInPlace = (pageId: string) => (e: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (!onOpenWikiPage || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    e.preventDefault()
+    onOpenWikiPage(pageId)
+  }
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(task.title)
   const [isEditingDescription, setIsEditingDescription] = useState(false)
@@ -953,6 +965,7 @@ export function TaskInspector({
               {task.wiki_page_id && (
                 <a
                   href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                  onClick={openWikiInPlace(task.wiki_page_id)}
                   className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
                 >
                   <LinkIcon className="text-blue-400" />
@@ -978,6 +991,7 @@ export function TaskInspector({
               {task.wiki_page_id ? (
                 <a
                   href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                  onClick={openWikiInPlace(task.wiki_page_id)}
                   className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
                 >
                   <LinkIcon className="text-blue-400" />
@@ -1805,6 +1819,7 @@ export function TaskInspector({
                     <NextLink
                       key={page.id}
                       href={`/${task.org_id}/project/${task.space_id}/wiki?page=${page.id}`}
+                      onClick={openWikiInPlace(page.id)}
                       prefetch={false}
                       className="flex items-center gap-1.5 text-sm text-gray-700 hover:underline min-w-0"
                     >

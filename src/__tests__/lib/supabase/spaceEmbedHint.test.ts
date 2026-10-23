@@ -30,7 +30,8 @@ const SPACE_SCOPED_TABLES = new Set([
 ])
 
 const ROOT = path.resolve(__dirname, '../../../..')
-const SCAN_DIRS = ['src', 'packages/mcp-server/src', 'worker', 'supabase/functions']
+// apps/mobile/src: スマホアプリも同じ本番DBを直接読む（2026-10-01: タスク詳細が PGRST201 で開けなかった）
+const SCAN_DIRS = ['src', 'packages/mcp-server/src', 'worker', 'supabase/functions', 'apps/mobile/src']
   .map((d) => path.join(ROOT, d))
   .filter((d) => fs.existsSync(d))
 
