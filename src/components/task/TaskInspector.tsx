@@ -24,6 +24,7 @@ import { TaskReviewSection } from '@/components/review'
 import { TaskPricingPanel } from './TaskPricingPanel'
 import { WikiPageLinkPicker } from './WikiPageLinkPicker'
 import { isPageInMilestone, pickMilestoneWikiPages } from '@/lib/wiki/listView'
+import { preloadWikiOverlay } from '@/components/wiki/preloadWikiEditor'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope, WikiPage } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -265,6 +266,21 @@ export function TaskInspector({
     // pickMilestoneWikiPages と同じ判定を使う（条件を二重に書くと件数だけずれる）
     return wikiPages.filter((p) => isPageInMilestone(p, milestoneId, wikiMilestoneLinks)).length
   }, [wikiPages, task.milestone_id, wikiMilestoneLinks])
+
+  // Wiki へのリンクがあり、その場で重ねて開ける画面なら、手が空いてから重ねる部品（コード）だけ先に読む。
+  // 本文は押すまで取らないので、Wiki がいくつあってもサーバーへの通信は増えない
+  // 渡し元が描画のたびに関数を作り直しても予約し直さないよう、有無だけを見る
+  const canOpenWikiInPlace = !!onOpenWikiPage
+  const hasWikiLink = !!task.wiki_page_id || milestoneWikiPages.length > 0
+  useEffect(() => {
+    if (!canOpenWikiInPlace || !hasWikiLink) return
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(() => preloadWikiOverlay(), { timeout: 2000 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const id = window.setTimeout(preloadWikiOverlay, 200)
+    return () => window.clearTimeout(id)
+  }, [canOpenWikiInPlace, hasWikiLink])
 
   // Space members with display names
   const { members, clientMembers, internalMembers, getMemberName, loading: membersLoading } = useSpaceMembers(spaceId)

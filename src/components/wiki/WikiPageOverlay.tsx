@@ -12,6 +12,7 @@ import { buildWikiPageHref } from '@/lib/navigation/appLinks'
 import { shouldCloseOverlayOnEscape } from '@/components/wiki/overlayEscape'
 import { SAVING } from '@/lib/design/tokens'
 import { useWikiBodySave, WIKI_CONFLICT_MESSAGE, WIKI_PAGE_DELETED_MESSAGE } from '@/lib/wiki/useWikiBodySave'
+import { preloadWikiEditor } from '@/components/wiki/preloadWikiEditor'
 
 interface WikiPageOverlayProps {
   orgId: string
@@ -78,6 +79,11 @@ export function WikiPageOverlay({ orgId, spaceId, pageId, canEdit = false, onClo
     setBaselinePage({ id: freshPage.id, body: freshPage.body, updated_at: freshPage.updated_at })
   }, [freshPage, baselinePage, setBaseline])
   const ready = baselinePage?.id === pageId
+
+  // エディタの部品は、本文の読み直しを待たずに今から読み込む（待ってからだと初回が順番待ちになる）
+  useEffect(() => {
+    preloadWikiEditor()
+  }, [])
 
   // 閉じられた（別のページへ切り替わった・議事録を離れた）ら、書きかけを保存しきる（leavePage は変わらない）
   useEffect(() => () => leavePage(), [leavePage])
