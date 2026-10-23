@@ -87,6 +87,14 @@ vi.mock('@/components/task/TaskInspector', () => ({
   TaskInspector: () => null,
 }))
 
+vi.mock('@/components/wiki/WikiPageOverlay', () => ({
+  WikiPageOverlay: ({ pageId, spaceId, onClose }: { pageId: string; spaceId: string; onClose: () => void }) => (
+    <div data-testid="wiki-overlay" data-page-id={pageId} data-space-id={spaceId}>
+      <button type="button" onClick={onClose}>Wikiを閉じる</button>
+    </div>
+  ),
+}))
+
 vi.mock('@/components/layout', () => ({
   useInspector: () => ({ inspector: null, setInspector: mocks.setInspector }),
 }))
@@ -811,6 +819,30 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
 
     await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
     expect(new URLSearchParams(window.location.search).get('task')).toBe('t1')
+  })
+
+  it('詳細の Wiki へのリンクは、画面を移らずに重ねて開き、×で閉じると詳細に戻る', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+
+    act(() => lastInspectorNode().props.onOpenWikiPage('w1'))
+
+    const overlay = await screen.findByTestId('wiki-overlay')
+    expect(overlay).toHaveAttribute('data-page-id', 'w1')
+    expect(overlay).toHaveAttribute('data-space-id', 'space-1')
+    expect(new URLSearchParams(window.location.search).get('wiki')).toBe('w1')
+    expect(window.location.pathname).toBe('/my')
+    expect(mocks.push).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Wikiを閉じる'))
+
+    await waitFor(() => expect(screen.queryByTestId('wiki-overlay')).toBeNull())
+    expect(new URLSearchParams(window.location.search).get('wiki')).toBeNull()
+    expect(lastInspectorNode()?.props.task.id).toBe('t1')
   })
 
   it('マイタスクから別の画面へ「戻る」とき（合図が届いた時点で URL がもう /my ではない）は、行き先の task= を拾わない', async () => {

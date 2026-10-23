@@ -249,3 +249,77 @@ describe('TaskInspector — このマイルストーンの Wiki', () => {
     expect(screen.getByText((_, el) => el?.textContent === '他 1 件を Wiki で見る')).toBeInTheDocument()
   })
 })
+
+// マイタスクの詳細から Wiki を開いたとき、画面を移らずに重ねて開く（onOpenWikiPage を渡した画面だけ）
+describe('TaskInspector — Wiki をその場で開く（onOpenWikiPage）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockPages.current = []
+    mockLinksByPageId.current = new Map()
+  })
+
+  it('「Wikiページを開く」を押すと onOpenWikiPage にページを渡し、画面は移らない', () => {
+    mockPages.current = [makeWikiPage({ id: 'w9', title: '仕様ページ' })]
+    const onOpenWikiPage = vi.fn()
+    renderInspector({
+      task: makeTask({ wiki_page_id: 'w9' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+      onOpenWikiPage,
+    })
+
+    const link = screen.getByText('Wikiページを開く').closest('a')!
+    const notPrevented = fireEvent.click(link)
+
+    expect(onOpenWikiPage).toHaveBeenCalledWith('w9')
+    expect(notPrevented).toBe(false)
+  })
+
+  it('読むだけの詳細（onUpdate なし）でも「Wikiページを開く」はその場で開く', () => {
+    const onOpenWikiPage = vi.fn()
+    renderInspector({
+      task: makeTask({ wiki_page_id: 'w9' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onOpenWikiPage,
+    })
+
+    fireEvent.click(screen.getByText('Wikiページを開く'))
+
+    expect(onOpenWikiPage).toHaveBeenCalledWith('w9')
+  })
+
+  it('「このマイルストーンの Wiki」のページを押すと onOpenWikiPage にページを渡す', () => {
+    mockPages.current = [makeWikiPage({ id: 'w1', title: 'ページA', milestone_id: 'm1' })]
+    const onOpenWikiPage = vi.fn()
+    renderInspector({
+      task: makeTask({ milestone_id: 'm1' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+      onOpenWikiPage,
+    })
+    fireEvent.click(screen.getByText('詳細設定'))
+
+    const notPrevented = fireEvent.click(screen.getByText('ページA'))
+
+    expect(onOpenWikiPage).toHaveBeenCalledWith('w1')
+    expect(notPrevented).toBe(false)
+  })
+
+  it('Cmd を押しながらなら新しいタブに任せる（onOpenWikiPage を呼ばない）', () => {
+    const onOpenWikiPage = vi.fn()
+    renderInspector({
+      task: makeTask({ wiki_page_id: 'w9' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+      onOpenWikiPage,
+    })
+
+    fireEvent.click(screen.getByText('Wikiページを開く'), { metaKey: true })
+
+    expect(onOpenWikiPage).not.toHaveBeenCalled()
+  })
+})
