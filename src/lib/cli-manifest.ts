@@ -169,6 +169,28 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         ],
       },
       {
+        name: 'comment',
+        description: 'Add a comment to a task (shows in the comment section of the task detail)',
+        tool: 'task_comment_add',
+        examples: ['agentpm task comment --task-id <uuid> --body "期限を過ぎています。状況を教えてください"'],
+        options: [
+          spaceOpt,
+          { flags: '--task-id <uuid>', description: 'Task UUID', param: 'taskId', required: true },
+          { flags: '--body <text>', description: 'Comment text', param: 'body', required: true },
+          { flags: '--visibility <scope>', description: 'internal=社内だけ / client=相手先にも見える', param: 'visibility', choices: ['client', 'internal'], default: 'internal' },
+        ],
+      },
+      {
+        name: 'comments',
+        description: 'List comments on a task (oldest first, with author name)',
+        tool: 'task_comment_list',
+        options: [
+          spaceOpt,
+          { flags: '--task-id <uuid>', description: 'Task UUID', param: 'taskId', required: true },
+          { flags: '--limit <n>', description: 'Max results', param: 'limit', type: 'int', default: '50' },
+        ],
+      },
+      {
         name: 'delete',
         description: 'Delete a task (dry-run by default)',
         tool: 'task_delete',
@@ -1131,9 +1153,9 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.11.0',
+      version: '1.12.0',
       minCliVersion: '0.2.0',
-      generatedAt: '2026-09-10T14:00:00Z', // Fixed per version (not per-request)
+      generatedAt: '2026-10-27T00:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
       commands: MANIFEST_COMMANDS,
       notices: MANIFEST_NOTICES,
