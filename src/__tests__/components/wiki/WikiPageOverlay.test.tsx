@@ -38,6 +38,9 @@ vi.mock('@/components/wiki/WikiEditorDynamic', () => ({
   },
 }))
 
+const preloadWikiEditor = vi.fn()
+vi.mock('@/components/wiki/preloadWikiEditor', () => ({ preloadWikiEditor: () => preloadWikiEditor() }))
+
 import { WikiPageOverlay } from '@/components/wiki/WikiPageOverlay'
 import { WikiConflictError } from '@/lib/hooks/useWikiPages'
 
@@ -113,6 +116,16 @@ describe('WikiPageOverlay — 読む', () => {
     renderOverlay()
     expect(screen.queryByTestId('wiki-editor')).toBeNull()
     expect(screen.getByText('読み込み中…')).toBeTruthy()
+  })
+})
+
+describe('WikiPageOverlay — 初めて開いたときの速さ', () => {
+  it('本文の読み直しを待たずに、開いた時点でエディタの部品を読み込み始める（順番待ちにしない）', () => {
+    detailMock.mockReturnValue({ page: PAGE, loading: false, fetching: true, error: null })
+    renderOverlay()
+
+    expect(screen.queryByTestId('wiki-editor')).toBeNull()
+    expect(preloadWikiEditor).toHaveBeenCalledTimes(1)
   })
 })
 

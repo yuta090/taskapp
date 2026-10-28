@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TaskInspector } from '@/components/task/TaskInspector'
 import type { ComponentProps } from 'react'
@@ -21,6 +21,9 @@ function renderInspector(props: ComponentProps<typeof TaskInspector>) {
 const mockPages = vi.hoisted(() => ({ current: [] as WikiPage[] }))
 // PR4: タスク参照由来の所属（page.id → milestoneId[]）。既定は空＝従来どおり milestone_id だけで一致判定。
 const mockLinksByPageId = vi.hoisted(() => ({ current: new Map<string, string[]>() }))
+
+const preloadWikiOverlay = vi.hoisted(() => vi.fn())
+vi.mock('@/components/wiki/preloadWikiEditor', () => ({ preloadWikiOverlay }))
 
 vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
   useWikiMilestoneLinks: () => ({ linksByPageId: mockLinksByPageId.current, loading: false }),
@@ -321,5 +324,51 @@ describe('TaskInspector — Wiki をその場で開く（onOpenWikiPage）', () 
     fireEvent.click(screen.getByText('Wikiページを開く'), { metaKey: true })
 
     expect(onOpenWikiPage).not.toHaveBeenCalled()
+  })
+})
+
+// 初めて Wiki を重ねて開くときの待ちを減らす。部品（コード）だけを先に読み、本文は押すまで取らない
+describe('TaskInspector — Wiki を重ねて開く部品の先読み', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockPages.current = []
+    mockLinksByPageId.current = new Map()
+  })
+
+  it('Wiki へのリンクがあり、その場で開ける画面なら、部品を先に読み込む', async () => {
+    renderInspector({
+      task: makeTask({ wiki_page_id: 'w9' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onOpenWikiPage: vi.fn(),
+    })
+
+    await waitFor(() => expect(preloadWikiOverlay).toHaveBeenCalled())
+  })
+
+  it('このマイルストーンの Wiki だけがあるときも先に読み込む', async () => {
+    mockPages.current = [makeWikiPage({ id: 'w1', title: 'ページA', milestone_id: 'm1' })]
+    renderInspector({
+      task: makeTask({ milestone_id: 'm1' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onOpenWikiPage: vi.fn(),
+    })
+
+    await waitFor(() => expect(preloadWikiOverlay).toHaveBeenCalled())
+  })
+
+  it('Wiki へのリンクが無いタスクでは読み込まない', async () => {
+    renderInspector({ task: makeTask(), spaceId: 's1', onClose: vi.fn(), onOpenWikiPage: vi.fn() })
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(preloadWikiOverlay).not.toHaveBeenCalled()
+  })
+
+  it('その場で開かない画面（onOpenWikiPage なし）では読み込まない', async () => {
+    renderInspector({ task: makeTask({ wiki_page_id: 'w9' }), spaceId: 's1', onClose: vi.fn() })
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(preloadWikiOverlay).not.toHaveBeenCalled()
   })
 })
