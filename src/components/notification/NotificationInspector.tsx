@@ -29,6 +29,7 @@ import { rpc } from '@/lib/supabase/rpc'
 import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
+import { notificationOpenLink } from '@/lib/notifications/openLink'
 import { getNotificationTypeLabel } from '@/lib/notifications/labels'
 import {
   COMPLETE_FAILURE_NO_ROWS,
@@ -143,6 +144,8 @@ export function NotificationInspector({
   const isUrgent = payload.urgent === true
   const taskId = payload.task_id
   const safeLink = isSafeInternalPath(payload.link) ? payload.link : null
+  // 「詳細を見る」の行き先。link の無い通知（承認依頼・コメントなど）はタスク・会議から組み立てる
+  const openLink = notificationOpenLink(notification)
   const isActionable = isActionableNotification(notification.type)
 
   // Task state
@@ -1014,9 +1017,9 @@ export function NotificationInspector({
         )}
 
         {/* Secondary: Link to detail page (outline style) */}
-        {safeLink && (
+        {openLink && (
           <Link
-            href={safeLink}
+            href={openLink}
             className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-md transition-colors"
           >
             <span>詳細を見る</span>

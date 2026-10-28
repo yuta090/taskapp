@@ -134,4 +134,22 @@ describe('NotificationInspector — payload.link は自アプリ内のパスの�
 
     expect(screen.queryByRole('link', { name: /詳細を見る/ })).not.toBeInTheDocument()
   })
+
+  it('フッターの「詳細を見る」: link の無いコメント通知でも、タスクを開くリンクを出す', () => {
+    renderWithQuery(
+      <NotificationInspector
+        notification={makeNotification({
+          type: 'comment_added',
+          payload: { task_id: 'task-1', task_title: 'デザイン確認', message: '確認お願いします' },
+        })}
+        onClose={noop}
+        onMarkAsRead={noop}
+        onNavigate={noop}
+        hasPrev={false}
+        hasNext={false}
+      />
+    )
+
+    expect(screen.getByRole('link', { name: /詳細を見る/ })).toHaveAttribute('href', '/org-1/project/space-1?task=task-1')
+  })
 })
