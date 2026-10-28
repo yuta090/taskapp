@@ -1,5 +1,6 @@
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { taskTools } from './tasks.js';
+import { taskCommentTools } from './taskComments.js';
 import { taskImportTools } from './taskImport.js';
 import { ballTools } from './ball.js';
 import { meetingTools } from './meetings.js';
@@ -16,7 +17,7 @@ import { minutesTools } from './minutes.js';
 import { schedulingTools } from './scheduling.js';
 import { fileTools } from './files.js';
 import { voteTools } from './votes.js';
-export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools, ...voteTools];
+export const allTools = [...taskTools, ...taskCommentTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools, ...voteTools];
 /**
  * tools/list の中身を作る。zod スキーマを JSON Schema に直す唯一の場所。
  *

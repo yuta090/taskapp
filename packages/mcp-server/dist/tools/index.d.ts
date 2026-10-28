@@ -222,6 +222,43 @@ export declare const allTools: ({
     description: string;
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
+        taskId: import("zod").ZodString;
+        body: import("zod").ZodString;
+        visibility: import("zod").ZodDefault<import("zod").ZodEnum<["client", "internal"]>>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        taskId: string;
+        body: string;
+        visibility: "client" | "internal";
+    }, {
+        spaceId: string;
+        taskId: string;
+        body: string;
+        visibility?: "client" | "internal" | undefined;
+    }>;
+    handler: typeof import("./taskComments.js").taskCommentAdd;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        taskId: import("zod").ZodString;
+        limit: import("zod").ZodDefault<import("zod").ZodNumber>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        taskId: string;
+        limit: number;
+    }, {
+        spaceId: string;
+        taskId: string;
+        limit?: number | undefined;
+    }>;
+    handler: typeof import("./taskComments.js").taskCommentList;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
         csv: import("zod").ZodString;
         dryRun: import("zod").ZodDefault<import("zod").ZodBoolean>;
     }, "strip", import("zod").ZodTypeAny, {
