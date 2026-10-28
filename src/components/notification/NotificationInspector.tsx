@@ -30,6 +30,7 @@ import { invalidateSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { notificationOpenLink } from '@/lib/notifications/openLink'
+import { InboxCommentThread } from './InboxCommentThread'
 import { getNotificationTypeLabel } from '@/lib/notifications/labels'
 import {
   COMPLETE_FAILURE_NO_ROWS,
@@ -946,6 +947,21 @@ export function NotificationInspector({
 
         {/* Type-specific action panel */}
         {renderActionPanel()}
+
+        {/* コメント・メンション: タスクのコメント欄をそのまま出し、ここで読んで返信できるようにする */}
+        {(notification.type === 'comment_added' || notification.type === 'mention') && taskId && (
+          <div className="mb-4" data-testid="inbox-comment-reply">
+            <p className="text-xs text-gray-500 mb-2 font-medium">コメント（ここから返信できます）</p>
+            {/* 通知ごとに作り直す。j/k で切り替えたとき、書きかけの返信と公開範囲を次の通知へ持ち越さない */}
+            <InboxCommentThread
+              key={notification.id}
+              orgId={notification.org_id}
+              spaceId={notification.space_id}
+              taskId={taskId}
+              replyToCommentId={payload.comment_id}
+            />
+          </div>
+        )}
 
         {/* Meeting ended summary (AT-003, AT-004) */}
         {notification.type === 'meeting_ended' && payload.summary_body && (
