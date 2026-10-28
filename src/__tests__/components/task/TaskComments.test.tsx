@@ -5,10 +5,11 @@ import { TaskComments } from '@/components/task/TaskComments'
 import type { SpaceMember } from '@/lib/hooks/useSpaceMembers'
 
 const mockCreateComment = vi.fn().mockResolvedValue(undefined)
+let mockComments: Array<Record<string, unknown>> = []
 
 vi.mock('@/lib/hooks/useTaskComments', () => ({
   useTaskComments: () => ({
-    comments: [],
+    comments: mockComments,
     loading: false,
     error: null,
     fetchComments: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('@/lib/hooks/useSpaceMembers', async () => {
 })
 
 beforeEach(() => {
+  mockComments = []
   mockCreateComment.mockClear()
   mockMarkRead.mockClear()
 })
@@ -85,6 +87,38 @@ describe('TaskComments — コメント可視性の初期値 (A2)', () => {
 
     expect(internalButton.className).toContain('bg-gray-200')
     expect(clientButton.className).not.toContain('bg-amber-100')
+  })
+})
+
+/**
+ * 受信トレイから返信するときは、公開範囲を元のコメントに合わせて始める。
+ * 相手先の質問に「社内のみ」で返して相手に届かない／社内だけの話に「外部に公開」で返して漏れる、を防ぐ。
+ */
+describe('TaskComments — 返信の公開範囲は元のコメントに合わせる', () => {
+  function makeComment(id: string, visibility: string) {
+    return { id, org_id: 'o1', space_id: 's1', task_id: 't1', actor_id: 'client-1', body: '質問です', visibility, created_at: '2026-10-28T00:00:00Z', mention_user_ids: [] }
+  }
+
+  it('元のコメントが外部に公開なら「外部に公開」で始まる', () => {
+    mockComments = [makeComment('c1', 'client')]
+    render(<TaskComments orgId="o1" spaceId="s1" taskId="t1" currentUserId="u1" canSetVisibility replyToCommentId="c1" />)
+
+    expect(screen.getByRole('button', { name: /外部に公開/ }).className).toContain('bg-amber-100')
+  })
+
+  it('元のコメントが社内のみなら「社内のみ」のまま', () => {
+    mockComments = [makeComment('c1', 'internal')]
+    render(<TaskComments orgId="o1" spaceId="s1" taskId="t1" currentUserId="u1" canSetVisibility replyToCommentId="c1" />)
+
+    expect(screen.getByRole('button', { name: /社内のみ/ }).className).toContain('bg-gray-200')
+  })
+
+  it('自分で切り替えたら、元のコメントより自分の選択を優先する', () => {
+    mockComments = [makeComment('c1', 'client')]
+    render(<TaskComments orgId="o1" spaceId="s1" taskId="t1" currentUserId="u1" canSetVisibility replyToCommentId="c1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: /社内のみ/ }))
+    expect(screen.getByRole('button', { name: /社内のみ/ }).className).toContain('bg-gray-200')
   })
 })
 

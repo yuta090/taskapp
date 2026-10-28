@@ -17,6 +17,11 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
+// コメント通知はコメント欄（中で利用者・メンバーを読む）も出す。ここで見るのはリンクだけなので差し替える
+vi.mock('@/components/notification/InboxCommentThread', () => ({
+  InboxCommentThread: () => null,
+}))
+
 function makeNotification(overrides: Partial<NotificationWithPayload> = {}): NotificationWithPayload {
   return {
     id: 'n1',

@@ -34,6 +34,8 @@ interface TaskCommentsProps {
   clientOnly?: boolean
   /** If true, user is internal member and can set visibility */
   canSetVisibility?: boolean
+  /** 受信トレイから返信するときの元のコメント。公開範囲をこのコメントに合わせて始める */
+  replyToCommentId?: string
 }
 
 interface CommentItemProps {
@@ -228,6 +230,7 @@ export function TaskComments({
   currentUserId,
   clientOnly = false,
   canSetVisibility = false,
+  replyToCommentId,
 }: TaskCommentsProps) {
   const {
     comments,
@@ -250,7 +253,14 @@ export function TaskComments({
   const { members } = useSpaceMembers(spaceId)
 
   const [newComment, setNewComment] = useState('')
-  const [visibility, setVisibility] = useState<CommentVisibility>('internal')
+  // 自分で選ぶまでは、返信先のコメントの公開範囲（無ければ「社内のみ」）。相手先の質問への返信が社内に閉じたり、
+  // 社内だけの話への返信が相手先に出たりしないように
+  const [visibilityChoice, setVisibility] = useState<CommentVisibility | null>(null)
+  const replyToVisibility = useMemo(() => {
+    const original = replyToCommentId ? comments.find((c) => c.id === replyToCommentId) : undefined
+    return original?.visibility === 'client' || original?.visibility === 'internal' ? original.visibility : null
+  }, [comments, replyToCommentId])
+  const visibility: CommentVisibility = visibilityChoice ?? replyToVisibility ?? 'internal'
   const [isSending, setIsSending] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const commentsEndRef = useRef<HTMLDivElement>(null)
