@@ -25,7 +25,7 @@ import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useN
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
 import { INBOX_UNREAD_LIMIT } from '@/lib/notifications/inboxLimits'
 import { isActionableNotification } from '@/lib/notifications/classify'
-import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
+import { notificationOpenLink } from '@/lib/notifications/openLink'
 import { useInspector } from '@/components/layout'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
@@ -462,8 +462,8 @@ export default function InboxClient() {
           break
         case 'Enter': {
           e.preventDefault()
-          const link = selectedNotification?.payload.link
-          if (isSafeInternalPath(link)) {
+          const link = selectedNotification ? notificationOpenLink(selectedNotification) : null
+          if (link) {
             window.location.href = link
           }
           break
