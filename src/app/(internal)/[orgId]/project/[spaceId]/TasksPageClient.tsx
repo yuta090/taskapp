@@ -49,6 +49,7 @@ import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import { buildChildTaskInput, type ChildTaskDraft } from '@/lib/tasks/childTask'
 import { suggestReviewRequestOnDone, useReviewRequestTarget } from '@/lib/tasks/reviewRequestNudge'
+import { matchesTaskSearch } from '@/lib/tasks/taskSearch'
 import { applyQuickFilter, DEFAULT_QUICK_FILTER, parseQuickFilter, type QuickFilterKey } from '@/lib/tasks/quickFilters'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
@@ -416,12 +417,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
     // Then apply search query
     if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase()
-      result = result.filter(
-        (task) =>
-          task.title.toLowerCase().includes(q) ||
-          (task.description && task.description.toLowerCase().includes(q))
-      )
+      result = result.filter((task) => matchesTaskSearch(task, searchQuery))
     }
 
     return result
