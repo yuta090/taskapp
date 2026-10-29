@@ -1,6 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { taskTools } from './tasks.js'
+import { taskCommentTools } from './taskComments.js'
 import { taskImportTools } from './taskImport.js'
 import { ballTools } from './ball.js'
 import { meetingTools } from './meetings.js'
@@ -18,7 +19,7 @@ import { schedulingTools } from './scheduling.js'
 import { fileTools } from './files.js'
 import { voteTools } from './votes.js'
 
-export const allTools = [...taskTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools, ...voteTools]
+export const allTools = [...taskTools, ...taskCommentTools, ...decisionTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...minutesTaskifyTools, ...minutesCompleteTools, ...schedulingTools, ...fileTools, ...voteTools]
 
 /** MCP の tools/list が返す1件分の形 */
 export interface ToolListEntry {
