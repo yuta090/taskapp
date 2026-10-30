@@ -19,6 +19,7 @@ import { VideoProviderSettings } from './VideoProviderSettings'
 import { ApiSettings } from './ApiSettings'
 import { ExportSettings } from './ExportSettings'
 import { DangerSettings } from './DangerSettings'
+import { SpaceStorageUsage } from '@/components/storage/SpaceStorageUsage'
 import { SetupBanner } from './SetupBanner'
 import type { SettingSectionId, ConnectionStatus } from './types'
 import { getSettingsCategories } from './settingsNav'
@@ -81,6 +82,7 @@ function useIntegrationStatuses(
       'video-conference': 'none',
       api: 'none',
       export: 'none',
+      storage: 'none',
       danger: 'none',
     }
 
@@ -136,6 +138,8 @@ function SettingsSection({
       return <ApiSettings orgId={orgId} spaceId={spaceId} />
     case 'export':
       return <ExportSettings spaceId={spaceId} />
+    case 'storage':
+      return <SpaceStorageUsage orgId={orgId} spaceId={spaceId} />
     case 'danger':
       return <DangerSettings spaceId={spaceId} />
   }

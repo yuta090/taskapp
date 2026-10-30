@@ -22,6 +22,8 @@ let signedUploadUrlResponse: { data: { signedUrl: string; token: string; path: s
 
 let fileInsertCall: Record<string, unknown> | undefined
 let createSignedUploadUrlCall: string | undefined
+let limitsRpcResponse: { data: unknown; error: { message: string } | null }
+const mockAdminRpc = vi.fn((_name: string, _args: unknown) => Promise.resolve(limitsRpcResponse))
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function chain(response: any) {
@@ -61,6 +63,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({
+    rpc: (name: string, args: unknown) => mockAdminRpc(name, args),
     storage: {
       from: vi.fn(() => ({
         createSignedUploadUrl: vi.fn((path: string) => {
@@ -103,6 +106,10 @@ describe('POST /api/files/upload-url', () => {
     membershipResponse = { data: { role: 'editor' }, error: null }
     spaceResponse = { data: { org_id: ORG_ID }, error: null }
     fileInsertResponse = { data: { id: 'file-1' }, error: null }
+    limitsRpcResponse = {
+      data: { storage: { current_bytes: 0, limit_bytes: 100 * 1024 * 1024 } },
+      error: null,
+    }
     signedUploadUrlResponse = {
       data: { signedUrl: 'https://example.com/signed', token: 'tok-1', path: 'unused' },
       error: null,
@@ -220,5 +227,61 @@ describe('POST /api/files/upload-url', () => {
     expect(data.token).toBe('tok-1')
     expect(typeof data.path).toBe('string')
     expect(createSignedUploadUrlCall).toBe(data.path)
+  })
+
+  describe('ディスク使用量の上限', () => {
+    const MB = 1024 * 1024
+
+    it('上げると上限を超えるときは 413 で、行も署名URLも作らない', async () => {
+      limitsRpcResponse = {
+        data: { storage: { current_bytes: 99 * MB, limit_bytes: 100 * MB } },
+        error: null,
+      }
+      const response = await callPost(validBody({ sizeBytes: 2 * MB }))
+      expect(response.status).toBe(413)
+      const json = await response.json()
+      expect(json.code).toBe('storage_limit_exceeded')
+      expect(json.error).toContain('100 MB')
+      expect(mockAdminRpc).toHaveBeenCalledWith('rpc_check_org_limits', { p_org_id: ORG_ID })
+      expect(fileInsertCall).toBeUndefined()
+      expect(createSignedUploadUrlCall).toBeUndefined()
+    })
+
+    it('相手先にはプランの話を出さない', async () => {
+      membershipResponse = { data: { role: 'client' }, error: null }
+      limitsRpcResponse = {
+        data: { storage: { current_bytes: 100 * MB, limit_bytes: 100 * MB } },
+        error: null,
+      }
+      const response = await callPost(validBody())
+      expect(response.status).toBe(413)
+      const json = await response.json()
+      expect(json.error).toContain('担当者にお知らせください')
+      expect(json.error).not.toContain('プラン')
+    })
+
+    it('ちょうど上限までは上げられる', async () => {
+      limitsRpcResponse = {
+        data: { storage: { current_bytes: 98 * MB, limit_bytes: 100 * MB } },
+        error: null,
+      }
+      const response = await callPost(validBody({ sizeBytes: 2 * MB }))
+      expect(response.status).toBe(200)
+    })
+
+    it('上限なし（Enterprise）は止めない', async () => {
+      limitsRpcResponse = {
+        data: { storage: { current_bytes: 999 * 1024 * MB, limit_bytes: null } },
+        error: null,
+      }
+      const response = await callPost(validBody())
+      expect(response.status).toBe(200)
+    })
+
+    it('使用量を読めなかったときは止めない（読めないことを理由に操作を止めない）', async () => {
+      limitsRpcResponse = { data: null, error: { message: 'boom' } }
+      const response = await callPost(validBody())
+      expect(response.status).toBe(200)
+    })
   })
 })

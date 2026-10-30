@@ -25,6 +25,11 @@ vi.mock('@/components/billing', () => ({
 
 // Mock useStripeStatus
 const mockUseStripeStatus = vi.fn()
+// ディスク使用量の内訳カードは自分のテスト（components/storage）で見る
+vi.mock('@/components/storage/StorageBreakdownCard', () => ({
+  StorageBreakdownCard: () => <div data-testid="storage-breakdown" />,
+}))
+
 vi.mock('@/lib/hooks/useStripeStatus', () => ({
   useStripeStatus: () => mockUseStripeStatus(),
 }))

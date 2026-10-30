@@ -25,4 +25,11 @@ describe('プロジェクト設定のメニュー', () => {
   it('基本設定は管理者でなくても出る', () => {
     expect(findItem(getSettingsCategories({ isAdmin: false }), 'general')).toBeDefined()
   })
+
+  it('「ディスク使用量」は「データ管理」の中に、管理者でなくても出る', () => {
+    const item = findItem(getSettingsCategories({ isAdmin: false }), 'storage')
+
+    expect(item?.label).toBe('ディスク使用量')
+    expect(item?.categoryId).toBe('data')
+  })
 })

@@ -63,4 +63,16 @@ describe('UsageBar', () => {
     const progressBar = container.querySelector('[class*="bg-indigo"]')
     expect(progressBar).toBeInTheDocument()
   })
+
+  it('format を渡すと数字をその形で出す（ディスク使用量の MB 表示）', () => {
+    const mb = (n: number) => `${n / 1024 / 1024} MB`
+    render(<UsageBar label="ディスク使用量" used={5 * 1024 * 1024} limit={100 * 1024 * 1024} format={mb} />)
+    expect(screen.getByText('5 MB / 100 MB')).toBeInTheDocument()
+  })
+
+  it('format は無制限のときも使用量に効く', () => {
+    const mb = (n: number) => `${n / 1024 / 1024} MB`
+    render(<UsageBar label="ディスク使用量" used={2 * 1024 * 1024} limit={null} format={mb} />)
+    expect(screen.getByText('2 MB / 無制限')).toBeInTheDocument()
+  })
 })

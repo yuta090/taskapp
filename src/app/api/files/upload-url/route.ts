@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
 import { toStorageKeyName } from '@/lib/files/storageKey'
+import { formatFileSize } from '@/lib/files/format'
 
 const MAX_FILE_SIZE_BYTES = 52428800
 const MAX_NAME_LENGTH = 255
@@ -68,6 +69,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Space not found' }, { status: 404 })
     }
 
+    // ディスク使用量の上限（プランの storage_limit_bytes）。超えるなら新しいアップロードだけを断る。
+    // 使用量を読めなかったときは止めない（読めないことを理由に操作を止めない）。
+    // 署名URLの発行前に見るだけなので、同時に上げた分だけ少し超えることはある（許容）
+    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
+    const { data: limits, error: limitsError } = await admin.rpc('rpc_check_org_limits', {
+      p_org_id: space.org_id,
+    })
+    if (limitsError) {
+      console.error('[files/upload-url] rpc_check_org_limits failed:', limitsError.message)
+    } else {
+      const usedBytes = Number(limits?.storage?.current_bytes ?? 0)
+      const limitBytes = limits?.storage?.limit_bytes
+      if (typeof limitBytes === 'number' && usedBytes + size > limitBytes) {
+        return NextResponse.json(
+          {
+            // 相手先（client/vendor）にはプランの話を出さない
+            error:
+              membership.role === 'client' || membership.role === 'vendor'
+                ? 'ファイルの保存容量が上限に達しているため、アップロードできません。担当者にお知らせください。'
+                : `ディスク使用量が上限（${formatFileSize(limitBytes)}）を超えるため、アップロードできません。いまの使用量は ${formatFileSize(usedBytes)} です。不要なファイルを削除するか、プランをアップグレードしてください。`,
+            code: 'storage_limit_exceeded',
+          },
+          { status: 413 },
+        )
+      }
+    }
+
     // client/vendor がアップロードする場合は origin='client' かつ client_visible=true を強制
     const isClientRole = membership.role === 'client' || membership.role === 'vendor'
     const origin = isClientRole ? 'client' : 'internal'
@@ -100,7 +128,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create file record' }, { status: 500 })
     }
 
-    const admin = createAdminClient({ channel: 'app', actorUserId: user.id })
     const { data: signed, error: signedError } = await admin.storage
       .from('space-files')
       .createSignedUploadUrl(storagePath)
