@@ -13,7 +13,7 @@ interface UsageRow {
 
 /**
  * GET: ディスク使用量。
- *   - `?org_id=` だけ → 組織全体（合計・チャットの添付・プロジェクトごとの内訳）。組織のオーナーだけ。
+ *   - `?org_id=` だけ → 組織全体（合計・チャットの添付・プロジェクトごとの内訳）。組織の社内メンバー（owner/member）だけ。
  *   - `?org_id=&space_id=` → そのプロジェクトの分だけ。プロジェクトの社内メンバー（client/vendor 以外）だけ。
  * 集計は DB の org_storage_usage（service role 専用）。所属を確かめてから管理用の鍵で呼ぶ。
  */
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
         .eq('org_id', orgId)
         .eq('user_id', user.id)
         .maybeSingle()
-      if (membership?.role !== 'owner') {
+      if (membership?.role !== 'owner' && membership?.role !== 'member') {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 })
       }
     }

@@ -19,9 +19,9 @@ beforeEach(() => {
 })
 
 describe('StorageBreakdownCard（プランと請求）', () => {
-  it('オーナーでなければ何も出さず、取りにも行かない', () => {
+  it('社内メンバーでなければ何も出さず、取りにも行かない', () => {
     mockOrg.mockReturnValue({ data: undefined, isPending: true, error: null })
-    const { container } = render(<StorageBreakdownCard orgId={ORG_ID} isOwner={false} />)
+    const { container } = render(<StorageBreakdownCard orgId={ORG_ID} canView={false} />)
     expect(container).toBeEmptyDOMElement()
     expect(mockOrg).toHaveBeenCalledWith(ORG_ID, false)
   })
@@ -39,7 +39,7 @@ describe('StorageBreakdownCard（プランと請求）', () => {
       isPending: false,
       error: null,
     })
-    render(<StorageBreakdownCard orgId={ORG_ID} isOwner />)
+    render(<StorageBreakdownCard orgId={ORG_ID} canView />)
 
     expect(screen.getByText('合計 7 MB')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'A案件' })).toHaveAttribute(
@@ -56,7 +56,7 @@ describe('StorageBreakdownCard（プランと請求）', () => {
       isPending: false,
       error: null,
     })
-    render(<StorageBreakdownCard orgId={ORG_ID} isOwner />)
+    render(<StorageBreakdownCard orgId={ORG_ID} canView />)
     expect(screen.queryByText('チャットの添付ファイル')).not.toBeInTheDocument()
     expect(screen.getByText('まだファイルはありません')).toBeInTheDocument()
   })

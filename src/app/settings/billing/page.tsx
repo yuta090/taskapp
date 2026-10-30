@@ -139,8 +139,8 @@ export default function BillingSettingsPage() {
         {/* Usage Card */}
         <BillingUsageCard orgId={orgId ?? undefined} showWarnings={true} />
 
-        {/* ディスク使用量の内訳（プロジェクトごと）。owner のみ表示 */}
-        <StorageBreakdownCard orgId={orgId ?? undefined} isOwner={isOwner} />
+        {/* ディスク使用量の内訳（プロジェクトごと）。社内メンバー（owner/member）に表示 */}
+        <StorageBreakdownCard orgId={orgId ?? undefined} canView={role === 'owner' || role === 'member'} />
 
         {/* プラン別の機能一覧（②③の可否） */}
         <PlanFeatureTable orgId={orgId ?? undefined} />

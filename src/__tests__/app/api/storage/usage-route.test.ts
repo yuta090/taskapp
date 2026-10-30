@@ -7,7 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  *
  * 守るべき不変条件:
  *   - 集計の DB 関数（org_storage_usage）は、所属を確かめたあと・管理用の鍵からだけ呼ぶ。
- *   - 組織全体の内訳（プロジェクト名つき）を見られるのは組織のオーナーだけ。
+ *   - 組織全体の内訳（プロジェクト名つき）を見られるのは組織の社内メンバー（owner/member）だけ。
  *   - プロジェクト1つ分は、そのプロジェクトの社内メンバー（client/vendor 以外）だけ。
  *     返すのはそのプロジェクトの行だけ（他のプロジェクトの数字を混ぜない）。
  */
@@ -131,7 +131,13 @@ describe('GET /api/storage/usage — 組織全体', () => {
     })
   })
 
-  it.each(['member', 'client', null])('オーナー以外（%s）は403で、集計を呼ばない', async (role) => {
+  it('社内メンバー（member）にも内訳を返す', async () => {
+    vi.mocked(createClient).mockResolvedValue(makeSupabase({ user: { id: 'u1' }, orgRole: 'member' }))
+    const res = await GET(req(`org_id=${ORG_ID}`))
+    expect(res.status).toBe(200)
+  })
+
+  it.each(['client', null])('社内メンバー以外（%s）は403で、集計を呼ばない', async (role) => {
     vi.mocked(createClient).mockResolvedValue(makeSupabase({ user: { id: 'u1' }, orgRole: role }))
     const res = await GET(req(`org_id=${ORG_ID}`))
     expect(res.status).toBe(403)

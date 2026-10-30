@@ -7,14 +7,14 @@ import { formatFileSize } from '@/lib/files/format'
 
 interface StorageBreakdownCardProps {
   orgId?: string
-  /** 内訳（プロジェクト名つき）は組織のオーナーにだけ出す。API も同じ条件で絞っている */
-  isOwner: boolean
+  /** 内訳（プロジェクト名つき）は組織の社内メンバー（owner/member）にだけ出す。API も同じ条件で絞っている */
+  canView: boolean
 }
 
 /** 「プランと請求」のディスク使用量の内訳。どのプロジェクトがどれだけ使っているか。 */
-export function StorageBreakdownCard({ orgId, isOwner }: StorageBreakdownCardProps) {
-  const { data, isPending, error } = useOrgStorageUsage(orgId, isOwner)
-  if (!isOwner) return null
+export function StorageBreakdownCard({ orgId, canView }: StorageBreakdownCardProps) {
+  const { data, isPending, error } = useOrgStorageUsage(orgId, canView)
+  if (!canView) return null
 
   const maxBytes = Math.max(1, ...(data?.spaces.map((s) => s.bytes) ?? []), data?.chat_attachments_bytes ?? 0)
 
