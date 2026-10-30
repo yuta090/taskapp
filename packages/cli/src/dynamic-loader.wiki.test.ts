@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Command } from 'commander'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Manifest } from './manifest-validator.js'
 
 /**
@@ -10,6 +13,11 @@ import type { Manifest } from './manifest-validator.js'
 const mockCallTool = vi.fn().mockResolvedValue({ id: 'p-1' })
 vi.mock('./api-client.js', () => ({ callTool: (...args: unknown[]) => mockCallTool(...args) }))
 vi.mock('./output.js', () => ({ output: vi.fn(), outputError: vi.fn() }))
+const mockUploadFile = vi.fn()
+vi.mock('./upload.js', () => ({
+  uploadFile: (...args: unknown[]) => mockUploadFile(...args),
+  defaultUploadDeps: {},
+}))
 vi.mock('./config.js', () => ({ resolveSpaceId: (o: { spaceId?: string }) => o.spaceId }))
 
 const { registerDynamicCommands } = await import('./dynamic-loader.js')
@@ -78,5 +86,67 @@ describe('manifest 経由の wiki update（構造オプション）', () => {
     expect(params.pinned).toBeUndefined()
     expect(params.parentPageId).toBeUndefined()
     expect(params.milestoneId).toBeUndefined()
+  })
+})
+
+describe('manifest 経由の wiki create --file（手元の画像のアップロード）', () => {
+  const createManifest: Manifest = {
+    ...manifest,
+    commands: [
+      {
+        name: 'wiki',
+        description: 'Wiki management',
+        subcommands: [
+          {
+            name: 'create',
+            description: 'Create a wiki page',
+            tool: 'wiki_create',
+            stdinMode: true,
+            stdinFormat: 'text',
+            stdinParam: 'body',
+            uploadLocalImages: true,
+            options: [
+              { flags: '-s, --space-id <uuid>', description: 'Space UUID', param: 'spaceId', resolve: 'spaceId' },
+              { flags: '--title <title>', description: 'Title', param: 'title' },
+              { flags: '--body <body>', description: 'Body', param: 'body' },
+              { flags: '--stdin', description: 'stdin', param: 'stdin', type: 'bool' },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+  let dir: string
+
+  beforeEach(() => {
+    mockCallTool.mockClear()
+    mockUploadFile.mockReset()
+    dir = mkdtempSync(join(tmpdir(), 'agentpm-wiki-img-'))
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('本文の手元の画像を上げ、downloadPath に差し替えた本文で wiki_create を呼ぶ', async () => {
+    writeFileSync(join(dir, 'a.png'), 'x')
+    const file = join(dir, 'page.md')
+    writeFileSync(file, '# T\n\n![図](a.png)\n')
+    mockUploadFile.mockResolvedValue({ fileId: 'f-1', downloadPath: '/api/files/f-1/download' })
+
+    const program = new Command()
+    program.exitOverride()
+    program.option('--json')
+    registerDynamicCommands(program, createManifest)
+    await program.parseAsync(['wiki', 'create', '--space-id', 'space-1', '--title', 'T', '--file', file], { from: 'user' })
+
+    expect(mockUploadFile).toHaveBeenCalledTimes(1)
+    expect(mockUploadFile.mock.calls[0][0]).toMatchObject({
+      filePath: join(dir, 'a.png'),
+      spaceId: 'space-1',
+      tool: 'file_upload_url',
+      completeTool: 'file_upload_complete',
+    })
+    expect(mockCallTool).toHaveBeenCalledWith(
+      'wiki_create',
+      expect.objectContaining({ body: '# T\n\n![図](/api/files/f-1/download)\n' }),
+    )
   })
 })

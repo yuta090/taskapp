@@ -4,11 +4,13 @@
  */
 import { Option } from 'commander';
 import { readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { resolveSpaceId } from './config.js';
 import { buildParams, buildStdinParams, camelCase, extractLongFlag, wantsTextInput } from './input.js';
 import { callTool } from './api-client.js';
 import { output, outputError } from './output.js';
 import { uploadFile, defaultUploadDeps } from './upload.js';
+import { uploadLocalImages } from './localImages.js';
 import { sanitize } from './manifest-validator.js';
 import chalk from 'chalk';
 /**
@@ -125,7 +127,33 @@ function createAction(sub, program) {
                         // spaceId not required for all commands
                     }
                 }
-                const stdinParams = buildStdinParams(sub, rawText, opts, resolvedSpaceId);
+                let bodyText = rawText;
+                // 本文の手元の画像を先に上げ、URL を downloadPath に差し替える（1枚でも失敗したら Wiki は作らない）
+                if (sub.uploadLocalImages) {
+                    const baseDir = textInput.filePath ? dirname(textInput.filePath) : process.cwd();
+                    const spaceIdForUpload = resolvedSpaceId;
+                    const replaced = await uploadLocalImages(rawText, baseDir, async (absPath) => {
+                        if (!spaceIdForUpload) {
+                            throw new Error('画像のアップロードにはプロジェクト（-s, --space-id）の指定が必要です');
+                        }
+                        const uploadResult = await uploadFile({
+                            filePath: absPath,
+                            spaceId: spaceIdForUpload,
+                            tool: 'file_upload_url',
+                            completeTool: 'file_upload_complete',
+                        }, { ...defaultUploadDeps, callTool });
+                        const downloadPath = uploadResult?.downloadPath;
+                        if (typeof downloadPath !== 'string' || downloadPath === '') {
+                            throw new Error('アップロード結果に downloadPath がありません');
+                        }
+                        return downloadPath;
+                    });
+                    bodyText = replaced.text;
+                    if (replaced.uploaded.length > 0 && !jsonMode) {
+                        console.error(`画像を ${replaced.uploaded.length} 枚アップロードしました`);
+                    }
+                }
+                const stdinParams = buildStdinParams(sub, bodyText, opts, resolvedSpaceId);
                 const result = await callTool(sub.tool, stdinParams);
                 output(result, jsonMode);
                 return;
