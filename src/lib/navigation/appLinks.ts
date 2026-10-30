@@ -55,6 +55,29 @@ export function isInAppScreenHref(href: string | null | undefined): boolean {
   return href.startsWith('/') && !href.startsWith('//') && !href.startsWith('/api/')
 }
 
+/**
+ * 本文のリンクを「アプリの中の画面」への `/` 始まりの形にそろえる。画面でなければ null。
+ *
+ * CLI で書いた議事録・Wiki は `https://agentpm.app/...` のフル URL でリンクが入る。
+ * 同じサイト（origin が一致）のものは `/` 始まりに直し、差し込みメニューで入れたリンクと
+ * 同じように扱う。直さないと、その場で開けず別のタブで開いてしまう。
+ * origin は呼び出し側が渡す（このファイルにブラウザ依存を足さないため）。
+ */
+export function toInAppScreenPath(href: string | null | undefined, origin: string): string | null {
+  if (!href) return null
+  if (isInAppScreenHref(href)) return href
+  if (!/^https?:\/\//i.test(href)) return null
+  let url: URL
+  try {
+    url = new URL(href)
+  } catch {
+    return null
+  }
+  if (url.origin !== origin) return null
+  const path = `${url.pathname}${url.search}${url.hash}`
+  return isInAppScreenHref(path) ? path : null
+}
+
 /** その場（右パネル・オーバーレイ）で開ける行き先 */
 export interface InAppLinkTarget {
   kind: 'task' | 'wiki'
