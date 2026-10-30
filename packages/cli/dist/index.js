@@ -5,7 +5,7 @@ import { registerDynamicCommands } from './dynamic-loader.js';
 import { loadManifest, forceUpdate } from './manifest-cache.js';
 import { showNewNotices, shouldShowNotices, firstCommandName } from './notices.js';
 import chalk from 'chalk';
-const CLI_VERSION = '0.5.1';
+const CLI_VERSION = '0.6.0';
 const program = new Command();
 program
     .name('agentpm')

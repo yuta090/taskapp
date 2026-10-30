@@ -34,6 +34,11 @@ export interface ManifestSubcommand {
     uploadMode?: boolean;
     /** uploadMode=true のとき、完了を確定するツール名 */
     completeTool?: string;
+    /**
+     * true のとき、--file/--stdin で読んだ本文の手元の画像を file_upload_url → PUT → file_upload_complete で
+     * 上げ、URL をアップロード結果の downloadPath に差し替えてから tool を呼ぶ。旧 CLI は無視する。
+     */
+    uploadLocalImages?: boolean;
     options: ManifestOption[];
 }
 export interface ManifestCommand {

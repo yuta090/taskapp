@@ -34,6 +34,8 @@ export interface ManifestSubcommand {
   uploadMode?: boolean
   /** uploadMode=true のとき、完了を確定するツール名 */
   completeTool?: string
+  /** true のとき CLI 0.6.0+ が --file/--stdin の本文の手元の画像を上げて URL を差し替えてから tool を呼ぶ。旧 CLI は無視する */
+  uploadLocalImages?: boolean
   options: ManifestOption[]
 }
 
@@ -807,10 +809,12 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         stdinMode: true,
         stdinFormat: 'text',
         stdinParam: 'body',
+        uploadLocalImages: true,
         examples: [
           'agentpm wiki create --title "顧客ジャーニー" --file 14_customer_journey_v1.md --tags 仕様書',
           'agentpm wiki create --title "ターゲット分類" --file 04_target_segmentation_v0.html',
           'agentpm wiki create --title "メモ" --body "# 見出し"',
+          'agentpm wiki create --title "画面" --file page.md   # 本文の ![説明](./shot.png) は自動でアップロードされる（CLI 0.6.0+）',
           'agentpm wiki create --title "画面" --body "![画面写真](/api/files/<file-id>/download)"   # 画像は先に file upload で上げる',
         ],
         options: [
@@ -830,6 +834,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         stdinMode: true,
         stdinFormat: 'text',
         stdinParam: 'body',
+        uploadLocalImages: true,
         examples: ['agentpm wiki update --page-id <id> --file 14_customer_journey_v2.md'],
         options: [
           spaceOpt,

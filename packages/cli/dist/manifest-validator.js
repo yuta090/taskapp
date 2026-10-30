@@ -62,6 +62,9 @@ function validateSubcommand(sub, path) {
     if (sub.uploadMode !== undefined && typeof sub.uploadMode !== 'boolean') {
         throw new ManifestValidationError(`${path}: uploadMode must be a boolean`);
     }
+    if (sub.uploadLocalImages !== undefined && typeof sub.uploadLocalImages !== 'boolean') {
+        throw new ManifestValidationError(`${path}: uploadLocalImages must be a boolean`);
+    }
     if (sub.uploadMode && (!sub.completeTool || !TOOL_RE.test(sub.completeTool))) {
         throw new ManifestValidationError(`${path}: uploadMode requires a valid completeTool`);
     }
