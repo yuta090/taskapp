@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { FilesPageClient } from '@/app/(internal)/[orgId]/project/[spaceId]/files/FilesPageClient'
 import type { ProjectFile } from '@/lib/hooks/useFiles'
 
@@ -35,6 +35,13 @@ vi.mock('@/components/files/FileRow', () => ({
   },
 }))
 
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canManageFiles: true }),
+}))
+vi.mock('@/lib/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { id: 'u1' } }),
+}))
+
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const mockFiles: ProjectFile[] = []
@@ -45,12 +52,14 @@ vi.mock('@/lib/hooks/useFiles', () => {
   const uploadMutateAsync = vi.fn()
   const updateMutate = vi.fn()
   const deleteMutateAsync = vi.fn()
+  const deleteManyMutateAsync = vi.fn()
   return {
     useFiles: () => ({ data: mockFiles, isLoading: false, hasMore: false }),
     useFileSearch: () => ({ data: undefined, hasMore: false, isFetching: false, isError: false }),
     useUploadFile: () => ({ mutateAsync: uploadMutateAsync }),
     useUpdateFile: () => ({ mutate: updateMutate }),
     useDeleteFile: () => ({ mutateAsync: deleteMutateAsync }),
+    useDeleteFiles: () => ({ mutateAsync: deleteManyMutateAsync, isPending: false }),
     formatFileSize: () => '1 KB',
   }
 })
@@ -94,6 +103,22 @@ describe('FilesPageClient が行に渡す props の安定性', () => {
     const latest = renders[renders.length - 1]
     for (const key of Object.keys(first)) {
       expect(latest[key], `props.${key} の参照が変わっている（memo が効かなくなる）`).toBe(first[key])
+    }
+  })
+
+  it('1行チェックしても、他の行に渡す props はすべて同じ参照のまま', () => {
+    mockFiles.push(makeFile('f1', '資料A.pdf'))
+    mockFiles.push(makeFile('f2', '資料B.pdf'))
+    render(<FilesPageClient orgId="org-1" spaceId="space-1" />)
+
+    const before = receivedProps['f2'][receivedProps['f2'].length - 1]
+    act(() => receivedProps['f1'][0].onToggleSelect('f1'))
+
+    const f1Latest = receivedProps['f1'][receivedProps['f1'].length - 1]
+    expect(f1Latest.isSelected).toBe(true)
+    const after = receivedProps['f2'][receivedProps['f2'].length - 1]
+    for (const key of Object.keys(before)) {
+      expect(after[key], `props.${key} の参照が変わっている（memo が効かなくなる）`).toBe(before[key])
     }
   })
 })

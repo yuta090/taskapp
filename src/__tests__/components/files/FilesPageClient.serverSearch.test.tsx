@@ -21,6 +21,13 @@ vi.mock('@/lib/hooks/useAnnouncements', () => ({
 }))
 
 vi.mock('@/lib/files/limits', () => ({ FILES_LIST_LIMIT: 2 }))
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canManageFiles: true }),
+}))
+vi.mock('@/lib/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { id: 'u1' } }),
+}))
+
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const mockFiles: ProjectFile[] = []
@@ -55,6 +62,7 @@ vi.mock('@/lib/hooks/useFiles', async (importOriginal) => {
     useUploadFile: () => ({ mutateAsync: uploadMutateAsync }),
     useUpdateFile: () => ({ mutate: updateMutate }),
     useDeleteFile: () => ({ mutateAsync: deleteMutateAsync }),
+    useDeleteFiles: () => ({ mutateAsync: vi.fn(), isPending: false }),
     formatFileSize: () => '1 KB',
   }
 })

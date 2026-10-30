@@ -6,6 +6,13 @@ import type { ProjectFile } from '@/lib/hooks/useFiles'
 
 const toastSuccess = vi.fn()
 const toastError = vi.fn()
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canManageFiles: true }),
+}))
+vi.mock('@/lib/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { id: 'u1' } }),
+}))
+
 vi.mock('sonner', () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
@@ -36,6 +43,7 @@ vi.mock('@/lib/hooks/useFiles', () => ({
   useUploadFile: () => ({ mutateAsync: uploadMutateAsync }),
   useUpdateFile: () => ({ mutate: updateMutate }),
   useDeleteFile: () => ({ mutateAsync: deleteMutateAsync }),
+  useDeleteFiles: () => ({ mutateAsync: vi.fn(), isPending: false }),
   formatFileSize: (bytes: number) => {
     if (bytes === 0) return '0 B'
     const k = 1024

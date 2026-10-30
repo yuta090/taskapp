@@ -25,6 +25,10 @@ interface FileRowProps {
   /** `/{orgId}/project/{spaceId}` */
   basePath: string
   isEditing: boolean
+  isSelected: boolean
+  /** 本人がアップロードしたファイルか、管理者のときだけ true */
+  canDelete: boolean
+  onToggleSelect: (fileId: string) => void
   onToggleVisible: (fileId: string, nextVisible: boolean) => void
   onCopyLink: (fileId: string) => void
   onDelete: (fileId: string) => void
@@ -55,6 +59,9 @@ function FileRowInner({
   file,
   basePath,
   isEditing,
+  isSelected,
+  canDelete,
+  onToggleSelect,
   onToggleVisible,
   onCopyLink,
   onDelete,
@@ -71,6 +78,16 @@ function FileRowInner({
       className="group px-4 py-1.5 border-b border-gray-100 hover:bg-gray-50 transition-colors"
     >
       <div className="flex items-center gap-3 min-h-[34px]">
+        <input
+          type="checkbox"
+          data-testid={`file-select-${file.id}`}
+          checked={isSelected}
+          onChange={() => onToggleSelect(file.id)}
+          disabled={!canDelete}
+          aria-label={`${file.name}を選択`}
+          title={canDelete ? undefined : '他の人がアップロードしたファイルは管理者だけが削除できます'}
+          className="flex-shrink-0 w-4 h-4 accent-blue-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+        />
         <FileTypeIcon name={file.name} mimeType={file.mimeType} />
 
         <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -173,20 +190,25 @@ function FileRowInner({
           <DownloadSimple className="text-sm" />
         </a>
 
-        <button
-          type="button"
-          data-testid={`file-delete-${file.id}`}
-          onClick={() => onDelete(file.id)}
-          title="ファイルを削除"
-          className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-        >
-          <Trash className="text-sm" />
-        </button>
+        {canDelete ? (
+          <button
+            type="button"
+            data-testid={`file-delete-${file.id}`}
+            onClick={() => onDelete(file.id)}
+            title="ファイルを削除"
+            className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+          >
+            <Trash className="text-sm" />
+          </button>
+        ) : (
+          // 右端の列がずれないよう、ボタンと同じ幅だけ空ける
+          <span aria-hidden className="flex-shrink-0 w-[26px]" />
+        )}
       </div>
 
       {/* 説明文 — 名前の下。押すとその場で書き換えられる(保存ボタンは置かない) */}
       {isEditing ? (
-        <div className="pl-8 pr-2 pb-1">
+        <div className="pl-[60px] pr-2 pb-1">
           <FileDescriptionInput
             testId={`file-description-input-${file.id}`}
             initialValue={file.description ?? ''}
@@ -201,7 +223,7 @@ function FileRowInner({
             data-testid={`file-description-${file.id}`}
             onClick={() => onStartEditDescription(file.id)}
             title="クリックして説明を編集"
-            className="block w-full pl-8 pr-2 pb-1 text-left text-xs text-gray-500 truncate hover:text-gray-700"
+            className="block w-full pl-[60px] pr-2 pb-1 text-left text-xs text-gray-500 truncate hover:text-gray-700"
           >
             {file.description}
           </button>
