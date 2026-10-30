@@ -1033,6 +1033,9 @@ export const LeftNav = memo(function LeftNav() {
   }, [handleQuickCreate])
 
   const handleSpaceCreated = (newSpaceId: string) => {
+    // 一覧は5分キャッシュなので、取り直さないと作ったプロジェクトが左メニューに出ない。
+    // 出ないと作り直されて同じ名前のプロジェクトが2つできる（2026-10-30 に本番で発生）
+    void refetchSpaces()
     router.push(`/${orgId}/project/${newSpaceId}`)
   }
 
@@ -1205,11 +1208,11 @@ export const LeftNav = memo(function LeftNav() {
           </div>
         )}
 
-        {/* Team / Project */}
+        {/* Project */}
         <div>
           {!collapsed && (
             <div className="px-2 text-[10px] 2xl:text-xs font-medium text-gray-500 mb-1.5 flex items-center justify-between">
-              <span>チーム</span>
+              <span>プロジェクト</span>
               <div className="flex items-center gap-0.5">
                 <button
                   type="button"
