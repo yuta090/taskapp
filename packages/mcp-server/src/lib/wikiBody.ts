@@ -325,9 +325,9 @@ function detailsBlock(tokens: Token[], start: number, close: DetailsClose): Bloc
 
 /**
  * 画像の URL として置いてよいもの。アプリのファイル（`file upload` の link＝`/api/files/<id>/download`）と
- * https の画像だけ。手元のパス（`./shot.png`）は表示できない画像になるので、ブロックにせず文字で残す
+ * https の画像だけ（http は CSP の img-src で表示されない）。手元のパス（`./shot.png`）は表示できない画像になるので、ブロックにせず文字で残す
  */
-const IMAGE_URL_RE = /^(https?:\/\/|\/(?!\/))/i
+const IMAGE_URL_RE = /^(https:\/\/|\/(?!\/))/i
 
 /**
  * 画像だけの行（`![図](url)`、並べて複数も可）を画像ブロックにする。文の途中の画像や

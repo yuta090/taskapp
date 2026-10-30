@@ -423,9 +423,12 @@ describe('画像', () => {
     expect(blocks).toEqual([{ type: 'image', props: { url: FILE, name: '図' } }])
   })
 
-  it('手元のパスや javascript: の画像はブロックにせず、文字で残す（壊れた画像を置かない）', async () => {
-    const blocks = JSON.parse(await toWikiBlocksJson('![手元](./shot.png)\n\n![x](javascript:alert(1))')) as B[]
-    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'paragraph'])
+  it('手元のパス・javascript:・http の画像はブロックにせず、文字で残す（壊れた画像を置かない）', async () => {
+    const blocks = JSON.parse(
+      await toWikiBlocksJson('![手元](./shot.png)\n\n![x](javascript:alert(1))\n\n![y](http://example.com/y.png)')
+    ) as B[]
+    // http は CSP（img-src は https: のみ）で表示されない
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'paragraph', 'paragraph'])
     expect(blocks[0].content?.[0]?.text).toBe('手元')
   })
 
