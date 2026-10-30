@@ -10,6 +10,8 @@ import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blockno
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { CheckSquareOffset, ListBullets, Notebook, NotePencil } from '@phosphor-icons/react'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
+import { wikiTableSpec } from './blocks/wikiTableSpec'
+import { buildBackgroundColorSlashItems } from './blockColors'
 import {
   dividerSpec,
   meetingNoteSpec,
@@ -121,6 +123,8 @@ interface WikiEditorProps {
 const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
+    // 表のブロック全体にも背景色を付けられるようにしたもの（既定は文字色だけ）
+    table: wikiTableSpec,
     meetingsList: MeetingsBlock(),
     // 議事録の「会議メモ」と同じブロック。Wiki では「メモ」と呼ぶ。相手先ポータルの Wiki も
     // このスキーマで読み取り専用に描くので、ここに入れておけばポータルでも同じ見た目で読める
@@ -400,6 +404,8 @@ export function WikiEditor({
           ...getDefaultReactSlashMenuItems(editor).filter(
             item => !HIDDEN_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
           ),
+          // いまの行の背景色（Notion の「/赤 背景」と同じ）。いちばん下にまとめる
+          ...buildBackgroundColorSlashItems(editor),
         ],
         query
       ),
