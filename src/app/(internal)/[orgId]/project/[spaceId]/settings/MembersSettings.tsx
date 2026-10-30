@@ -97,6 +97,12 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const [inviteRole, setInviteRole] = useState('member')
   const [inviting, setInviting] = useState(false)
 
+  // 組織にはいるがこのプロジェクトにはいない人を招待しようとしたとき、招待メールを送らずに
+  // そのまま追加するためのパネル。kind は招待フォームの役割から決める（client なら相手先）
+  const [addPanel, setAddPanel] = useState<{ email: string; kind: 'internal' | 'client' } | null>(null)
+  const [addRole, setAddRole] = useState('editor')
+  const [adding, setAdding] = useState(false)
+
   // 文面の下書きは子コンポーネントが持つ（打鍵のたびに一覧まで描き直さないため）。
   // 送るときだけ ref 越しに読み、送ったあとは key を変えて作り直す
   const templateStateRef = useRef<InviteTemplateState>({ fields: null, saveAsTemplate: false, refresh: () => {} })
@@ -344,6 +350,13 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       const data = await response.json()
 
       if (!response.ok) {
+        // 組織のメンバーなら招待は要らない。エラーにせず、そのまま追加するパネルに切り替える
+        if (response.status === 409 && data.code === 'org_member') {
+          const kind = inviteRole === 'client' ? 'client' : 'internal'
+          setAddRole(kind === 'client' ? 'client' : 'editor')
+          setAddPanel({ email: inviteEmail.trim(), kind })
+          return
+        }
         toast.error(data.error || 'メンバーの招待に失敗しました')
         return
       }
@@ -371,6 +384,48 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       setInviting(false)
     }
   }
+
+  // 組織のメンバーを、招待メールを送らずにこのプロジェクトへ追加する
+  const handleAddOrgMember = async () => {
+    if (!addPanel || adding) return
+    setAdding(true)
+    try {
+      const { error } = await (supabase as SupabaseClient).rpc('rpc_add_space_member_by_email', {
+        p_space_id: spaceId,
+        p_email: addPanel.email,
+        p_role: addRole,
+      })
+      if (error) throw error
+      toast.success(`${addPanel.email} をプロジェクトに追加しました`)
+      setAddPanel(null)
+      setInviteEmail('')
+      setInviteName('')
+      // 一覧に出るよう取り直す
+      void refetchSharedMembers()
+    } catch (err) {
+      console.error('Failed to add org member to space:', err)
+      const message = getErrorMessage(err)
+      toast.error(
+        message === 'already in space'
+          ? 'このプロジェクトのメンバーです'
+          : containsJapanese(message)
+          ? message
+          : 'メンバーの追加に失敗しました'
+      )
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  // 追加パネルで選べる役割（管理者はこの画面の管理者だけ・ベンダーは代理店モードだけ）
+  const addRoleOptions: SpaceRoleGuide['value'][] =
+    addPanel?.kind === 'client'
+      ? agencyMode
+        ? ['client', 'vendor']
+        : ['client']
+      : isAdmin
+      ? ['admin', 'editor', 'viewer']
+      : ['editor', 'viewer']
 
   // 役割を変更できない・まだ選択肢が分からない人向けの、これまでどおりの読み取り専用表示
   function renderRoleBadge(role: string) {
@@ -663,7 +718,11 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                 id="space-invite-email"
                 type="email"
                 value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
+                onChange={(e) => {
+                  setInviteEmail(e.target.value)
+                  // 別のメールに書き換えたら、前の人への「追加」は閉じる
+                  setAddPanel(null)
+                }}
                 placeholder="email@example.com"
                 className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
@@ -678,7 +737,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                   </span>
                 ))}
                 <span className="mt-2 block border-t border-gray-100 pt-1.5 text-gray-500">
-                  参加したあとの役割（管理者・編集者・閲覧者）は、上のメンバー一覧から管理者が変えられます。
+                  参加したあとの役割（管理者・編集者・閲覧者）は、上のメンバー一覧から管理者が変えられます。組織のメンバーを入れるときは、招待メールを送らずに役割を選んで追加できます。
                 </span>
               </Hint>
               <select
@@ -703,6 +762,46 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
               {inviting ? '送信中...' : '招待'}
             </button>
           </div>
+
+          {addPanel && (
+            <div data-testid="add-org-member-panel" className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3">
+              <p className="text-sm text-gray-700">
+                {addPanel.email} は組織のメンバーです。招待メールは送らずに、このプロジェクトへ追加します。
+              </p>
+              <div className="flex items-end gap-3">
+                <div className="w-40">
+                  <label htmlFor="space-add-role" className="text-xs text-gray-500">追加する役割</label>
+                  <select
+                    id="space-add-role"
+                    value={addRole}
+                    onChange={(e) => setAddRole(e.target.value)}
+                    disabled={adding}
+                    className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 bg-surface rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {addRoleOptions.map((value) => (
+                      <option key={value} value={value}>
+                        {SPACE_ROLE_LABELS[value]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={handleAddOrgMember}
+                  disabled={adding}
+                  className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+                >
+                  {adding ? '追加中...' : '追加'}
+                </button>
+                <button
+                  onClick={() => setAddPanel(null)}
+                  disabled={adding}
+                  className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  やめる
+                </button>
+              </div>
+            </div>
+          )}
 
           <InviteTemplateEditor
             key={`invite-template-${templateResetSeq}`}

@@ -253,14 +253,27 @@ describe('POST /api/invites', () => {
     expect(sendInviteEmailMock).not.toHaveBeenCalled()
   })
 
-  it('returns 409 with a Japanese message when the invitee is already a member (RPC dedup guard)', async () => {
+  it('組織のメンバーなら409＋code=org_member（招待せずに追加できると案内する）', async () => {
     rpcResponse = { data: null, error: { message: 'already a member' } }
 
     const response = await callPost(baseBody)
     const data = await response.json()
 
     expect(response.status).toBe(409)
-    expect(data.error).toBe('既にメンバーです')
+    expect(data.code).toBe('org_member')
+    expect(data.error).toBe('組織のメンバーです。招待メールは送らずに、このプロジェクトへ追加できます')
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('プロジェクトに既にいる人なら409＋code=already_in_space', async () => {
+    rpcResponse = { data: null, error: { message: 'already in space' } }
+
+    const response = await callPost(baseBody)
+    const data = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(data.code).toBe('already_in_space')
+    expect(data.error).toBe('このプロジェクトのメンバーです')
     expect(sendInviteEmailMock).not.toHaveBeenCalled()
   })
 
