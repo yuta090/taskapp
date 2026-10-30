@@ -26,7 +26,7 @@ const schema = BlockNoteSchema.create({
     table: wikiTableSpec,
   },
   styleSpecs: { bold: defaultStyleSpecs.bold },
-  inlineContentSpecs: { text: defaultInlineContentSpecs.text },
+  inlineContentSpecs: { text: defaultInlineContentSpecs.text, link: defaultInlineContentSpecs.link },
 })
 
 type AnyEditor = BlockNoteEditor<never, never, never>
