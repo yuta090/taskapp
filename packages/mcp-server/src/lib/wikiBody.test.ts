@@ -399,3 +399,38 @@ describe('目次と罫線', () => {
     expect(json).not.toContain('toc--')
   })
 })
+
+describe('画像', () => {
+  const FILE = '/api/files/11111111-1111-1111-1111-111111111111/download'
+  type B = { type: string; props?: Record<string, unknown>; content?: { text?: string }[] }
+
+  it('画像だけの行は画像ブロックにする（file upload の link をそのまま書ける）', async () => {
+    const blocks = JSON.parse(await toWikiBlocksJson(`前の段落\n\n![画面写真](${FILE})\n\n後の段落`)) as B[]
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'image', 'paragraph'])
+    expect(blocks[1].props).toEqual({ url: FILE, name: '画面写真' })
+  })
+
+  it('1行に並べた画像は1枚ずつのブロックにする・外部の https の画像も出せる', async () => {
+    const blocks = JSON.parse(await toWikiBlocksJson(`![a](${FILE}) ![b](https://example.com/b.png)`)) as B[]
+    expect(blocks.map((b) => [b.type, b.props?.url])).toEqual([
+      ['image', FILE],
+      ['image', 'https://example.com/b.png'],
+    ])
+  })
+
+  it('HTML の <img> も画像ブロックにする', async () => {
+    const blocks = JSON.parse(await toWikiBlocksJson(`<p><img src="${FILE}" alt="図"></p>`)) as B[]
+    expect(blocks).toEqual([{ type: 'image', props: { url: FILE, name: '図' } }])
+  })
+
+  it('手元のパスや javascript: の画像はブロックにせず、文字で残す（壊れた画像を置かない）', async () => {
+    const blocks = JSON.parse(await toWikiBlocksJson('![手元](./shot.png)\n\n![x](javascript:alert(1))')) as B[]
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'paragraph'])
+    expect(blocks[0].content?.[0]?.text).toBe('手元')
+  })
+
+  it('文の途中の画像は今までどおり文字で残す', async () => {
+    const blocks = JSON.parse(await toWikiBlocksJson(`説明 ![図](${FILE}) です`)) as B[]
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph'])
+  })
+})
