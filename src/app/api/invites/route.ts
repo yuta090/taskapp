@@ -165,10 +165,18 @@ export async function POST(request: NextRequest) {
     })
 
     if (error) {
-      // rpc_create_invite が既存メンバーへの招待を拒否した場合（重複防止）
+      // rpc_create_invite が既存メンバーへの招待を拒否した場合（重複防止）。
+      // プロジェクトに既にいる人と、組織にはいるがプロジェクトにはいない人を分ける
+      // （後者は画面が招待せずに追加する rpc_add_space_member_by_email に切り替える）
+      if (error.message === 'already in space') {
+        return NextResponse.json(
+          { error: 'このプロジェクトのメンバーです', code: 'already_in_space' },
+          { status: 409 }
+        )
+      }
       if (error.message === 'already a member') {
         return NextResponse.json(
-          { error: '既にメンバーです' },
+          { error: '組織のメンバーです。招待メールは送らずに、このプロジェクトへ追加できます', code: 'org_member' },
           { status: 409 }
         )
       }

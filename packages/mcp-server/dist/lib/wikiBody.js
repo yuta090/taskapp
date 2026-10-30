@@ -297,6 +297,27 @@ function detailsBlock(tokens, start, close) {
     const block = { type: TOGGLE_TYPE, content: inlineMarkdown(title) };
     return children.length ? { ...block, children } : block;
 }
+/**
+ * 画像の URL として置いてよいもの。アプリのファイル（`file upload` の link＝`/api/files/<id>/download`）と
+ * https の画像だけ（http は CSP の img-src で表示されない）。手元のパス（`./shot.png`）は表示できない画像になるので、ブロックにせず文字で残す
+ */
+const IMAGE_URL_RE = /^(https:\/\/|\/(?!\/))/i;
+/**
+ * 画像だけの行（`![図](url)`、並べて複数も可）を画像ブロックにする。文の途中の画像や
+ * 置けない URL が混じる行は null（今までどおり段落として文字で残す）
+ */
+function imageBlocks(tokens) {
+    const images = [];
+    for (const t of tokens) {
+        if (t.type === 'image' && IMAGE_URL_RE.test(t.href))
+            images.push(t);
+        else if (!(t.type === 'text' && !t.text.trim()) && t.type !== 'br')
+            return null;
+    }
+    if (images.length === 0)
+        return null;
+    return images.map((img) => ({ type: 'image', props: { url: img.href, name: img.text } }));
+}
 function blocks(tokens) {
     const out = [];
     // 深すぎる入れ子の中では `<details>` を折りたたみにしない（文字として残す）
@@ -309,9 +330,11 @@ function blocks(tokens) {
                 out.push({ type: 'heading', props: { level: Math.min(h.depth, 3) }, content: inline(h.tokens) });
                 break;
             }
-            case 'paragraph':
-                out.push({ type: 'paragraph', content: inline(tok.tokens) });
+            case 'paragraph': {
+                const p = tok;
+                out.push(...(imageBlocks(p.tokens) ?? [{ type: 'paragraph', content: inline(p.tokens) }]));
                 break;
+            }
             case 'text':
                 out.push({ type: 'paragraph', content: inline(tok.tokens ?? [tok]) });
                 break;

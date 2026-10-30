@@ -81,6 +81,13 @@ vi.mock('@/lib/hooks/useSpaceGroups', () => ({
   useSpaceGroups: mockUseSpaceGroups,
 }))
 
+// 作成シートの中身（ジャンル選択・送信）は SpaceCreateSheet 側のテストで見る。
+// ここでは「作成し終えたあとに LeftNav が何をするか」だけを確かめる
+vi.mock('@/components/space/SpaceCreateSheet', () => ({
+  SpaceCreateSheet: ({ isOpen, onCreated }: { isOpen: boolean; onCreated: (id: string) => void }) =>
+    isOpen ? <button type="button" onClick={() => onCreated('new-space')}>作成完了</button> : null,
+}))
+
 function renderWithOrg(value: Partial<ActiveOrgContextValue>) {
   const base: ActiveOrgContextValue = {
     activeOrgId: 'org1',
@@ -403,5 +410,29 @@ describe('LeftNav — hydration前はキャッシュ由来の表示をサーバ�
     expect(screen.getByText('テスト太郎')).toBeInTheDocument()
     expect(screen.getByText('テストプロジェクト')).toBeInTheDocument()
     expect(screen.getByText('5')).toBeInTheDocument()
+  })
+})
+
+describe('LeftNav — プロジェクトの作成', () => {
+  beforeEach(() => {
+    mockRefetchSpaces.mockClear()
+    mockRouterPush.mockClear()
+  })
+
+  it('一覧の見出しは「プロジェクト」と書く（「チーム」と書かない）', () => {
+    renderWithOrg({})
+    const addButton = screen.getByTitle('新しいプロジェクト')
+    const heading = addButton.closest('div')?.parentElement
+    expect(heading?.firstElementChild?.textContent).toBe('プロジェクト')
+    expect(screen.queryByText('チーム')).not.toBeInTheDocument()
+  })
+
+  it('作成し終えたら一覧を取り直し、作ったプロジェクトへ移る（左メニューにすぐ出す）', () => {
+    renderWithOrg({})
+    fireEvent.click(screen.getByTitle('新しいプロジェクト'))
+    fireEvent.click(screen.getByText('作成完了'))
+
+    expect(mockRefetchSpaces).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).toHaveBeenCalledWith('/org1/project/new-space')
   })
 })
