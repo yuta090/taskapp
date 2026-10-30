@@ -13,6 +13,7 @@ import {
 } from '@/lib/wiki/defaultTemplate'
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { extractEmbeddedFileIds } from '@/lib/wiki/embeddedFiles'
 
 /**
  * 版の一覧に出すぶんだけ。本文(body)は含めない — 版は自動保存のたびに1行増え、
@@ -660,6 +661,19 @@ export function useWikiPages({ orgId, spaceId, canEdit = false }: UseWikiPagesOp
 
       const page = await fetchPage(pageId)
       if (!page) throw new Error('Page not found')
+
+      // 中に上げた画像・ファイルは社内のみで作られる。そのままだとポータルで画像が出ないので、
+      // 公開より先に相手先へ見えるようにする（できなければ公開しない）
+      await Promise.all(
+        extractEmbeddedFileIds(page.body).map(async (fileId) => {
+          const res = await fetch(`/api/files/${fileId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientVisible: true }),
+          })
+          if (!res.ok) throw new Error('Failed to share embedded file')
+        })
+      )
 
       const { error: pubError } = await (supabase as SupabaseClient)
         .from('wiki_page_publications')

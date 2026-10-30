@@ -25,7 +25,8 @@ import { buildInsertLinkMenuItems, insertAppLink } from '@/components/editor/app
 import { useInAppLinkNavigation } from '@/components/editor/inAppLinkNavigation'
 import { useEditorClickBehaviors } from '@/components/editor/editorClickBehaviors'
 import { STABLE_EDITOR_DOM_ATTRIBUTES, useStableEditable } from '@/components/editor/useStableEditable'
-import type { AppLinkKind } from '@/lib/navigation/appLinks'
+import { buildFileDownloadHref, type AppLinkKind } from '@/lib/navigation/appLinks'
+import { uploadSpaceFile } from '@/lib/hooks/useFiles'
 import { DIVIDER_TYPE, MEETING_NOTE_TYPE, TOC_TYPE, TOGGLE_TYPE } from '@/lib/minutes/markdown'
 import { formatNoteStamp, normalizeNoteAuthor } from '@/lib/minutes/noteStamp'
 import { useIsDarkTheme } from '@/lib/hooks/useIsDarkTheme'
@@ -150,7 +151,7 @@ const WIKI_DICTIONARY = {
 }
 
 // 「/」メニューに出さない項目。動画・音声はこの画面の安全設定（CSP の default-src 'self'）で
-// 外部の URL を再生できず、エディタからアップロードする先も無いため
+// 外部の URL を再生できないため（上げたファイルも Storage の署名URLへ転送して読むので再生できない）
 const HIDDEN_SLASH_MENU_ITEMS = new Set(['video', 'audio'])
 
 export function WikiEditor({
@@ -207,6 +208,15 @@ export function WikiEditor({
    * 載せた直後に器の中身で本文を置き換える（渡しても捨てられる）。本文は種まきで器へ入れる
    * （`seedCollabDoc` → 合流の本体。議事録と同じ）。
    */
+  // 画像・ファイルのブロックで選んだ（貼った・落とした）ファイルは、プロジェクトのファイルに上げる。
+  // 本文には署名URLでなく、署名URLへ転送する安定したURLを残す（署名URLは期限が切れるため）。
+  // `useCreateBlockNote` は初回の設定しか見ないので、関数は1回だけ作る（プロジェクトの外では付けない）
+  const [uploadFile] = useState(() =>
+    spaceId
+      ? async (file: File) => buildFileDownloadHref((await uploadSpaceFile(spaceId, file)).fileId)
+      : undefined
+  )
+
   const editor = useCreateBlockNote({
     schema,
     ...(collaboration
@@ -220,6 +230,7 @@ export function WikiEditor({
         }
       : { initialContent: parsedContent }),
     dictionary: WIKI_DICTIONARY,
+    uploadFile,
     domAttributes: { editor: STABLE_EDITOR_DOM_ATTRIBUTES },
   })
 

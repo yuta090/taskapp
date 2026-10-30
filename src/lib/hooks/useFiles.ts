@@ -172,47 +172,52 @@ interface UploadFileParams {
  * 1. 署名アップロードURLを発行
  * 2. そのURLへ実バイトをPUT
  * 3. アップロード完了をAPIに通知(status='ready'化 + 通知)
+ *
+ * react-query を通さない素の関数。Wiki のエディタは相手先ポータルの閲覧でも描くので、
+ * キャッシュに触らずこれを直接呼ぶ(一覧は次に開いたときに取り直す)。
  */
+export async function uploadSpaceFile(spaceId: string, file: File): Promise<{ fileId: string }> {
+  const urlRes = await fetch('/api/files/upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      spaceId,
+      name: file.name,
+      mimeType: file.type,
+      sizeBytes: file.size,
+    }),
+  })
+
+  if (!urlRes.ok) {
+    const error = await urlRes.json()
+    throw new Error(error.error || 'Failed to create upload URL')
+  }
+
+  const { fileId, token, path } = await urlRes.json()
+
+  const supabase = createClient()
+  const { error: uploadError } = await supabase.storage
+    .from('space-files')
+    .uploadToSignedUrl(path, token, file)
+
+  if (uploadError) {
+    throw new Error(uploadError.message || 'Failed to upload file')
+  }
+
+  const completeRes = await fetch(`/api/files/${fileId}/complete`, { method: 'POST' })
+  if (!completeRes.ok) {
+    const error = await completeRes.json()
+    throw new Error(error.error || 'Failed to complete upload')
+  }
+
+  return { fileId }
+}
+
 export function useUploadFile() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ spaceId, file }: UploadFileParams) => {
-      const urlRes = await fetch('/api/files/upload-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          spaceId,
-          name: file.name,
-          mimeType: file.type,
-          sizeBytes: file.size,
-        }),
-      })
-
-      if (!urlRes.ok) {
-        const error = await urlRes.json()
-        throw new Error(error.error || 'Failed to create upload URL')
-      }
-
-      const { fileId, token, path } = await urlRes.json()
-
-      const supabase = createClient()
-      const { error: uploadError } = await supabase.storage
-        .from('space-files')
-        .uploadToSignedUrl(path, token, file)
-
-      if (uploadError) {
-        throw new Error(uploadError.message || 'Failed to upload file')
-      }
-
-      const completeRes = await fetch(`/api/files/${fileId}/complete`, { method: 'POST' })
-      if (!completeRes.ok) {
-        const error = await completeRes.json()
-        throw new Error(error.error || 'Failed to complete upload')
-      }
-
-      return completeRes.json()
-    },
+    mutationFn: ({ spaceId, file }: UploadFileParams) => uploadSpaceFile(spaceId, file),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries(filesQueryScope(variables.spaceId))
     },
