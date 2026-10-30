@@ -49,7 +49,7 @@ const wikiGetSchema = z.object({
 const wikiCreateSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   title: z.string().describe('ページタイトル'),
-  body: z.string().optional().describe('ページ本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）'),
+  body: z.string().optional().describe('ページ本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）。画像は先にファイルとして上げ（CLI は agentpm file upload）、返った downloadPath を1行で ![説明](downloadPath) と書く'),
   format: bodyFormatSchema,
   tags: z.array(z.string()).optional().describe('タグ配列（「仕様書」を付けるとタスクの「仕様書連携」で選べる）'),
 })
@@ -58,7 +58,7 @@ export const wikiUpdateSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   pageId: z.string().describe('WikiページID'),
   title: z.string().optional().describe('タイトル'),
-  body: z.string().optional().describe('本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）'),
+  body: z.string().optional().describe('本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）。画像は先にファイルとして上げ（CLI は agentpm file upload）、返った downloadPath を1行で ![説明](downloadPath) と書く'),
   format: bodyFormatSchema,
   tags: z.array(z.string()).optional().describe('タグ配列'),
   parentPageId: nullableIdSchema.describe('親ページID（フォルダ表示）。null または none で根に戻す。別スペースの親・循環はDB側で拒否される'),

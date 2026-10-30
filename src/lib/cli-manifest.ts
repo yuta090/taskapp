@@ -750,6 +750,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           'agentpm file upload --file ./list.csv',
           'agentpm file upload --file ./spec.pdf --name 要件定義.pdf',
           'agentpm file upload -s <space-uuid> --file ./data.tsv --json',
+          'agentpm file upload --file ./screen.png   # 返った downloadPath を Wiki 本文に ![説明](downloadPath) と書くと画像が出る',
         ],
         options: [
           spaceOpt,
@@ -810,6 +811,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           'agentpm wiki create --title "顧客ジャーニー" --file 14_customer_journey_v1.md --tags 仕様書',
           'agentpm wiki create --title "ターゲット分類" --file 04_target_segmentation_v0.html',
           'agentpm wiki create --title "メモ" --body "# 見出し"',
+          'agentpm wiki create --title "画面" --body "![画面写真](/api/files/<file-id>/download)"   # 画像は先に file upload で上げる',
         ],
         options: [
           spaceOpt,
