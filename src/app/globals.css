@@ -469,6 +469,107 @@ html.dark [data-color-scheme="dark"] {
   --bn-colors-shadow: var(--color-gray-25);
 }
 
+/* ============================================
+   BlockNote - 文字色・背景色（Notion と同じ9色）
+   ============================================ */
+
+/* 色は Notion の配色に合わせる（ユーザー要望・2026-10-30）。BlockNote の既定は Notion の古い配色で、
+ * ダークの背景色は赤が #be3434 のような濃い色のため、上の文字が読めなかった。
+ * ダークの背景色は不透明にせず、文字色を薄く重ねる。アプリの紺寄りの面になじませるため。
+ *
+ * セレクタは上のエディタの色と同じ考え方（メニューは本文の外のポータルに出る）。
+ * ライトは BlockNote の `.bn-container`（0,1,0）を `html .bn-container`（0,1,1）で上回る。 */
+html,
+html .bn-container {
+  --bn-colors-highlights-gray-text: #787774;
+  --bn-colors-highlights-gray-background: #f1f1ef;
+  --bn-colors-highlights-brown-text: #9f6b53;
+  --bn-colors-highlights-brown-background: #f4eeee;
+  --bn-colors-highlights-orange-text: #d9730d;
+  --bn-colors-highlights-orange-background: #fbecdd;
+  --bn-colors-highlights-yellow-text: #cb912f;
+  --bn-colors-highlights-yellow-background: #fbf3db;
+  --bn-colors-highlights-green-text: #448361;
+  --bn-colors-highlights-green-background: #edf3ec;
+  --bn-colors-highlights-blue-text: #337ea9;
+  --bn-colors-highlights-blue-background: #e7f3f8;
+  --bn-colors-highlights-purple-text: #9065b0;
+  --bn-colors-highlights-purple-background: #f4f0f7;
+  --bn-colors-highlights-pink-text: #c14c8a;
+  --bn-colors-highlights-pink-background: #f9eef3;
+  --bn-colors-highlights-red-text: #d44c47;
+  --bn-colors-highlights-red-background: #fdebec;
+}
+
+html.dark,
+html.dark .bn-container,
+html.dark [data-color-scheme="dark"] {
+  --bn-colors-highlights-gray-text: #9b9b9b;
+  --bn-colors-highlights-gray-background: rgba(155, 155, 155, 0.16);
+  --bn-colors-highlights-brown-text: #ba856f;
+  --bn-colors-highlights-brown-background: rgba(186, 133, 111, 0.2);
+  --bn-colors-highlights-orange-text: #c77d48;
+  --bn-colors-highlights-orange-background: rgba(199, 125, 72, 0.22);
+  --bn-colors-highlights-yellow-text: #ca9849;
+  --bn-colors-highlights-yellow-background: rgba(202, 152, 73, 0.22);
+  --bn-colors-highlights-green-text: #529e72;
+  --bn-colors-highlights-green-background: rgba(82, 158, 114, 0.22);
+  --bn-colors-highlights-blue-text: #5e87c9;
+  --bn-colors-highlights-blue-background: rgba(94, 135, 201, 0.24);
+  --bn-colors-highlights-purple-text: #9d68d3;
+  --bn-colors-highlights-purple-background: rgba(157, 104, 211, 0.22);
+  --bn-colors-highlights-pink-text: #d15796;
+  --bn-colors-highlights-pink-background: rgba(209, 87, 150, 0.22);
+  --bn-colors-highlights-red-text: #df5452;
+  --bn-colors-highlights-red-background: rgba(223, 84, 82, 0.22);
+}
+
+/* 「色」メニュー（文字を選んだときのツールバーと、行の左の「⠿ → 色を変更」）。
+ * 既定は文字色10色の下に背景色10色を縦に積むので高さが 667px になり、画面に入る高さ（約 600px）を
+ * 超えて、背景色はメニューの中をスクロールしないと見えなかった（ユーザー申告・2026-10-30）。
+ * 文字色と背景色を左右2列に並べて、高さを半分にする。並びは「見出し＋10色」の11行 × 2列 */
+.bn-color-picker-dropdown:has([data-test^="background-color-"]):has([data-test^="text-color-"]) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(11, auto);
+  grid-auto-flow: column;
+  column-gap: 4px;
+}
+
+/* Mantine はメニューの先頭に空の要素（キーボード操作の受け口）を置く。これが1マス取ると
+ * 並びが1つずれるので、マスから外す */
+.bn-color-picker-dropdown:has([data-test^="background-color-"]):has([data-test^="text-color-"]) > :not(button, .mantine-Menu-label) {
+  position: absolute;
+}
+
+/* 背景色を付けた行は、角を丸めて文字と色の端に少し間を取る（Notion と同じ見た目）。
+ * 色そのものは BlockNote が `.bn-block` と `.bn-block-content` の両方に塗る */
+.wiki-editor .bn-block:has(> .bn-block-content[data-background-color]),
+.wiki-editor .bn-block-content[data-background-color] {
+  border-radius: 4px;
+}
+
+.wiki-editor .bn-block-content[data-background-color] {
+  padding-inline: 6px;
+}
+
+/* 語句に付けた背景色。行をまたいでも両端が丸くなるようにする */
+.wiki-editor [data-style-type="backgroundColor"] {
+  border-radius: 3px;
+  padding-inline: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* 「/」メニューの背景色の見本。色は `[data-background-color]` から付く（BlockNote の規則） */
+.wiki-bg-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--bn-colors-border);
+  border-radius: 4px;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
