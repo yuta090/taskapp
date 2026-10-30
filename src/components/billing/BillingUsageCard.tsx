@@ -4,18 +4,11 @@ import { useBillingLimits } from '@/lib/hooks/useBillingLimits'
 import { UsageBar } from './UsageBar'
 import { LimitWarning } from './LimitWarning'
 import { ArrowsClockwise } from '@phosphor-icons/react'
+import { formatFileSize } from '@/lib/files/format'
 
 interface BillingUsageCardProps {
   orgId?: string
   showWarnings?: boolean
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
 export function BillingUsageCard({ orgId, showWarnings = true }: BillingUsageCardProps) {
@@ -121,16 +114,11 @@ export function BillingUsageCard({ orgId, showWarnings = true }: BillingUsageCar
           limit={limits.clients_limit}
         />
         <UsageBar
-          label="ストレージ"
+          label="ディスク使用量"
           used={limits.storage_used_bytes}
           limit={limits.storage_limit_bytes}
-          unit=""
+          format={formatFileSize}
         />
-        {limits.storage_limit_bytes !== null && (
-          <p className="text-xs text-gray-500 text-right">
-            {formatBytes(limits.storage_used_bytes)} / {formatBytes(limits.storage_limit_bytes)}
-          </p>
-        )}
       </div>
     </div>
   )

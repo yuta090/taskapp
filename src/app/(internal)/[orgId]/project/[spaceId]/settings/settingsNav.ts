@@ -11,6 +11,7 @@ import {
   Browser,
   Buildings,
   Warning,
+  HardDrives,
 } from '@phosphor-icons/react'
 import type { SettingSectionId } from './types'
 
@@ -61,6 +62,7 @@ const allCategories: SettingCategory[] = [
     label: 'データ管理',
     items: [
       { id: 'export', label: 'データエクスポート', icon: Export, keywords: ['CSV', 'ダウンロード', 'download', 'テンプレート'] },
+      { id: 'storage', label: 'ディスク使用量', icon: HardDrives, keywords: ['容量', 'ストレージ', 'storage', 'ファイル', 'ディスク'] },
       {
         id: 'danger',
         label: '危険設定',

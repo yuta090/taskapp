@@ -10,6 +10,7 @@ export type SettingSectionId =
   | 'video-conference'
   | 'api'
   | 'export'
+  | 'storage'
   | 'danger'
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'warning' | 'none'
