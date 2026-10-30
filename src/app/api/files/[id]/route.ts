@@ -114,7 +114,7 @@ export async function PATCH(
   }
 }
 
-// DELETE: 内部ロールまたはアップローダ本人。Storage実体を削除してからDB行を削除する。
+// DELETE: アップローダ本人または管理者。Storage実体を削除してからDB行を削除する。
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -137,7 +137,7 @@ export async function DELETE(
 
     const { data: file, error: fileError } = await (supabase as SupabaseClient)
       .from('files')
-      .select('id, uploaded_by, space_id, storage_path')
+      .select('id, uploaded_by, space_id, org_id, storage_path')
       .eq('id', id)
       .single()
 
@@ -148,16 +148,14 @@ export async function DELETE(
     let authorized = file.uploaded_by === user.id
 
     if (!authorized) {
-      const { data: internalMembership } = await (supabase as SupabaseClient)
-        .from('space_memberships')
-        .select('id')
-        .eq('space_id', file.space_id)
-        .eq('user_id', user.id)
-        .neq('role', 'client')
-        .neq('role', 'vendor')
-        .single()
+      // 判定の正本は DB の関数(RLS の DELETE ポリシーと同じもの)。
+      // ここで通したのに RLS で弾かれると、Storage の実体だけ消えて行が残る
+      const { data: canManage } = await (supabase as SupabaseClient).rpc('app_can_manage_space_files', {
+        p_space: file.space_id,
+        p_org: file.org_id,
+      })
 
-      authorized = !!internalMembership
+      authorized = canManage === true
     }
 
     if (!authorized) {

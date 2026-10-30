@@ -7,6 +7,7 @@ import {
   isReviewApproverRole,
   isSecretaryApproverRole,
 } from '@/lib/roles/spaceRoles'
+import { canManageSpaceFiles } from '@/lib/roles/spaceRoles'
 
 // DB側の判定（app_can_write_space / app_is_org_internal, 20260911143112_space_role_boundary.sql）
 // と同じ規則になっているかを確かめる。
@@ -174,5 +175,17 @@ describe('allowedSpaceRolesFor', () => {
     expect(allowedSpaceRolesFor(undefined, false)).toEqual([])
     expect(allowedSpaceRolesFor('', false)).toEqual([])
     expect(allowedSpaceRolesFor('unknown', false)).toEqual([])
+  })
+})
+
+describe('canManageSpaceFiles', () => {
+  it('組織の owner と、社内メンバーでこの space の admin だけが true', () => {
+    expect(canManageSpaceFiles(null, 'owner')).toBe(true)
+    expect(canManageSpaceFiles('admin', 'member')).toBe(true)
+    expect(canManageSpaceFiles('editor', 'member')).toBe(false)
+    expect(canManageSpaceFiles('viewer', 'member')).toBe(false)
+    expect(canManageSpaceFiles(null, 'member')).toBe(false)
+    expect(canManageSpaceFiles('admin', 'client')).toBe(false)
+    expect(canManageSpaceFiles('admin', null)).toBe(false)
   })
 })

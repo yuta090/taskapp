@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { FolderOpen, Plus, UploadSimple, MagnifyingGlass, X as XIcon } from '@phosphor-icons/react'
+import { FolderOpen, Plus, Trash, UploadSimple, MagnifyingGlass, X as XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Breadcrumb, useConfirmDialog } from '@/components/shared'
 import { FileRow } from '@/components/files/FileRow'
@@ -18,6 +18,8 @@ import {
 } from '@/lib/files/filters'
 import { FILES_LIST_LIMIT } from '@/lib/files/limits'
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
+import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import {
   useFiles,
@@ -25,12 +27,15 @@ import {
   useUploadFile,
   useUpdateFile,
   useDeleteFile,
+  useDeleteFiles,
 } from '@/lib/hooks/useFiles'
 
 // API側の上限(src/app/api/files/upload-url/route.ts の MAX_FILE_SIZE_BYTES)と揃える
 const MAX_FILE_SIZE_BYTES = 52428800
 // 打鍵のたびにサーバーへ問い合わせないための待ち時間
 const SEARCH_DEBOUNCE_MS = 350
+// まとめて削除の確認に名前を出す件数。多いと確認ダイアログが埋まる
+const CONFIRM_NAME_LIMIT = 3
 
 const SELECT_CLASS =
   'text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-surface text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500'
@@ -42,9 +47,13 @@ interface FilesPageClientProps {
 
 export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
   const { data: files, isLoading, hasMore: hasHiddenFiles } = useFiles(spaceId)
+  const { canManageFiles } = useCanEditSpace(spaceId, orgId)
+  const { user: currentUser } = useCurrentUser()
+  const currentUserId = currentUser?.id
   const uploadFile = useUploadFile()
   const updateFile = useUpdateFile()
   const deleteFile = useDeleteFile()
+  const deleteFiles = useDeleteFiles()
   const { confirm, ConfirmDialog } = useConfirmDialog()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -55,6 +64,8 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
   // 説明文のその場編集。編集中の1行だけ input に差し替える。
   // 書きかけの文字は FileDescriptionInput の中だけで持つ(ここに置くと1打鍵ごとに全行を作り直す)
   const [editingFileId, setEditingFileId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{ done: number; total: number } | null>(null)
 
   const basePath = `/${orgId}/project/${spaceId}`
 
@@ -144,6 +155,16 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
 
   const cancelEditDescription = useCallback(() => setEditingFileId(null), [])
 
+  const toggleSelect = useCallback((fileId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(fileId)) next.add(fileId)
+      return next
+    })
+  }, [])
+
+  const clearSelection = () => setSelectedIds(new Set())
+
   const updateFilters = (patch: Partial<FileFilterState>) => {
     setFilters((prev) => ({ ...prev, ...patch }))
   }
@@ -167,6 +188,62 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
     () => filterFiles(useServerSearch ? (searchResults ?? []) : (files ?? []), filters),
     [useServerSearch, searchResults, files, filters]
   )
+
+  // 表示中のうち、自分が消せるもの(本人のアップロード分。管理者は全部)
+  const deletableFiles = useMemo(
+    () => visibleFiles.filter((file) => canManageFiles || file.uploadedBy === currentUserId),
+    [visibleFiles, canManageFiles, currentUserId]
+  )
+  // 操作の対象は「選択中かつ今見えているもの」だけ。絞り込みで隠れた行を、
+  // 見えないまま消してしまわないようにする
+  const selectedFiles = useMemo(
+    () => deletableFiles.filter((file) => selectedIds.has(file.id)),
+    [deletableFiles, selectedIds]
+  )
+  const allVisibleSelected = deletableFiles.length > 0 && selectedFiles.length === deletableFiles.length
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const file of deletableFiles) {
+        if (allVisibleSelected) next.delete(file.id)
+        else next.add(file.id)
+      }
+      return next
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    const names = selectedFiles
+      .slice(0, CONFIRM_NAME_LIMIT)
+      .map((file) => `「${file.name}」`)
+      .join('')
+    const rest = selectedFiles.length > CONFIRM_NAME_LIMIT ? 'など' : ''
+    const ok = await confirm({
+      title: 'ファイルをまとめて削除',
+      message: `${names}${rest}${selectedFiles.length}件のファイルは完全に削除されます。この操作は取り消せません。`,
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
+
+    const total = selectedFiles.length
+    setBulkDeleteProgress({ done: 0, total })
+    const { deletedIds, failedIds } = await deleteFiles.mutateAsync({
+      spaceId,
+      fileIds: selectedFiles.map((file) => file.id),
+      onProgress: (done) => setBulkDeleteProgress({ done, total }),
+    })
+    setBulkDeleteProgress(null)
+    // 失敗した分は選択に残し、そのまま押し直せるようにする
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const id of deletedIds) next.delete(id)
+      return next
+    })
+    if (deletedIds.length > 0) toast.success(`${deletedIds.length}件のファイルを削除しました`)
+    if (failedIds.length > 0) toast.error(`${failedIds.length}件のファイルを削除できませんでした`)
+  }
 
   const isEmpty = !isLoading && uploadingNames.length === 0 && totalCount === 0
   const isFilteredEmpty = !isLoading && totalCount > 0 && visibleFiles.length === 0
@@ -216,6 +293,20 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
       {/* Filter bar — ファイルが1つもないうちは出さない(空の画面に操作だけ並ぶのを避ける) */}
       {totalCount > 0 && (
         <div className="flex items-center gap-2 flex-wrap px-5 py-2 border-b border-gray-100 flex-shrink-0">
+          <input
+            type="checkbox"
+            data-testid="files-select-all"
+            ref={(el) => {
+              if (el) el.indeterminate = selectedFiles.length > 0 && !allVisibleSelected
+            }}
+            checked={allVisibleSelected}
+            onChange={toggleSelectAll}
+            disabled={deletableFiles.length === 0}
+            aria-label="表示中のファイルをすべて選択"
+            title="表示中のファイルのうち、削除できるものをすべて選択"
+            className="flex-shrink-0 w-4 h-4 mr-1 accent-blue-600 cursor-pointer disabled:cursor-not-allowed"
+          />
+
           <div className="relative flex items-center">
             <MagnifyingGlass className="absolute left-2 text-sm text-gray-400 pointer-events-none" />
             <input
@@ -368,6 +459,9 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                   file={file}
                   basePath={basePath}
                   isEditing={editingFileId === file.id}
+                  isSelected={selectedIds.has(file.id)}
+                  canDelete={canManageFiles || file.uploadedBy === currentUserId}
+                  onToggleSelect={toggleSelect}
                   onToggleVisible={handleToggleVisible}
                   onCopyLink={handleCopyLink}
                   onDelete={handleDelete}
@@ -380,6 +474,41 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
           )}
         </div>
       </div>
+
+      {selectedFiles.length > 0 && (
+        <div
+          data-testid="files-bulk-bar"
+          className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-5 py-2 flex items-center gap-3 animate-slide-down"
+        >
+          <span className="text-xs font-medium text-gray-700">{selectedFiles.length}件選択</span>
+
+          <div className="h-4 w-px bg-gray-300" />
+
+          <button
+            type="button"
+            data-testid="files-bulk-delete"
+            onClick={() => void handleBulkDelete()}
+            disabled={bulkDeleteProgress !== null}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-red-600 border border-red-600 rounded hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Trash className="text-sm" />
+            {bulkDeleteProgress
+              ? `削除中... ${bulkDeleteProgress.done}/${bulkDeleteProgress.total}件`
+              : '削除'}
+          </button>
+
+          <div className="flex-1" />
+
+          <button
+            type="button"
+            onClick={clearSelection}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-surface rounded transition-colors"
+          >
+            <XIcon className="text-xs" />
+            選択をやめる
+          </button>
+        </div>
+      )}
 
       {ConfirmDialog}
     </div>
