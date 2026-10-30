@@ -358,3 +358,31 @@ describe('WikiEditor の見出しリンク', () => {
     expect(container.querySelector('.wiki-editor')).toHaveClass('relative')
   })
 })
+
+// 画像・ファイルのアップロード。中身（署名URL→PUT→完了）は uploadSpaceFile.test.ts で確かめる
+const mockUploadSpaceFile = vi.fn()
+vi.mock('@/lib/hooks/useFiles', () => ({
+  uploadSpaceFile: (...args: unknown[]) => mockUploadSpaceFile(...args),
+}))
+
+describe('WikiEditor の画像アップロード', () => {
+  beforeEach(() => {
+    mockUploadSpaceFile.mockReset()
+    capturedEditorOptions = undefined
+  })
+
+  it('プロジェクトのファイルに上げ、ダウンロード用の安定した URL を画像の URL にする', async () => {
+    mockUploadSpaceFile.mockResolvedValue({ fileId: 'file-9' })
+    render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
+    const { uploadFile } = capturedEditorOptions as unknown as { uploadFile: (file: File) => Promise<string> }
+    const file = new File(['x'], 'shot.png', { type: 'image/png' })
+
+    await expect(uploadFile(file)).resolves.toBe('/api/files/file-9/download')
+    expect(mockUploadSpaceFile).toHaveBeenCalledWith(SPACE_ID, file)
+  })
+
+  it('プロジェクトの外（ポータルの閲覧）ではアップロードを付けない', () => {
+    render(<WikiEditor editable={false} />)
+    expect((capturedEditorOptions as unknown as { uploadFile?: unknown }).uploadFile).toBeUndefined()
+  })
+})
