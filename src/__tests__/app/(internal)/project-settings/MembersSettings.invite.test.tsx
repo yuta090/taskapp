@@ -1,10 +1,17 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import { toast } from 'sonner'
 import { MembersSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/MembersSettings'
 
 // ログイン中の人の役割をテストごとに差し替える
 let myRole = 'editor'
+
+// 「そのまま追加」で使う共有のモック（createClient はコンポーネントの中で呼ばれるので、外に出して見る）
+const { rpcMock, refetchMock } = vi.hoisted(() => ({
+  rpcMock: vi.fn(),
+  refetchMock: vi.fn(),
+}))
 
 const rpcMembers = () => [
   { user_id: 'u1', display_name: '自分', avatar_url: null, role: myRole },
@@ -16,7 +23,7 @@ vi.mock('@/lib/supabase/client', () => ({
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'u1' } }, error: null }),
     },
-    rpc: vi.fn().mockImplementation(async () => ({ data: rpcMembers(), error: null })),
+    rpc: rpcMock,
     from: vi.fn(() => ({
       select: vi.fn(() => ({
         eq: vi.fn().mockResolvedValue({ data: [], error: null }),
@@ -45,7 +52,7 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
     loading: false,
     isPending: false,
     error: null,
-    refetch: vi.fn(),
+    refetch: refetchMock,
     patchMembers: vi.fn(() => () => {}),
   }),
 }))
@@ -94,6 +101,11 @@ vi.mock('@/components/shared', async () => {
 
 beforeEach(() => {
   myRole = 'editor'
+  rpcMock.mockReset()
+  rpcMock.mockImplementation(async () => ({ data: rpcMembers(), error: null }))
+  refetchMock.mockReset()
+  vi.mocked(toast.success).mockClear()
+  vi.mocked(toast.error).mockClear()
 })
 
 describe('MembersSettings — 招待できる人', () => {
@@ -156,5 +168,141 @@ describe('MembersSettings — 役割の説明ヒント', () => {
     for (const label of ['管理者', '編集者', '閲覧者', 'クライアント', 'ベンダー']) {
       expect(note).toHaveTextContent(label)
     }
+  })
+})
+
+describe('MembersSettings — 組織のメンバーをそのまま追加', () => {
+  const ORG_MEMBER_RESPONSE = {
+    ok: false,
+    status: 409,
+    json: async () => ({
+      error: '組織のメンバーです。招待メールは送らずに、このプロジェクトへ追加できます',
+      code: 'org_member',
+    }),
+  }
+
+  // メールを入れて「招待」を押し、409 org_member でパネルを開くところまで進める
+  async function openPanel(email = 'miyata@example.com') {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ORG_MEMBER_RESPONSE))
+    render(<MembersSettings orgId="o1" spaceId="s1" />)
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('メールアドレス'), { target: { value: email } })
+    fireEvent.click(screen.getByRole('button', { name: '招待' }))
+    return screen.findByTestId('add-org-member-panel')
+  }
+
+  function roleValues(panel: HTMLElement): string[] {
+    return within(panel)
+      .getAllByRole('option')
+      .map((o) => (o as HTMLOptionElement).value)
+  }
+
+  it('409 org_member ではエラーの toast を出さず、追加のパネルを開く', async () => {
+    const panel = await openPanel()
+
+    expect(panel).toHaveTextContent('miyata@example.com は組織のメンバーです')
+    expect(panel).toHaveTextContent('招待メールは送らずに、このプロジェクトへ追加します')
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(within(panel).getByRole('button', { name: '追加' })).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'やめる' })).toBeInTheDocument()
+  })
+
+  it('編集者の選択肢に管理者は無く、既定は編集者', async () => {
+    myRole = 'editor'
+    const panel = await openPanel()
+
+    expect(roleValues(panel)).toEqual(['editor', 'viewer'])
+    expect(within(panel).getByRole('combobox')).toHaveValue('editor')
+  })
+
+  it('管理者の選択肢には管理者がある', async () => {
+    myRole = 'admin'
+    const panel = await openPanel()
+
+    expect(roleValues(panel)).toEqual(['admin', 'editor', 'viewer'])
+    expect(within(panel).getByRole('combobox')).toHaveValue('editor')
+  })
+
+  it('相手先の招待（クライアント）なら選択肢はクライアントだけ', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ORG_MEMBER_RESPONSE))
+    render(<MembersSettings orgId="o1" spaceId="s1" />)
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('メールアドレス'), { target: { value: 'c@example.com' } })
+    fireEvent.change(screen.getByLabelText('役割'), { target: { value: 'client' } })
+    fireEvent.click(screen.getByRole('button', { name: '招待' }))
+    const panel = await screen.findByTestId('add-org-member-panel')
+
+    expect(roleValues(panel)).toEqual(['client'])
+  })
+
+  it('「追加」で rpc を呼び、成功したら toast・一覧の取り直し・パネルを閉じる・入力を空にする', async () => {
+    myRole = 'admin'
+    const panel = await openPanel()
+    rpcMock.mockClear()
+    rpcMock.mockImplementation(async () => ({ data: { ok: true, user_id: 'u9', role: 'viewer' }, error: null }))
+
+    fireEvent.change(within(panel).getByRole('combobox'), { target: { value: 'viewer' } })
+    fireEvent.click(within(panel).getByRole('button', { name: '追加' }))
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('miyata@example.com をプロジェクトに追加しました')
+    )
+    expect(rpcMock).toHaveBeenCalledWith('rpc_add_space_member_by_email', {
+      p_space_id: 's1',
+      p_email: 'miyata@example.com',
+      p_role: 'viewer',
+    })
+    expect(refetchMock).toHaveBeenCalled()
+    expect(screen.queryByTestId('add-org-member-panel')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('メールアドレス')).toHaveValue('')
+    expect(screen.getByLabelText('名前（任意）')).toHaveValue('')
+  })
+
+  it('rpc が already in space で失敗したら「このプロジェクトのメンバーです」', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const panel = await openPanel()
+    rpcMock.mockImplementation(async () => ({ data: null, error: { message: 'already in space' } }))
+
+    fireEvent.click(within(panel).getByRole('button', { name: '追加' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('このプロジェクトのメンバーです'))
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it('rpc が日本語の理由で失敗したらそのまま見せ、英語のときは一律の文言にする', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const panel = await openPanel()
+
+    rpcMock.mockImplementation(async () => ({
+      data: null,
+      error: { message: '管理者の役割を付けられるのは、プロジェクトの管理者だけです' },
+    }))
+    fireEvent.click(within(panel).getByRole('button', { name: '追加' }))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('管理者の役割を付けられるのは、プロジェクトの管理者だけです')
+    )
+
+    rpcMock.mockImplementation(async () => ({ data: null, error: { message: 'MFA required' } }))
+    fireEvent.click(within(panel).getByRole('button', { name: '追加' }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('メンバーの追加に失敗しました'))
+    consoleError.mockRestore()
+  })
+
+  it('メール欄を書き換えるとパネルが閉じる', async () => {
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('メールアドレス'), { target: { value: 'other@example.com' } })
+
+    expect(screen.queryByTestId('add-org-member-panel')).not.toBeInTheDocument()
+  })
+
+  it('「やめる」でパネルが閉じる', async () => {
+    const panel = await openPanel()
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'やめる' }))
+
+    expect(screen.queryByTestId('add-org-member-panel')).not.toBeInTheDocument()
   })
 })
