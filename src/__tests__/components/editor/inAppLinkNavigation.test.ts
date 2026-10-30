@@ -41,6 +41,14 @@ describe('resolveInAppLinkTarget — どのリンクを同じタブで開くか'
     )
   })
 
+  it('同じサイトのフル URL も横取りし、/ 始まりに直して返す（CLI で書いた本文はこの形で入る）', () => {
+    const origin = window.location.origin
+    expect(resolveInAppLinkTarget(clickOn(`${origin}/o/project/s/wiki?page=p1#h1`))).toBe(
+      '/o/project/s/wiki?page=p1#h1'
+    )
+    expect(resolveInAppLinkTarget(clickOn(`${origin}/api/files/f1/download`))).toBeNull()
+  })
+
   it('ファイルのダウンロードは横取りしない（画面が変わらないので今までどおり）', () => {
     expect(resolveInAppLinkTarget(clickOn('/api/files/f1/download'))).toBeNull()
   })

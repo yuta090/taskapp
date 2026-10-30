@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { isInAppScreenHref } from '@/lib/navigation/appLinks'
+import { toInAppScreenPath } from '@/lib/navigation/appLinks'
 import { useInPlaceLinkOpener } from './inPlaceLinkOpener'
 
 /** クリックのうち、行き先を決めるのに要る分だけ */
@@ -25,7 +25,7 @@ interface EditorClick {
  *
  * 横取りしないもの:
  * - ファイルのダウンロード（`/api/...`）。画面が変わらないので今までどおりでよい
- * - 外部のサイト
+ * - 外部のサイト（同じサイトのフル URL は `/` 始まりに直して横取りする。CLI で書いた本文はこの形）
  * - Cmd / Ctrl / Shift / Alt を押しながら、または中クリック。新しいタブで開きたい意思表示なので邪魔しない
  */
 export function resolveInAppLinkTarget(event: EditorClick): string | null {
@@ -37,7 +37,7 @@ export function resolveInAppLinkTarget(event: EditorClick): string | null {
   if (!(target instanceof Element)) return null
   const anchor = target.closest('a[href]')
   const href = anchor?.getAttribute('href')
-  return isInAppScreenHref(href) ? href! : null
+  return toInAppScreenPath(href, window.location.origin)
 }
 
 /**

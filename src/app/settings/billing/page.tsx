@@ -7,6 +7,7 @@ import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useBillingLimits } from '@/lib/hooks/useBillingLimits'
 import { CreditCard, Sparkle, Warning, Wrench, ArrowSquareOut, CircleNotch, Gear } from '@phosphor-icons/react'
 import { SettingsBackButton } from '@/components/shared'
+import { StorageBreakdownCard } from '@/components/storage/StorageBreakdownCard'
 import Link from 'next/link'
 
 export default function BillingSettingsPage() {
@@ -137,6 +138,9 @@ export default function BillingSettingsPage() {
 
         {/* Usage Card */}
         <BillingUsageCard orgId={orgId ?? undefined} showWarnings={true} />
+
+        {/* ディスク使用量の内訳（プロジェクトごと）。社内メンバー（owner/member）に表示 */}
+        <StorageBreakdownCard orgId={orgId ?? undefined} canView={role === 'owner' || role === 'member'} />
 
         {/* プラン別の機能一覧（②③の可否） */}
         <PlanFeatureTable orgId={orgId ?? undefined} />

@@ -40,6 +40,11 @@ export interface ManifestSubcommand {
   uploadMode?: boolean
   /** uploadMode=true のとき、完了を確定するツール名 */
   completeTool?: string
+  /**
+   * true のとき、--file/--stdin で読んだ本文の手元の画像を file_upload_url → PUT → file_upload_complete で
+   * 上げ、URL をアップロード結果の downloadPath に差し替えてから tool を呼ぶ。旧 CLI は無視する。
+   */
+  uploadLocalImages?: boolean
   options: ManifestOption[]
 }
 
@@ -134,6 +139,9 @@ function validateSubcommand(sub: ManifestSubcommand, path: string): void {
   }
   if (sub.uploadMode !== undefined && typeof sub.uploadMode !== 'boolean') {
     throw new ManifestValidationError(`${path}: uploadMode must be a boolean`)
+  }
+  if (sub.uploadLocalImages !== undefined && typeof sub.uploadLocalImages !== 'boolean') {
+    throw new ManifestValidationError(`${path}: uploadLocalImages must be a boolean`)
   }
   if (sub.uploadMode && (!sub.completeTool || !TOOL_RE.test(sub.completeTool))) {
     throw new ManifestValidationError(`${path}: uploadMode requires a valid completeTool`)

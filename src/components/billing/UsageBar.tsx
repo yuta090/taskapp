@@ -6,9 +6,12 @@ interface UsageBarProps {
   limit: number | null
   unit?: string
   showWarning?: boolean
+  /** 数字の見せ方（ディスク使用量を MB/GB で出すときなど）。渡すと unit は使わない */
+  format?: (value: number) => string
 }
 
-export function UsageBar({ label, used, limit, unit = '', showWarning = true }: UsageBarProps) {
+export function UsageBar({ label, used, limit, unit = '', showWarning = true, format }: UsageBarProps) {
+  const show = (value: number) => (format ? format(value) : `${value}${unit}`)
   // limit === null は無制限
   if (limit === null) {
     return (
@@ -16,7 +19,7 @@ export function UsageBar({ label, used, limit, unit = '', showWarning = true }: 
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">{label}</span>
           <span className="text-gray-900 font-medium">
-            {used}{unit} / 無制限
+            {show(used)} / 無制限
           </span>
         </div>
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -49,7 +52,7 @@ export function UsageBar({ label, used, limit, unit = '', showWarning = true }: 
       <div className="flex justify-between text-sm">
         <span className="text-gray-600">{label}</span>
         <span className={`font-medium ${textColor}`}>
-          {used}{unit} / {limit}{unit}
+          {show(used)} / {show(limit)}
         </span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
