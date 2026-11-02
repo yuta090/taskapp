@@ -342,6 +342,41 @@ export const DIVIDER_TYPE = 'divider'
  */
 const DIVIDER_LINE_RE = /^(?:-{3,}|\*{3,}|_{3,})\s*$/
 
+/**
+ * 行の色（Wiki と同じ背景色・文字色）。ブロックの前の1行に `<!--color:bg=red text=blue-->` と書く。
+ * 行末に付けないのは、DB のタスク化が行末の `<!--task:uuid-->` を見ていて、題名にも混ざるため。
+ * 独立した行なら、1行ずつ読む DB 側はどの形にも一致せず読み飛ばす。
+ */
+export const MINUTES_BLOCK_COLORS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'] as const
+const COLOR_MARKER_RE = /^<!--color:(bg|text)=([a-z]+)(?: (bg|text)=([a-z]+))?-->\s*$/
+/** 色を持てるブロック。コード・会議メモ・投票などの props には色の欄が無い */
+const COLORABLE_BLOCK_TYPES = new Set([
+  'paragraph',
+  'heading',
+  'bulletListItem',
+  'numberedListItem',
+  'checkListItem',
+  'toggleListItem',
+  'table',
+])
+
+export function isMinutesBlockColor(value: unknown): value is (typeof MINUTES_BLOCK_COLORS)[number] {
+  return (MINUTES_BLOCK_COLORS as readonly unknown[]).includes(value)
+}
+
+/** 色の印を読む。形の違うもの・知らない色は null（文字として残す） */
+function readColorMarker(line: string): Record<string, string> | null {
+  const m = COLOR_MARKER_RE.exec(line)
+  if (!m || m[1] === m[3]) return null
+  const props: Record<string, string> = {}
+  for (const [key, value] of [[m[1], m[2]], [m[3], m[4]]]) {
+    if (key === undefined) continue
+    if (!isMinutesBlockColor(value)) return null
+    props[key === 'bg' ? 'backgroundColor' : 'textColor'] = value
+  }
+  return props
+}
+
 /** 会議メモのブロック種別（エディタ側の独自ブロックと同じ名前）。 */
 export const MEETING_NOTE_TYPE = 'meetingNote'
 
@@ -839,6 +874,7 @@ function isBlockTriggerLine(line: string, lines: string[], idx: number, depth: n
   if (MEETING_NOTE_LINE_RE.test(line)) return true
   // 目次も同じ。1行だけのブロックなので、前後の段落と混ぜない
   if (TOC_LINE_RE.test(line)) return true
+  if (readColorMarker(line)) return true
   if (VOTE_LINE_RE.test(line)) return true
   if (INS_LINE_RE.exec(line)?.[1]) return true
   if (DIVIDER_LINE_RE.test(line)) return true
@@ -938,7 +974,17 @@ function consumeListItem(lines: string[], start: number, end: number, depth: num
     // 採用する(AI がよく書く3〜4スペースの字下げもそのまま子として受ける)。
     const childLevel = nextIndent
     const childStripped = stripIndent(nextRaw, childLevel)
-    if (CHECK_RE.test(childStripped) || BULLET_RE.test(childStripped) || NUMBERED_RE.test(childStripped)) {
+    // 子の項目の色の印。すぐ次が同じ字下げの項目のときだけ印とみなす
+    const childAfterColor =
+      readColorMarker(childStripped) && k + 1 < end && lineIndentChars(lines[k + 1]) === childLevel
+        ? stripIndent(lines[k + 1], childLevel)
+        : null
+    if (
+      (childAfterColor !== null &&
+        (CHECK_RE.test(childAfterColor) || BULLET_RE.test(childAfterColor) || NUMBERED_RE.test(childAfterColor))) ||
+      CHECK_RE.test(childStripped) || BULLET_RE.test(childStripped) ||
+      NUMBERED_RE.test(childStripped)
+    ) {
       const { blocks: childBlocks, nextIndex } = parseBlocks(lines, k, end, childLevel)
       children.push(...childBlocks)
       j = nextIndex
@@ -961,8 +1007,17 @@ function consumeListItem(lines: string[], start: number, end: number, depth: num
 function parseBlocks(lines: string[], start: number, end: number, depth: number): BlockParseResult {
   const blocks: MinutesBlock[] = []
   let i = start
+  // 色の印を読んだあと、次に積まれるブロックへ渡すまで持っておく
+  let pendingColor: { props: Record<string, string>; at: number } | null = null
+  const applyPendingColor = () => {
+    if (!pendingColor || blocks.length <= pendingColor.at) return
+    const block = blocks[pendingColor.at]
+    if (COLORABLE_BLOCK_TYPES.has(block.type)) block.props = { ...block.props, ...pendingColor.props }
+    pendingColor = null
+  }
 
   while (i < end) {
+    applyPendingColor()
     const raw = lines[i]
     if (raw.trim() === '') {
       i++
@@ -988,6 +1043,13 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
     }
 
     const line = stripIndent(raw, depth)
+
+    const colorProps = readColorMarker(line)
+    if (colorProps) {
+      pendingColor = { props: colorProps, at: blocks.length }
+      i++
+      continue
+    }
 
     const fenceMatch = FENCE_RE.exec(line)
     if (fenceMatch) {
@@ -1124,6 +1186,7 @@ function parseBlocks(lines: string[], start: number, end: number, depth: number)
 
     i = consumeParagraphRun(lines, i, end, depth, blocks)
   }
+  applyPendingColor()
 
   return { blocks, nextIndex: i }
 }
@@ -1709,6 +1772,17 @@ function isEmptyParagraph(block: NormalizedBlockView): boolean {
   return block.type === 'paragraph' && contentArrayToText(block.content).trim() === ''
 }
 
+/** 色の印の行。色が無い・色を持てないブロック・空の段落では null */
+function colorMarkerLine(block: NormalizedBlockView): string | null {
+  if (!COLORABLE_BLOCK_TYPES.has(block.type) || isEmptyParagraph(block)) return null
+  const { backgroundColor, textColor } = block.props
+  const parts = [
+    isMinutesBlockColor(backgroundColor) ? `bg=${backgroundColor}` : null,
+    isMinutesBlockColor(textColor) ? `text=${textColor}` : null,
+  ].filter(Boolean)
+  return parts.length > 0 ? `<!--color:${parts.join(' ')}-->` : null
+}
+
 function serializeBlockList(blocks: unknown[]): string[] {
   const flat: FlatEntry[] = []
   flattenBlocks(blocks, 0, flat)
@@ -1744,6 +1818,8 @@ function serializeBlockList(blocks: unknown[]): string[] {
     lastTypeByIndent.set(indent, block.type)
 
     const prefix = '  '.repeat(indent)
+    const colorLine = colorMarkerLine(block)
+    if (colorLine) out.push(prefix + colorLine)
     out.push(...blockToLines(block, computedNumber).map((l) => prefix + l))
 
     prevWasListItem = isListItem
@@ -1754,7 +1830,7 @@ function serializeBlockList(blocks: unknown[]): string[] {
 
 /**
  * BlockNote の `editor.document`（id・既定 props 付きの完全な Block 配列）をそのまま渡せる。
- * 知らない props（textColor・backgroundColor・textAlignment・id など）は無視し、知らない
+ * 知らない props（textAlignment・id など）は無視し、知らない
  * ブロック/inline 種別でも例外を出さず、見つかった文字を段落として書き出す。
  */
 export function serializeMinutesBlocks(blocks: ReadonlyArray<unknown>): string {

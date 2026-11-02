@@ -15,6 +15,8 @@ import {
 import { BlockNoteView } from '@blocknote/mantine'
 import { HeadingLinks, type HeadingLinksEditor } from '@/components/editor/HeadingLinks'
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core'
+import { buildBackgroundColorSlashItems } from '@/components/wiki/blockColors'
+import { wikiTableSpec } from '@/components/wiki/blocks/wikiTableSpec'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core/extensions'
 import { ja as jaLocale } from '@blocknote/core/locales'
 import { CheckCircle, CheckSquareOffset, Checks, Flag, ListBullets, NotePencil, User } from '@phosphor-icons/react'
@@ -354,7 +356,8 @@ export function TaskMetaChip({ kind, name }: TaskMetaChipProps) {
 
 /**
  * 議事録専用スキーマを作る。Wiki と違い、Markdown が正本の議事録では往復できない
- * 見た目（下線・文字色・背景色・meetingsList ブロック等）を持ち込まない。
+ * 見た目（下線・語句単位の色・meetingsList ブロック等）を持ち込まない。
+ * 行単位の色はブロックの props で持ち、`<!--color:…-->` の行で往復する。
  *
  * taskMarker（行末の `<!--task:uuid-->`）はチップ表示のみ・content:'none'（文字を足せない）。
  * orgId/spaceId をクロージャで持たせるため、schema はコンポーネント内で作り直す。
@@ -429,7 +432,8 @@ function useMinutesSchema(
         bulletListItem: defaultBlockSpecs.bulletListItem,
         numberedListItem: defaultBlockSpecs.numberedListItem,
         checkListItem: defaultBlockSpecs.checkListItem,
-        table: defaultBlockSpecs.table,
+        // 表のブロック全体にも背景色を付ける（Wiki と同じ）
+        table: wikiTableSpec,
         codeBlock: defaultBlockSpecs.codeBlock,
         [TOGGLE_TYPE]: toggleListItemSpec,
         [MEETING_NOTE_TYPE]: meetingNoteSpec,
@@ -687,6 +691,8 @@ function MinutesEditorImpl({
           ...getDefaultReactSlashMenuItems(editor).filter((item) =>
             ALLOWED_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
           ),
+          // いまの行の背景色（Wiki と同じ）。いちばん下にまとめる
+          ...buildBackgroundColorSlashItems(editor),
         ],
         query
       ),

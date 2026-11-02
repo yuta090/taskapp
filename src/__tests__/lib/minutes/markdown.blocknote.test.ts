@@ -16,6 +16,7 @@ import {
   defaultStyleSpecs,
 } from '@blocknote/core'
 import { parseMinutesMarkdown, serializeMinutesBlocks, TASK_MARKER_TYPE, type MinutesBlock } from '@/lib/minutes/markdown'
+import { wikiTableSpec } from '@/components/wiki/blocks/wikiTableSpec'
 
 const taskMarkerSpec = createInlineContentSpec(
   {
@@ -153,5 +154,28 @@ describe('BlockNote 実機での確認', () => {
     const lines = out.split('\n')
     expect(lines[0]).toBe('- [ ] SPEC(/spec/a.md#x): タイトル <!--task:aaaa-->')
     expect(lines[1]).not.toMatch(/<!--task:/)
+  })
+})
+
+describe('行の色を本物の BlockNote で往復する', () => {
+  it('段落・リスト・表の色が props に入り、書き出しても同じ形に戻る', () => {
+    const colorSchema = BlockNoteSchema.create({
+      blockSpecs: {
+        paragraph: defaultBlockSpecs.paragraph,
+        bulletListItem: defaultBlockSpecs.bulletListItem,
+        table: wikiTableSpec,
+      },
+      styleSpecs: { bold: defaultStyleSpecs.bold },
+      inlineContentSpecs: { text: defaultInlineContentSpecs.text, link: defaultInlineContentSpecs.link },
+    })
+    const editor = BlockNoteEditor.create({ schema: colorSchema })
+    const md = '<!--color:bg=red text=blue-->\n段落\n\n- a\n<!--color:bg=yellow-->\n- b\n\n<!--color:bg=green-->\n| a | b |\n| --- | --- |\n| 1 | 2 |'
+    editor.replaceBlocks(editor.document, parseMinutesMarkdown(md) as never)
+    const doc = editor.document as unknown as { type: string; props: Record<string, unknown> }[]
+    expect(doc[0].props.backgroundColor).toBe('red')
+    expect(doc[0].props.textColor).toBe('blue')
+    expect(doc[2].props.backgroundColor).toBe('yellow')
+    expect(doc.find((b) => b.type === 'table')?.props.backgroundColor).toBe('green')
+    expect(serializeMinutesBlocks(editor.document)).toBe(md)
   })
 })

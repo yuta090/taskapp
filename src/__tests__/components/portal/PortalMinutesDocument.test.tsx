@@ -181,4 +181,15 @@ describe('PortalMinutesDocument', () => {
     expect(screen.getByText('生の文字列がそのまま出る')).toBeInTheDocument()
     spy.mockRestore()
   })
+
+  it('行の背景色を出し、色の印そのものは文字にしない', () => {
+    const { container } = render(<PortalMinutesDocument md={'<!--color:bg=red-->\n大事な段落\n\n<!--color:bg=blue-->\n- 項目'} />)
+    expect(container.textContent).not.toContain('color:')
+    expect((screen.getByText('大事な段落').parentElement as HTMLElement).style.backgroundColor).toBe(
+      'var(--bn-colors-highlights-red-background)'
+    )
+    expect((screen.getByText('項目').closest('li') as HTMLElement).style.backgroundColor).toBe(
+      'var(--bn-colors-highlights-blue-background)'
+    )
+  })
 })
