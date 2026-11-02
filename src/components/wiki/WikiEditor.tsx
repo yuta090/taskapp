@@ -11,6 +11,7 @@ import { ja as jaLocale } from '@blocknote/core/locales'
 import { CheckSquareOffset, ListBullets, Notebook, NotePencil } from '@phosphor-icons/react'
 import { MeetingsBlock } from './blocks/MeetingsBlock'
 import { wikiTableSpec } from './blocks/wikiTableSpec'
+import { CALLOUT_TYPE, buildCalloutSlashItems, calloutSpec } from './blocks/calloutBlock'
 import { buildBackgroundColorSlashItems } from './blockColors'
 import {
   dividerSpec,
@@ -125,6 +126,8 @@ const schema = BlockNoteSchema.create({
     ...defaultBlockSpecs,
     // 表のブロック全体にも背景色を付けられるようにしたもの（既定は文字色だけ）
     table: wikiTableSpec,
+    // 囲み（補足・ポイント・結論・注意・禁止）。CLI からは `> [!NOTE]` などで書く
+    [CALLOUT_TYPE]: calloutSpec,
     meetingsList: MeetingsBlock(),
     // 議事録の「会議メモ」と同じブロック。Wiki では「メモ」と呼ぶ。相手先ポータルの Wiki も
     // このスキーマで読み取り専用に描くので、ここに入れておけばポータルでも同じ見た目で読める
@@ -404,6 +407,8 @@ export function WikiEditor({
           ...getDefaultReactSlashMenuItems(editor).filter(
             item => !HIDDEN_SLASH_MENU_ITEMS.has((item as { key?: string }).key ?? '')
           ),
+          // 意味で選ぶ色の囲み。自由に選ぶ背景色より先に出す
+          ...buildCalloutSlashItems(editor),
           // いまの行の背景色（Notion の「/赤 背景」と同じ）。いちばん下にまとめる
           ...buildBackgroundColorSlashItems(editor),
         ],
