@@ -437,3 +437,79 @@ describe('画像', () => {
     expect(blocks.map((b) => b.type)).toEqual(['paragraph'])
   })
 })
+
+/**
+ * 行の色（背景色・文字色）。ブロックの直前の独立した1行に `<!--color:bg=red text=blue-->` と書く。
+ * 議事録（src/lib/minutes/markdown.ts の readColorMarker）と同じ約束。色はすぐ次の1ブロックだけに効く。
+ */
+describe('行の色（<!--color:…-->）', () => {
+  type CB = { type: string; props?: Record<string, unknown>; content?: unknown; children?: CB[] }
+  const parse = async (md: string) => JSON.parse(await toWikiBlocksJson(md)) as CB[]
+  const texts = (b: CB) => JSON.stringify(b.content)
+
+  it('段落・見出しの直前の印で背景色と文字色が付き、印は本文に残らない', async () => {
+    const blocks = await parse('<!--color:bg=red text=blue-->\n本文\n\n<!--color:text=green-->\n# 見出し\n\n色なし')
+    expect(blocks).toHaveLength(3)
+    expect(blocks[0]).toMatchObject({ type: 'paragraph', props: { backgroundColor: 'red', textColor: 'blue' } })
+    expect(texts(blocks[0])).not.toContain('color')
+    expect(texts(blocks[0])).toContain('本文')
+    expect(blocks[1]).toMatchObject({ type: 'heading', props: { level: 1, textColor: 'green' } })
+    expect(blocks[2].props).toBeUndefined()
+  })
+
+  it('箇条書き・番号付き・チェック・折りたたみの項目ごとに効く（次の1項目だけ）', async () => {
+    const blocks = await parse(
+      [
+        '- 一つ目',
+        '<!--color:bg=yellow-->',
+        '- 二つ目',
+        '- 三つ目',
+        '',
+        '<!--color:bg=gray-->',
+        '1. 番号',
+        '',
+        '<!--color:bg=purple-->',
+        '- [x] 済み',
+        '',
+        `<!--color:bg=orange-->`,
+        `- ${TOGGLE_MARKER}題名`,
+        '  - 中身',
+      ].join('\n')
+    )
+    const types = blocks.map((b) => b.type)
+    expect(types).toEqual(['bulletListItem', 'bulletListItem', 'bulletListItem', 'numberedListItem', 'checkListItem', 'toggleListItem'])
+    expect(blocks.map((b) => b.props?.backgroundColor)).toEqual([undefined, 'yellow', undefined, 'gray', 'purple', 'orange'])
+    expect(texts(blocks[1])).toContain('二つ目')
+    expect(blocks[4].props?.checked).toBe(true)
+    expect(texts(blocks[5])).toContain('題名')
+    expect(texts(blocks[5])).not.toContain('color')
+  })
+
+  it('字下げした子の項目は、印も同じ字下げで書く', async () => {
+    const blocks = await parse('- 親\n  <!--color:bg=pink-->\n  - 子\n  - 子2')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].props).toBeUndefined()
+    expect(blocks[0].children?.map((c) => c.props?.backgroundColor)).toEqual(['pink', undefined])
+    expect(texts(blocks[0])).not.toContain('color')
+  })
+
+  it('表にも付く（Wiki の表は wikiTableSpec で背景色も持てる）', async () => {
+    const blocks = await parse('<!--color:bg=blue text=red-->\n| a | b |\n|---|---|\n| 1 | 2 |')
+    expect(blocks[0]).toMatchObject({ type: 'table', props: { backgroundColor: 'blue', textColor: 'red' } })
+    expect(JSON.stringify(blocks[0].content)).not.toContain('color')
+  })
+
+  it('コードには付かず、コードの中の印は文字のまま残す', async () => {
+    const blocks = await parse('<!--color:bg=red-->\n```\nx\n```\n\n```\n<!--color:bg=red-->\n本文\n```')
+    expect(blocks.map((b) => b.type)).toEqual(['codeBlock', 'codeBlock'])
+    expect(blocks[0].props).toEqual({ language: '' })
+    expect(texts(blocks[1])).toContain('<!--color:bg=red-->')
+  })
+
+  it('知らない色・形の違う印は色にしない', async () => {
+    const blocks = await parse('<!--color:bg=black-->\n一\n\n<!--color:bg=red bg=blue-->\n二')
+    expect(blocks.filter((b) => b.props?.backgroundColor)).toHaveLength(0)
+    expect(JSON.stringify(blocks)).toContain('一')
+    expect(JSON.stringify(blocks)).toContain('二')
+  })
+})
