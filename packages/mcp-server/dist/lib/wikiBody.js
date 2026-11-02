@@ -199,9 +199,14 @@ function stripTags(html) {
     out += html.slice(i);
     return out.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 }
-function inline(tokens, styles = {}) {
+const MARK_OPEN_RE = /^<mark(\s[^>]*)?>$/i;
+const MARK_CLOSE_RE = /^<\/mark\s*>$/i;
+function inline(tokens, base = {}) {
     const out = [];
+    // `<mark>` と `</mark>` は marked では別々の html トークンになる。間の文字を黄色にする
+    let inMark = false;
     for (const tok of tokens ?? []) {
+        const styles = inMark ? { ...base, backgroundColor: 'yellow' } : base;
         switch (tok.type) {
             case 'text': {
                 const t = tok;
@@ -238,9 +243,16 @@ function inline(tokens, styles = {}) {
             case 'image':
                 out.push(text(tok.text || tok.href, styles));
                 break;
-            case 'html':
-                out.push(text(stripTags(tok.text), styles));
+            case 'html': {
+                const tag = tok.text.trim();
+                if (MARK_OPEN_RE.test(tag))
+                    inMark = true;
+                else if (MARK_CLOSE_RE.test(tag))
+                    inMark = false;
+                else
+                    out.push(text(stripTags(tok.text), styles));
                 break;
+            }
             default:
                 if ('text' in tok && typeof tok.text === 'string')
                     out.push(text(tok.text, styles));
@@ -539,6 +551,8 @@ export function htmlToMarkdown(html) {
     if (!turndown) {
         turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
         turndown.use(gfm);
+        // 黄色マーカーは Markdown に記法が無いので `<mark>` のまま残し、inline() で黄色にする
+        turndown.keep(['mark']);
         // `<details>` は既定だと開閉が消えて題名と中身が段落になる。Markdown 側で折りたたみとして読める
         // 形（開き・summary・空行・中身・空行・閉じ）に書き直す。中身は子要素を変換した Markdown
         turndown.addRule('summary', { filter: 'summary', replacement: () => '' });
