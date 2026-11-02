@@ -33,6 +33,112 @@ const TOGGLE_TYPE = 'toggleListItem';
  */
 export const TOC_MARKER = '<!--toc-->';
 export const TOC_TYPE = 'tableOfContents';
+/**
+ * 行の色（背景色・文字色）。ブロックの直前の独立した1行に `<!--color:bg=red text=blue-->` と書く。
+ * 議事録（src/lib/minutes/markdown.ts の MINUTES_BLOCK_COLORS / readColorMarker）と同じ約束で、
+ * 色はすぐ次の1ブロックだけに効く。別パッケージなので import できず、一致はテストで見張る。
+ */
+export const BLOCK_COLORS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'];
+const COLOR_MARKER_RE = /^<!--color:(bg|text)=([a-z]+)(?: (bg|text)=([a-z]+))?-->\s*$/;
+const COLORABLE_TYPES = new Set(['paragraph', 'heading', 'bulletListItem', 'numberedListItem', 'checkListItem', 'toggleListItem', 'table']);
+/**
+ * marked は印の行を前後の項目から切り離して読むので、印は次の行の本文の頭へ、文字に出てこない目印として移し、
+ * ブロックを組んだあとで取り出す。目印は私用領域の文字（本文から先に消すので、送られた文字とは混ざらない）
+ */
+const COLOR_OPEN = '\uE000';
+const COLOR_CLOSE = '\uE001';
+const COLOR_SENTINEL_RE = /^\uE000([^\uE001]{0,40})\uE001/;
+const FENCE_LINE_RE = /^\s*(`{3,}|~{3,})/;
+/** 印を移す先の行頭（字下げ・リストの印・チェック・折りたたみの印・見出し・表の左端）。ここまでは残して、その後ろに目印を挿す */
+const LINE_HEAD_RE = new RegExp(`^(\\s*(?:(?:[-*+]|\\d{1,9}[.)])\\s+(?:\\[[ xX]\\]\\s+)?(?:${TOGGLE_MARKER})?|#{1,6}\\s+|\\|\\s*)?)`);
+function readColorMarker(line) {
+    const m = COLOR_MARKER_RE.exec(line.trim());
+    if (!m || m[1] === m[3])
+        return null;
+    const props = {};
+    for (const [key, value] of [[m[1], m[2]], [m[3], m[4]]]) {
+        if (key === undefined)
+            continue;
+        if (!BLOCK_COLORS.includes(value))
+            return null;
+        props[key === 'bg' ? 'backgroundColor' : 'textColor'] = value;
+    }
+    return props;
+}
+/** 色の印の行を、次の本文の行の頭の目印に置き換える。コードの中・色を持てない行（コード・画像・引用・HTML）の前の印は消すだけ */
+function moveColorMarkers(md) {
+    const lines = md.split('\n');
+    const out = [];
+    let fence = null;
+    let pending = null;
+    for (const line of lines) {
+        const f = FENCE_LINE_RE.exec(line)?.[1];
+        if (fence) {
+            if (f && f[0] === fence[0] && f.length >= fence.length)
+                fence = null;
+            out.push(line);
+            continue;
+        }
+        if (f) {
+            fence = f;
+            pending = null;
+            out.push(line);
+            continue;
+        }
+        const props = readColorMarker(line);
+        if (props) {
+            pending = Object.entries(props).map(([k, v]) => `${k}=${v}`).join(' ');
+            continue;
+        }
+        if (pending !== null && line.trim() !== '') {
+            const head = LINE_HEAD_RE.exec(line)?.[1] ?? '';
+            const rest = line.slice(head.length);
+            if (!/^(!\[|>|<)/.test(rest.trimStart()) || rest.startsWith(TOGGLE_MARKER)) {
+                out.push(head + COLOR_OPEN + pending + COLOR_CLOSE + rest);
+                pending = null;
+                continue;
+            }
+            pending = null;
+        }
+        out.push(line);
+    }
+    return out.join('\n');
+}
+/** ブロックの頭の目印を色の props に戻す。目印は（色を持てないブロックでも）必ず本文から外す */
+function applyColorSentinels(list) {
+    for (const b of list) {
+        const first = firstText(b);
+        const m = first ? COLOR_SENTINEL_RE.exec(first.text) : null;
+        if (first && m) {
+            first.text = first.text.slice(m[0].length);
+            if (COLORABLE_TYPES.has(b.type)) {
+                const props = { ...(b.props ?? {}) };
+                for (const pair of m[1].split(' ')) {
+                    const [k, v] = pair.split('=');
+                    // BlockNote の表は文字色だけを持つ（背景色の欄が無い）
+                    if (b.type === 'table' && k === 'backgroundColor')
+                        continue;
+                    props[k] = v;
+                }
+                b.props = props;
+            }
+        }
+        if (b.children)
+            applyColorSentinels(b.children);
+    }
+}
+function firstText(b) {
+    const c = b.content;
+    let inl;
+    if (Array.isArray(c))
+        inl = c[0];
+    else if (c && typeof c === 'object' && 'rows' in c)
+        inl = c.rows[0]?.cells[0]?.[0];
+    if (!inl || typeof inl !== 'object')
+        return undefined;
+    const i = inl;
+    return i.type === 'text' ? i : i.content[0];
+}
 /** 罫線。`---` `***` `___` と `<hr>` のどれで書いても同じブロックにする */
 const DIVIDER_TYPE = 'divider';
 // 本文は API キーを持つ人なら誰でも送れるので、タグを探す正規表現は後戻りで時間が伸びない形にする
@@ -286,10 +392,10 @@ function detailsBlock(tokens, start, close) {
     try {
         for (const part of [head, afterSummary])
             if (part.trim())
-                children.push(...markdownToBlocks(part));
+                children.push(...parseMarkdown(part));
         children.push(...blocks(middle));
         if (tail.trim())
-            children.push(...markdownToBlocks(tail));
+            children.push(...parseMarkdown(tail));
     }
     finally {
         detailsDepth--;
@@ -364,7 +470,7 @@ function blocks(tokens) {
                     // 閉じと同じ塊で、空行を挟まずに続けて書いた本文
                     const trailing = tokens[close.token].raw.slice(close.end);
                     if (trailing.trim())
-                        out.push(...markdownToBlocks(trailing));
+                        out.push(...parseMarkdown(trailing));
                     i = close.token;
                     break;
                 }
@@ -396,8 +502,14 @@ function blocks(tokens) {
     return out;
 }
 export function markdownToBlocks(md) {
-    const tokens = marked.lexer(md, { gfm: true });
-    return blocks(tokens);
+    // 目印に使う文字は、送られた本文からは先に消す（本文の文字が色に化けないように）
+    const out = parseMarkdown(md.replace(/[\uE000\uE001]/g, ''));
+    applyColorSentinels(out);
+    return out;
+}
+/** 中で読み直す `<details>` の中身も通る。目印は最後に markdownToBlocks でまとめて色に戻す */
+function parseMarkdown(md) {
+    return blocks(marked.lexer(moveColorMarkers(md), { gfm: true }));
 }
 let turndown = null;
 export function htmlToMarkdown(html) {

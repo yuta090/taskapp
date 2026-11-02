@@ -816,6 +816,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           'agentpm wiki create --title "メモ" --body "# 見出し"',
           'agentpm wiki create --title "画面" --file page.md   # 本文の ![説明](./shot.png) は自動でアップロードされる（CLI 0.6.0+）',
           'agentpm wiki create --title "画面" --body "![画面写真](/api/files/<file-id>/download)"   # 画像は先に file upload で上げる',
+          'agentpm wiki create --title "決定" --file page.md   # 行の色は、ブロックの直前の1行に <!--color:bg=yellow--> と書く',
         ],
         options: [
           spaceOpt,
@@ -918,7 +919,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         options: [
           spaceOpt,
           { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
-          { flags: '--minutes-md <md>', description: 'Minutes content (Markdown)', param: 'minutesMd', required: true },
+          { flags: '--minutes-md <md>', description: 'Minutes content (Markdown). Row color: put <!--color:bg=red text=blue--> on its own line just before the block', param: 'minutesMd', required: true },
           {
             flags: '--expected-updated-at <ts>',
             description:
@@ -983,7 +984,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         options: [
           spaceOpt,
           { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
-          { flags: '--content <md>', description: 'Content to append (Markdown)', param: 'content', required: true },
+          { flags: '--content <md>', description: 'Content to append (Markdown). Row color: put <!--color:bg=red text=blue--> on its own line just before the block', param: 'content', required: true },
         ],
       },
       {
