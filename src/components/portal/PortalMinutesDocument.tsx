@@ -1,9 +1,10 @@
 'use client'
 
-import { Fragment, useContext, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useContext, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { CheckSquare, Square } from '@phosphor-icons/react'
 import {
   MEETING_NOTE_TYPE,
+  isMinutesBlockColor,
   parseMinutesMarkdown,
   serializeMinutesBlocks,
   TASK_MARKER_TYPE,
@@ -215,15 +216,28 @@ function renderTable(block: MinutesBlock, key: React.Key): ReactNode {
   )
 }
 
+/** 行の色。エディタと同じ色の変数を使う。色の値は決まった9色のときだけ通す */
+function blockColorStyle(block: MinutesBlock): CSSProperties | undefined {
+  const { backgroundColor, textColor } = block.props ?? {}
+  const bg = isMinutesBlockColor(backgroundColor) ? backgroundColor : null
+  const text = isMinutesBlockColor(textColor) ? textColor : null
+  if (!bg && !text) return undefined
+  return {
+    ...(bg ? { backgroundColor: `var(--bn-colors-highlights-${bg}-background)` } : {}),
+    ...(text ? { color: `var(--bn-colors-highlights-${text}-text)` } : {}),
+  }
+}
+
 function renderListItem(block: MinutesBlock, key: React.Key): ReactNode {
   const items = Array.isArray(block.content) ? block.content : []
   const childNodes = block.children && block.children.length ? renderBlocks(block.children) : null
+  const colorStyle = blockColorStyle(block)
 
   if (block.type === 'checkListItem') {
     const checked = block.props?.checked === true
     const Icon = checked ? CheckSquare : Square
     return (
-      <li key={key} className="flex items-start gap-1.5">
+      <li key={key} style={colorStyle} className={`flex items-start gap-1.5${colorStyle ? ' rounded px-3 py-2' : ''}`}>
         <Icon className="mt-0.5 shrink-0 text-gray-400" />
         {/* 子は入れ子のリストだけでなく段落・見出し・表も来るので、span ではなく div で受ける */}
         <div className="min-w-0 flex-1 whitespace-pre-wrap">
@@ -236,7 +250,7 @@ function renderListItem(block: MinutesBlock, key: React.Key): ReactNode {
 
   return (
     // 項目の中の改行(Shift+Enter で書いた続き行)をそのまま見せる
-    <li key={key} className="whitespace-pre-wrap">
+    <li key={key} style={colorStyle} className={`whitespace-pre-wrap${colorStyle ? ' rounded px-3 py-2' : ''}`}>
       {renderInline(items)}
       {childNodes}
     </li>
@@ -319,6 +333,18 @@ function renderMeetingNote(block: MinutesBlock, key: React.Key): ReactNode {
 }
 
 function renderBlock(block: MinutesBlock, key: React.Key, isFirst: boolean): ReactNode {
+  const colorStyle = blockColorStyle(block)
+  if (colorStyle) {
+    return (
+      <div key={key} style={colorStyle} className="rounded px-3 py-2 my-2 [&>*]:!text-inherit [&>*]:!my-0">
+        {renderBlockBody(block, 'body', isFirst)}
+      </div>
+    )
+  }
+  return renderBlockBody(block, key, isFirst)
+}
+
+function renderBlockBody(block: MinutesBlock, key: React.Key, isFirst: boolean): ReactNode {
   switch (block.type) {
     case 'heading':
       return renderHeading(block, key, isFirst)

@@ -528,9 +528,9 @@ describe('serializeMinutesBlocks: 基本', () => {
     expect(serializeMinutesBlocks(blocks)).toBe('# 見出し\n\n- a\n- b\n\np')
   })
 
-  it('知らない props (id・textColor等)は無視する', () => {
+  it('知らない props (id等)と文字単位の色は無視する', () => {
     const out = serializeMinutesBlocks([
-      { id: 'xyz', type: 'paragraph', props: { textColor: 'red', backgroundColor: 'blue' }, content: [{ type: 'text', text: 'a', styles: { textColor: 'red' } }] } as unknown as MinutesBlock,
+      { id: 'xyz', type: 'paragraph', props: { textAlignment: 'center' }, content: [{ type: 'text', text: 'a', styles: { textColor: 'red' } }] } as unknown as MinutesBlock,
     ])
     expect(out).toBe('a')
   })

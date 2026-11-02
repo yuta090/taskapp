@@ -29,6 +29,12 @@ export declare const TOGGLE_MARKER = "<!--toggle-->";
  */
 export declare const TOC_MARKER = "<!--toc-->";
 export declare const TOC_TYPE = "tableOfContents";
+/**
+ * 行の色（背景色・文字色）。ブロックの直前の独立した1行に `<!--color:bg=red text=blue-->` と書く。
+ * 議事録（src/lib/minutes/markdown.ts の MINUTES_BLOCK_COLORS / readColorMarker）と同じ約束で、
+ * 色はすぐ次の1ブロックだけに効く。別パッケージなので import できず、一致はテストで見張る。
+ */
+export declare const BLOCK_COLORS: readonly ["gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink", "red"];
 /** 本文の形式を推定する。JSON のブロック配列 → blocks / HTML らしければ html / それ以外 markdown */
 export declare function detectWikiBodyFormat(body: string): WikiBodyFormat;
 export interface InlineStyles {
