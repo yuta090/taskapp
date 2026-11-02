@@ -923,7 +923,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         options: [
           spaceOpt,
           { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
-          { flags: '--minutes-md <md>', description: 'Minutes content (Markdown). Row color: put <!--color:bg=red text=blue--> on its own line just before the block', param: 'minutesMd', required: true },
+          { flags: '--minutes-md <md>', description: 'Minutes content (Markdown). Row color: put <!--color:bg=red text=blue--> on its own line just before the block. Callouts (> [!NOTE] etc.) are wiki-only and stay as plain text in minutes', param: 'minutesMd', required: true },
           {
             flags: '--expected-updated-at <ts>',
             description:
@@ -988,7 +988,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         options: [
           spaceOpt,
           { flags: '--meeting-id <id>', description: 'Meeting ID', param: 'meetingId', required: true },
-          { flags: '--content <md>', description: 'Content to append (Markdown). Row color: put <!--color:bg=red text=blue--> on its own line just before the block', param: 'content', required: true },
+          { flags: '--content <md>', description: 'Content to append (Markdown). Row color: put <!--color:bg=red text=blue--> on its own line just before the block. Callouts (> [!NOTE] etc.) are wiki-only and stay as plain text in minutes', param: 'content', required: true },
         ],
       },
       {

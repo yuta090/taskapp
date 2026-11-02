@@ -617,3 +617,22 @@ describe('囲み（> [!NOTE] など）', () => {
     expect(JSON.stringify(blocks)).not.toContain('color:')
   })
 })
+
+describe('囲み（callout）と行の色の印', () => {
+  type CB = { type: string; props?: Record<string, unknown>; content?: unknown; children?: CB[] }
+  const parse = async (md: string) => JSON.parse(await toWikiBlocksJson(md)) as CB[]
+
+  it('囲みの直前の色の印は消え、囲みはそのまま組まれる（本文に印が残らない）', async () => {
+    const blocks = await parse('<!--color:bg=red-->\n> [!NOTE]\n> 補足です')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind: 'note' } })
+    expect(JSON.stringify(blocks)).not.toMatch(/color||/)
+  })
+
+  it('囲みの中の子の項目には色が付く', async () => {
+    const blocks = await parse('> [!TIP]\n> ポイント\n> <!--color:bg=yellow-->\n> - 一つ目\n> - 二つ目')
+    expect(blocks[0].type).toBe('callout')
+    expect(blocks[0].children?.map((c) => c.props?.backgroundColor)).toEqual(['yellow', undefined])
+    expect(JSON.stringify(blocks)).not.toMatch(/color:||/)
+  })
+})
