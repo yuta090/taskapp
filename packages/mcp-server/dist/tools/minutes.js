@@ -12,7 +12,7 @@ const minutesGetSchema = z.object({
 const minutesUpdateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().describe('会議ID'),
-    minutesMd: z.string().describe('議事録本文（Markdown）。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）'),
+    minutesMd: z.string().describe('議事録本文（Markdown）。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）。囲み（> [!NOTE] などのアラート記法）は Wiki だけで、議事録では囲みにならず文字のまま残る'),
     expectedUpdatedAt: z
         .string()
         .optional()
@@ -21,7 +21,7 @@ const minutesUpdateSchema = z.object({
 const minutesAppendSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().describe('会議ID'),
-    content: z.string().describe('追記する内容（Markdown）。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）'),
+    content: z.string().describe('追記する内容（Markdown）。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）。囲み（> [!NOTE] などのアラート記法）は Wiki だけで、議事録では囲みにならず文字のまま残る'),
 });
 const minutesTocSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
