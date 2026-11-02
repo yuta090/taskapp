@@ -421,6 +421,25 @@ function imageBlocks(tokens) {
         return null;
     return images.map((img) => ({ type: 'image', props: { url: img.href, name: img.text } }));
 }
+const CALLOUT_TYPE = 'callout';
+/** アラート記法の1行目。種類は callout の kind（5種類）に1対1で対応する。同じ行にほかの文字があれば囲みにしない */
+const CALLOUT_HEAD_RE = /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i;
+/**
+ * 引用の1行目が `[!NOTE]` などなら囲みにする。2行目以降は引用の `>` を外して Markdown として読み直し、
+ * 先頭が段落ならその文字を囲みの content に、残りを children にする（箇条書き・複数段落・見出し・コードも入る）。
+ * アラートでない引用は null（呼び出し側が従来どおりイタリック段落にする）。
+ */
+function calloutBlock(tok) {
+    const lines = tok.raw.replace(/\n+$/, '').split('\n').map((l) => l.replace(/^ {0,3}>[ \t]?/, ''));
+    const kind = CALLOUT_HEAD_RE.exec(lines[0])?.[1];
+    if (!kind)
+        return null;
+    const inner = lines.slice(1).join('\n');
+    const parsed = inner.trim() ? parseMarkdown(inner) : [];
+    const head = parsed[0]?.type === 'paragraph' ? parsed.shift() : undefined;
+    const block = { type: CALLOUT_TYPE, props: { kind: kind.toLowerCase() }, content: head?.content ?? [] };
+    return parsed.length ? { ...block, children: parsed } : block;
+}
 function blocks(tokens) {
     const out = [];
     // 深すぎる入れ子の中では `<details>` を折りたたみにしない（文字として残す）
@@ -452,7 +471,13 @@ function blocks(tokens) {
             case 'table':
                 out.push(tableBlock(tok));
                 break;
-            case 'blockquote':
+            case 'blockquote': {
+                // GitHub のアラート記法（`> [!NOTE]` など）は囲みにする
+                const callout = calloutBlock(tok);
+                if (callout) {
+                    out.push(callout);
+                    break;
+                }
                 // 引用はイタリック段落として平坦化する（BlockNote 既定スキーマに引用ブロックが無い）
                 for (const b of blocks(tok.tokens)) {
                     if (Array.isArray(b.content))
@@ -460,6 +485,7 @@ function blocks(tokens) {
                     out.push(b);
                 }
                 break;
+            }
             case 'html': {
                 const close = detailsCloses?.get(i);
                 if (close) {

@@ -513,3 +513,126 @@ describe('行の色（<!--color:…-->）', () => {
     expect(JSON.stringify(blocks)).toContain('二')
   })
 })
+
+/**
+ * 囲み（callout）。GitHub のアラート記法（`> [!NOTE]` ＋ 続く引用行）を囲みブロックにする。
+ * 最初の段落は callout の content、残りは children。アラートでない引用は従来どおりイタリック段落。
+ */
+describe('囲み（> [!NOTE] など）', () => {
+  type CB = { type: string; props?: Record<string, unknown>; content?: { text?: string; styles?: Record<string, unknown> }[]; children?: CB[] }
+  const parse = async (md: string) => JSON.parse(await toWikiBlocksJson(md)) as CB[]
+  const plain = (b: CB) => (b.content ?? []).map((c) => c.text ?? '').join('')
+
+  it.each([
+    ['NOTE', 'note'],
+    ['TIP', 'tip'],
+    ['IMPORTANT', 'important'],
+    ['WARNING', 'warning'],
+    ['CAUTION', 'caution'],
+  ])('[!%s] は kind=%s の囲みになる', async (mark, kind) => {
+    const blocks = await parse(`> [!${mark}]\n> 本文です`)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind } })
+    expect(plain(blocks[0])).toBe('本文です')
+    expect(blocks[0].children).toBeUndefined()
+  })
+
+  it('小文字・前後の空白も受ける', async () => {
+    const blocks = await parse('> [!note]  \n> 補足')
+    expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind: 'note' } })
+    expect(plain(blocks[0])).toBe('補足')
+  })
+
+  it('中の段落が2つなら、1つ目が content・2つ目が children', async () => {
+    const blocks = await parse('> [!TIP]\n> 一つ目\n>\n> 二つ目')
+    expect(blocks).toHaveLength(1)
+    expect(plain(blocks[0])).toBe('一つ目')
+    expect(blocks[0].children).toHaveLength(1)
+    expect(blocks[0].children![0]).toMatchObject({ type: 'paragraph' })
+    expect(plain(blocks[0].children![0])).toBe('二つ目')
+  })
+
+  it('段落のあとの箇条書きは children に入る', async () => {
+    const blocks = await parse('> [!IMPORTANT]\n> 結論\n>\n> - 項目A\n> - 項目B')
+    expect(plain(blocks[0])).toBe('結論')
+    expect(blocks[0].children?.map((c) => c.type)).toEqual(['bulletListItem', 'bulletListItem'])
+    expect(plain(blocks[0].children![1])).toBe('項目B')
+  })
+
+  it('先頭が箇条書きなら content は空で、全部 children', async () => {
+    const blocks = await parse('> [!WARNING]\n> - 期限\n> - 条件')
+    expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind: 'warning' }, content: [] })
+    expect(blocks[0].children?.map((c) => c.type)).toEqual(['bulletListItem', 'bulletListItem'])
+  })
+
+  it('見出し・コードも children に入る', async () => {
+    const blocks = await parse('> [!NOTE]\n> ### 小見出し\n>\n> ```\n> code\n> ```')
+    expect(blocks[0].content).toEqual([])
+    expect(blocks[0].children?.map((c) => c.type)).toEqual(['heading', 'codeBlock'])
+  })
+
+  it('中身が空のアラートは content が空で children なし', async () => {
+    for (const md of ['> [!CAUTION]', '> [!CAUTION]\n>']) {
+      const blocks = await parse(md)
+      expect(blocks).toHaveLength(1)
+      expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind: 'caution' }, content: [] })
+      expect(blocks[0].children).toBeUndefined()
+    }
+  })
+
+  it('`>` のあとに空白がない行でも読める', async () => {
+    const blocks = await parse('>[!NOTE]\n>本文')
+    expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind: 'note' } })
+    expect(plain(blocks[0])).toBe('本文')
+  })
+
+  it('囲みの前後の段落はそのまま残り、囲みの中は斜体にならない', async () => {
+    const blocks = await parse('前\n\n> [!NOTE]\n> 中\n\n後')
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'callout', 'paragraph'])
+    expect(blocks[1].content?.some((c) => c.styles?.italic)).toBe(false)
+  })
+
+  it('普通の引用は従来どおりイタリックの段落', async () => {
+    const blocks = await parse('> 引用です')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].type).toBe('paragraph')
+    expect(blocks[0].content?.[0]).toMatchObject({ text: '引用です', styles: { italic: true } })
+  })
+
+  it('`[!NOTE] 文字` のように同じ行に文字があるものは囲みにしない', async () => {
+    const blocks = await parse('> [!NOTE] 文字\n> 本文')
+    expect(blocks.some((b) => b.type === 'callout')).toBe(false)
+    expect(blocks[0].type).toBe('paragraph')
+    expect(JSON.stringify(blocks)).toContain('文字')
+  })
+
+  it('知らない種類（[!FOO]）は囲みにしない', async () => {
+    const blocks = await parse('> [!FOO]\n> 本文')
+    expect(blocks.some((b) => b.type === 'callout')).toBe(false)
+  })
+
+  it('囲みの中でも行の色の印が効き、印は本文に残らない', async () => {
+    const blocks = await parse('> [!NOTE]\n> 一つ目\n>\n> <!--color:bg=yellow-->\n> - 項目\n> - 項目2')
+    expect(blocks[0].children?.map((c) => c.props?.backgroundColor)).toEqual(['yellow', undefined])
+    expect(JSON.stringify(blocks)).not.toContain('color:')
+  })
+})
+
+describe('囲み（callout）と行の色の印', () => {
+  type CB = { type: string; props?: Record<string, unknown>; content?: unknown; children?: CB[] }
+  const parse = async (md: string) => JSON.parse(await toWikiBlocksJson(md)) as CB[]
+
+  it('囲みの直前の色の印は消え、囲みはそのまま組まれる（本文に印が残らない）', async () => {
+    const blocks = await parse('<!--color:bg=red-->\n> [!NOTE]\n> 補足です')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind: 'note' } })
+    expect(JSON.stringify(blocks)).not.toMatch(/color||/)
+  })
+
+  it('囲みの中の子の項目には色が付く', async () => {
+    const blocks = await parse('> [!TIP]\n> ポイント\n> <!--color:bg=yellow-->\n> - 一つ目\n> - 二つ目')
+    expect(blocks[0].type).toBe('callout')
+    expect(blocks[0].children?.map((c) => c.props?.backgroundColor)).toEqual(['yellow', undefined])
+    expect(JSON.stringify(blocks)).not.toMatch(/color:||/)
+  })
+})
