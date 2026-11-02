@@ -1095,6 +1095,166 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 }
 
 /* ============================================
+   Wiki の囲み（補足・ポイント・結論・注意・禁止）
+   ============================================ */
+
+/* 意味で選ぶ色（ユーザー要望・2026-11-02）。9色の背景色は自由に使う色、こちらは「何の情報か」を
+ * 伝える色で、CLI は `> [!NOTE]` などで書く（`src/components/wiki/blocks/calloutBlock.tsx`）。
+ * 面の色は9色の背景色と同じ淡さに揃え、左の線と名前の文字で種類を見分けさせる。
+ * 注意（黄）はアンバーに寄せない。アンバーは「相手先に見える」印の色として予約しているため。
+ * -bg: 面 / -line: 左の線 / -label: 名前の文字。ダークは面を薄く重ね、線と文字を明るくする */
+:root {
+  --callout-note-bg: #eff6fa;
+  --callout-note-line: #4f8fc6;
+  --callout-note-label: #2d6ea3;
+  --callout-tip-bg: #f1f7f2;
+  --callout-tip-line: #4a9a6a;
+  --callout-tip-label: #2f7a4f;
+  --callout-important-bg: #f6f3f9;
+  --callout-important-line: #8b66c2;
+  --callout-important-label: #6b45a3;
+  --callout-warning-bg: #fcf8e8;
+  --callout-warning-line: #c8a415;
+  --callout-warning-label: #786300;
+  --callout-caution-bg: #fdf2f2;
+  --callout-caution-line: #d4605c;
+  --callout-caution-label: #b23d39;
+}
+
+html.dark {
+  --callout-note-bg: rgba(94, 135, 201, 0.14);
+  --callout-note-line: #5e87c9;
+  --callout-note-label: #8fb3ea;
+  --callout-tip-bg: rgba(82, 158, 114, 0.13);
+  --callout-tip-line: #529e72;
+  --callout-tip-label: #86c7a0;
+  --callout-important-bg: rgba(157, 104, 211, 0.13);
+  --callout-important-line: #9d68d3;
+  --callout-important-label: #c3a2ec;
+  --callout-warning-bg: rgba(212, 184, 74, 0.13);
+  --callout-warning-line: #d4b84a;
+  --callout-warning-label: #e3cf72;
+  --callout-caution-bg: rgba(223, 84, 82, 0.13);
+  --callout-caution-line: #df5452;
+  --callout-caution-label: #f08f8c;
+}
+
+/* 囲みの面。子のブロック（2つ目以降の段落・箇条書き）は BlockNote の入れ子として
+ * `.bn-block-content` の外に描かれるので、子ごと包む `.bn-block` を塗る。
+ * React で描くブロックは `.react-renderer` を1枚挟むことがあるので、両方の形を拾う */
+.bn-block:has(> .bn-block-content[data-content-type="callout"], > .react-renderer > .bn-block-content[data-content-type="callout"]) {
+  --callout-bg: var(--callout-note-bg);
+  --callout-line: var(--callout-note-line);
+  --callout-label: var(--callout-note-label);
+  background: var(--callout-bg);
+  border-left: 3px solid var(--callout-line);
+  border-radius: 6px;
+  padding: 8px 14px 10px 12px;
+  margin-block: 6px;
+}
+
+.bn-block:has(> .bn-block-content .wiki-callout[data-callout-kind="tip"], > .react-renderer > .bn-block-content .wiki-callout[data-callout-kind="tip"]) {
+  --callout-bg: var(--callout-tip-bg);
+  --callout-line: var(--callout-tip-line);
+  --callout-label: var(--callout-tip-label);
+}
+
+.bn-block:has(> .bn-block-content .wiki-callout[data-callout-kind="important"], > .react-renderer > .bn-block-content .wiki-callout[data-callout-kind="important"]) {
+  --callout-bg: var(--callout-important-bg);
+  --callout-line: var(--callout-important-line);
+  --callout-label: var(--callout-important-label);
+}
+
+.bn-block:has(> .bn-block-content .wiki-callout[data-callout-kind="warning"], > .react-renderer > .bn-block-content .wiki-callout[data-callout-kind="warning"]) {
+  --callout-bg: var(--callout-warning-bg);
+  --callout-line: var(--callout-warning-line);
+  --callout-label: var(--callout-warning-label);
+}
+
+.bn-block:has(> .bn-block-content .wiki-callout[data-callout-kind="caution"], > .react-renderer > .bn-block-content .wiki-callout[data-callout-kind="caution"]) {
+  --callout-bg: var(--callout-caution-bg);
+  --callout-line: var(--callout-caution-line);
+  --callout-label: var(--callout-caution-label);
+}
+
+/* 中の段落・箇条書きは字下げせず、入れ子の縦線も引かない（囲みの中の続きとして読ませる） */
+.bn-block:has(> .bn-block-content[data-content-type="callout"], > .react-renderer > .bn-block-content[data-content-type="callout"]) > .bn-block-group {
+  margin-left: 0;
+}
+
+.bn-block:has(> .bn-block-content[data-content-type="callout"], > .react-renderer > .bn-block-content[data-content-type="callout"]) > .bn-block-group > .bn-block-outer::before {
+  border-left: none !important;
+}
+
+.wiki-callout {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.wiki-callout-head {
+  margin-bottom: 2px;
+}
+
+.wiki-callout-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--callout-label);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.wiki-callout-label:disabled {
+  cursor: default;
+}
+
+.wiki-callout-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  width: 320px;
+  padding: 4px;
+  border: 1px solid var(--bn-colors-border);
+  border-radius: 8px;
+  background: var(--bn-colors-menu-background);
+  box-shadow: var(--bn-shadow-medium);
+}
+
+.wiki-callout-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--bn-colors-menu-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wiki-callout-menu-item:hover,
+.wiki-callout-menu-item[aria-checked="true"] {
+  background: var(--bn-colors-hovered-background);
+}
+
+.wiki-callout-menu-item[data-kind-option="note"] .wiki-callout-menu-icon { color: var(--callout-note-label); }
+.wiki-callout-menu-item[data-kind-option="tip"] .wiki-callout-menu-icon { color: var(--callout-tip-label); }
+.wiki-callout-menu-item[data-kind-option="important"] .wiki-callout-menu-icon { color: var(--callout-important-label); }
+.wiki-callout-menu-item[data-kind-option="warning"] .wiki-callout-menu-icon { color: var(--callout-warning-label); }
+.wiki-callout-menu-item[data-kind-option="caution"] .wiki-callout-menu-icon { color: var(--callout-caution-label); }
+
+/* ============================================
    Japanese Web Design / LP Elements
    ============================================ */
 

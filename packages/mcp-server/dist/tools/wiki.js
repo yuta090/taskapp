@@ -39,7 +39,7 @@ const wikiGetSchema = z.object({
 const wikiCreateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     title: z.string().describe('ページタイトル'),
-    body: z.string().optional().describe('ページ本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）。画像は先にファイルとして上げ（CLI は agentpm file upload）、返った downloadPath を1行で ![説明](downloadPath) と書く。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）'),
+    body: z.string().optional().describe('ページ本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）。画像は先にファイルとして上げ（CLI は agentpm file upload）、返った downloadPath を1行で ![説明](downloadPath) と書く。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）。囲み（色付きの枠）は引用の1行目に [!種類] と書く。使い分け: > [!NOTE] 補足（前提・背景・用語の説明）／> [!TIP] ポイント（読み手がやるとよいこと・コツ）／> [!IMPORTANT] 結論（決まったこと・その節の要点）／> [!WARNING] 注意（期限・条件・見落としやすい点）／> [!CAUTION] 禁止（やってはいけないこと・取り消せない操作）。中に段落・箇条書きを複数書ける。多いと全部が目立たなくなるので、長い文書でも1節に1〜2個まで'),
     format: bodyFormatSchema,
     tags: z.array(z.string()).optional().describe('タグ配列（「仕様書」を付けるとタスクの「仕様書連携」で選べる）'),
 });
@@ -47,7 +47,7 @@ export const wikiUpdateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     pageId: z.string().describe('WikiページID'),
     title: z.string().optional().describe('タイトル'),
-    body: z.string().optional().describe('本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）。画像は先にファイルとして上げ（CLI は agentpm file upload）、返った downloadPath を1行で ![説明](downloadPath) と書く。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）'),
+    body: z.string().optional().describe('本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）。画像は先にファイルとして上げ（CLI は agentpm file upload）、返った downloadPath を1行で ![説明](downloadPath) と書く。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）。囲み（色付きの枠）は引用の1行目に [!種類] と書く。使い分け: > [!NOTE] 補足（前提・背景・用語の説明）／> [!TIP] ポイント（読み手がやるとよいこと・コツ）／> [!IMPORTANT] 結論（決まったこと・その節の要点）／> [!WARNING] 注意（期限・条件・見落としやすい点）／> [!CAUTION] 禁止（やってはいけないこと・取り消せない操作）。中に段落・箇条書きを複数書ける。多いと全部が目立たなくなるので、長い文書でも1節に1〜2個まで'),
     format: bodyFormatSchema,
     tags: z.array(z.string()).optional().describe('タグ配列'),
     parentPageId: nullableIdSchema.describe('親ページID（フォルダ表示）。null または none で根に戻す。別スペースの親・循環はDB側で拒否される'),

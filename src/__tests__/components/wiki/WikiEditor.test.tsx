@@ -232,7 +232,7 @@ describe('WikiEditor slash menu and Japanese texts', () => {
     render(<WikiEditor editable orgId={ORG_ID} spaceId={SPACE_ID} />)
     const items = await capturedSlashMenuProps!.getItems!('')
     // 先頭はメモ、次に自前のリンク4種。そのあとが BlockNote の既定（video/audio を除く）。
-    // いちばん下に背景色（9色と「背景を外す」）
+    // そのあとに囲み5種類、いちばん下に背景色（9色と「背景を外す」）
     expect(items.map(item => item.key)).toEqual([
       'insert_note',
       'insert_toc',
@@ -241,6 +241,7 @@ describe('WikiEditor slash menu and Japanese texts', () => {
       'insert_link_wiki',
       'insert_link_meeting',
       'heading', 'bullet_list', 'image', 'file',
+      'callout_note', 'callout_tip', 'callout_important', 'callout_warning', 'callout_caution',
       'bg_gray', 'bg_brown', 'bg_orange', 'bg_yellow', 'bg_green',
       'bg_blue', 'bg_purple', 'bg_pink', 'bg_red', 'bg_default',
     ])
