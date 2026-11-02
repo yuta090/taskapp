@@ -123,8 +123,6 @@ function applyColorSentinels(list: Block[]): void {
         const props: Record<string, unknown> = { ...(b.props ?? {}) }
         for (const pair of m[1].split(' ')) {
           const [k, v] = pair.split('=')
-          // BlockNote の表は文字色だけを持つ（背景色の欄が無い）
-          if (b.type === 'table' && k === 'backgroundColor') continue
           props[k] = v
         }
         b.props = props

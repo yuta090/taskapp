@@ -493,10 +493,9 @@ describe('行の色（<!--color:…-->）', () => {
     expect(texts(blocks[0])).not.toContain('color')
   })
 
-  it('表には文字色だけが付く（BlockNote の表に背景色の欄は無い）', async () => {
+  it('表にも付く（Wiki の表は wikiTableSpec で背景色も持てる）', async () => {
     const blocks = await parse('<!--color:bg=blue text=red-->\n| a | b |\n|---|---|\n| 1 | 2 |')
-    expect(blocks[0]).toMatchObject({ type: 'table', props: { textColor: 'red' } })
-    expect(blocks[0].props?.backgroundColor).toBeUndefined()
+    expect(blocks[0]).toMatchObject({ type: 'table', props: { backgroundColor: 'blue', textColor: 'red' } })
     expect(JSON.stringify(blocks[0].content)).not.toContain('color')
   })
 
