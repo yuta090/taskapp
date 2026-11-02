@@ -347,6 +347,16 @@ describe('MinutesEditor の「/」メニュー', () => {
       'code_block',
       'toggle_list',
       'divider',
+      'bg_gray',
+      'bg_brown',
+      'bg_orange',
+      'bg_yellow',
+      'bg_green',
+      'bg_blue',
+      'bg_purple',
+      'bg_pink',
+      'bg_red',
+      'bg_default',
     ])
   })
 

@@ -545,16 +545,15 @@ html.dark [data-color-scheme="dark"] {
 /* 背景色を付けた行は、角を丸めて文字と色の端に少し間を取る（Notion と同じ見た目）。
  * 色そのものは BlockNote が `.bn-block` と `.bn-block-content` の両方に塗る */
 .wiki-editor .bn-block:has(> .bn-block-content[data-background-color]),
-.wiki-editor .bn-block-content[data-background-color] {
+.wiki-editor .bn-block-content[data-background-color],
+.minutes-editor .bn-block:has(> .bn-block-content[data-background-color]),
+.minutes-editor .bn-block-content[data-background-color] {
   border-radius: 4px;
 }
 
-.wiki-editor .bn-block-content[data-background-color] {
-  padding-inline: 6px;
-}
-
 /* 語句に付けた背景色。行をまたいでも両端が丸くなるようにする */
-.wiki-editor [data-style-type="backgroundColor"] {
+.wiki-editor [data-style-type="backgroundColor"],
+.minutes-editor [data-style-type="backgroundColor"] {
   border-radius: 3px;
   padding-inline: 2px;
   -webkit-box-decoration-break: clone;
@@ -1084,6 +1083,14 @@ main:has([data-header-bell]) [data-appshell-bell-row] {
 .wiki-editor .bn-block-outer:first-child > .bn-block > .bn-block-content[data-content-type="heading"],
 .minutes-editor .bn-block-outer:first-child > .bn-block > .bn-block-content[data-content-type="heading"] {
   padding-top: 4px;
+}
+
+/* --- 背景色を付けた行の余白。文字が色の端に寄らないようにする（ユーザー要望・2026-11-02）。
+ * 段落・見出しの余白より後ろに置き、属性を重ねて詳細度を上げる。見出しの大きな上余白に色が付くのも防ぐ --- */
+
+.wiki-editor .bn-block-content[data-background-color][data-background-color],
+.minutes-editor .bn-block-content[data-background-color][data-background-color] {
+  padding: 8px 12px;
 }
 
 /* ============================================
