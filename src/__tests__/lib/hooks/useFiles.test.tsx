@@ -1,7 +1,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider, dehydrate } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { useFiles, filesQueryKey, type ProjectFile } from '@/lib/hooks/useFiles'
 
@@ -94,5 +94,36 @@ describe('useFiles の読み込み判定', () => {
     const { result } = renderHook(() => useFiles('space-1'), { wrapper: plainWrapper(client) })
 
     expect(result.current.isLoading).toBe(true)
+  })
+})
+
+describe('useFiles の開き直し', () => {
+  it("refetchOnMount: 'always' なら、復元したキャッシュが新しくても取り直して消えたファイルを残さない", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ files: [], hasMore: false }),
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 2 * 60 * 1000 } },
+    })
+    // 削除の直後に開き直すと、IDB には削除前の一覧が取得直後の時刻で残っている
+    const seed = new QueryClient()
+    seed.setQueryData(filesQueryKey('space-1'), { files: [makeFile()], hasMore: false })
+    const clientState = dehydrate(seed)
+    const persister = {
+      persistClient: async () => {},
+      restoreClient: async () => ({ buster: '', timestamp: Date.now(), clientState }),
+      removeClient: async () => {},
+    }
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <PersistQueryClientProvider client={client} persistOptions={{ persister }}>
+        {children}
+      </PersistQueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useFiles('space-1', { refetchOnMount: 'always' }), { wrapper })
+
+    await waitFor(() => expect(result.current.data).toEqual([]))
+    expect(fetchMock).toHaveBeenCalled()
   })
 })
