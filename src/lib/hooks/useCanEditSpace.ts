@@ -3,13 +3,15 @@
 import { useCallback, useContext, useMemo } from 'react'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
-import { canEditSpaceContent, canEditSpaceMoney } from '@/lib/roles/spaceRoles'
+import { canEditSpaceContent, canEditSpaceMoney, canManageSpaceFiles } from '@/lib/roles/spaceRoles'
 
 export interface UseCanEditSpaceResult {
   /** この space の内容（タスク・ガント・Wiki など）を編集できるか。判定の正本は canEditSpaceContent */
   canEdit: boolean
   /** 価格の枠・代理店設定を操作できるか。判定の正本は canEditSpaceMoney（canEditよりも狭い） */
   canEditMoney: boolean
+  /** 他の人がアップロードしたファイルも消せるか。判定の正本は canManageSpaceFiles */
+  canManageFiles: boolean
   /** 判定に必要な情報（自分の所属space一覧・組織一覧）がまだ揃っていない間は true */
   loading: boolean
   /**
@@ -69,12 +71,13 @@ export function useCanEditSpace(spaceId: string | null, orgId: string | null): U
 
   const canEdit = !unknown && canEditSpaceContent(spaceRole, orgRole)
   const canEditMoney = !unknown && canEditSpaceMoney(spaceRole, orgRole)
+  const canManageFiles = !unknown && canManageSpaceFiles(spaceRole, orgRole)
 
   // orgsStatus:'unknown' は ActiveOrgProvider.loading がまだ true のはずだが、cookie 由来の
   // rawActiveOrgId があると loading だけ早く false に倒れる実装のため、念のため両方見る
   const resolved = !loading && orgsStatus !== 'unknown'
 
-  return { canEdit, canEditMoney, loading, resolved }
+  return { canEdit, canEditMoney, canManageFiles, loading, resolved }
 }
 
 export interface UseCanEditSpacesResult {

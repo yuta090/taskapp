@@ -299,6 +299,17 @@ interface DeleteFileParams {
   fileId: string
 }
 
+async function requestDeleteFile(fileId: string) {
+  const res = await fetch(`/api/files/${fileId}`, { method: 'DELETE' })
+
+  if (!res.ok) {
+    const error = await res.json()
+    throw new Error(error.error || 'Failed to delete file')
+  }
+
+  return res.json()
+}
+
 /**
  * ファイルを削除
  */
@@ -306,18 +317,68 @@ export function useDeleteFile() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ fileId }: DeleteFileParams) => {
-      const res = await fetch(`/api/files/${fileId}`, { method: 'DELETE' })
-
-      if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || 'Failed to delete file')
-      }
-
-      return res.json()
-    },
+    mutationFn: ({ fileId }: DeleteFileParams) => requestDeleteFile(fileId),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries(filesQueryScope(variables.spaceId))
+    },
+  })
+}
+
+interface DeleteFilesParams {
+  spaceId: string
+  fileIds: string[]
+  /** 1件終わるごとに、終わった件数(成否を問わない)を受け取る */
+  onProgress?: (done: number) => void
+}
+
+// 1件ごとに Storage の実体も消すので、一度に投げすぎない
+const BULK_DELETE_CONCURRENCY = 5
+
+/**
+ * ファイルをまとめて削除。1件ずつ既存の DELETE を呼ぶ(権限確認をサーバー側の1か所に保つ)。
+ * 途中で失敗しても残りは続け、消えたものと残ったものを返す。
+ * 一覧の取り直しは最後の1回だけ(useDeleteFile を繰り返すと件数分だけ全件取得が走る)
+ */
+export function useDeleteFiles() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ fileIds, onProgress }: DeleteFilesParams) => {
+      const succeeded = new Set<string>()
+      const queue = [...fileIds]
+      let done = 0
+
+      const worker = async () => {
+        for (let fileId = queue.shift(); fileId; fileId = queue.shift()) {
+          try {
+            await requestDeleteFile(fileId)
+            succeeded.add(fileId)
+          } catch (error) {
+            console.error('Bulk delete file error:', error)
+          }
+          done += 1
+          onProgress?.(done)
+        }
+      }
+      await Promise.all(Array.from({ length: BULK_DELETE_CONCURRENCY }, worker))
+
+      return {
+        deletedIds: fileIds.filter((id) => succeeded.has(id)),
+        failedIds: fileIds.filter((id) => !succeeded.has(id)),
+      }
+    },
+    // 取り直しの完了を待つと、消したはずの行が選択の外れた状態で残って押せてしまう。
+    // 先に手元の一覧から外し、そのあとで取り直す
+    onSuccess: async ({ deletedIds }, variables) => {
+      const scope = filesQueryScope(variables.spaceId)
+      await queryClient.cancelQueries(scope)
+      const deleted = new Set(deletedIds)
+      queryClient.setQueriesData<FilesPage>(scope, (current) =>
+        current && Array.isArray(current.files)
+          ? { ...current, files: current.files.filter((file) => !deleted.has(file.id)) }
+          : current
+      )
+      queryClient.invalidateQueries(scope)
     },
   })
 }

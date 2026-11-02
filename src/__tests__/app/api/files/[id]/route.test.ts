@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server'
 
 /**
  * PATCH /api/files/[id] — 公開トグル・リネーム(内部ロールのみ)。
- * DELETE /api/files/[id] — 削除(内部ロールまたはアップローダ本人)。
+ * DELETE /api/files/[id] — 削除(アップローダ本人または管理者)。
  */
 
 const FILE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -16,6 +16,8 @@ const mockUser = { id: UPLOADER_ID }
 let authResponse: { data: { user: typeof mockUser | null } }
 let fileSelectResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
 let membershipResponse: { data: { id: string } | null; error: null }
+let canManageResponse: { data: boolean | null; error: null }
+let canManageArgs: Record<string, unknown> | undefined
 let fileUpdateResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
 let fileDeleteResponse: { data: null; error: { message: string } | null }
 let storageRemoveResponse: { data: null; error: { message: string } | null }
@@ -41,6 +43,11 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
       auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) },  getUser: vi.fn(() => Promise.resolve(authResponse)) },
+      rpc: vi.fn((name: string, args: Record<string, unknown>) => {
+        if (name !== 'app_can_manage_space_files') throw new Error(`Unexpected rpc: ${name}`)
+        canManageArgs = args
+        return Promise.resolve(canManageResponse)
+      }),
       from: vi.fn((table: string) => {
         if (table === 'files') {
           const builder = chain(fileSelectResponse)
@@ -93,6 +100,7 @@ const baseFile = {
   id: FILE_ID,
   uploaded_by: UPLOADER_ID,
   space_id: SPACE_ID,
+  org_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
   name: '議事録.pdf',
   client_visible: false,
   storage_path: `${SPACE_ID}/${FILE_ID}/議事録.pdf`,
@@ -200,6 +208,8 @@ describe('PATCH /api/files/[id]', () => {
 
 describe('DELETE /api/files/[id]', () => {
   beforeEach(() => {
+    canManageResponse = { data: false, error: null }
+    canManageArgs = undefined
     vi.clearAllMocks()
     storageRemoveArgs = undefined
     authResponse = { data: { user: mockUser } } // uploader
@@ -232,18 +242,27 @@ describe('DELETE /api/files/[id]', () => {
     expect(storageRemoveArgs).toEqual([baseFile.storage_path])
   })
 
-  it('allows an internal member to delete a file uploaded by someone else', async () => {
+  it('管理者は他の人がアップロードしたファイルも消せる', async () => {
     authResponse = { data: { user: { id: OTHER_USER_ID } } }
-    membershipResponse = { data: { id: 'membership-1' }, error: null }
+    canManageResponse = { data: true, error: null }
     const response = await callDelete(FILE_ID)
     expect(response.status).toBe(200)
+    expect(canManageArgs).toEqual({ p_space: SPACE_ID, p_org: baseFile.org_id })
   })
 
-  it('returns 403 when the caller is neither the uploader nor an internal member', async () => {
+  it('管理者でなければ、社内メンバーでも他の人のファイルは消せず、実体にも触らない', async () => {
     authResponse = { data: { user: { id: OTHER_USER_ID } } }
-    membershipResponse = { data: null, error: null }
+    canManageResponse = { data: false, error: null }
     const response = await callDelete(FILE_ID)
     expect(response.status).toBe(403)
+    expect(storageRemoveArgs).toBeUndefined()
+  })
+
+  it('本人のファイルなら管理者の判定を呼ばずに消せる', async () => {
+    canManageArgs = undefined
+    const response = await callDelete(FILE_ID)
+    expect(response.status).toBe(200)
+    expect(canManageArgs).toBeUndefined()
   })
 
   it('returns 500 and does not delete the row when storage removal fails', async () => {

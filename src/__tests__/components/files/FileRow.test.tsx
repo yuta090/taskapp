@@ -18,6 +18,7 @@ const handlers = {
   onToggleVisible: vi.fn(),
   onCopyLink: vi.fn(),
   onDelete: vi.fn(),
+  onToggleSelect: vi.fn(),
   onStartEditDescription: vi.fn(),
   onCommitDescription: vi.fn(),
   onCancelEditDescription: vi.fn(),
@@ -39,9 +40,9 @@ function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
   }
 }
 
-function renderRow(file = makeFile(), isEditing = false) {
+function renderRow(file = makeFile(), isEditing = false, canDelete = true) {
   return render(
-    <FileRow file={file} basePath="/org-1/project/space-1" isEditing={isEditing} {...handlers} />
+    <FileRow file={file} basePath="/org-1/project/space-1" isEditing={isEditing} isSelected={false} canDelete={canDelete} {...handlers} />
   )
 }
 
@@ -91,5 +92,14 @@ describe('FileRow', () => {
   // FilesPageClient.memo.test.tsx が見張る
   it('memo で包まれている(検索1文字ごとに全行が作り直されないため)', () => {
     expect((FileRow as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for('react.memo'))
+  })
+})
+
+describe('FileRow 削除できないファイル', () => {
+  it('削除ボタンを出さず、チェックも押せない', () => {
+    renderRow(makeFile(), false, false)
+
+    expect(screen.queryByTestId('file-delete-f1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('file-select-f1')).toBeDisabled()
   })
 })

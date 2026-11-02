@@ -15,12 +15,12 @@ export const SPACE_ROLE_GUIDE: SpaceRoleGuide[] = [
   {
     value: 'admin',
     label: '管理者',
-    desc: 'プロジェクトの設定をすべて変更できます。メンバーの招待・役割の変更・削除、プロジェクトのアーカイブもできます。',
+    desc: 'プロジェクトの設定をすべて変更できます。メンバーの招待・役割の変更・削除、プロジェクトのアーカイブ、他の人がアップロードしたファイルの削除もできます。',
   },
   {
     value: 'editor',
     label: '編集者',
-    desc: 'タスクの作成・編集・ボールの受け渡しができます。メンバーの招待もできます（役割の変更と削除は管理者のみ）。',
+    desc: 'タスクの作成・編集・ボールの受け渡しができます。メンバーの招待もできます（役割の変更と削除は管理者のみ）。削除できるファイルは自分がアップロードしたものだけです。',
   },
   {
     value: 'viewer',
@@ -150,6 +150,18 @@ export function canEditSpaceMoney(
 ): boolean {
   if (!isOrgInternalRole(orgRole)) return false
   return (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole ?? '')
+}
+
+/**
+ * 他の人がアップロードしたファイルも消せるか（組織の owner、または社内メンバーでこの space の admin）。
+ * DB 側の判定（app_can_manage_space_files, 20261030230753_files_delete_admin_helper.sql）と同じ規則。
+ * 自分がアップロードしたファイルは、役割を問わず本人が消せる。
+ */
+export function canManageSpaceFiles(
+  spaceRole: string | undefined | null,
+  orgRole: string | undefined | null
+): boolean {
+  return orgRole === 'owner' || (isOrgInternalRole(orgRole) && spaceRole === 'admin')
 }
 
 /**
