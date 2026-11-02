@@ -46,7 +46,9 @@ interface FilesPageClientProps {
 }
 
 export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
-  const { data: files, isLoading, hasMore: hasHiddenFiles } = useFiles(spaceId)
+  // 永続キャッシュへの書き込みは1秒まとめなので、削除の直後に開き直すと削除前の一覧が
+  // 新しいものとして復元され、staleTime の間は消えた行が残る。キャッシュで先に描いて裏で取り直す
+  const { data: files, isLoading, hasMore: hasHiddenFiles } = useFiles(spaceId, { refetchOnMount: 'always' })
   const { canManageFiles } = useCanEditSpace(spaceId, orgId)
   const { user: currentUser } = useCurrentUser()
   const currentUserId = currentUser?.id
