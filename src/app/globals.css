@@ -470,11 +470,12 @@ html.dark [data-color-scheme="dark"] {
 }
 
 /* ============================================
-   BlockNote - 文字色・背景色（Notion と同じ9色）
+   BlockNote - 文字色・背景色（9色）
    ============================================ */
 
-/* 色は Notion の配色に合わせる（ユーザー要望・2026-10-30）。BlockNote の既定は Notion の古い配色で、
- * ダークの背景色は赤が #be3434 のような濃い色のため、上の文字が読めなかった。
+/* 文字色は Notion の配色に合わせる（ユーザー要望・2026-10-30）。背景色はアプリの落ち着いた画面に
+ * なじむよう、Notion より淡くする（ユーザー要望・2026-11-02）。BlockNote の既定のダークの背景色は
+ * 赤が #be3434 のような濃い色のため、上の文字が読めなかった。
  * ダークの背景色は不透明にせず、文字色を薄く重ねる。アプリの紺寄りの面になじませるため。
  *
  * セレクタは上のエディタの色と同じ考え方（メニューは本文の外のポータルに出る）。
@@ -482,46 +483,46 @@ html.dark [data-color-scheme="dark"] {
 html,
 html .bn-container {
   --bn-colors-highlights-gray-text: #787774;
-  --bn-colors-highlights-gray-background: #f1f1ef;
+  --bn-colors-highlights-gray-background: #f4f5f7;
   --bn-colors-highlights-brown-text: #9f6b53;
-  --bn-colors-highlights-brown-background: #f4eeee;
+  --bn-colors-highlights-brown-background: #f7f3f0;
   --bn-colors-highlights-orange-text: #d9730d;
-  --bn-colors-highlights-orange-background: #fbecdd;
+  --bn-colors-highlights-orange-background: #fdf4ec;
   --bn-colors-highlights-yellow-text: #cb912f;
-  --bn-colors-highlights-yellow-background: #fbf3db;
+  --bn-colors-highlights-yellow-background: #fcf8e8;
   --bn-colors-highlights-green-text: #448361;
-  --bn-colors-highlights-green-background: #edf3ec;
+  --bn-colors-highlights-green-background: #f1f7f2;
   --bn-colors-highlights-blue-text: #337ea9;
-  --bn-colors-highlights-blue-background: #e7f3f8;
+  --bn-colors-highlights-blue-background: #eff6fa;
   --bn-colors-highlights-purple-text: #9065b0;
-  --bn-colors-highlights-purple-background: #f4f0f7;
+  --bn-colors-highlights-purple-background: #f6f3f9;
   --bn-colors-highlights-pink-text: #c14c8a;
-  --bn-colors-highlights-pink-background: #f9eef3;
+  --bn-colors-highlights-pink-background: #fbf3f7;
   --bn-colors-highlights-red-text: #d44c47;
-  --bn-colors-highlights-red-background: #fdebec;
+  --bn-colors-highlights-red-background: #fdf2f2;
 }
 
 html.dark,
 html.dark .bn-container,
 html.dark [data-color-scheme="dark"] {
   --bn-colors-highlights-gray-text: #9b9b9b;
-  --bn-colors-highlights-gray-background: rgba(155, 155, 155, 0.16);
+  --bn-colors-highlights-gray-background: rgba(155, 155, 155, 0.1);
   --bn-colors-highlights-brown-text: #ba856f;
-  --bn-colors-highlights-brown-background: rgba(186, 133, 111, 0.2);
+  --bn-colors-highlights-brown-background: rgba(186, 133, 111, 0.12);
   --bn-colors-highlights-orange-text: #c77d48;
-  --bn-colors-highlights-orange-background: rgba(199, 125, 72, 0.22);
+  --bn-colors-highlights-orange-background: rgba(199, 125, 72, 0.13);
   --bn-colors-highlights-yellow-text: #ca9849;
-  --bn-colors-highlights-yellow-background: rgba(202, 152, 73, 0.22);
+  --bn-colors-highlights-yellow-background: rgba(202, 152, 73, 0.13);
   --bn-colors-highlights-green-text: #529e72;
-  --bn-colors-highlights-green-background: rgba(82, 158, 114, 0.22);
+  --bn-colors-highlights-green-background: rgba(82, 158, 114, 0.13);
   --bn-colors-highlights-blue-text: #5e87c9;
-  --bn-colors-highlights-blue-background: rgba(94, 135, 201, 0.24);
+  --bn-colors-highlights-blue-background: rgba(94, 135, 201, 0.14);
   --bn-colors-highlights-purple-text: #9d68d3;
-  --bn-colors-highlights-purple-background: rgba(157, 104, 211, 0.22);
+  --bn-colors-highlights-purple-background: rgba(157, 104, 211, 0.13);
   --bn-colors-highlights-pink-text: #d15796;
-  --bn-colors-highlights-pink-background: rgba(209, 87, 150, 0.22);
+  --bn-colors-highlights-pink-background: rgba(209, 87, 150, 0.13);
   --bn-colors-highlights-red-text: #df5452;
-  --bn-colors-highlights-red-background: rgba(223, 84, 82, 0.22);
+  --bn-colors-highlights-red-background: rgba(223, 84, 82, 0.13);
 }
 
 /* 「色」メニュー（文字を選んだときのツールバーと、行の左の「⠿ → 色を変更」）。
