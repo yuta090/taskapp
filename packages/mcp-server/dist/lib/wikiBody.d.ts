@@ -42,6 +42,8 @@ export interface InlineStyles {
     italic?: boolean;
     code?: boolean;
     strike?: boolean;
+    /** 文中の黄色マーカー（`<mark>`）だけが使う。値は 'yellow' */
+    backgroundColor?: string;
 }
 export type InlineContent = {
     type: 'text';
