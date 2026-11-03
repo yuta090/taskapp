@@ -817,7 +817,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           'agentpm wiki create --title "画面" --file page.md   # 本文の ![説明](./shot.png) は自動でアップロードされる（CLI 0.6.0+）',
           'agentpm wiki create --title "画面" --body "![画面写真](/api/files/<file-id>/download)"   # 画像は先に file upload で上げる',
           'agentpm wiki create --title "決定" --file page.md   # 行の色は、ブロックの直前の1行に <!--color:bg=yellow--> と書く',
-          'agentpm wiki create --title "進め方" --file page.md   # 囲みは引用の1行目に [!種類] と書く（> [!NOTE] 補足／[!TIP] ポイント／[!IMPORTANT] 結論／[!WARNING] 注意／[!CAUTION] 禁止。1節に1〜2個まで）',
+          'agentpm wiki create --title "進め方" --file page.md   # 囲みは引用の1行目に [!種類] と書く（> [!NOTE] 補足／[!TIP] ポイント／[!IMPORTANT] 結論／[!WARNING] 注意／[!CAUTION] 禁止。1節に1〜2個まで）。文中は <mark>文字</mark> で黄色のマーカー',
         ],
         options: [
           spaceOpt,
@@ -839,7 +839,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         uploadLocalImages: true,
         examples: [
           'agentpm wiki update --page-id <id> --file 14_customer_journey_v2.md',
-          'agentpm wiki update --page-id <id> --file page.md   # 囲みは引用の1行目に [!種類] と書く（> [!NOTE] 補足／[!TIP] ポイント／[!IMPORTANT] 結論／[!WARNING] 注意／[!CAUTION] 禁止。1節に1〜2個まで）',
+          'agentpm wiki update --page-id <id> --file page.md   # 囲みは引用の1行目に [!種類] と書く（> [!NOTE] 補足／[!TIP] ポイント／[!IMPORTANT] 結論／[!WARNING] 注意／[!CAUTION] 禁止。1節に1〜2個まで）。文中は <mark>文字</mark> で黄色のマーカー',
         ],
         options: [
           spaceOpt,

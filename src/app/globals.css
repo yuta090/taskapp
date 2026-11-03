@@ -561,6 +561,23 @@ html.dark [data-color-scheme="dark"] {
   box-decoration-break: clone;
 }
 
+/* 語句の黄色は「マーカー」（Markdown の `<mark>`）。行の背景用の薄い黄色では文中で目立たないので、
+ * 語句のときだけ濃くする。ほかの色は行と同じ薄さのまま */
+:root {
+  --wiki-mark-yellow: #fbe68a;
+}
+html.dark {
+  --wiki-mark-yellow: rgba(227, 196, 70, 0.4);
+}
+.wiki-editor [data-style-type="backgroundColor"][data-value="yellow"],
+.minutes-editor [data-style-type="backgroundColor"][data-value="yellow"],
+/* 文字を選んだときのツールバーの色メニューは語句に付く色なので、見本もマーカーの濃さにする。
+ * 行の色メニュー（ツールバーの外に出る）は薄いまま */
+.wiki-editor .bn-formatting-toolbar .bn-color-icon[data-background-color="yellow"],
+.minutes-editor .bn-formatting-toolbar .bn-color-icon[data-background-color="yellow"] {
+  background-color: var(--wiki-mark-yellow);
+}
+
 /* 「/」メニューの背景色の見本。色は `[data-background-color]` から付く（BlockNote の規則） */
 .wiki-bg-swatch {
   display: inline-block;

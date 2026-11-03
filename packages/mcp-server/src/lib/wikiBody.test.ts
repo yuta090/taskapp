@@ -626,13 +626,73 @@ describe('囲み（callout）と行の色の印', () => {
     const blocks = await parse('<!--color:bg=red-->\n> [!NOTE]\n> 補足です')
     expect(blocks).toHaveLength(1)
     expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind: 'note' } })
-    expect(JSON.stringify(blocks)).not.toMatch(/color||/)
+    expect(JSON.stringify(blocks)).not.toMatch(/color:|\uE000|\uE001/)
   })
 
   it('囲みの中の子の項目には色が付く', async () => {
     const blocks = await parse('> [!TIP]\n> ポイント\n> <!--color:bg=yellow-->\n> - 一つ目\n> - 二つ目')
     expect(blocks[0].type).toBe('callout')
     expect(blocks[0].children?.map((c) => c.props?.backgroundColor)).toEqual(['yellow', undefined])
-    expect(JSON.stringify(blocks)).not.toMatch(/color:||/)
+    expect(JSON.stringify(blocks)).not.toMatch(/color:|\uE000|\uE001/)
+  })
+})
+
+/**
+ * 文中の黄色マーカー。Markdown に標準の記法が無いので、GitHub でも黄色で出る HTML の `<mark>` を使う
+ * （ユーザー指定・2026-11-02）。BlockNote の文字の背景色 yellow にする。
+ */
+describe('黄色マーカー（<mark>）', () => {
+  type TI = { type: string; text?: string; styles?: Record<string, unknown>; content?: TI[] }
+  type MB = { type: string; content?: TI[]; children?: MB[] }
+  const parse = async (body: string, format?: WikiBodyFormat) => JSON.parse(await toWikiBlocksJson(body, format)) as MB[]
+  const spans = (b: MB) => (b.content ?? []).map((c) => [c.text, c.styles?.backgroundColor ?? null])
+
+  it('`<mark>` で囲んだ文字だけ背景が黄色になり、タグは本文に残らない', async () => {
+    const [p] = await parse('期限は <mark>11/16</mark> です')
+    expect(spans(p)).toEqual([
+      ['期限は ', null],
+      ['11/16', 'yellow'],
+      [' です', null],
+    ])
+    expect(JSON.stringify(p)).not.toContain('mark>')
+  })
+
+  it('マーカーの中の太字は太字のまま黄色になる', async () => {
+    const [p] = await parse('<mark>必ず **今日中** に</mark>出す')
+    const bold = p.content!.find((c) => c.text === '今日中')!
+    expect(bold.styles).toMatchObject({ bold: true, backgroundColor: 'yellow' })
+    expect(p.content!.find((c) => c.text === '出す')!.styles?.backgroundColor).toBeUndefined()
+  })
+
+  it('太字の中のマーカーも読める', async () => {
+    const [p] = await parse('**<mark>重要</mark>な点**')
+    expect(p.content!.find((c) => c.text === '重要')!.styles).toMatchObject({ bold: true, backgroundColor: 'yellow' })
+    expect(p.content!.find((c) => c.text === 'な点')!.styles?.backgroundColor).toBeUndefined()
+  })
+
+  it('1行に2つあっても、それぞれだけが黄色になる', async () => {
+    const [p] = await parse('<mark>A</mark> と <mark>B</mark>')
+    expect(spans(p)).toEqual([
+      ['A', 'yellow'],
+      [' と ', null],
+      ['B', 'yellow'],
+    ])
+  })
+
+  it('箇条書き・囲みの中でも効く', async () => {
+    const [li] = await parse('- <mark>締切</mark>あり')
+    expect(spans(li)[0]).toEqual(['締切', 'yellow'])
+    const [callout] = await parse('> [!WARNING]\n> <mark>11/16</mark> まで')
+    expect(spans(callout)[0]).toEqual(['11/16', 'yellow'])
+  })
+
+  it('コードの中の `<mark>` は文字のまま', async () => {
+    const [p] = await parse('`<mark>x</mark>` と書く')
+    expect(p.content![0]).toMatchObject({ text: '<mark>x</mark>', styles: { code: true } })
+  })
+
+  it('HTML で送っても `<mark>` は黄色になる', async () => {
+    const [p] = await parse('<p>期限は <mark>11/16</mark> です</p>', 'html')
+    expect(spans(p)).toContainEqual(['11/16', 'yellow'])
   })
 })
