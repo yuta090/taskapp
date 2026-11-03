@@ -91,7 +91,7 @@ async function fetchFiles(spaceId: string, query: ServerFileQuery): Promise<File
 /**
  * スペースの公開済みファイル一覧を取得(新しい順・上限あり)
  */
-export function useFiles(spaceId: string | undefined) {
+export function useFiles(spaceId: string | undefined, options?: { refetchOnMount?: 'always' }) {
   const queryClient = useQueryClient()
   const isRestoring = useIsRestoring()
 
@@ -99,6 +99,7 @@ export function useFiles(spaceId: string | undefined) {
     queryKey: filesQueryKey(spaceId),
     queryFn: () => fetchFiles(spaceId!, {}),
     enabled: !!spaceId,
+    refetchOnMount: options?.refetchOnMount ?? true,
   })
 
   // 前バージョンの形で残っている永続キャッシュを捨てる。放っておくと訪問のたびに
