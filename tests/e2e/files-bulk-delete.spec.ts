@@ -22,8 +22,9 @@ test.describe('ファイル: まとめて削除', () => {
     await page.getByTestId('files-input').setInputFiles(
       NAMES.map((name) => ({ name, mimeType: 'text/plain', buffer: Buffer.from('e2e', 'utf-8') }))
     )
+    // アップロード完了のトーストにも同じ名前が出るので、行に絞って確かめる
     for (const name of NAMES) {
-      await expect(page.getByText(name)).toBeVisible()
+      await expect(page.getByTestId('file-row').filter({ hasText: name })).toBeVisible()
     }
 
     // 自分が上げた2件だけに絞ってから全選択する
