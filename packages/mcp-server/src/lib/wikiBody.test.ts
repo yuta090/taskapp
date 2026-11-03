@@ -626,13 +626,13 @@ describe('囲み（callout）と行の色の印', () => {
     const blocks = await parse('<!--color:bg=red-->\n> [!NOTE]\n> 補足です')
     expect(blocks).toHaveLength(1)
     expect(blocks[0]).toMatchObject({ type: 'callout', props: { kind: 'note' } })
-    expect(JSON.stringify(blocks)).not.toMatch(/color||/)
+    expect(JSON.stringify(blocks)).not.toMatch(/color:|\uE000|\uE001/)
   })
 
   it('囲みの中の子の項目には色が付く', async () => {
     const blocks = await parse('> [!TIP]\n> ポイント\n> <!--color:bg=yellow-->\n> - 一つ目\n> - 二つ目')
     expect(blocks[0].type).toBe('callout')
     expect(blocks[0].children?.map((c) => c.props?.backgroundColor)).toEqual(['yellow', undefined])
-    expect(JSON.stringify(blocks)).not.toMatch(/color:||/)
+    expect(JSON.stringify(blocks)).not.toMatch(/color:|\uE000|\uE001/)
   })
 })
