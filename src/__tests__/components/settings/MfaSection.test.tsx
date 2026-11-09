@@ -122,6 +122,8 @@ describe('MfaSection（設定画面の二要素認証）', () => {
       render(<MfaSection />)
       fireEvent.click(await screen.findByRole('button', { name: 'パスキーを追加' }))
       await waitFor(() => expect(registerMock).toHaveBeenCalledTimes(1))
+      // SDK の既定はセキュリティキー専用（cross-platform）なので、端末内の指紋・顔認証を使うよう上書きする
+      expect(registerMock.mock.calls[0][1]).toMatchObject({ authenticatorSelection: { authenticatorAttachment: 'platform' }, hints: ['client-device'] })
       expect(registerMock.mock.calls[0][0].friendlyName).toMatch(/^パスキー \d{4}\/\d{2}\/\d{2} \d{2}:\d{2} \([0-9a-f]{8}\)$/)
       expect(await screen.findByText('パスキー 2026/11/10 09:00:00')).toBeInTheDocument()
       expect(await screen.findByRole('status')).toHaveTextContent('パスキーを追加しました')
@@ -275,6 +277,43 @@ describe('MfaSection（設定画面の二要素認証）', () => {
       expect(await screen.findByText('オフ')).toBeInTheDocument()
       expect(factors).toEqual([])
       expect(unenrollMock.mock.calls.map((c) => c[0].factorId)).toEqual(['w1', 'w2', 'w2', 'f1'])
+    })
+
+    it('別タブで設定を開いても、登録の途中（端末の確認待ち）のパスキーを片付けで消さない', async () => {
+      // 本物と同じく、同じ名前のロックは前の処理が終わるまで待たせる
+      let chain: Promise<unknown> = Promise.resolve()
+      const locks = {
+        request: (_name: string, fn: () => Promise<unknown>) => {
+          const run = chain.then(fn)
+          chain = run.catch(() => {})
+          return run
+        },
+      }
+      Object.defineProperty(navigator, 'locks', { value: locks, configurable: true })
+      try {
+        factors = [totp]
+        aal = { currentLevel: 'aal2', nextLevel: 'aal2' }
+        let finishRegister: () => void = () => {}
+        registerMock.mockImplementation(async () => {
+          factors = [totp, { id: 'w-progress', status: 'unverified', factor_type: 'webauthn' }]
+          await new Promise<void>((resolve) => {
+            finishRegister = resolve
+          })
+          factors = [totp, { ...passkey, id: 'w-progress' }]
+          return { data: {}, error: null }
+        })
+        render(<MfaSection />)
+        fireEvent.click(await screen.findByRole('button', { name: 'パスキーを追加' }))
+        await waitFor(() => expect(registerMock).toHaveBeenCalled())
+        render(<MfaSection />) // 別タブで設定を開いた
+        await new Promise((r) => setTimeout(r, 50))
+        expect(unenrollMock).not.toHaveBeenCalledWith({ factorId: 'w-progress' })
+        finishRegister()
+        await waitFor(() => expect(screen.getAllByText('パスキー 2026/11/10 09:00:00').length).toBeGreaterThan(0))
+        expect(unenrollMock).not.toHaveBeenCalledWith({ factorId: 'w-progress' })
+      } finally {
+        Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+      }
     })
 
     it('登録の前に、残っている未確認のパスキーを片付ける', async () => {

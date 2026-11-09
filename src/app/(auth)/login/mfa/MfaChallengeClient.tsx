@@ -6,7 +6,7 @@ import { ShieldCheck, CircleNotch, Fingerprint } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { normalizeTotpCode } from '@/lib/auth/mfa'
-import { verifiedPasskeys } from '@/lib/auth/passkey'
+import { PASSKEY_REQUEST_OPTIONS, verifiedPasskeys } from '@/lib/auth/passkey'
 import { usePasskeySupported } from '@/lib/auth/usePasskeySupported'
 import { isSafeInternalPath, safeInternalPathOr } from '@/lib/auth/safeRedirect'
 import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
@@ -97,7 +97,7 @@ export default function MfaChallengeClient() {
       setError(null)
       try {
         const supabase = createClient()
-        const { data: verified, error: authError } = await supabase.auth.mfa.webauthn.authenticate({ factorId: passkeyId })
+        const { data: verified, error: authError } = await supabase.auth.mfa.webauthn.authenticate({ factorId: passkeyId }, PASSKEY_REQUEST_OPTIONS)
         if (authError) {
           setError(
             factorId

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ShieldCheck, CircleNotch, Fingerprint } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { TOTP_FRIENDLY_NAME, normalizeTotpCode } from '@/lib/auth/mfa'
-import { hasVerifiedTotp, passkeyFriendlyName, verifiedPasskeys, withMfaLock } from '@/lib/auth/passkey'
+import { PASSKEY_CREATION_OPTIONS, hasVerifiedTotp, passkeyFriendlyName, verifiedPasskeys, withMfaLock } from '@/lib/auth/passkey'
 import { usePasskeySupported } from '@/lib/auth/usePasskeySupported'
 
 type Step = 'loading' | 'off' | 'enrolling' | 'on' | 'disabling'
@@ -51,18 +51,25 @@ export function MfaSection() {
   const load = useCallback(async () => {
     try {
       const supabase = createClient()
-      const { data, error } = await supabase.auth.mfa.listFactors()
+      // 一覧の取得から片付けまでをロックの中で行う。外で取った一覧で片付けると、
+      // 別タブで登録の途中（端末の確認待ち）の未確認パスキーを消してしまう
+      const { data, error } = await withMfaLock(async () => {
+        const res = await supabase.auth.mfa.listFactors()
+        if (!res.error) {
+          // 途中でやめた未確認の登録は片付ける（他種別・登録中のものは触らない）
+          await unenrollAll(
+            supabase,
+            (res.data?.all ?? []).filter((f) => isStaleFactor(f) && f.id !== factorId),
+          )
+        }
+        return res
+      })
       if (error) {
         setMessage({ type: 'error', text: '二要素認証の状態を取得できませんでした' })
         setStep('off')
         return
       }
       const totp = data?.totp ?? []
-      // 途中でやめた未確認の登録は片付ける（他種別・登録中のものは触らない）
-      await unenrollAll(
-        supabase,
-        (data?.all ?? []).filter((f) => isStaleFactor(f) && f.id !== factorId),
-      )
       const verified = totp.find((f) => f.status === 'verified')
       setPasskeys(verifiedPasskeys(data?.all ?? []))
       setFactorId(verified?.id ?? null)
@@ -99,7 +106,7 @@ export function MfaSection() {
         // 前に途中でやめた未確認の登録が残っていると、登録数の上限に近づくので先に消す
         await unenrollAll(supabase, (before?.all ?? []).filter((f) => f.factor_type === 'webauthn' && f.status === 'unverified'))
         // 登録・確認・端末への作成を1回で行う（rpId は今のホスト名＝本番は agentpm.app）
-        const { error } = await supabase.auth.mfa.webauthn.register({ friendlyName: passkeyFriendlyName(new Date()) })
+        const { error } = await supabase.auth.mfa.webauthn.register({ friendlyName: passkeyFriendlyName(new Date()) }, PASSKEY_CREATION_OPTIONS)
         const { data, error: afterError } = await supabase.auth.mfa.listFactors()
         const all = data?.all ?? []
         if (error) {

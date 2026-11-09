@@ -8,6 +8,32 @@
  * パスキーで確認したセッションもそのまま通る。
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+type WebAuthnApi = SupabaseClient['auth']['mfa']['webauthn']
+type CreationOverrides = NonNullable<Parameters<WebAuthnApi['register']>[1]>
+type RequestOverrides = NonNullable<Parameters<WebAuthnApi['authenticate']>[1]>
+
+/**
+ * 登録の上書き。supabase-js の既定（DEFAULT_CREATION_OPTIONS）はセキュリティキー専用
+ * （authenticatorAttachment: 'cross-platform'・hints: ['security-key']）で、Mac の Touch ID・Windows Hello・
+ * iPhone の Face ID など端末内の認証が選べない。画面の案内（指紋・顔認証・画面ロック）に合わせて端末内に寄せる。
+ * attestation は 'none'（認証器の機種情報は使わないので、ブラウザの「機種情報の提供」確認を出さない）
+ */
+export const PASSKEY_CREATION_OPTIONS: CreationOverrides = {
+  authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+  hints: ['client-device'],
+  attestation: 'none',
+}
+
+/** 確認の上書き。既定の hints: ['security-key'] だと、ブラウザがセキュリティキーの案内を先に出す */
+// SDK の型は challenge を必須にしているが、実際は既定・サーバーの値に重ねるだけ（webauthn.js の deepMerge）。
+// challenge はサーバーの値を使うので渡さない
+export const PASSKEY_REQUEST_OPTIONS = {
+  hints: ['client-device'],
+  userVerification: 'required',
+} as Partial<RequestOverrides> as RequestOverrides
+
 type FactorLike = { id: string; status: string; factor_type: string; friendly_name?: string; created_at?: string }
 
 /** このブラウザでパスキー（WebAuthn）を使えるか */

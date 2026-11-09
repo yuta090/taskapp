@@ -158,7 +158,7 @@ describe('MfaChallengeClient（コード入力画面）', () => {
       factors = [totp, pk1]
       render(<MfaChallengeClient />)
       fireEvent.click(await screen.findByRole('button', { name: 'パスキーで確認' }))
-      await waitFor(() => expect(authenticateMock).toHaveBeenCalledWith({ factorId: 'w1' }))
+      await waitFor(() => expect(authenticateMock).toHaveBeenCalledWith({ factorId: 'w1' }, expect.objectContaining({ hints: ['client-device'] })))
       await waitFor(() => expect(locationReplaceSpy).toHaveBeenCalledWith('/inbox'))
       // 認証アプリのコード入力も並べて残す
       expect(screen.getByLabelText('6桁のコード')).toBeInTheDocument()
@@ -168,7 +168,7 @@ describe('MfaChallengeClient（コード入力画面）', () => {
       factors = [totp, pk1, pk2]
       render(<MfaChallengeClient />)
       fireEvent.click(await screen.findByRole('button', { name: '「iPhone」で確認' }))
-      await waitFor(() => expect(authenticateMock).toHaveBeenCalledWith({ factorId: 'w2' }))
+      await waitFor(() => expect(authenticateMock).toHaveBeenCalledWith({ factorId: 'w2' }, expect.anything()))
     })
 
     it('やめた・失敗したらエラーを出し、認証アプリのコードで続けられる', async () => {
