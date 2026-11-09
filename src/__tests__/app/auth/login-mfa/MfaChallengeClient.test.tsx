@@ -15,12 +15,17 @@ vi.mock('@/lib/auth/signOutClient', () => ({
   signOutAndLeave: mockSignOutAndLeave,
 }))
 
-let factors: Array<{ id: string; status: string }> = [{ id: 'f1', status: 'verified' }]
+let factors: Array<{ id: string; status: string; factor_type?: string; friendly_name?: string; created_at?: string }> = [{ id: 'f1', status: 'verified', factor_type: 'totp' }]
 const challengeAndVerifyMock = vi.fn()
+const authenticateMock = vi.fn()
+const listResult = () => ({
+  data: { totp: factors.filter((f) => f.factor_type === 'totp'), webauthn: factors.filter((f) => f.factor_type === 'webauthn'), all: factors },
+  error: null,
+})
 const signOutMock = vi.fn(() => Promise.resolve())
 const refreshSessionMock = vi.fn(() => Promise.resolve({ data: {}, error: null }))
 let aalAfterRefresh: { currentLevel: 'aal1' | 'aal2'; nextLevel: 'aal1' | 'aal2' } = { currentLevel: 'aal1', nextLevel: 'aal1' }
-let listFactorsImpl: () => Promise<unknown> = () => Promise.resolve({ data: { totp: factors, all: factors }, error: null })
+let listFactorsImpl: () => Promise<unknown> = () => Promise.resolve(listResult())
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: {
@@ -30,6 +35,7 @@ vi.mock('@/lib/supabase/client', () => ({
         listFactors: () => listFactorsImpl(),
         challengeAndVerify: challengeAndVerifyMock,
         getAuthenticatorAssuranceLevel: () => Promise.resolve({ data: aalAfterRefresh, error: null }),
+        webauthn: { authenticate: authenticateMock },
       },
     },
   }),
@@ -41,11 +47,13 @@ let locationReplaceSpy: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.clearAllMocks()
-  factors = [{ id: 'f1', status: 'verified' }]
+  factors = [{ id: 'f1', status: 'verified', factor_type: 'totp' }]
   redirectParam = '/inbox'
   aalAfterRefresh = { currentLevel: 'aal1', nextLevel: 'aal1' }
-  listFactorsImpl = () => Promise.resolve({ data: { totp: factors, all: factors }, error: null })
+  listFactorsImpl = () => Promise.resolve(listResult())
   challengeAndVerifyMock.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
+  authenticateMock.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
+  ;(window as { PublicKeyCredential?: unknown }).PublicKeyCredential = function PublicKeyCredential() {}
   locationReplaceSpy = vi.fn()
   Object.defineProperty(window, 'location', {
     value: { ...window.location, replace: locationReplaceSpy },
@@ -139,5 +147,56 @@ describe('MfaChallengeClient（コード入力画面）', () => {
     render(<MfaChallengeClient />)
     fireEvent.click(await screen.findByRole('button', { name: '別のアカウントでログインする' }))
     await waitFor(() => expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/login', pushCleanup: false }))
+  })
+
+  describe('パスキー', () => {
+    const totp = { id: 'f1', status: 'verified', factor_type: 'totp' }
+    const pk1 = { id: 'w1', status: 'verified', factor_type: 'webauthn', friendly_name: 'MacBook', created_at: '2026-11-01T00:00:00Z' }
+    const pk2 = { id: 'w2', status: 'verified', factor_type: 'webauthn', friendly_name: 'iPhone', created_at: '2026-11-02T00:00:00Z' }
+
+    it('パスキーが1つ: 「パスキーで確認」で authenticate し、元の行き先へ', async () => {
+      factors = [totp, pk1]
+      render(<MfaChallengeClient />)
+      fireEvent.click(await screen.findByRole('button', { name: 'パスキーで確認' }))
+      await waitFor(() => expect(authenticateMock).toHaveBeenCalledWith({ factorId: 'w1' }))
+      await waitFor(() => expect(locationReplaceSpy).toHaveBeenCalledWith('/inbox'))
+      // 認証アプリのコード入力も並べて残す
+      expect(screen.getByLabelText('6桁のコード')).toBeInTheDocument()
+    })
+
+    it('パスキーが複数: 名前ごとにボタンを出し、押したものの factor で確認する', async () => {
+      factors = [totp, pk1, pk2]
+      render(<MfaChallengeClient />)
+      fireEvent.click(await screen.findByRole('button', { name: '「iPhone」で確認' }))
+      await waitFor(() => expect(authenticateMock).toHaveBeenCalledWith({ factorId: 'w2' }))
+    })
+
+    it('やめた・失敗したらエラーを出し、認証アプリのコードで続けられる', async () => {
+      factors = [totp, pk1]
+      authenticateMock.mockResolvedValue({ data: null, error: { name: 'WebAuthnError', message: 'NotAllowedError' } })
+      render(<MfaChallengeClient />)
+      fireEvent.click(await screen.findByRole('button', { name: 'パスキーで確認' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('パスキーで確認できませんでした')
+      expect(locationReplaceSpy).not.toHaveBeenCalled()
+      fireEvent.change(screen.getByLabelText('6桁のコード'), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: '確認する' }))
+      await waitFor(() => expect(challengeAndVerifyMock).toHaveBeenCalledWith({ factorId: 'f1', code: '123456' }))
+    })
+
+    it('パスキーだけ登録（認証アプリ無し）でも「登録なし」扱いにせず、パスキーで確認させる', async () => {
+      factors = [pk1]
+      render(<MfaChallengeClient />)
+      expect(await screen.findByRole('button', { name: 'パスキーで確認' })).toBeInTheDocument()
+      expect(refreshSessionMock).not.toHaveBeenCalled()
+      expect(screen.queryByLabelText('6桁のコード')).not.toBeInTheDocument()
+    })
+
+    it('ブラウザがパスキー非対応なら、パスキーのボタンは出さない', async () => {
+      factors = [totp, pk1]
+      ;(window as { PublicKeyCredential?: unknown }).PublicKeyCredential = undefined
+      render(<MfaChallengeClient />)
+      await screen.findByLabelText('6桁のコード')
+      expect(screen.queryByRole('button', { name: 'パスキーで確認' })).not.toBeInTheDocument()
+    })
   })
 })

@@ -1,17 +1,27 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ShieldCheck, CircleNotch } from '@phosphor-icons/react'
+import { ShieldCheck, CircleNotch, Fingerprint } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { TOTP_FRIENDLY_NAME, normalizeTotpCode } from '@/lib/auth/mfa'
+import { passkeyFriendlyName, verifiedPasskeys } from '@/lib/auth/passkey'
+import { usePasskeySupported } from '@/lib/auth/usePasskeySupported'
 
 type Step = 'loading' | 'off' | 'enrolling' | 'on' | 'disabling'
+type Passkey = { id: string; friendly_name?: string; created_at?: string }
+
+/** 途中でやめた未確認の factor（認証アプリ・パスキー）。電話番号など他の種類は触らない */
+function isStaleFactor(f: { factor_type: string; status: string }): boolean {
+  return (f.factor_type === 'totp' || f.factor_type === 'webauthn') && f.status === 'unverified'
+}
 
 /**
  * 二要素認証（認証アプリ）の登録・解除。
  * 登録: enroll（QR を表示）→ 認証アプリで読み取り → 6桁コードで verify（この時点で aal2 になる）
  * 解除: Supabase は解除に aal2 を要求するので、いまが aal1 ならコードを1回入れてもらってから unenroll
  * 途中でやめた未確認の factor は次回開いたときに片付ける（未確認のまま残ると再登録できないため）
+ * パスキー: 認証アプリを登録済みの人だけ追加できる。認証アプリを解除するときはパスキーも先に全部消す
+ * （スマホアプリはパスキーを使えないので、パスキーだけ残るとアプリでログインできなくなる）。方針は src/lib/auth/passkey.ts
  */
 export function MfaSection() {
   const [step, setStep] = useState<Step>('loading')
@@ -21,6 +31,8 @@ export function MfaSection() {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
+  const [passkeys, setPasskeys] = useState<Passkey[]>([])
+  const passkeyAvailable = usePasskeySupported()
 
   const load = useCallback(async () => {
     try {
@@ -32,13 +44,14 @@ export function MfaSection() {
         return
       }
       const totp = data?.totp ?? []
-      // 途中でやめた未確認の TOTP 登録は片付ける（他種別・登録中のものは触らない）
-      const staleTotp = (data?.all ?? []).filter((f) => f.factor_type === 'totp' && f.status === 'unverified' && f.id !== factorId)
-      for (const f of staleTotp) {
+      // 途中でやめた未確認の登録は片付ける（他種別・登録中のものは触らない）
+      const stale = (data?.all ?? []).filter((f) => isStaleFactor(f) && f.id !== factorId)
+      for (const f of stale) {
         const { error: cleanupError } = await supabase.auth.mfa.unenroll({ factorId: f.id })
         if (cleanupError) console.error('[mfa] cleanup unenroll failed', cleanupError.message)
       }
       const verified = totp.find((f) => f.status === 'verified')
+      setPasskeys(verifiedPasskeys(data?.all ?? []))
       setFactorId(verified?.id ?? null)
       setStep(verified ? 'on' : 'off')
     } catch (err) {
@@ -54,6 +67,52 @@ export function MfaSection() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const addPasskey = useCallback(async () => {
+    if (busy) return
+    setBusy(true)
+    setMessage(null)
+    const supabase = createClient()
+    try {
+      // 登録・確認・端末への作成を1回で行う（rpId は今のホスト名＝本番は agentpm.app）
+      const { error } = await supabase.auth.mfa.webauthn.register({ friendlyName: passkeyFriendlyName(new Date()) })
+      const { data } = await supabase.auth.mfa.listFactors()
+      const all = data?.all ?? []
+      if (error) {
+        // 端末の確認をやめると、Supabase 側に未確認の factor が残る。残すと次の登録の邪魔になるので消す
+        for (const f of all.filter((x) => x.factor_type === 'webauthn' && x.status === 'unverified')) {
+          await supabase.auth.mfa.unenroll({ factorId: f.id })
+        }
+        setMessage({ type: 'error', text: 'パスキーを追加できませんでした。端末の確認をやめた場合は、もう一度お試しください。' })
+        return
+      }
+      setPasskeys(verifiedPasskeys(all))
+      setMessage({ type: 'success', text: 'パスキーを追加しました。次回のログインから、6桁コードの代わりにパスキーで確認できます。' })
+    } catch {
+      setMessage({ type: 'error', text: 'パスキーを追加できませんでした。もう一度お試しください。' })
+    } finally {
+      setBusy(false)
+    }
+  }, [busy])
+
+  const removePasskey = useCallback(
+    async (id: string) => {
+      if (busy) return
+      setBusy(true)
+      setMessage(null)
+      try {
+        const { error } = await createClient().auth.mfa.unenroll({ factorId: id })
+        if (error) throw new Error(error.message)
+        setPasskeys((prev) => prev.filter((p) => p.id !== id))
+        setMessage({ type: 'success', text: 'パスキーを削除しました' })
+      } catch {
+        setMessage({ type: 'error', text: 'パスキーを削除できませんでした。もう一度お試しください。' })
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy],
+  )
 
   const startEnroll = useCallback(async () => {
     setBusy(true)
@@ -142,18 +201,24 @@ export function MfaSection() {
           return
         }
       }
+      // パスキーを先に消す（パスキーだけ残るとスマホアプリでログインできない）。1つでも失敗したら認証アプリは残す
+      for (const p of passkeys) {
+        const { error: pkError } = await supabase.auth.mfa.unenroll({ factorId: p.id })
+        if (pkError) throw new Error(pkError.message)
+      }
+      setPasskeys([])
       const { error } = await supabase.auth.mfa.unenroll({ factorId })
       if (error) throw new Error(error.message)
       setFactorId(null)
       setCode('')
       setStep('off')
-      setMessage({ type: 'success', text: '二要素認証を解除しました' })
+      setMessage({ type: 'success', text: passkeys.length > 0 ? '二要素認証を解除しました（パスキーも削除しました）' : '二要素認証を解除しました' })
     } catch {
       setMessage({ type: 'error', text: '解除に失敗しました。もう一度お試しください。' })
     } finally {
       setBusy(false)
     }
-  }, [factorId, code, busy])
+  }, [factorId, code, busy, passkeys])
 
   const codeInput = (
     <input
@@ -266,6 +331,51 @@ export function MfaSection() {
               <button type="button" onClick={() => setStep('on')} className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900">
                 やめる
               </button>
+            </div>
+          )}
+          {step === 'on' && (
+            <div className="mt-4 pt-4 border-t border-gray-100" data-testid="passkey-section">
+              <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                <Fingerprint className="w-4 h-4 text-gray-500" />
+                パスキー
+              </p>
+              <p className="text-xs text-gray-500 mt-1 mb-3">
+                パソコンやスマホの指紋・顔認証、画面ロック、セキュリティキーで確認できます。ログイン時の6桁コードの代わりに使えます。
+                スマホアプリでは使えないため、認証アプリの登録はそのまま残ります。
+              </p>
+              {passkeys.length > 0 && (
+                <ul className="mb-3 divide-y divide-gray-100 border border-gray-200 rounded-lg">
+                  {passkeys.map((p) => {
+                    const name = p.friendly_name || 'パスキー'
+                    return (
+                      <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <span className="text-sm text-gray-700 truncate">{name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removePasskey(p.id)}
+                          disabled={busy}
+                          aria-label={`${name} を削除`}
+                          className="shrink-0 px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded disabled:opacity-50 transition-colors"
+                        >
+                          削除
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              {passkeyAvailable ? (
+                <button
+                  type="button"
+                  onClick={addPasskey}
+                  disabled={busy}
+                  className="px-3 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                  パスキーを追加
+                </button>
+              ) : (
+                <p className="text-xs text-gray-500">このブラウザはパスキーに対応していません。Chrome・Safari・Edge の最新版でお試しください。</p>
+              )}
             </div>
           )}
         </div>
