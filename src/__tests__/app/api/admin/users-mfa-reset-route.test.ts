@@ -55,6 +55,17 @@ describe('POST /api/admin/users/mfa-reset', () => {
     expect(deleteFactorMock).toHaveBeenCalledWith({ id: 'f2', userId: USER })
     expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ stage: 'mfa_reset', userId: ADMIN, metadata: { target: USER, removed: 2 } }))
   })
+  it('パスキーを先に消し、認証アプリは最後に消す（途中で失敗してもパスキーだけが残らない）', async () => {
+    listFactorsMock.mockResolvedValue({
+      data: { factors: [{ id: 't1', factor_type: 'totp' }, { id: 'w1', factor_type: 'webauthn' }, { id: 'w2', factor_type: 'webauthn' }] },
+      error: null,
+    })
+    deleteFactorMock.mockImplementation(async ({ id }: { id: string }) => (id === 'w2' ? { error: { message: 'boom' } } : { error: null }))
+    const res = await call({ userId: USER })
+    expect(res.status).toBe(500)
+    expect(deleteFactorMock.mock.calls.map((c) => c[0].id)).toEqual(['w1', 'w2'])
+  })
+
   it('登録が無ければ removed:0', async () => {
     listFactorsMock.mockResolvedValue({ data: { factors: [] }, error: null })
     expect(await (await call({ userId: USER })).json()).toEqual({ removed: 0 })

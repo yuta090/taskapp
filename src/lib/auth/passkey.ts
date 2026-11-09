@@ -16,11 +16,11 @@ export function isPasskeySupported(): boolean {
 }
 
 /**
- * 表示名は日時＋ランダムな4文字で一意にする。Supabase は同じ表示名の factor を拒むうえ、
+ * 表示名は日時＋ランダムな8文字で一意にする。Supabase は同じ表示名の factor を拒むうえ、
  * supabase-js の register は登録に失敗すると「同じ表示名の確認済みパスキー」を消しにいく（webauthn.js の _register）。
  * 名前がぶつかると、既にあるパスキーを失う
  */
-export function passkeyFriendlyName(now: Date, suffix: string = crypto.randomUUID().slice(0, 4)): string {
+export function passkeyFriendlyName(now: Date, suffix: string = crypto.randomUUID().slice(0, 8)): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `パスキー ${now.getFullYear()}/${p(now.getMonth() + 1)}/${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())} (${suffix})`
 }

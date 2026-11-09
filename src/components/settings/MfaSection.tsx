@@ -44,6 +44,8 @@ export function MfaSection() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [passkeys, setPasskeys] = useState<Passkey[]>([])
+  // コード入力を待っている削除対象のパスキー
+  const [removingId, setRemovingId] = useState<string | null>(null)
   const passkeyAvailable = usePasskeySupported()
 
   const load = useCallback(async () => {
@@ -104,6 +106,14 @@ export function MfaSection() {
         setMessage({ type: 'error', text: 'パスキーを追加できませんでした。端末の確認をやめた場合は、もう一度お試しください。' })
         return
       }
+      if (!afterError && !hasVerifiedTotp(all)) {
+        // 登録している間に別タブで認証アプリが解除された。パスキーだけ残さないよう、今足した分を消して戻す
+        // （新しいパスキーで2段階目を通ったセッションなので、消す権限はある）
+        const beforeIds = new Set((before?.all ?? []).map((f) => f.id))
+        await unenrollAll(supabase, all.filter((f) => f.factor_type === 'webauthn' && !beforeIds.has(f.id)))
+        setMessage({ type: 'error', text: '認証アプリの登録が見つからないため、パスキーの追加を取り消しました。画面を再読み込みしてください。' })
+        return
+      }
       // 一覧を取り直せなかったときは、表示を空にせず前のまま残す（解除はその場で一覧を取り直すので影響しない）
       if (!afterError) setPasskeys(verifiedPasskeys(all))
       setMessage({ type: 'success', text: 'パスキーを追加しました。次回のログインから、6桁コードの代わりにパスキーで確認できます。' })
@@ -114,24 +124,42 @@ export function MfaSection() {
     }
   }, [busy])
 
-  const removePasskey = useCallback(
-    async (id: string) => {
-      if (busy) return
-      setBusy(true)
-      setMessage(null)
-      try {
-        const { error } = await createClient().auth.mfa.unenroll({ factorId: id })
-        if (error) throw new Error(error.message)
-        setPasskeys((prev) => prev.filter((p) => p.id !== id))
-        setMessage({ type: 'success', text: 'パスキーを削除しました' })
-      } catch {
-        setMessage({ type: 'error', text: 'パスキーを削除できませんでした。もう一度お試しください。' })
-      } finally {
-        setBusy(false)
+  const askRemovePasskey = useCallback((id: string) => {
+    setRemovingId(id)
+    setCode('')
+    setMessage({ type: 'info', text: '削除するには、認証アプリの6桁コードを入力してください' })
+  }, [])
+
+  // 消す前に必ず認証アプリのコードで入り直す。そのパスキーで2段階目を通ったセッションのまま消すと
+  // aal1 に下がり、続く操作が権限不足で失敗する。入り直すとセッションが認証アプリに結びつき下がらない
+  const confirmRemovePasskey = useCallback(async () => {
+    if (!removingId || !factorId || busy) return
+    const normalized = normalizeTotpCode(code)
+    if (normalized.length !== 6) {
+      setMessage({ type: 'error', text: '6桁のコードを入力してください' })
+      return
+    }
+    setBusy(true)
+    setMessage(null)
+    try {
+      const supabase = createClient()
+      const { error: vErr } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: normalized })
+      if (vErr) {
+        setMessage({ type: 'error', text: 'コードが違います' })
+        return
       }
-    },
-    [busy],
-  )
+      const { error } = await supabase.auth.mfa.unenroll({ factorId: removingId })
+      if (error) throw new Error(error.message)
+      setPasskeys((prev) => prev.filter((p) => p.id !== removingId))
+      setRemovingId(null)
+      setCode('')
+      setMessage({ type: 'success', text: 'パスキーを削除しました' })
+    } catch {
+      setMessage({ type: 'error', text: 'パスキーを削除できませんでした。もう一度お試しください。' })
+    } finally {
+      setBusy(false)
+    }
+  }, [removingId, factorId, code, busy])
 
   const startEnroll = useCallback(async () => {
     setBusy(true)
@@ -377,17 +405,44 @@ export function MfaSection() {
                   {passkeys.map((p) => {
                     const name = p.friendly_name || 'パスキー'
                     return (
-                      <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                        <span className="text-sm text-gray-700 truncate">{name}</span>
-                        <button
-                          type="button"
-                          onClick={() => removePasskey(p.id)}
-                          disabled={busy}
-                          aria-label={`${name} を削除`}
-                          className="shrink-0 px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded disabled:opacity-50 transition-colors"
-                        >
-                          削除
-                        </button>
+                      <li key={p.id} className="px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-gray-700 truncate">{name}</span>
+                          {removingId !== p.id && (
+                            <button
+                              type="button"
+                              onClick={() => askRemovePasskey(p.id)}
+                              disabled={busy}
+                              aria-label={`${name} を削除`}
+                              className="shrink-0 px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded disabled:opacity-50 transition-colors"
+                            >
+                              削除
+                            </button>
+                          )}
+                        </div>
+                        {removingId === p.id && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {codeInput}
+                            <button
+                              type="button"
+                              onClick={confirmRemovePasskey}
+                              disabled={busy}
+                              className="px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+                            >
+                              {busy ? '削除中…' : 'コードを確認して削除'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRemovingId(null)
+                                setMessage(null)
+                              }}
+                              className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900"
+                            >
+                              やめる
+                            </button>
+                          </div>
+                        )}
                       </li>
                     )
                   })}

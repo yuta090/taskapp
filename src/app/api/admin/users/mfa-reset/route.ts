@@ -48,7 +48,10 @@ export async function POST(request: NextRequest) {
     console.error('[mfa-reset] listFactors failed', error)
     return NextResponse.json({ error: '二要素認証の情報を取得できませんでした' }, { status: 500 })
   }
-  const factors = data?.factors ?? []
+  // パスキーを先に、認証アプリを最後に消す。途中で失敗しても「パスキーだけ残る」状態を作らない
+  // （スマホアプリはパスキーを使えないので、パスキーだけ残るとアプリでログインできなくなる）
+  const deleteOrder = (t: string | undefined) => (t === 'webauthn' ? 0 : t === 'totp' ? 2 : 1)
+  const factors = [...(data?.factors ?? [])].sort((a, b) => deleteOrder(a.factor_type) - deleteOrder(b.factor_type))
   let removed = 0
   for (const f of factors) {
     const { error: delError } = await admin.auth.admin.mfa.deleteFactor({ id: f.id, userId })

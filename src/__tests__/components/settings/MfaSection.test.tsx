@@ -118,7 +118,7 @@ describe('MfaSection（設定画面の二要素認証）', () => {
       render(<MfaSection />)
       fireEvent.click(await screen.findByRole('button', { name: 'パスキーを追加' }))
       await waitFor(() => expect(registerMock).toHaveBeenCalledTimes(1))
-      expect(registerMock.mock.calls[0][0].friendlyName).toMatch(/^パスキー \d{4}\/\d{2}\/\d{2} \d{2}:\d{2} \([0-9a-f]{4}\)$/)
+      expect(registerMock.mock.calls[0][0].friendlyName).toMatch(/^パスキー \d{4}\/\d{2}\/\d{2} \d{2}:\d{2} \([0-9a-f]{8}\)$/)
       expect(await screen.findByText('パスキー 2026/11/10 09:00:00')).toBeInTheDocument()
       expect(await screen.findByRole('status')).toHaveTextContent('パスキーを追加しました')
     })
@@ -144,12 +144,17 @@ describe('MfaSection（設定画面の二要素認証）', () => {
       await waitFor(() => expect(unenrollMock).toHaveBeenCalledWith({ factorId: 'w-stale' }))
     })
 
-    it('登録済みのパスキーを1つずつ削除できる', async () => {
+    it('パスキーを1つずつ削除できる。消す前に認証アプリのコードで入り直す（そのパスキーで入っていても権限が下がらない）', async () => {
       factors = [totp, passkey]
       aal = { currentLevel: 'aal2', nextLevel: 'aal2' }
       render(<MfaSection />)
       fireEvent.click(await screen.findByRole('button', { name: 'パスキー 2026/11/10 09:00:00 を削除' }))
+      expect(unenrollMock).not.toHaveBeenCalled()
+      fireEvent.change(await screen.findByLabelText('6桁のコード'), { target: { value: '222222' } })
+      fireEvent.click(screen.getByRole('button', { name: 'コードを確認して削除' }))
       await waitFor(() => expect(unenrollMock).toHaveBeenCalledWith({ factorId: 'w1' }))
+      expect(challengeAndVerifyMock).toHaveBeenCalledWith({ factorId: 'f1', code: '222222' })
+      expect(challengeAndVerifyMock.mock.invocationCallOrder[0]).toBeLessThan(unenrollMock.mock.invocationCallOrder[0])
       expect(unenrollMock).not.toHaveBeenCalledWith({ factorId: 'f1' })
       await waitFor(() => expect(screen.queryByText('パスキー 2026/11/10 09:00:00')).not.toBeInTheDocument())
     })
@@ -205,6 +210,19 @@ describe('MfaSection（設定画面の二要素認証）', () => {
       fireEvent.click(screen.getByRole('button', { name: 'パスキーを追加' }))
       expect(await screen.findByRole('alert')).toHaveTextContent('先に認証アプリを登録してください')
       expect(registerMock).not.toHaveBeenCalled()
+    })
+
+    it('登録している間に別タブで認証アプリが解除されたら、今足したパスキーを消して戻す', async () => {
+      factors = [totp]
+      aal = { currentLevel: 'aal2', nextLevel: 'aal2' }
+      registerMock.mockImplementation(async () => {
+        factors = [passkey]
+        return { data: {}, error: null }
+      })
+      render(<MfaSection />)
+      fireEvent.click(await screen.findByRole('button', { name: 'パスキーを追加' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('認証アプリの登録が見つからない')
+      await waitFor(() => expect(unenrollMock).toHaveBeenCalledWith({ factorId: 'w1' }))
     })
 
     it('登録の前に、残っている未確認のパスキーを片付ける', async () => {
