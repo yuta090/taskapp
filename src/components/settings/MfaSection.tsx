@@ -4,11 +4,23 @@ import { useCallback, useEffect, useState } from 'react'
 import { ShieldCheck, CircleNotch, Fingerprint } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { TOTP_FRIENDLY_NAME, normalizeTotpCode } from '@/lib/auth/mfa'
-import { passkeyFriendlyName, verifiedPasskeys } from '@/lib/auth/passkey'
+import { hasVerifiedTotp, passkeyFriendlyName, verifiedPasskeys } from '@/lib/auth/passkey'
 import { usePasskeySupported } from '@/lib/auth/usePasskeySupported'
 
 type Step = 'loading' | 'off' | 'enrolling' | 'on' | 'disabling'
 type Passkey = { id: string; friendly_name?: string; created_at?: string }
+
+type MfaClient = ReturnType<typeof createClient>
+
+/** まとめて消す（片付け用。失敗は記録だけして続ける） */
+async function unenrollAll(supabase: MfaClient, factors: ReadonlyArray<{ id: string }>): Promise<void> {
+  await Promise.all(
+    factors.map(async (f) => {
+      const { error } = await supabase.auth.mfa.unenroll({ factorId: f.id })
+      if (error) console.error('[mfa] cleanup unenroll failed', error.message)
+    }),
+  )
+}
 
 /** 途中でやめた未確認の factor（認証アプリ・パスキー）。電話番号など他の種類は触らない */
 function isStaleFactor(f: { factor_type: string; status: string }): boolean {
@@ -45,11 +57,10 @@ export function MfaSection() {
       }
       const totp = data?.totp ?? []
       // 途中でやめた未確認の登録は片付ける（他種別・登録中のものは触らない）
-      const stale = (data?.all ?? []).filter((f) => isStaleFactor(f) && f.id !== factorId)
-      for (const f of stale) {
-        const { error: cleanupError } = await supabase.auth.mfa.unenroll({ factorId: f.id })
-        if (cleanupError) console.error('[mfa] cleanup unenroll failed', cleanupError.message)
-      }
+      await unenrollAll(
+        supabase,
+        (data?.all ?? []).filter((f) => isStaleFactor(f) && f.id !== factorId),
+      )
       const verified = totp.find((f) => f.status === 'verified')
       setPasskeys(verifiedPasskeys(data?.all ?? []))
       setFactorId(verified?.id ?? null)
@@ -74,19 +85,27 @@ export function MfaSection() {
     setMessage(null)
     const supabase = createClient()
     try {
+      // 押した時点の一覧で確かめる（別タブで認証アプリを解除していたら、パスキーだけが残る状態になる）
+      const { data: before, error: beforeError } = await supabase.auth.mfa.listFactors()
+      if (beforeError) throw new Error(beforeError.message)
+      if (!hasVerifiedTotp(before?.all ?? [])) {
+        setMessage({ type: 'error', text: '先に認証アプリを登録してください。画面を再読み込みしてください。' })
+        return
+      }
+      // 前に途中でやめた未確認の登録が残っていると、登録数の上限に近づくので先に消す
+      await unenrollAll(supabase, (before?.all ?? []).filter((f) => f.factor_type === 'webauthn' && f.status === 'unverified'))
       // 登録・確認・端末への作成を1回で行う（rpId は今のホスト名＝本番は agentpm.app）
       const { error } = await supabase.auth.mfa.webauthn.register({ friendlyName: passkeyFriendlyName(new Date()) })
-      const { data } = await supabase.auth.mfa.listFactors()
+      const { data, error: afterError } = await supabase.auth.mfa.listFactors()
       const all = data?.all ?? []
       if (error) {
         // 端末の確認をやめると、Supabase 側に未確認の factor が残る。残すと次の登録の邪魔になるので消す
-        for (const f of all.filter((x) => x.factor_type === 'webauthn' && x.status === 'unverified')) {
-          await supabase.auth.mfa.unenroll({ factorId: f.id })
-        }
+        await unenrollAll(supabase, all.filter((x) => x.factor_type === 'webauthn' && x.status === 'unverified'))
         setMessage({ type: 'error', text: 'パスキーを追加できませんでした。端末の確認をやめた場合は、もう一度お試しください。' })
         return
       }
-      setPasskeys(verifiedPasskeys(all))
+      // 一覧を取り直せなかったときは、表示を空にせず前のまま残す（解除はその場で一覧を取り直すので影響しない）
+      if (!afterError) setPasskeys(verifiedPasskeys(all))
       setMessage({ type: 'success', text: 'パスキーを追加しました。次回のログインから、6桁コードの代わりにパスキーで確認できます。' })
     } catch {
       setMessage({ type: 'error', text: 'パスキーを追加できませんでした。もう一度お試しください。' })
@@ -186,13 +205,22 @@ export function MfaSection() {
     setMessage(null)
     try {
       const supabase = createClient()
+      // 消す対象は押した時点の一覧で決める（開いたあと別タブで足したパスキーも残さない）。取れなければ何も消さない
+      const { data: list, error: listError } = await supabase.auth.mfa.listFactors()
+      if (listError) throw new Error(listError.message)
+      const keys = (list?.all ?? []).filter((f) => f.factor_type === 'webauthn')
       const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      if (aal?.currentLevel !== 'aal2') {
-        // 解除には2段階目を通った状態が要る → コードを入れてもらう
+      // 解除には2段階目を通った状態が要る。パスキーがあるときは aal2 でも必ず認証アプリのコードで入り直す:
+      // パスキーで2段階目を通ったセッションは、そのパスキーを消すと aal1 に下がり、続く削除が権限不足で失敗する。
+      // 認証アプリで入り直すとセッションが認証アプリに結びつくので、パスキーを消しても下がらない
+      if (keys.length > 0 || aal?.currentLevel !== 'aal2') {
         const normalized = normalizeTotpCode(code)
         if (normalized.length !== 6) {
           setStep('disabling')
-          setMessage({ type: 'info', text: '解除するには、認証アプリの6桁コードを入力してください' })
+          setMessage({
+            type: 'info',
+            text: keys.length > 0 ? '解除するには、認証アプリの6桁コードを入力してください（パスキーも一緒に削除します）' : '解除するには、認証アプリの6桁コードを入力してください',
+          })
           return
         }
         const { error: vErr } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: normalized })
@@ -202,23 +230,24 @@ export function MfaSection() {
         }
       }
       // パスキーを先に消す（パスキーだけ残るとスマホアプリでログインできない）。1つでも失敗したら認証アプリは残す
-      for (const p of passkeys) {
-        const { error: pkError } = await supabase.auth.mfa.unenroll({ factorId: p.id })
+      // 1件ずつ消し、消せた分は表示からも外す（途中で失敗しても、もう一度押せば残りから続く）
+      for (const k of keys) {
+        const { error: pkError } = await supabase.auth.mfa.unenroll({ factorId: k.id })
         if (pkError) throw new Error(pkError.message)
+        setPasskeys((prev) => prev.filter((p) => p.id !== k.id))
       }
-      setPasskeys([])
       const { error } = await supabase.auth.mfa.unenroll({ factorId })
       if (error) throw new Error(error.message)
       setFactorId(null)
       setCode('')
       setStep('off')
-      setMessage({ type: 'success', text: passkeys.length > 0 ? '二要素認証を解除しました（パスキーも削除しました）' : '二要素認証を解除しました' })
+      setMessage({ type: 'success', text: keys.some((k) => k.status === 'verified') ? '二要素認証を解除しました（パスキーも削除しました）' : '二要素認証を解除しました' })
     } catch {
       setMessage({ type: 'error', text: '解除に失敗しました。もう一度お試しください。' })
     } finally {
       setBusy(false)
     }
-  }, [factorId, code, busy, passkeys])
+  }, [factorId, code, busy])
 
   const codeInput = (
     <input

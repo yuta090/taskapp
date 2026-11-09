@@ -14,8 +14,12 @@ describe('passkey（二要素認証のパスキー）', () => {
     expect(isPasskeySupported()).toBe(true)
   })
 
-  it('表示名は秒まで入れて一意にする（Supabase は同じ名前の登録を拒む）', () => {
-    expect(passkeyFriendlyName(new Date(2026, 10, 10, 9, 5, 7))).toBe('パスキー 2026/11/10 09:05:07')
+  it('表示名は日時＋ランダムな4文字で一意にする（同名だと SDK が登録失敗時に確認済みの同名パスキーまで消す）', () => {
+    expect(passkeyFriendlyName(new Date(2026, 10, 10, 9, 5, 7), 'ab12')).toBe('パスキー 2026/11/10 09:05 (ab12)')
+    const a = passkeyFriendlyName(new Date(2026, 10, 10, 9, 5, 7))
+    const b = passkeyFriendlyName(new Date(2026, 10, 10, 9, 5, 7))
+    expect(a).toMatch(/^パスキー 2026\/11\/10 09:05 \([0-9a-f]{4}\)$/)
+    expect(a).not.toBe(b)
   })
 
   it('確認済みのパスキーだけを登録順に並べる', () => {
