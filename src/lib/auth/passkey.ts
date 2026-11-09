@@ -35,3 +35,16 @@ export function verifiedPasskeys<T extends FactorLike>(all: readonly T[]): T[] {
 export function hasVerifiedTotp(all: readonly FactorLike[]): boolean {
   return all.some((f) => f.factor_type === 'totp' && f.status === 'verified')
 }
+
+export const MFA_LOCK_NAME = 'taskapp-mfa-factors'
+
+/**
+ * 同じブラウザの別タブ同士で、factor の追加・削除・解除を1つずつ行う（Web Locks）。
+ * 例: 解除側が一覧を取った直後に別タブでパスキーが足されると、パスキーだけが残る。
+ * 端末をまたぐ同時操作は防げない（サーバー側の制御が要る）。残った場合は設定画面が認証アプリの登録し直しを案内する
+ */
+export async function withMfaLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? (navigator as { locks?: { request?: unknown } }).locks : undefined
+  if (!locks || typeof locks.request !== 'function') return fn()
+  return (locks as LockManager).request(MFA_LOCK_NAME, fn) as Promise<T>
+}

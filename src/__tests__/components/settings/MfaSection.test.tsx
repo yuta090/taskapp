@@ -40,7 +40,11 @@ beforeEach(() => {
   enrollMock.mockResolvedValue({ data: { id: 'f-new', totp: { qr_code: 'data:image/svg+xml;utf-8,<svg id="a">#</svg>', secret: 'ABCD1234' } }, error: null })
   challengeMock.mockResolvedValue({ data: { id: 'c1' }, error: null })
   verifyMock.mockResolvedValue({ data: {}, error: null })
-  unenrollMock.mockResolvedValue({ data: {}, error: null })
+  // 消したら一覧からも消える（状態の変化をテストで再現する）
+  unenrollMock.mockImplementation(async ({ factorId }: { factorId: string }) => {
+    factors = factors.filter((f) => f.id !== factorId)
+    return { data: {}, error: null }
+  })
   challengeAndVerifyMock.mockResolvedValue({ data: {}, error: null })
   registerMock.mockResolvedValue({ data: {}, error: null })
   ;(window as { PublicKeyCredential?: unknown }).PublicKeyCredential = function PublicKeyCredential() {}
@@ -223,6 +227,54 @@ describe('MfaSection（設定画面の二要素認証）', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'パスキーを追加' }))
       expect(await screen.findByRole('alert')).toHaveTextContent('認証アプリの登録が見つからない')
       await waitFor(() => expect(unenrollMock).toHaveBeenCalledWith({ factorId: 'w1' }))
+    })
+
+    it('取り消しに失敗したら「取り消しました」とは言わず、認証アプリの登録し直しを案内する', async () => {
+      factors = [totp]
+      aal = { currentLevel: 'aal2', nextLevel: 'aal2' }
+      registerMock.mockImplementation(async () => {
+        factors = [passkey]
+        return { data: {}, error: null }
+      })
+      unenrollMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
+      render(<MfaSection />)
+      fireEvent.click(await screen.findByRole('button', { name: 'パスキーを追加' }))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('取り消せませんでした')
+      expect(alert).not.toHaveTextContent('取り消しました')
+    })
+
+    it('パスキーだけが残っている人には、認証アプリの登録し直しを案内する', async () => {
+      factors = [passkey]
+      aal = { currentLevel: 'aal2', nextLevel: 'aal2' }
+      render(<MfaSection />)
+      expect(await screen.findByText(/パスキーだけが登録されています/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '有効にする' })).toBeInTheDocument()
+    })
+
+    it('解除の途中でパスキーの削除に失敗しても、もう一度押せば残りから続く', async () => {
+      const pk2 = { ...passkey, id: 'w2', friendly_name: 'パスキー2', created_at: '2026-11-11T00:00:00Z' }
+      factors = [totp, passkey, pk2]
+      aal = { currentLevel: 'aal2', nextLevel: 'aal2' }
+      let failOnce = true
+      unenrollMock.mockImplementation(async ({ factorId }: { factorId: string }) => {
+        if (factorId === 'w2' && failOnce) {
+          failOnce = false
+          return { data: null, error: { message: 'boom' } }
+        }
+        factors = factors.filter((f) => f.id !== factorId)
+        return { data: {}, error: null }
+      })
+      render(<MfaSection />)
+      fireEvent.click(await screen.findByRole('button', { name: '解除する' }))
+      fireEvent.change(await screen.findByLabelText('6桁のコード'), { target: { value: '111111' } })
+      fireEvent.click(screen.getByRole('button', { name: 'コードを確認して解除' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('解除に失敗しました')
+      expect(factors.map((f) => f.id)).toEqual(['f1', 'w2'])
+      fireEvent.click(screen.getByRole('button', { name: 'コードを確認して解除' }))
+      expect(await screen.findByText('オフ')).toBeInTheDocument()
+      expect(factors).toEqual([])
+      expect(unenrollMock.mock.calls.map((c) => c[0].factorId)).toEqual(['w1', 'w2', 'w2', 'f1'])
     })
 
     it('登録の前に、残っている未確認のパスキーを片付ける', async () => {

@@ -34,3 +34,21 @@ describe('passkey（二要素認証のパスキー）', () => {
     expect(hasVerifiedTotp(all.filter((f) => f.factor_type !== 'totp'))).toBe(false)
   })
 })
+
+describe('withMfaLock（同じブラウザの別タブ同士で factor の操作を1つずつ行う）', () => {
+  it('Web Locks があれば同じ名前のロックの中で動かす', async () => {
+    const { withMfaLock } = await import('./passkey')
+    const names: string[] = []
+    const locks = { request: async (name: string, fn: () => Promise<unknown>) => { names.push(name); return fn() } }
+    Object.defineProperty(navigator, 'locks', { value: locks, configurable: true })
+    await expect(withMfaLock(async () => 42)).resolves.toBe(42)
+    expect(names).toEqual(['taskapp-mfa-factors'])
+    Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+  })
+
+  it('Web Locks が無いブラウザではそのまま動かす', async () => {
+    const { withMfaLock } = await import('./passkey')
+    Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+    await expect(withMfaLock(async () => 'ok')).resolves.toBe('ok')
+  })
+})
