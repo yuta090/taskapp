@@ -19,6 +19,25 @@ export declare const meetingCreateSchema: z.ZodObject<{
     notes?: string | undefined;
     participantIds?: string[] | undefined;
 }>;
+export declare const meetingUpdateSchema: z.ZodObject<{
+    spaceId: z.ZodString;
+    meetingId: z.ZodString;
+    title: z.ZodOptional<z.ZodString>;
+    heldAt: z.ZodOptional<z.ZodString>;
+    expectedUpdatedAt: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    spaceId: string;
+    meetingId: string;
+    title?: string | undefined;
+    heldAt?: string | undefined;
+    expectedUpdatedAt?: string | undefined;
+}, {
+    spaceId: string;
+    meetingId: string;
+    title?: string | undefined;
+    heldAt?: string | undefined;
+    expectedUpdatedAt?: string | undefined;
+}>;
 export declare const meetingStartSchema: z.ZodObject<{
     spaceId: z.ZodString;
     meetingId: z.ZodString;
@@ -63,6 +82,7 @@ export declare const meetingGetSchema: z.ZodObject<{
     meetingId: string;
 }>;
 export declare function meetingCreate(params: z.infer<typeof meetingCreateSchema>): Promise<Meeting>;
+export declare function meetingUpdate(params: z.infer<typeof meetingUpdateSchema>): Promise<Meeting>;
 export declare function meetingStart(params: z.infer<typeof meetingStartSchema>): Promise<{
     ok: boolean;
     meeting: Meeting;
@@ -112,6 +132,29 @@ export declare const meetingTools: ({
         participantIds?: string[] | undefined;
     }>;
     handler: typeof meetingCreate;
+} | {
+    name: string;
+    description: string;
+    inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
+        meetingId: z.ZodString;
+        title: z.ZodOptional<z.ZodString>;
+        heldAt: z.ZodOptional<z.ZodString>;
+        expectedUpdatedAt: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        spaceId: string;
+        meetingId: string;
+        title?: string | undefined;
+        heldAt?: string | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }, {
+        spaceId: string;
+        meetingId: string;
+        title?: string | undefined;
+        heldAt?: string | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }>;
+    handler: typeof meetingUpdate;
 } | {
     name: string;
     description: string;

@@ -146,6 +146,7 @@ AgentPMのプロジェクト一覧を表示して
 | ツール名 | 説明 |
 |---------|------|
 | `meeting_create` | 新しい会議を作成 |
+| `meeting_update` | 会議の題名・開催日時を直す（`expectedUpdatedAt` で上書きを防ぐ） |
 | `meeting_start` | 会議を開始（planned → in_progress） |
 | `meeting_end` | 会議を終了（自動サマリー生成） |
 | `meeting_list` | 会議一覧を取得 |

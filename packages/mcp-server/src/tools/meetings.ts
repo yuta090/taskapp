@@ -7,6 +7,7 @@ import { assertUsersAreSpaceMembers, requireActorUserId } from '../auth/scope.js
 import { mapRaiseExceptionError } from '../lib/rpcErrors.js'
 import { buildMinutesLink, withLink } from '../lib/appLinks.js'
 import { notFoundOr, hideDbError } from '../lib/dbErrors.js'
+import { assertWriteApplied } from '../lib/staleWrite.js'
 
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId: string): Promise<string> {
@@ -24,6 +25,25 @@ export const meetingCreateSchema = z.object({
   heldAt: z.string().optional().describe('開催日時 (ISO8601)'),
   notes: z.string().optional().describe('事前メモ'),
   participantIds: z.array(z.string().uuid()).default([]).describe('参加者UUID配列'),
+})
+
+// 作ったあとの題名・開催日時を直す。参加者の入れ替えは別の表で途中失敗の扱いが要るので、ここでは扱わない。
+// refine で包まない（MCP の登録が inputSchema.shape を読むため）。「直す項目が無い」は処理の中で断る。
+export const meetingUpdateSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
+  meetingId: z.string().uuid().describe('会議UUID'),
+  title: z.string().min(1).optional().describe('新しい会議タイトル'),
+  heldAt: z
+    .string()
+    .datetime({ offset: true })
+    .optional()
+    .describe('新しい開催日時（ISO8601・時差付き。例 2026-11-12T15:00:00+09:00）。時差が無いと UTC として9時間ずれるので断る'),
+  expectedUpdatedAt: z
+    .string()
+    .optional()
+    .describe(
+      '直前の meeting_get で受け取った meeting.updated_at をそのまま渡す。渡すと、その版のままのときだけ書き換える。渡さないと、他の人が先に直した内容を黙って上書きする'
+    ),
 })
 
 export const meetingStartSchema = z.object({
@@ -98,6 +118,38 @@ export async function meetingCreate(params: z.infer<typeof meetingCreateSchema>)
   }
 
   return meeting as Meeting
+}
+
+export async function meetingUpdate(params: z.infer<typeof meetingUpdateSchema>): Promise<Meeting> {
+  const patch: { title?: string; held_at?: string } = {}
+  if (params.title !== undefined) patch.title = params.title
+  if (params.heldAt !== undefined) patch.held_at = params.heldAt
+  if (Object.keys(patch).length === 0) {
+    throw new ToolUserError('直す項目がありません。title か heldAt を渡してください', 400)
+  }
+
+  await checkAuth(params.spaceId, 'write', 'meeting_update', 'meeting', params.meetingId)
+  const supabase = getSupabaseClient()
+  const orgId = await getOrgId(params.spaceId)
+
+  // expectedUpdatedAt を渡されたときだけ、その版のままの行に限って書く（minutes_update と同じ楽観ロック）。
+  // .single() は使わない — 0行のとき例外になり、競合と「見つからない」を区別できないため。
+  let query = supabase
+    .from('meetings')
+    .update(patch)
+    .eq('id', params.meetingId)
+    .eq('org_id', orgId)
+    .eq('space_id', params.spaceId)
+  if (params.expectedUpdatedAt !== undefined) {
+    query = query.eq('updated_at', params.expectedUpdatedAt)
+  }
+
+  const { data, error } = await query.select('*')
+  if (error) throw hideDbError(error, 'meeting_update', '会議の更新に失敗しました')
+
+  const rows = (data ?? []) as Meeting[]
+  assertWriteApplied(rows.length, params.expectedUpdatedAt, '会議が見つかりません')
+  return rows[0] as Meeting
 }
 
 export async function meetingStart(params: z.infer<typeof meetingStartSchema>): Promise<{ ok: boolean; meeting: Meeting }> {
@@ -263,6 +315,12 @@ export const meetingTools = [
     description: '会議新規作成',
     inputSchema: meetingCreateSchema,
     handler: meetingCreate,
+  },
+  {
+    name: 'meeting_update',
+    description: '会議の題名・開催日時を直す。直前の meeting_get の meeting.updated_at を expectedUpdatedAt に渡すと、他の人の更新を上書きしない',
+    inputSchema: meetingUpdateSchema,
+    handler: meetingUpdate,
   },
   {
     name: 'meeting_start',
