@@ -57,10 +57,10 @@ export declare const wikiUpdateSchema: z.ZodObject<{
     milestoneId?: string | null | undefined;
     tags?: string[] | undefined;
     body?: string | undefined;
+    expectedUpdatedAt?: string | undefined;
     format?: "markdown" | "html" | "blocks" | undefined;
     parentPageId?: string | null | undefined;
     pinned?: boolean | undefined;
-    expectedUpdatedAt?: string | undefined;
 }, {
     spaceId: string;
     pageId: string;
@@ -68,10 +68,10 @@ export declare const wikiUpdateSchema: z.ZodObject<{
     milestoneId?: unknown;
     tags?: string[] | undefined;
     body?: string | undefined;
+    expectedUpdatedAt?: string | undefined;
     format?: "markdown" | "html" | "blocks" | undefined;
     parentPageId?: unknown;
     pinned?: boolean | undefined;
-    expectedUpdatedAt?: string | undefined;
 }>;
 declare const wikiDeleteSchema: z.ZodObject<{
     spaceId: z.ZodString;
@@ -195,10 +195,10 @@ export declare const wikiTools: ({
         milestoneId?: string | null | undefined;
         tags?: string[] | undefined;
         body?: string | undefined;
+        expectedUpdatedAt?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         parentPageId?: string | null | undefined;
         pinned?: boolean | undefined;
-        expectedUpdatedAt?: string | undefined;
     }, {
         spaceId: string;
         pageId: string;
@@ -206,10 +206,10 @@ export declare const wikiTools: ({
         milestoneId?: unknown;
         tags?: string[] | undefined;
         body?: string | undefined;
+        expectedUpdatedAt?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         parentPageId?: unknown;
         pinned?: boolean | undefined;
-        expectedUpdatedAt?: string | undefined;
     }>;
     handler: typeof wikiUpdate;
 } | {

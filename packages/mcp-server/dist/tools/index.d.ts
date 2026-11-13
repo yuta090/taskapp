@@ -357,6 +357,29 @@ export declare const allTools: ({
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
         meetingId: import("zod").ZodString;
+        title: import("zod").ZodOptional<import("zod").ZodString>;
+        heldAt: import("zod").ZodOptional<import("zod").ZodString>;
+        expectedUpdatedAt: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        meetingId: string;
+        title?: string | undefined;
+        heldAt?: string | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }, {
+        spaceId: string;
+        meetingId: string;
+        title?: string | undefined;
+        heldAt?: string | undefined;
+        expectedUpdatedAt?: string | undefined;
+    }>;
+    handler: typeof import("./meetings.js").meetingUpdate;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        meetingId: import("zod").ZodString;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         meetingId: string;
@@ -923,10 +946,10 @@ export declare const allTools: ({
         milestoneId?: string | null | undefined;
         tags?: string[] | undefined;
         body?: string | undefined;
+        expectedUpdatedAt?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         parentPageId?: string | null | undefined;
         pinned?: boolean | undefined;
-        expectedUpdatedAt?: string | undefined;
     }, {
         spaceId: string;
         pageId: string;
@@ -934,10 +957,10 @@ export declare const allTools: ({
         milestoneId?: unknown;
         tags?: string[] | undefined;
         body?: string | undefined;
+        expectedUpdatedAt?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         parentPageId?: unknown;
         pinned?: boolean | undefined;
-        expectedUpdatedAt?: string | undefined;
     }>;
     handler: typeof import("./wiki.js").wikiUpdate;
 } | {

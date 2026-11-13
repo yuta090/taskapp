@@ -301,6 +301,28 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         ],
       },
       {
+        name: 'update',
+        description:
+          '会議の題名・開催日時を直す。直前の meeting get の meeting.updated_at を --expected-updated-at に渡すこと（渡さないと他の人の更新を黙って消す）',
+        tool: 'meeting_update',
+        options: [
+          spaceOpt,
+          { flags: '--meeting-id <uuid>', description: 'Meeting UUID', param: 'meetingId', required: true },
+          { flags: '--title <title>', description: 'New meeting title', param: 'title' },
+          {
+            flags: '--held-at <datetime>',
+            description: 'New date/time (ISO8601 with offset, e.g. 2026-11-12T15:00:00+09:00)',
+            param: 'heldAt',
+          },
+          {
+            flags: '--expected-updated-at <ts>',
+            description:
+              '直前の meeting get で返った meeting.updated_at。その版のままのときだけ書き換える（省略すると無条件に上書き）',
+            param: 'expectedUpdatedAt',
+          },
+        ],
+      },
+      {
         name: 'start',
         description: 'Start a meeting',
         tool: 'meeting_start',

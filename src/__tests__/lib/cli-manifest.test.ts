@@ -286,3 +286,26 @@ describe('cli-manifest: vote（投票ブロック）', () => {
     expect(choice.required).toBe(true)
   })
 })
+
+/**
+ * 作ったあとの会議の題名・開催日時を直す（2026-11-11）。
+ * 他の人の更新を消さないよう、minutes update と同じ --expected-updated-at を持つ。
+ */
+describe('cli-manifest: meeting update', () => {
+  const manifest = getManifest()
+  const meeting = manifest.commands.find((c) => c.name === 'meeting')!
+  const update = () => meeting.subcommands!.find((s) => s.name === 'update')!
+
+  it('meeting update が meeting_update を呼ぶ', () => {
+    expect(update().tool).toBe('meeting_update')
+  })
+
+  it('--meeting-id 必須で、--title・--held-at・--expected-updated-at を持つ', () => {
+    const byParam = Object.fromEntries(update().options.map((o) => [o.param, o]))
+    expect(byParam.meetingId.required).toBe(true)
+    expect(byParam.title.required).toBeFalsy()
+    expect(byParam.heldAt.required).toBeFalsy()
+    expect(byParam.expectedUpdatedAt.flags).toBe('--expected-updated-at <ts>')
+    expect(byParam.spaceId).toBeDefined()
+  })
+})

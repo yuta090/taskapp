@@ -70,6 +70,7 @@ const TOOL_LABELS: Record<string, string> = {
   milestone_delete: 'マイルストーン削除',
   // ミーティング
   meeting_create: 'ミーティング作成',
+  meeting_update: 'ミーティング更新',
   meeting_start: 'ミーティング開始',
   meeting_end: 'ミーティング終了',
   meeting_list: 'ミーティング一覧',
