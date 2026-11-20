@@ -840,6 +840,8 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           'agentpm wiki create --title "画面" --body "![画面写真](/api/files/<file-id>/download)"   # 画像は先に file upload で上げる',
           'agentpm wiki create --title "決定" --file page.md   # 行の色は、ブロックの直前の1行に <!--color:bg=yellow--> と書く',
           'agentpm wiki create --title "進め方" --file page.md   # 囲みは引用の1行目に [!種類] と書く（> [!NOTE] 補足／[!TIP] ポイント／[!IMPORTANT] 結論／[!WARNING] 注意／[!CAUTION] 禁止。1節に1〜2個まで）。文中は <mark>文字</mark> で黄色のマーカー',
+          'agentpm wiki create --title "仕様書" --folder   # フォルダを作る（画面の「新しいフォルダ」と同じ。本文は不要）',
+          'agentpm wiki create --title "顧客ジャーニー" --file 14_customer_journey_v1.md --parent-page-id <フォルダのID>   # フォルダの中に作る',
         ],
         options: [
           spaceOpt,
@@ -848,6 +850,8 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--stdin', description: 'Read body text from stdin', param: 'stdin', type: 'bool' },
           { flags: '--format <fmt>', description: 'Body format (default: auto-detect)', param: 'format', choices: ['markdown', 'html', 'blocks'] },
           { flags: '--tags <tags...>', description: 'Tags（仕様書 を付けるとタスクの「仕様書連携」で選べる）', param: 'tags', type: 'string[]' },
+          { flags: '--folder', description: 'Create a folder instead of a page (same as 「新しいフォルダ」 in the app). Body is optional', param: 'folder', type: 'bool' },
+          { flags: '--parent-page-id <id>', description: 'Create inside this folder (parent page). Omit to create at the top level', param: 'parentPageId' },
         ],
       },
       {
@@ -1173,6 +1177,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     id: '2026-09-26-vote-cli',
     date: '2026-09-26',
     message: 'Wiki・議事録の投票ブロックを CLI から見られるようになりました: agentpm vote list --wiki-page-id <ID>（または --meeting-id）/ agentpm vote show --poll-id <ID> / agentpm vote cast --poll-id <ID> --choice ok|ng|hold|none',
+  },
+  {
+    id: '2026-11-20-wiki-create-folder',
+    date: '2026-11-20',
+    message: 'Wiki のフォルダを CLI から作れるようになりました: agentpm wiki create --title "仕様書" --folder。フォルダの中にページを作るときは agentpm wiki create --title "..." --file page.md --parent-page-id <フォルダのID>',
   },
 ]
 

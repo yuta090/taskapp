@@ -20,24 +20,30 @@ declare const wikiGetSchema: z.ZodObject<{
     spaceId: string;
     pageId: string;
 }>;
-declare const wikiCreateSchema: z.ZodObject<{
+export declare const wikiCreateSchema: z.ZodObject<{
     spaceId: z.ZodString;
     title: z.ZodString;
     body: z.ZodOptional<z.ZodString>;
     format: z.ZodOptional<z.ZodEnum<["markdown", "html", "blocks"]>>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    folder: z.ZodOptional<z.ZodBoolean>;
+    parentPageId: z.ZodEffects<z.ZodOptional<z.ZodNullable<z.ZodString>>, string | null | undefined, unknown>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     title: string;
     tags?: string[] | undefined;
     body?: string | undefined;
     format?: "markdown" | "html" | "blocks" | undefined;
+    folder?: boolean | undefined;
+    parentPageId?: string | null | undefined;
 }, {
     spaceId: string;
     title: string;
     tags?: string[] | undefined;
     body?: string | undefined;
     format?: "markdown" | "html" | "blocks" | undefined;
+    folder?: boolean | undefined;
+    parentPageId?: unknown;
 }>;
 export declare const wikiUpdateSchema: z.ZodObject<{
     spaceId: z.ZodString;
@@ -116,7 +122,7 @@ export declare function wikiList(params: z.infer<typeof wikiListSchema>): Promis
 export declare function wikiGet(params: z.infer<typeof wikiGetSchema>): Promise<WikiPage>;
 export declare function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Promise<WikiPage>;
 /** DB トリガーの拒否理由（親子・マイルストーンの境界/循環）を利用者向けの日本語に置き換える。 */
-export declare function describeWikiUpdateError(message: string | undefined): string;
+export declare function describeWikiUpdateError(message: string | undefined, fallback?: string): string;
 export declare function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Promise<WikiPage>;
 export declare function wikiDelete(params: z.infer<typeof wikiDeleteSchema>): Promise<{
     ok: true;
@@ -160,18 +166,24 @@ export declare const wikiTools: ({
         body: z.ZodOptional<z.ZodString>;
         format: z.ZodOptional<z.ZodEnum<["markdown", "html", "blocks"]>>;
         tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+        folder: z.ZodOptional<z.ZodBoolean>;
+        parentPageId: z.ZodEffects<z.ZodOptional<z.ZodNullable<z.ZodString>>, string | null | undefined, unknown>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         title: string;
         tags?: string[] | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
+        folder?: boolean | undefined;
+        parentPageId?: string | null | undefined;
     }, {
         spaceId: string;
         title: string;
         tags?: string[] | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
+        folder?: boolean | undefined;
+        parentPageId?: unknown;
     }>;
     handler: typeof wikiCreate;
 } | {

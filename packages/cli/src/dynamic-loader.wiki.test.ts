@@ -150,3 +150,68 @@ describe('manifest 経由の wiki create --file（手元の画像のアップロ
     )
   })
 })
+
+describe('manifest 経由の wiki create --folder / --parent-page-id', () => {
+  const folderManifest: Manifest = {
+    ...manifest,
+    commands: [
+      {
+        name: 'wiki',
+        description: 'Wiki management',
+        subcommands: [
+          {
+            name: 'create',
+            description: 'Create a wiki page',
+            tool: 'wiki_create',
+            stdinMode: true,
+            stdinFormat: 'text',
+            stdinParam: 'body',
+            uploadLocalImages: true,
+            options: [
+              { flags: '-s, --space-id <uuid>', description: 'Space UUID', param: 'spaceId', resolve: 'spaceId' },
+              { flags: '--title <title>', description: 'Title', param: 'title', required: true },
+              { flags: '--body <body>', description: 'Body', param: 'body' },
+              { flags: '--stdin', description: 'stdin', param: 'stdin', type: 'bool' },
+              { flags: '--folder', description: 'Folder', param: 'folder', type: 'bool' },
+              { flags: '--parent-page-id <id>', description: 'Parent', param: 'parentPageId' },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+
+  function runCreate(args: string[]) {
+    const program = new Command()
+    program.exitOverride()
+    program.option('--json')
+    registerDynamicCommands(program, folderManifest)
+    return program.parseAsync(['wiki', 'create', '--space-id', 'space-1', ...args], { from: 'user' })
+  }
+
+  beforeEach(() => mockCallTool.mockClear())
+
+  it('本文なしの --folder だけで wiki_create を folder: true で呼ぶ', async () => {
+    await runCreate(['--title', '仕様書', '--folder'])
+    expect(mockCallTool).toHaveBeenCalledWith(
+      'wiki_create',
+      expect.objectContaining({ title: '仕様書', folder: true })
+    )
+    const params = mockCallTool.mock.calls[0][1] as Record<string, unknown>
+    expect(params.body).toBeUndefined()
+  })
+
+  it('--parent-page-id をそのまま渡す', async () => {
+    await runCreate(['--title', '子', '--body', '# 見出し', '--parent-page-id', 'folder-1'])
+    expect(mockCallTool).toHaveBeenCalledWith(
+      'wiki_create',
+      expect.objectContaining({ parentPageId: 'folder-1', body: '# 見出し' })
+    )
+  })
+
+  it('--folder を付けなければ folder を送らない', async () => {
+    await runCreate(['--title', 'メモ', '--body', 'x'])
+    const params = mockCallTool.mock.calls[0][1] as Record<string, unknown>
+    expect(params.folder).toBeUndefined()
+  })
+})
