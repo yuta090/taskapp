@@ -309,3 +309,29 @@ describe('cli-manifest: meeting update', () => {
     expect(byParam.spaceId).toBeDefined()
   })
 })
+
+/**
+ * wiki create でフォルダを作る・親を指定して作る（2026-11-20）。
+ * 画面の「新しいフォルダ」と同じ is_folder=true の行を CLI からも作れるようにする。
+ */
+describe('cli-manifest: wiki create --folder / --parent-page-id', () => {
+  const manifest = getManifest()
+  const wiki = manifest.commands.find((c) => c.name === 'wiki')!
+  const create = () => wiki.subcommands!.find((s) => s.name === 'create')!
+
+  it('--folder は値を取らないフラグで、folder に渡る', () => {
+    const folder = create().options.find((o) => o.param === 'folder')!
+    expect(folder.flags).toBe('--folder')
+    expect(folder.type).toBe('bool')
+  })
+
+  it('--parent-page-id は任意で、parentPageId に渡る', () => {
+    const parent = create().options.find((o) => o.param === 'parentPageId')!
+    expect(parent.flags).toBe('--parent-page-id <id>')
+    expect(parent.required).toBeFalsy()
+  })
+
+  it('使い方の例にフォルダ作成が載っている', () => {
+    expect(create().examples!.some((e) => e.includes('--folder'))).toBe(true)
+  })
+})

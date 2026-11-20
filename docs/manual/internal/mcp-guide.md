@@ -221,7 +221,7 @@ AgentPMのプロジェクト一覧を表示して
 |---------|------|
 | `wiki_list` | Wikiページ一覧を取得 |
 | `wiki_get` | Wikiページの詳細（本文含む）を取得 |
-| `wiki_create` | Wikiページを作成 |
+| `wiki_create` | Wikiページを作成（`folder: true` でフォルダ、`parentPageId` でフォルダの中に作る） |
 | `wiki_update` | Wikiページを更新（バージョン履歴自動保存） |
 | `wiki_delete` | Wikiページを削除 |
 | `wiki_versions` | バージョン履歴を取得 |
