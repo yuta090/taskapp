@@ -911,18 +911,24 @@ export declare const allTools: ({
         body: import("zod").ZodOptional<import("zod").ZodString>;
         format: import("zod").ZodOptional<import("zod").ZodEnum<["markdown", "html", "blocks"]>>;
         tags: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString, "many">>;
+        folder: import("zod").ZodOptional<import("zod").ZodBoolean>;
+        parentPageId: import("zod").ZodEffects<import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>, string | null | undefined, unknown>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         title: string;
         tags?: string[] | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
+        folder?: boolean | undefined;
+        parentPageId?: string | null | undefined;
     }, {
         spaceId: string;
         title: string;
         tags?: string[] | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
+        folder?: boolean | undefined;
+        parentPageId?: unknown;
     }>;
     handler: typeof import("./wiki.js").wikiCreate;
 } | {

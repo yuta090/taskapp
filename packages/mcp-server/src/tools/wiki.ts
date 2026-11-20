@@ -46,12 +46,17 @@ const wikiGetSchema = z.object({
   pageId: z.string().describe('WikiページID'),
 })
 
-const wikiCreateSchema = z.object({
+export const wikiCreateSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
-  title: z.string().describe('ページタイトル'),
+  title: z.string().describe('ページタイトル（フォルダならフォルダ名）'),
   body: z.string().optional().describe('ページ本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）。画像は先にファイルとして上げ（CLI は agentpm file upload）、返った downloadPath を1行で ![説明](downloadPath) と書く。行に色を付けるときは、ブロックの直前に独立した1行で <!--color:bg=red text=blue--> と書く（bg=背景色・text=文字色、片方だけでも可。色は gray/brown/orange/yellow/green/blue/purple/pink/red。すぐ次の1ブロックだけに効く。字下げした子の項目には印も同じ字下げで書く）。囲み（色付きの枠）は引用の1行目に [!種類] と書く。使い分け: > [!NOTE] 補足（前提・背景・用語の説明）／> [!TIP] ポイント（読み手がやるとよいこと・コツ）／> [!IMPORTANT] 結論（決まったこと・その節の要点）／> [!WARNING] 注意（期限・条件・見落としやすい点）／> [!CAUTION] 禁止（やってはいけないこと・取り消せない操作）。中に段落・箇条書きを複数書ける。多いと全部が目立たなくなるので、長い文書でも1節に1〜2個まで。文中の一部だけを目立たせるときは <mark>文字</mark> と書く（黄色のマーカー。1段落に1か所まで）'),
   format: bodyFormatSchema,
   tags: z.array(z.string()).optional().describe('タグ配列（「仕様書」を付けるとタスクの「仕様書連携」で選べる）'),
+  folder: z
+    .boolean()
+    .optional()
+    .describe('true でフォルダとして作る（画面の「新しいフォルダ」と同じ。本文は省略してよい）'),
+  parentPageId: nullableIdSchema.describe('親ページ（フォルダ）のID。省略・none なら根に作る。別スペースの親はDB側で拒否される'),
 })
 
 export const wikiUpdateSchema = z.object({
@@ -147,7 +152,11 @@ export async function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Prom
   const orgId = await getOrgId(params.spaceId)
   const actorId = requireActorUserId()
   // Wiki 画面はブロック JSON しか読めない。Markdown/HTML のまま保存すると画面で空に見える
-  const body = await toWikiBlocksJson(params.body || '', params.format as WikiBodyFormat | undefined)
+  // フォルダで本文が無いときは、画面の「新しいフォルダ」と同じく空文字で保存する
+  const body =
+    params.folder && !params.body
+      ? ''
+      : await toWikiBlocksJson(params.body || '', params.format as WikiBodyFormat | undefined)
 
   const { data, error } = await supabase
     .from('wiki_pages')
@@ -157,24 +166,29 @@ export async function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Prom
       title: params.title,
       body,
       tags: params.tags || [],
+      parent_page_id: params.parentPageId ?? null,
+      is_folder: params.folder ?? false,
       created_by: actorId,
       updated_by: actorId,
     })
     .select('*')
     .single()
 
-  if (error) throw hideDbError(error, 'wiki_create', 'Wikiページの作成に失敗しました')
+  if (error) throw toWikiWriteError(error, 'Wikiページの作成に失敗しました')
   return data as WikiPage
 }
 
 /** DB トリガーの拒否理由（親子・マイルストーンの境界/循環）を利用者向けの日本語に置き換える。 */
-export function describeWikiUpdateError(message: string | undefined): string {
+export function describeWikiUpdateError(
+  message: string | undefined,
+  fallback = 'Wikiページの更新に失敗しました'
+): string {
   const m = message ?? ''
   if (m.includes('wiki parent cycle')) return '親ページの指定が循環しています（自分自身や子孫を親にはできません）'
   if (m.includes('wiki parent chain too deep')) return '親ページの階層が深すぎます（最大 50 段）'
   if (m.includes('wiki parent must be in the same space')) return '親ページは同じスペースのページだけ指定できます'
   if (m.includes('wiki milestone must be in the same space')) return 'マイルストーンは同じスペースのものだけ指定できます'
-  return 'Wikiページの更新に失敗しました'
+  return fallback
 }
 
 const WIKI_UPDATE_KNOWN_REASONS = [
@@ -189,10 +203,10 @@ const WIKI_UPDATE_KNOWN_REASONS = [
  * 日本語の ToolUserError(400) にする。見覚えのない理由は中身を隠した一般のエラーのまま返す。
  * どちらも元のDBエラーを cause に残す（運営画面の利用記録から原因を追えるように）。
  */
-function toWikiUpdateError(error: { message?: string }): Error {
+function toWikiWriteError(error: { message?: string }, fallback?: string): Error {
   const known = WIKI_UPDATE_KNOWN_REASONS.some((reason) => (error.message ?? '').includes(reason))
   if (known) return new ToolUserError(describeWikiUpdateError(error.message), 400, { cause: error })
-  return new Error(describeWikiUpdateError(error.message), { cause: error })
+  return new Error(describeWikiUpdateError(error.message, fallback), { cause: error })
 }
 
 export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Promise<WikiPage> {
@@ -225,7 +239,7 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
   }
 
   const { data: rows, error } = await query.select('*')
-  if (error) throw toWikiUpdateError(error)
+  if (error) throw toWikiWriteError(error)
 
   const updated = (rows ?? []) as WikiPage[]
   assertWriteApplied(updated.length, params.expectedUpdatedAt, 'Wikiページが見つかりません')
@@ -384,7 +398,7 @@ export const wikiTools = [
   },
   {
     name: 'wiki_create',
-    description: 'Wikiページ新規作成',
+    description: 'Wikiページ新規作成。folder=true でフォルダ、parentPageId で親フォルダの下に作る',
     inputSchema: wikiCreateSchema,
     handler: wikiCreate,
   },
