@@ -17,6 +17,7 @@ import {
   type FileFilterState,
 } from '@/lib/files/filters'
 import { FILES_LIST_LIMIT } from '@/lib/files/limits'
+import { sortFiles, DEFAULT_FILE_SORT, FILE_SORT_OPTIONS, type FileSortKey } from '@/lib/files/sort'
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -62,6 +63,8 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [uploadingNames, setUploadingNames] = useState<string[]>([])
   const [filters, setFilters] = useState<FileFilterState>(EMPTY_FILE_FILTERS)
+  // 並び替えは絞り込みとは別に持つ(「条件をクリア」で戻さない・件数にも数えない)
+  const [sortKey, setSortKey] = useState<FileSortKey>(DEFAULT_FILE_SORT)
 
   // 説明文のその場編集。編集中の1行だけ input に差し替える。
   // 書きかけの文字は FileDescriptionInput の中だけで持つ(ここに置くと1打鍵ごとに全行を作り直す)
@@ -187,8 +190,9 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
   // (SQL 側は取りこぼさない超集合なので、正確な種類判定はここで効かせる)
   const searchResults = search.data
   const visibleFiles = useMemo(
-    () => filterFiles(useServerSearch ? (searchResults ?? []) : (files ?? []), filters),
-    [useServerSearch, searchResults, files, filters]
+    // 並べ替えても行に渡す file は同じ参照なので、FileRow の memo は効いたまま
+    () => sortFiles(filterFiles(useServerSearch ? (searchResults ?? []) : (files ?? []), filters), sortKey),
+    [useServerSearch, searchResults, files, filters, sortKey]
   )
 
   // 表示中のうち、自分が消せるもの(本人のアップロード分。管理者は全部)
@@ -364,6 +368,18 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
             className={SELECT_CLASS}
           >
             {FILE_ORIGIN_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+
+          <select
+            data-testid="files-sort"
+            aria-label="並び替え"
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as FileSortKey)}
+            className={SELECT_CLASS}
+          >
+            {FILE_SORT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
