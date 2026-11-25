@@ -390,3 +390,40 @@ describe('FilesPageClient — お知らせベルの置き場所', () => {
     expect(bell.closest('[data-header-bell]')).not.toBeNull()
   })
 })
+
+describe('FilesPageClient 並び替え', () => {
+  function rowNames() {
+    return screen
+      .getAllByTestId('file-row')
+      .map((row) => ['a.pdf', 'b.pdf', 'c.pdf'].find((n) => row.textContent?.includes(n)))
+  }
+
+  beforeEach(() => {
+    mockFiles.push(
+      makeFile({ id: 'a', name: 'b.pdf', sizeBytes: 300, createdAt: '2026-11-02T00:00:00' }),
+      makeFile({ id: 'b', name: 'a.pdf', sizeBytes: 100, createdAt: '2026-11-03T00:00:00' }),
+      makeFile({ id: 'c', name: 'c.pdf', sizeBytes: 200, createdAt: '2026-11-01T00:00:00' })
+    )
+  })
+
+  it('既定は新しい順', () => {
+    renderPage()
+    expect(screen.getByTestId('files-sort')).toHaveValue('date_desc')
+    expect(rowNames()).toEqual(['a.pdf', 'b.pdf', 'c.pdf'])
+  })
+
+  it('名前順・サイズ順に切り替えられる', () => {
+    renderPage()
+    fireEvent.change(screen.getByTestId('files-sort'), { target: { value: 'name_desc' } })
+    expect(rowNames()).toEqual(['c.pdf', 'b.pdf', 'a.pdf'])
+    fireEvent.change(screen.getByTestId('files-sort'), { target: { value: 'size_desc' } })
+    expect(rowNames()).toEqual(['b.pdf', 'c.pdf', 'a.pdf'])
+  })
+
+  it('並び替えは絞り込みの件数に数えず、「条件をクリア」でも戻さない', () => {
+    renderPage()
+    fireEvent.change(screen.getByTestId('files-sort'), { target: { value: 'name_asc' } })
+    expect(screen.queryByTestId('files-filter-clear')).not.toBeInTheDocument()
+    expect(screen.getByTestId('files-count')).toHaveTextContent('全3件')
+  })
+})
