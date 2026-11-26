@@ -41,6 +41,16 @@ vi.mock('@/lib/hooks/useRecentTaskComments', () => ({
 }))
 
 // お知らせベルは Supabase/組織コンテキストを引くので、取得層だけ差し替える
+vi.mock('@/lib/hooks/useSpaceActivity', () => ({
+  useSpaceActivity: () => ({
+    rows: [],
+    loading: false,
+    error: null,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  }),
+}))
 vi.mock('@/lib/hooks/useSpecDecisionEvents', () => ({
   useSpecDecisionEvents: () => ({ events: [], loading: false, error: null }),
 }))

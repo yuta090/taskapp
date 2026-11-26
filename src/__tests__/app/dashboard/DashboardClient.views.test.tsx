@@ -72,6 +72,16 @@ vi.mock('@/lib/hooks/useRecentTaskComments', () => ({
     return { comments: options.enabled ? mocks.recentComments : [], loading: false, error: null }
   },
 }))
+vi.mock('@/lib/hooks/useSpaceActivity', () => ({
+  useSpaceActivity: () => ({
+    rows: [],
+    loading: false,
+    error: null,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  }),
+}))
 vi.mock('@/lib/hooks/useSpecDecisionEvents', () => ({
   useSpecDecisionEvents: (_spaceId: string, options: { enabled: boolean }) => {
     mocks.decisionEventsEnabled.push(options.enabled)
