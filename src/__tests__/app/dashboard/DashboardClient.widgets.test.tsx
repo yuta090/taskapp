@@ -4,6 +4,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { DashboardClient } from '@/app/(internal)/[orgId]/project/[spaceId]/dashboard/DashboardClient'
 import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_PREFS_KEY } from '@/lib/dashboard/widgetPrefs'
 import type { Task } from '@/types/database'
+import type { ActivityRow } from '@/lib/dashboard/activity'
 
 /**
  * ダッシュボードに足した「期限切れ」「最近のコメント」と、表示する項目を選ぶメニュー。
@@ -30,6 +31,9 @@ const mocks = vi.hoisted(() => ({
   membersPending: false,
   decisionEvents: [] as Array<{ task_id: string; action: string; created_at: string }>,
   decisionEventsEnabled: [] as boolean[],
+  activityRows: [] as ActivityRow[],
+  activityEnabled: [] as boolean[],
+  activityError: null as unknown,
 }))
 
 vi.mock('@/lib/hooks/useTasks', () => ({
@@ -60,6 +64,19 @@ vi.mock('@/lib/hooks/useRecentTaskComments', () => ({
     return { comments: options.enabled ? mocks.recentComments : [], loading: false, error: null }
   },
 }))
+vi.mock('@/lib/hooks/useSpaceActivity', () => ({
+  useSpaceActivity: (_spaceId: string, options: { enabled: boolean }) => {
+    mocks.activityEnabled.push(options.enabled)
+    return {
+      rows: options.enabled ? mocks.activityRows : [],
+      loading: false,
+      error: options.enabled ? mocks.activityError : null,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    }
+  },
+}))
 vi.mock('@/lib/hooks/useSpecDecisionEvents', () => ({
   useSpecDecisionEvents: (_spaceId: string, options: { enabled: boolean }) => {
     mocks.decisionEventsEnabled.push(options.enabled)
@@ -86,6 +103,9 @@ beforeEach(() => {
   mocks.membersPending = false
   mocks.decisionEvents = []
   mocks.decisionEventsEnabled = []
+  mocks.activityRows = []
+  mocks.activityEnabled = []
+  mocks.activityError = null
 })
 
 afterEach(() => {
@@ -444,5 +464,178 @@ describe('DashboardClient — 期限切れに担当者を出す', () => {
     const section = screen.getByRole('region', { name: '期限切れ' })
     expect(within(section).getByRole('link', { name: /見積の作成/ })).toHaveTextContent('佐藤')
     expect(within(section).getByRole('link', { name: /請求書の送付/ })).toHaveTextContent('担当なし')
+  })
+})
+
+function activityRow(overrides: Partial<ActivityRow>): ActivityRow {
+  return {
+    id: 1,
+    occurred_at: '2026-09-16T09:00:00+09:00',
+    actor_user_id: 'user-sato',
+    channel: 'app',
+    kind: 'task_created',
+    target_id: 'task-a',
+    task_id: 'task-a',
+    title: 'ロゴの修正',
+    detail: null,
+    ...overrides,
+  }
+}
+
+describe('DashboardClient — 最近のアクティビティ', () => {
+  it('誰が・何をした・対象・いつを出し、対象を押すとタスクが開く', () => {
+    mocks.activityRows = [activityRow({ kind: 'task_status', detail: { from: 'todo', to: 'in_progress' } })]
+    renderPage()
+
+    const section = screen.getByRole('region', { name: '最近のアクティビティ' })
+    const item = within(section).getByRole('listitem')
+    expect(item).toHaveTextContent('佐藤')
+    expect(item).toHaveTextContent('状態を着手予定→進行中に変更')
+    expect(item).toHaveTextContent('3時間前')
+    expect(within(item).getByRole('link', { name: 'ロゴの修正' })).toHaveAttribute(
+      'href',
+      '/org-1/project/space-1?task=task-a'
+    )
+  })
+
+  it('名簿にいない人は（メンバー外）、CLI 経由には CLI のラベル', () => {
+    mocks.activityRows = [activityRow({ actor_user_id: 'user-ghost', channel: 'cli' })]
+    renderPage()
+    const item = within(screen.getByRole('region', { name: '最近のアクティビティ' })).getByRole('listitem')
+    expect(item).toHaveTextContent('（メンバー外）')
+    expect(item).toHaveTextContent('CLI')
+  })
+
+  it('名簿がまだ届いていないあいだは、読み込み中にする', () => {
+    mocks.membersPending = true
+    mocks.activityRows = [activityRow({})]
+    renderPage()
+    const section = screen.getByRole('region', { name: '最近のアクティビティ' })
+    expect(within(section).getByText('読み込み中…')).toBeInTheDocument()
+    expect(within(section).queryByRole('listitem')).not.toBeInTheDocument()
+  })
+
+  it('権限が無いときは、社内メンバーだけが見られると出す', () => {
+    mocks.activityError = { message: 'Not authorized' }
+    renderPage()
+    expect(screen.getByText(/社内メンバーだけが見られます/)).toBeInTheDocument()
+  })
+
+  it('「最近のアクティビティ」を外しているあいだは、記録を読みに行かない', () => {
+    localStorage.setItem(DASHBOARD_WIDGET_PREFS_KEY, JSON.stringify({ hidden: ['activity'] }))
+    renderPage()
+    expect(screen.queryByRole('region', { name: '最近のアクティビティ' })).not.toBeInTheDocument()
+    expect(mocks.activityEnabled.length).toBeGreaterThan(0)
+    expect(mocks.activityEnabled.every((enabled) => enabled === false)).toBe(true)
+  })
+
+  it('メニューにも「最近のアクティビティ」が出て、外せる', () => {
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '表示する項目' }))
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '最近のアクティビティ' }))
+    expect(screen.queryByRole('region', { name: '最近のアクティビティ' })).not.toBeInTheDocument()
+  })
+})
+
+/** 画面に出ている項目の順（data-testid="dashboard-widget-<id>" の並び） */
+function widgetOrderOnScreen(): string[] {
+  return screen
+    .getAllByTestId(/^dashboard-widget-(?!handle-)/)
+    .map((el) => el.getAttribute('data-testid')!.replace('dashboard-widget-', ''))
+}
+
+describe('DashboardClient — 項目の並び替え', () => {
+  it('はじめは既定の順。最近のアクティビティは最近のコメントの次', () => {
+    renderPage()
+    const order = widgetOrderOnScreen()
+    expect(order).toEqual([
+      'kpi',
+      'overdue',
+      'decisions',
+      'recent_comments',
+      'activity',
+      'client_follow_up',
+      'milestones',
+      'ball',
+      'upcoming_deadlines',
+      'meetings',
+    ])
+  })
+
+  it('保存した並び順で描く', () => {
+    localStorage.setItem(
+      DASHBOARD_WIDGET_PREFS_KEY,
+      JSON.stringify({ hidden: [], order: ['meetings', 'kpi', 'overdue'] })
+    )
+    renderPage()
+    expect(widgetOrderOnScreen().slice(0, 3)).toEqual(['meetings', 'kpi', 'overdue'])
+  })
+
+  it('メニューの「下へ」で、画面の順が変わりブラウザに残る', () => {
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '表示する項目' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '期限切れを下へ' }))
+    expect(widgetOrderOnScreen().slice(0, 3)).toEqual(['kpi', 'decisions', 'overdue'])
+    expect(JSON.parse(localStorage.getItem(DASHBOARD_WIDGET_PREFS_KEY) ?? '{}').order.slice(0, 3)).toEqual([
+      'kpi',
+      'decisions',
+      'overdue',
+    ])
+  })
+
+  it('半幅の項目が続いた区間だけ2列の格子になる。間に別の項目があれば別の格子', () => {
+    // マイルストーン・ボール所在 | 期限切れ | 期限が近いタスク・直近の予定
+    localStorage.setItem(
+      DASHBOARD_WIDGET_PREFS_KEY,
+      JSON.stringify({ hidden: [], order: ['milestones', 'ball', 'overdue', 'upcoming_deadlines', 'meetings'] })
+    )
+    renderPage()
+    const gridOf = (id: string) => screen.getByTestId(`dashboard-widget-${id}`).parentElement!
+    expect(gridOf('milestones')).toBe(gridOf('ball'))
+    expect(gridOf('upcoming_deadlines')).toBe(gridOf('meetings'))
+    expect(gridOf('milestones')).not.toBe(gridOf('meetings'))
+    expect(gridOf('milestones').className).toContain('lg:grid-cols-2')
+    // 全幅の項目は格子に入らない
+    expect(gridOf('overdue').className).not.toContain('grid-cols-2')
+  })
+
+  it('つかみを持って別の項目の上に落とすと、その項目の前に移る', () => {
+    renderPage()
+    const handle = screen.getByTestId('dashboard-widget-handle-meetings')
+    fireEvent.dragStart(handle)
+    const target = screen.getByTestId('dashboard-widget-overdue')
+    fireEvent.dragOver(target)
+    expect(target).toHaveAttribute('data-drop-target', 'true')
+    fireEvent.drop(target)
+
+    expect(widgetOrderOnScreen().slice(0, 3)).toEqual(['kpi', 'meetings', 'overdue'])
+    // 落としたら、ドラッグ中・落とし先の見た目は消える
+    expect(screen.getByTestId('dashboard-widget-overdue')).not.toHaveAttribute('data-drop-target')
+    expect(screen.getByTestId('dashboard-widget-meetings')).not.toHaveAttribute('data-dragging')
+    expect(JSON.parse(localStorage.getItem(DASHBOARD_WIDGET_PREFS_KEY) ?? '{}').order.slice(0, 3)).toEqual([
+      'kpi',
+      'meetings',
+      'overdue',
+    ])
+  })
+
+  it('途中でやめたら（dragend）、並び順は変わらない', () => {
+    renderPage()
+    const handle = screen.getByTestId('dashboard-widget-handle-meetings')
+    fireEvent.dragStart(handle)
+    expect(screen.getByTestId('dashboard-widget-meetings')).toHaveAttribute('data-dragging', 'true')
+    fireEvent.dragOver(screen.getByTestId('dashboard-widget-overdue'))
+    fireEvent.dragEnd(handle)
+    expect(widgetOrderOnScreen()[1]).toBe('overdue')
+    expect(screen.getByTestId('dashboard-widget-meetings')).not.toHaveAttribute('data-dragging')
+  })
+
+  it('隠した項目は枠も出さない。つかみはスマホ（md 未満）では出ない作り（hidden md:flex）', () => {
+    localStorage.setItem(DASHBOARD_WIDGET_PREFS_KEY, JSON.stringify({ hidden: ['ball'] }))
+    renderPage()
+    expect(screen.queryByTestId('dashboard-widget-ball')).not.toBeInTheDocument()
+    const handle = screen.getByTestId('dashboard-widget-handle-overdue')
+    expect(handle.className).toMatch(/\bhidden\b/)
+    expect(handle.className).toMatch(/\bmd:flex\b/)
   })
 })
