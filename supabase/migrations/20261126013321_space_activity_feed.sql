@@ -192,9 +192,22 @@ begin
     union all select * from wiki_events
     union all select * from approvals
   )
-  -- 更新の控え（op='U'）には変わった列しか入らないので、題名は今の行から引く。消えた行は控えの題名を使う
+  -- 更新の控え（op='U'）には変わった列しか入らないので、題名は今の行から引く。
+  -- 行がもう無い（あとで消した）ときは、その行を作った・消したときの控えから引く
   select e.id, e.occurred_at, e.actor_user_id, e.channel, e.kind, e.target_id, e.task_id,
-         coalesce(t.title, f.name, w.title, e.title) as title, e.detail
+         coalesce(t.title, f.name, w.title, e.title, (
+           select coalesce(c2.old_row, c2.new_row) ->> case when e.kind like 'file\_%' then 'name' else 'title' end
+           from public.change_log c2
+           where c2.table_name = case
+                   when e.kind like 'file\_%' then 'files'
+                   when e.kind like 'wiki\_%' then 'wiki_pages'
+                   else 'tasks'
+                 end
+             and (c2.row_pk ->> 'id') = coalesce(e.task_id, e.target_id)::text
+             and c2.op in ('I', 'D')
+           order by c2.id desc
+           limit 1
+         )) as title, e.detail
   from (
     select * from all_events a
     where p_before is null
