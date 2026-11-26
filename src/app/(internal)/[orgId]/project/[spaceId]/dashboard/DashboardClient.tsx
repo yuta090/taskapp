@@ -22,6 +22,8 @@ import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { buildMeetingHref } from '@/lib/navigation/meetingLinks'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useRecentTaskComments } from '@/lib/hooks/useRecentTaskComments'
+import { useSpaceActivity } from '@/lib/hooks/useSpaceActivity'
+import { activityFailureKind, describeActivity } from '@/lib/dashboard/activity'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { groupOverdueTasks } from '@/lib/dashboard/overdue'
@@ -36,11 +38,19 @@ import { UNKNOWN_PROFILE_LABEL } from '@/lib/labels'
 import { latestCommentPerTask, RECENT_COMMENT_TASK_LIMIT } from '@/lib/dashboard/recentComments'
 import { summarizeDecisions } from '@/lib/dashboard/decisions'
 import { useSpecDecisionEvents } from '@/lib/hooks/useSpecDecisionEvents'
-import { DASHBOARD_WIDGETS, useDashboardWidgetPrefs, type DashboardWidgetId } from '@/lib/dashboard/widgetPrefs'
+import {
+  DASHBOARD_WIDGETS,
+  DASHBOARD_WIDGET_LABELS,
+  groupVisibleWidgets,
+  useDashboardWidgetPrefs,
+  type DashboardWidgetId,
+} from '@/lib/dashboard/widgetPrefs'
 import { OverdueSection, type AssigneeNameOf } from '@/components/dashboard/OverdueSection'
 import { applyQuickFilter, quickFilterHref } from '@/lib/tasks/quickFilters'
 import { RecentCommentsSection, type RecentCommentItem } from '@/components/dashboard/RecentCommentsSection'
 import { DecisionsSection } from '@/components/dashboard/DecisionsSection'
+import { ActivitySection } from '@/components/dashboard/ActivitySection'
+import { DashboardWidgetFrame } from '@/components/dashboard/DashboardWidgetFrame'
 import { DashboardWidgetMenu } from '@/components/dashboard/DashboardWidgetMenu'
 import { MemberProgressSection } from '@/components/dashboard/MemberProgressSection'
 import { WeekHighlightsSection } from '@/components/dashboard/WeekHighlightsSection'
@@ -507,9 +517,6 @@ function ViewTabs({ view, onChange }: { view: DashboardView; onChange: (view: Da
   )
 }
 
-/** 2列の格子に並べる小さい項目 */
-const HALF_WIDTH_WIDGETS: readonly DashboardWidgetId[] = ['milestones', 'ball', 'upcoming_deadlines', 'meetings']
-
 export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
   const searchParams = useSearchParams()
   const [view, setView] = useState<DashboardView>(() => parseView(searchParams?.get('view')))
@@ -528,6 +535,7 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
   // 「全体」以外を開いているあいだは、全体の項目のためのデータを読みに行かない
   const showRecentComments = isOverview && isVisible('recent_comments')
   const showDecisions = isOverview && isVisible('decisions')
+  const showActivity = isOverview && isVisible('activity')
 
   const { tasks, reviewStatuses, loading: tasksLoading, error: tasksError, fetchTasks } = useTasks({ orgId, spaceId })
   const { milestones, loading: msLoading } = useMilestones({ spaceId })
@@ -539,10 +547,13 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
     loading: commentsLoading,
     error: commentsError,
   } = useRecentTaskComments(spaceId, { enabled: showRecentComments })
-  // 名簿は「最近のコメント」の書いた人と「期限切れ」の担当者に使う。どちらも隠しているあいだは読みに行かない
+  // 「最近のアクティビティ」を隠しているあいだは、操作の記録を読みに行かない
+  const activity = useSpaceActivity(spaceId, { enabled: showActivity })
+  // 名簿は「最近のコメント」の書いた人・「最近のアクティビティ」の操作した人・「期限切れ」の担当者に使う。
+  // どれも隠しているあいだは読みに行かない
   const showOverdue = isOverview && isVisible('overdue')
   const { members, isPending: membersPending } = useSpaceMembers(
-    showRecentComments || showOverdue || view === 'members' ? spaceId : null
+    showRecentComments || showActivity || showOverdue || view === 'members' ? spaceId : null
   )
   // 「確定事項」を隠しているあいだは、決めたときの記録も読みに行かない
   // 「今週」の「決まったこと」も同じ記録から数える
@@ -605,6 +616,12 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
     }))
   }, [tasks, recentCommentRows, members])
 
+  // 操作した人・担当者の名前は名簿から引く。名簿にいない人は describeActivity が「（メンバー外）」にする
+  const activityItems = useMemo(() => {
+    const nameById = new Map(members.map((m) => [m.id, m.displayName]))
+    return activity.rows.map((row) => describeActivity(row, { orgId, spaceId, nameById }))
+  }, [activity.rows, members, orgId, spaceId])
+
   // 期限切れの担当者の名前。名簿にいない人（プロジェクトから外れた人など）はコメント欄と同じ言葉で出す
   const assigneeNameOf = useCallback<AssigneeNameOf>(
     (task) => {
@@ -636,9 +653,126 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
   )
 
   const basePath = `/${orgId}/project/${spaceId}`
-  const showHalfGrid = HALF_WIDTH_WIDGETS.some(isVisible)
   // 「ボール（件数のまとめ）」は件数のまとめの中の1枚なので、それだけ残っていても画面には何も出ない
   const nothingVisible = DASHBOARD_WIDGETS.every((w) => w.id === 'kpi_ball' || !isVisible(w.id))
+  // 並び順に沿って、半幅の項目が続いた区間だけを2列の格子にまとめる
+  const widgetRuns = groupVisibleWidgets(widgets.order, isVisible)
+
+  // 画面上のドラッグ。どれを持っているか・どの項目の上かだけを持ち、落としたら並び順を更新する
+  const [draggingId, setDraggingId] = useState<DashboardWidgetId | null>(null)
+  const [overId, setOverId] = useState<DashboardWidgetId | null>(null)
+  const { moveTo } = widgets
+  const endDrag = useCallback(() => {
+    setDraggingId(null)
+    setOverId(null)
+  }, [])
+  const dropOn = useCallback(
+    (targetId: DashboardWidgetId) => {
+      if (draggingId && draggingId !== targetId) moveTo(draggingId, targetId)
+      endDrag()
+    },
+    [draggingId, moveTo, endDrag]
+  )
+
+  function renderWidget(id: DashboardWidgetId): React.ReactNode {
+    switch (id) {
+      case 'kpi':
+        // 押すと同じ数え方の絞り込みをかけたタスク一覧が開く
+        return (
+          <div className={`grid grid-cols-2 gap-3 ${isVisible('kpi_ball') ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+            <KpiCard
+              label="アクティブ"
+              value={kpiCounts.active}
+              sub={`未着手 ${kpiCounts.backlog}・完了 ${tasks.length - activeTasks.length}`}
+              href={quickFilterHref(basePath, 'active')}
+            />
+            {isVisible('kpi_ball') && (
+              <BallKpiCard
+                internal={activeTasks.filter((t) => t.ball === 'internal').length}
+                client={kpiCounts.clientBall}
+                clientHref={quickFilterHref(basePath, 'client_wait')}
+              />
+            )}
+            <KpiCard
+              label="期限超過"
+              value={overdueGroups.total}
+              accent={overdueGroups.total > 0 ? 'red' : undefined}
+              href={quickFilterHref(basePath, 'overdue')}
+            />
+            <KpiCard
+              label="レビュー待ち"
+              value={kpiCounts.inReview}
+              accent={kpiCounts.inReview > 0 ? 'amber' : undefined}
+              href={quickFilterHref(basePath, 'in_review')}
+            />
+          </div>
+        )
+      case 'overdue':
+        return <OverdueSection groups={overdueGroups} orgId={orgId} spaceId={spaceId} assigneeNameOf={assigneeNameOf} />
+      case 'decisions':
+        return (
+          <DecisionsSection
+            summary={decisionSummary}
+            currentYear={Number(today.slice(0, 4))}
+            orgId={orgId}
+            spaceId={spaceId}
+          />
+        )
+      case 'recent_comments':
+        return (
+          <RecentCommentsSection
+            items={recentCommentItems}
+            // 名簿がまだ届いていないあいだに出すと、書いた人の欄が一瞬「（メンバー外）」になる
+            loading={commentsLoading || membersPending}
+            failed={commentsError != null}
+            orgId={orgId}
+            spaceId={spaceId}
+          />
+        )
+      case 'activity':
+        return (
+          <ActivitySection
+            items={activityItems}
+            // 名簿がまだ届いていないあいだに出すと、操作した人の欄が一瞬「（メンバー外）」になる
+            loading={activity.loading || membersPending}
+            failure={activityFailureKind(activity.error)}
+            hasMore={activity.hasNextPage}
+            loadingMore={activity.isFetchingNextPage}
+            onLoadMore={() => void activity.fetchNextPage()}
+          />
+        )
+      case 'client_follow_up':
+        return <ClientFollowUpSection items={followUps} orgId={orgId} spaceId={spaceId} />
+      case 'milestones':
+        return <MilestoneProgressSection milestones={milestones} tasks={tasks} forecasts={forecasts} today={today} />
+      case 'ball':
+        return <BallDistributionSection tasks={tasks} />
+      case 'upcoming_deadlines':
+        return <UpcomingDeadlinesSection tasks={tasks} orgId={orgId} spaceId={spaceId} today={today} />
+      case 'meetings':
+        return <UpcomingMeetingsSection orgId={orgId} spaceId={spaceId} meetings={meetings} />
+      default:
+        // kpi_ball は件数のまとめの中に出すので、ここでは何も描かない
+        return null
+    }
+  }
+
+  const renderFrame = (id: DashboardWidgetId) => (
+    <DashboardWidgetFrame
+      key={id}
+      id={id}
+      label={DASHBOARD_WIDGET_LABELS[id]}
+      draggingId={draggingId}
+      overId={overId}
+      onDragStart={setDraggingId}
+      onDragEnd={endDrag}
+      onDragOverWidget={setOverId}
+      onDragLeaveWidget={(leftId) => setOverId((current) => (current === leftId ? null : current))}
+      onDropOnWidget={dropOn}
+    >
+      {renderWidget(id)}
+    </DashboardWidgetFrame>
+  )
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
@@ -694,98 +828,15 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
           </p>
         )}
 
-        {/* KPI Cards。押すと同じ数え方の絞り込みをかけたタスク一覧が開く */}
-        {isVisible('kpi') && (
-          <div className={`grid grid-cols-2 gap-3 ${isVisible('kpi_ball') ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
-            <KpiCard
-              label="アクティブ"
-              value={kpiCounts.active}
-              sub={`未着手 ${kpiCounts.backlog}・完了 ${tasks.length - activeTasks.length}`}
-              href={quickFilterHref(basePath, 'active')}
-            />
-            {isVisible('kpi_ball') && (
-              <BallKpiCard
-                internal={activeTasks.filter((t) => t.ball === 'internal').length}
-                client={kpiCounts.clientBall}
-                clientHref={quickFilterHref(basePath, 'client_wait')}
-              />
-            )}
-            <KpiCard
-              label="期限超過"
-              value={overdueGroups.total}
-              accent={overdueGroups.total > 0 ? 'red' : undefined}
-              href={quickFilterHref(basePath, 'overdue')}
-            />
-            <KpiCard
-              label="レビュー待ち"
-              value={kpiCounts.inReview}
-              accent={kpiCounts.inReview > 0 ? 'amber' : undefined}
-              href={quickFilterHref(basePath, 'in_review')}
-            />
-          </div>
-        )}
-
-        {showOverdue && (
-          <OverdueSection groups={overdueGroups} orgId={orgId} spaceId={spaceId} assigneeNameOf={assigneeNameOf} />
-        )}
-
-        {isVisible('decisions') && (
-          <DecisionsSection
-            summary={decisionSummary}
-            currentYear={Number(today.slice(0, 4))}
-            orgId={orgId}
-            spaceId={spaceId}
-          />
-        )}
-
-        {isVisible('recent_comments') && (
-          <RecentCommentsSection
-            items={recentCommentItems}
-            // 名簿がまだ届いていないあいだに出すと、書いた人の欄が一瞬「（メンバー外）」になる
-            loading={commentsLoading || membersPending}
-            failed={commentsError != null}
-            orgId={orgId}
-            spaceId={spaceId}
-          />
-        )}
-
-        {/* Client Follow-up */}
-        {isVisible('client_follow_up') && (
-          <ClientFollowUpSection
-            items={followUps}
-            orgId={orgId}
-            spaceId={spaceId}
-          />
-        )}
-
-        {/* 2-column grid。隠した項目のぶんは詰めて並べる */}
-        {showHalfGrid && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {isVisible('milestones') && (
-              <MilestoneProgressSection
-                milestones={milestones}
-                tasks={tasks}
-                forecasts={forecasts}
-                today={today}
-              />
-            )}
-            {isVisible('ball') && <BallDistributionSection tasks={tasks} />}
-            {isVisible('upcoming_deadlines') && (
-              <UpcomingDeadlinesSection
-                tasks={tasks}
-                orgId={orgId}
-                spaceId={spaceId}
-                today={today}
-              />
-            )}
-            {isVisible('meetings') && (
-              <UpcomingMeetingsSection
-                orgId={orgId}
-                spaceId={spaceId}
-                meetings={meetings}
-              />
-            )}
-          </div>
+        {widgetRuns.map((run, index) =>
+          run.kind === 'single' ? (
+            renderFrame(run.id)
+          ) : (
+            // 2列の格子。半幅の項目が続いた区間だけ。隠した項目のぶんは詰めて並べる
+            <div key={`grid-${index}`} className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {run.ids.map(renderFrame)}
+            </div>
+          )
         )}
       </div>
       )}
